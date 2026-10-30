@@ -89,8 +89,8 @@ A part exists but has the wrong structure: for example the workbook part's root 
 **Fix:** check that the file is an Excel workbook (not a Word or PowerPoint document) and re-save it in a spreadsheet application.
 
 ### XLV_E_INVALID_CELL_REF
-A cell or row reference is not valid or lies outside the sheet grid (A1 to XFD1048576). Thrown while reading a damaged worksheet, by `sheet.cell(ref)` when `ref` is not an A1-style reference, and by the writer's `set`, `style`, `column`, `row`, `merge` and `autoFilter` for references, ranges, column letters or row numbers outside the grid. `details.ref` holds the reference.
-**Fix:** for files, re-save them in a spreadsheet application. For `sheet.cell()`, pass a reference such as `"B7"`.
+A cell or row reference is not valid or lies outside the sheet grid (A1 to XFD1048576). Thrown by `editCells` and `appendRows` for a sheet that contains such references (reading skips them with `XLV_W_INVALID_CELL_REF`), by `sheet.cell(ref)` when `ref` is not an A1-style reference, and by the writer's `set`, `style`, `column`, `row`, `merge` and `autoFilter` for references, ranges, column letters or row numbers outside the grid. `details.ref` holds the reference.
+**Fix:** for files, re-save them in a spreadsheet application, which drops the damaged cells. For `sheet.cell()`, pass a reference such as `"B7"`.
 
 ### XLV_E_SHEET_NOT_FOUND
 `workbook.getSheet(name)` (of a read or a new workbook) found no sheet with that name. Sheet names are compared exactly (case-sensitively). The hint suggests close matches and lists the available sheets; `details.available` holds the names.
@@ -202,3 +202,7 @@ The workbook points to a styles or shared strings part that does not exist. Read
 ### XLV_W_FORMULAS_NOT_RECALCULATED
 Reported by `editCells` and `appendRows` when the workbook contains formulas. xlvane does not calculate formulas, so cached results that depend on edited cells may be out of date. The edited file asks spreadsheet applications to recalculate when it is opened (`calcPr fullCalcOnLoad`), and the calculation chain is removed when formulas themselves changed. Reading the file with xlvane still returns the old cached results.
 **Fix:** nothing, if the file will be opened in a spreadsheet application; otherwise do not rely on cached results of formulas that depend on edited cells.
+
+### XLV_W_INVALID_CELL_REF
+A worksheet contains a row whose number is not a whole number from 1 to 1048576, a cell whose `r` reference is not a valid A1 reference inside the sheet grid (A1 to XFD1048576), or a cell without a reference that would lie past column XFD. Such rows and cells are skipped and the rest of the sheet is read, which is what LibreOffice does with them. A cell without a reference (or with an empty one) is placed after the last valid cell of its row. `count` is the number of skipped rows and cells.
+**Fix:** nothing, if the skipped cells are not needed; otherwise re-save the file in the application that made it. `editCells` and `appendRows` refuse such sheets (`XLV_E_INVALID_CELL_REF`).

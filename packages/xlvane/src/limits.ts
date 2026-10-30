@@ -42,6 +42,13 @@ export interface ReadLimits {
   readonly maxXmlTreeElements: number;
   /** Maximum number of cells in the workbook. Default 5 000 000 (about 0.9 GB of memory; see the README). */
   readonly maxCells: number;
+  /**
+   * Maximum total length, in UTF-16 code units, of the shared strings that cells refer to, each
+   * reference counted again. Protects against a small file that points thousands of cells at
+   * one huge shared string (a few MB that become many GB once values are copied, e.g. to CSV).
+   * Default 512 Mi.
+   */
+  readonly maxSharedStringChars: number;
 }
 
 const MiB = 1024 * 1024;
@@ -68,6 +75,7 @@ export const DEFAULT_READ_LIMITS: Readonly<ReadLimits> = Object.freeze({
   maxXmlTextLength: 8 * MiB,
   maxXmlTreeElements: 1_000_000,
   maxCells: 5_000_000,
+  maxSharedStringChars: 512 * MiB,
 });
 
 const LIMIT_NAMES = Object.keys(DEFAULT_READ_LIMITS) as (keyof ReadLimits)[];

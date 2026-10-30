@@ -620,17 +620,28 @@ function editSheetXml(text: string, part: string, sheet: string, planned: readon
   let currentRow = 0;
   let current: RowInfo | null = null;
   let lastCol = 0;
+  // The reader skips rows and cells with invalid references (D-903); editing around them could
+  // put new cells in the wrong place, so a sheet that has any is not edited.
+  const invalid = (ref: string): never => {
+    throw new XlvError('XLV_E_INVALID_CELL_REF', `Sheet "${sheet}" contains the invalid reference "${ref.slice(0, 20)}", so it cannot be edited safely.`, {
+      location: { part, sheet },
+      hint: 'Open and re-save the file in a spreadsheet application, which drops the damaged cells, then edit the re-saved file.',
+      details: { ref: ref.slice(0, 40) },
+    });
+  };
   for (const e of elements) {
     if (e.depth === 3) {
       const r = e.attrs.get('r');
-      const n = r === undefined ? currentRow + 1 : Number(r.trim());
-      currentRow = Number.isInteger(n) ? n : currentRow + 1;
+      const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
+      if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) invalid(r ?? String(n));
+      currentRow = n;
       current = { number: currentRow, hasR: r !== undefined, element: e, cells: [] };
       rows.push(current);
       lastCol = 0;
     } else if (e.depth === 4 && current) {
       const r = e.attrs.get('r');
-      const address = r === undefined ? null : parseCellRef(r);
+      const address = r === undefined || r === '' ? null : parseCellRef(r);
+      if (r !== undefined && r !== '' && address === null) invalid(r);
       const col = address?.col ?? lastCol + 1;
       lastCol = col;
       current.cells.push({ col, hasR: r !== undefined, element: e });

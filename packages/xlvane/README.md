@@ -4,6 +4,10 @@ Read, inspect and write XLSX files; input files are treated as untrusted. ESM on
 
 Not published to npm yet. The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access.
 
+## Tested environments
+
+The core API (reading, writing, inspect, tables, CSV, editing, diff, streaming with Web Streams) and `@xlvane/exceljs` are tested in Node.js 22, 24 and 26, Bun, Deno, Chromium (Playwright) and the Cloudflare Workers runtime (workerd), with the same test bundle (`npm run test:runtimes`). Reading is tested on 340 files of the Apache POI test corpus (written by Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and others, and damaged files) and on files saved by LibreOffice; see `tests/corpus/`.
+
 ## Command line in 5 minutes
 
 The package installs an `xlvane` command (Node.js 22 or later). Until it is published, build it from this repository with `npm install && npm run build` and run `node packages/xlvane/dist/cli.js` instead of `xlvane`.
@@ -188,6 +192,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 | `maxXmlTextLength` | 8 Mi characters | huge text nodes or attribute values |
 | `maxXmlTreeElements` | 1 000 000 | huge workbook, styles or relationship parts (elements plus attributes) |
 | `maxCells` | 5 000 000 | workbooks too large to hold in memory (measured: about 180 bytes per numeric cell, Node.js 26) |
+| `maxSharedStringChars` | 512 Mi characters | many cells pointing at one huge shared string (a few MB that become many GB when values are copied) |
 
 ## Package size
 

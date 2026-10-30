@@ -1213,8 +1213,10 @@
     "warnings": []
   },
   "invalid_cell_reference.xlsx": {
-    "ok": false,
-    "error": "XLV_E_INVALID_CELL_REF"
+    "ok": true,
+    "warnings": [
+      "XLV_W_INVALID_CELL_REF"
+    ]
   },
   "link-external-workbook-a.xlsx": {
     "ok": true,
@@ -1240,7 +1242,7 @@
   },
   "poc-shared-strings.xlsx": {
     "ok": false,
-    "error": "XLV_E_INVALID_CELL_REF"
+    "error": "XLV_E_LIMIT_EXCEEDED"
   },
   "poc-xmlbomb-empty.xlsx": {
     "ok": false,

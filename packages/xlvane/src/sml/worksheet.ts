@@ -25,8 +25,11 @@ export interface WorksheetContext {
   readonly styles: Styles;
   readonly dateSystem: DateSystem;
   readonly conformance: Conformance;
-  /** Number of cells still allowed by `maxCells`, shared by all sheets of a workbook. */
-  readonly budget: { remaining: number };
+  /**
+   * Number of cells still allowed by `maxCells`, and shared-string characters still allowed by
+   * `maxSharedStringChars`; shared by all sheets of a workbook.
+   */
+  readonly budget: { remaining: number; sharedText: number };
   /** Number formats already classified, by number format id; shared by all sheets. */
   readonly formatCache: Map<number, NumberFormat>;
 }
@@ -155,6 +158,8 @@ export function createWorksheetParser(
   let sheetViews = 0;
   let currentRow = 0;
   let lastCol = 0;
+  /** The current row has an invalid number; its cells are skipped (D-903). */
+  let skipRow = false;
   let cell: PendingCell | null = null;
   /** Where character data currently goes. */
   let target: 'v' | 'f' | 'is' | null = null;
@@ -163,14 +168,6 @@ export function createWorksheetParser(
   let inlineText = '';
 
   const loc = (ref?: string) => (ref === undefined ? { part: ctx.part, sheet: ctx.sheet } : { part: ctx.part, sheet: ctx.sheet, cell: ref });
-
-  function invalidRef(text: string, what: string): never {
-    throw new XlvError('XLV_E_INVALID_CELL_REF', `${what} "${text}" is not a valid reference inside the sheet grid.`, {
-      location: { part: ctx.part, sheet: ctx.sheet },
-      hint: `References must lie between A1 and ${formatCellRef(MAX_ROWS, MAX_COLUMNS)}. The file is damaged or was written by a faulty program; re-save it in a spreadsheet application.`,
-      details: { ref: text },
-    });
-  }
 
   // Keyed by number format id and shared by all sheets, so each format code is classified
   // once per workbook however many style indexes or sheets refer to it.
@@ -231,6 +228,14 @@ export function createWorksheetParser(
         const text = index === null ? undefined : ctx.sharedStrings[index];
         if (text === undefined) warn(`Shared string index "${raw.slice(0, 40)}" does not exist; the cell is treated as empty.`);
         else {
+          ctx.budget.sharedText -= text.length;
+          if (ctx.budget.sharedText < 0) {
+            throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The cells refer to more shared-string text than the limit allows.', {
+              location: loc(p.ref),
+              hint: `Small files can repeat one huge shared string in many cells. If you trust this file, raise the limit, for example { limits: { maxSharedStringChars: ${String(ctx.limits.maxSharedStringChars * 4)} } }.`,
+              details: { limit: 'maxSharedStringChars', value: ctx.limits.maxSharedStringChars },
+            });
+          }
           type = 'string';
           value = text;
         }
@@ -431,14 +436,16 @@ export function createWorksheetParser(
           else columns.push(col);
         } else if (depth === 3 && local === 'row' && parent === 'sheetData') {
           const r = attrs.get('r');
-          if (r === undefined) currentRow++;
-          else {
-            const n = parseUint(r, 7);
-            if (n === null || n < 1 || n > MAX_ROWS) invalidRef(r, 'Row number');
-            currentRow = n;
-          }
-          if (currentRow > MAX_ROWS) invalidRef(String(currentRow), 'Row number');
           lastCol = 0;
+          const n = r === undefined ? currentRow + 1 : parseUint(r, 7);
+          if (n === null || n < 1 || n > MAX_ROWS) {
+            // LibreOffice drops such rows and opens the rest of the file; so do we (D-903).
+            skipRow = true;
+            ctx.warnings.add('XLV_W_INVALID_CELL_REF', 'A row has an invalid row number; the row and its cells are skipped.', loc());
+            return;
+          }
+          skipRow = false;
+          currentRow = n;
           const ht = attrs.get('ht');
           const height = ht === undefined ? null : parseXsdDouble(ht);
           const hiddenRaw = attrs.get('hidden');
@@ -449,17 +456,25 @@ export function createWorksheetParser(
           const validHeight = height !== null && height >= 0 ? height : null;
           if (validHeight !== null || hidden) rowInfo.set(currentRow, { height: validHeight, hidden });
         } else if (depth === 4 && local === 'c' && parent === 'row' && path[1] === 'sheetData') {
+          if (skipRow) return;
           const r = attrs.get('r');
           let row = currentRow;
           let col: number;
-          if (r === undefined) {
+          // An empty r is read like a missing one, as LibreOffice does.
+          if (r === undefined || r === '') {
             col = lastCol + 1;
-            if (col > MAX_COLUMNS || row < 1) invalidRef(formatCellRefSafe(row, col), 'Cell');
           } else {
             const address = parseCellRef(r);
-            if (address === null) return invalidRef(r, 'Cell');
+            if (address === null) {
+              ctx.warnings.add('XLV_W_INVALID_CELL_REF', `The cell reference "${r.slice(0, 20)}" is not valid inside the sheet grid; the cell is skipped.`, loc());
+              return;
+            }
             row = address.row;
             col = address.col;
+          }
+          if (col > MAX_COLUMNS || row < 1) {
+            ctx.warnings.add('XLV_W_INVALID_CELL_REF', 'A cell without a reference lies past the last column; the cell is skipped.', loc());
+            return;
           }
           lastCol = col;
           const s = attrs.get('s');
@@ -626,6 +641,3 @@ function parsePane(attrs: ReadonlyMap<string, string>, warn: (message: string) =
   return { rows, cols };
 }
 
-function formatCellRefSafe(row: number, col: number): string {
-  return row >= 1 && row <= MAX_ROWS && col >= 1 && col <= MAX_COLUMNS ? formatCellRef(row, col) : `R${row}C${col}`;
-}

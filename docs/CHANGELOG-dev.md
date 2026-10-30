@@ -2,6 +2,20 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 9: corpus and environments (2026-10-30)
+
+- **Corpus:**
+  - 340 Apache POI test files (Apache-2.0, every file in LICENSES.md, LICENSE and NOTICE included), with the recorded outcome per file and deep checks of every readable file (D-901);
+  - 3 files saved by LibreOffice 24.2 with value checks (D-902);
+  - LibreOffice opens POI files after xlvane edited them.
+- **Results:** 312 of 340 POI files are read (24 with warnings); 28 are refused with error codes (damaged, bombs, encrypted, beta namespace); no crash; streaming equals batch on all of them.
+- **Tolerance** (D-903): rows with invalid numbers and cells with invalid references are skipped with the new warning `XLV_W_INVALID_CELL_REF`, as LibreOffice does; editing such sheets is refused.
+- **Security** (D-904): new limit `maxSharedStringChars` against shared-string amplification, found through the POI file `poc-shared-strings.xlsx` (2 MB file, about 12 G characters when copied).
+- **Environments** (D-905 … D-907): one smoke bundle runs in Node.js, Bun, Deno, Chromium and workerd (`npm run test:runtimes`); new CI job `runtimes`; dev dependencies playwright, workerd and deno.
+- **Not done:**
+  - files from Google Sheets and Numbers, and Excel files with the shared content, which are still requested from the maintainer;
+  - the first CI run on GitHub, which happens on a push to `main` or a pull request.
+
 ## Phase 8: agent benchmark skipped, MCP server removed (2026-10-30)
 
 - **Benchmark:** not built and not run, at the maintainer's decision: no paid API usage in the free version (D-801).

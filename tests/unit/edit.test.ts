@@ -206,3 +206,12 @@ describe('appendRows', () => {
     expect(error.hint).toContain('name');
   });
 });
+
+describe('sheets with invalid references (D-903)', () => {
+  it('are read with a warning but not edited', () => {
+    const xlsx = buildXlsx({ sheets: [{ name: 'S', data: '<row r="1"><c r="A1"><v>1</v></c><c r="B"><v>2</v></c></row>' }] });
+    const error = expectXlvError(() => editCells(xlsx, [{ sheet: 'S', cell: 'C1', value: 3 }]), 'XLV_E_INVALID_CELL_REF');
+    expect(error.details).toMatchObject({ ref: 'B' });
+    expectXlvError(() => appendRows(xlsx, 'S', [[1]]), 'XLV_E_INVALID_CELL_REF');
+  });
+});

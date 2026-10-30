@@ -201,7 +201,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   const pkg = openPackage(zip, limits);
   const warnings = new WarningCollector();
   const book = analyzeWorkbook(pkg, limits, warnings);
-  const budget = { remaining: limits.maxCells };
+  const budget = { remaining: limits.maxCells, sharedText: limits.maxSharedStringChars };
   const formatCache = new Map<number, NumberFormat>();
   const sheets = book.sheets.map((entry): Sheet => {
     let data: WorksheetData | null = null;

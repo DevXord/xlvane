@@ -4,7 +4,8 @@
 //   error code; nothing but an XlvError may ever be thrown, and reading takes at most 5 seconds;
 // - for readable files: inspect works, the streaming reader returns the same cells as the batch
 //   reader, readTable and toCSV work on the first worksheet, and editing one empty cell gives a
-//   file that reads back with exactly that one change according to diff.
+//   file that reads back with exactly that one change according to diff (files whose invalid
+//   cell references were skipped are refused by editCells instead, D-903).
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -100,7 +101,16 @@ describe('corpus: Apache POI', () => {
           toCSV(workbook, { sheet: first.name });
         }
         const target = emptyCell(workbook);
-        if (target) {
+        if (target && workbook.warnings.some((w) => w.code === 'XLV_W_INVALID_CELL_REF')) {
+          // Sheets with skipped invalid references cannot be edited safely (D-903).
+          let code = '';
+          try {
+            editCells(bytes, [{ ...target, value: 'xlvane-edit' }]);
+          } catch (error) {
+            code = error instanceof XlvError ? error.code : 'CRASH';
+          }
+          if (code !== 'XLV_E_INVALID_CELL_REF') problems.push(`${name}: editing a sheet with invalid references gave ${code || 'no error'}`);
+        } else if (target) {
           const edited = editCells(bytes, [{ ...target, value: 'xlvane-edit' }]);
           const d = diff(workbook, readWorkbook(edited.bytes));
           const changes = d.sheets.flatMap((s) => s.cells.map((c) => `${s.name}!${c.ref}:${c.kind}`));
