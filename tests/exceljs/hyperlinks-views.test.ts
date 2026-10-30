@@ -77,10 +77,19 @@ describe('hyperlink values', () => {
     await expect(wb.xlsx.writeBuffer()).rejects.toMatchObject({ code: 'XLV_E_INVALID_HYPERLINK' });
   });
 
-  it('streamed worksheets refuse links rather than drop them', async () => {
-    const writer = new ExcelJS.stream.xlsx.WorkbookWriter({ stream: { write: (_c: unknown, cb: () => void) => cb(), end: (cb: () => void) => cb() } });
-    const sheet = writer.addWorksheet('S');
-    await expectNotSupported(() => sheet.addRow([{ text: 'x', hyperlink: 'https://example.com' }]).commit());
+  it('streamed worksheets write links with their row', async () => {
+    await withTempDir(async (dir) => {
+      const filename = join(dir, 'links.xlsx');
+      const writer = new ExcelJS.stream.xlsx.WorkbookWriter({ filename });
+      const sheet = writer.addWorksheet('S');
+      sheet.addRow([{ text: 'Docs', hyperlink: 'https://example.com', tooltip: 'tip' }, { text: 'Back', hyperlink: '#S!A1' }]).commit();
+      await writer.commit();
+      const book = await readWorkbookFile(filename);
+      expect(book.getSheet('S').hyperlinks).toEqual([
+        { ref: 'A1', target: 'https://example.com', location: null, tooltip: 'tip', display: null },
+        { ref: 'B1', target: null, location: 'S!A1', tooltip: null, display: null },
+      ]);
+    });
   });
 });
 

@@ -15,7 +15,7 @@ import { ExcelJS, expectNotSupported, roundTrip, styles, withTempDir } from './h
 
 describe('Workbook', () => {
   describe('Serialise', () => {
-    it.skip('xlsx file — not supported: createTestBook fixture (needs rich text, notes, data validation)', () => {});
+    it.skip('xlsx file — not supported: createTestBook fixture (needs data validation)', () => {});
 
     describe('Xlsx Zip Compression', () => {
       for (const level of ['best', 'default', 'fast', 'no']) {

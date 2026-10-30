@@ -23,6 +23,7 @@ export type {
   CellFormulaValue,
   CellValue,
   Color,
+  Comment,
   ColumnDefn,
   Fill,
   FillPatterns,

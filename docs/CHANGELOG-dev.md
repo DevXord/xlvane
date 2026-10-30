@@ -2,6 +2,14 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase A2: hyperlinks, notes, views, app.xml (2026-10-30)
+
+- **Sources:** second local review report (ECMA-376 Part 1 §18.3.1.47/48, §18.7, §12.3.3, §18.3.1.13/66/82/87/93, §22.2, §15.2.12; Part 4 §8.2, §19.4; [MS-OI29500]; [MS-XLSX]).
+- **Core:** hyperlinks per the specification (D-A08), tab colour and sheet views (D-A09), `docProps/app.xml` (D-A10), `col@style` for new cells in `editCells` (D-A04 addendum), notes with comments and VML parts, per-row links and notes in the streaming writer (D-A12).
+- **@xlvane/exceljs:** hyperlink values, tab colour, views, company and manager (D-A13); `cell.note` and streamed links (D-A14). No phase-A API throws `XLV_E_NOT_SUPPORTED` any more.
+- **inspect, CLI, docs:** hyperlink and note counts with samples; README, SKILL.md, CHANGELOG.
+- **Size budget** raised to 175 kB (D-A11); library at 127.7 kB.
+
 ## Phase A1: rich text, properties, defined names, column styles, format ids (2026-10-30)
 
 - **Core** (D-A01 … D-A05): `Cell.richText` and `{ richText }` input; `docProps/core.xml` via `properties`; `Workbook.definedNames` and `defineName` (`XLV_E_INVALID_DEFINED_NAME`); `column(c, { style })` and `ColumnInfo.style`; `numFmt` as a built-in id.

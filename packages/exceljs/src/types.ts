@@ -299,3 +299,22 @@ export interface WorksheetOptions {
   pageSetup?: unknown;
   headerFooter?: unknown;
 }
+
+/**
+ * A cell note (`cell.note = string | Comment`), as in exceljs (index.d.ts `Comment`, lib/doc/note.js).
+ * `texts` are rich text runs. `margins`, `protection` and `editAs` are kept on the object but not
+ * written: xlvane writes every note box in the form of the ECMA-376 examples (D-A14).
+ *
+ * @example
+ * ```ts
+ * import type { Comment } from '@xlvane/exceljs';
+ *
+ * const note: Comment = { texts: [{ font: { bold: true }, text: 'Check: ' }, { text: 'estimate only' }] };
+ * ```
+ */
+export interface Comment {
+  texts?: { text: string; font?: Partial<Font> }[];
+  margins?: { insetmode?: 'auto' | 'custom'; inset?: number[] };
+  protection?: { locked?: 'True' | 'False'; lockText?: 'True' | 'False' };
+  editAs?: 'twoCells' | 'oneCells' | 'absolute';
+}

@@ -316,6 +316,21 @@
     "showGridLines": true,
     "topLeftCell": "A2"
   },
+  "notes": {
+    "a5": "Checked by finance",
+    "b4texts": [
+      {
+        "font": {
+          "bold": true
+        },
+        "text": "Cocoa"
+      },
+      {
+        "text": " is new this year"
+      }
+    ],
+    "a1": null
+  },
   "links": {
     "a10": {
       "text": "Price list",

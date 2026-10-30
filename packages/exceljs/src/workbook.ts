@@ -1,7 +1,7 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { XlvError, writeWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
-import { colorOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
+import { colorOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { DefinedNames, extractRanges } from './defined-names';
 import { notSupported, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
@@ -309,6 +309,8 @@ export class Workbook {
           if (info.hidden) row.hidden = true;
         }
       }
+      // Notes are read for every cell, also one without a value; exceljs loses those (X4-14).
+      for (const note of s.notes) ws.getCell(note.ref).note = noteOut(note);
       for (const m of s.merges) if (m.includes(':')) ws.mergeCells(m);
       // exceljs reads one view per sheetView, with every setting (sheet-view-xform.js; X4-11).
       ws.views = [viewOut(s.view, s.freeze)];

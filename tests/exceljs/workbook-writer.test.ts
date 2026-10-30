@@ -4,7 +4,9 @@
 // `worksheet.getCell` (the streaming worksheet subset is `addRow`, row style setters and
 // `commit`); fonts without `family`/`outline`; the row style read-back is removed (no row
 // default styles after reading, docs/decisions.md D-206); notes and conditional formatting
-// expect XLV_E_NOT_SUPPORTED; tests that need createTestBook, shared formulas, data
+// expect XLV_E_NOT_SUPPORTED (conditional formatting); notes read back without the font
+// properties family/scheme and without the box settings margins, protection, editAs (D-A14);
+// tests that need createTestBook, shared formulas, data
 // validation, images or zip options are skipped. One test added: names changed after the
 // first committed row.
 import { join } from 'node:path';
@@ -34,7 +36,7 @@ describe('WorkbookWriter', () => {
   });
 
   describe('Serialise', () => {
-    it.skip('xlsx file — not supported: createTestBook fixture (needs rich text, notes, data validation)', () => {});
+    it.skip('xlsx file — not supported: createTestBook fixture (needs data validation)', () => {});
     it.skip('shared formula — not supported: fillFormula', () => {});
 
     it('auto filter', async () => {
@@ -205,17 +207,30 @@ describe('WorkbookWriter', () => {
     it.skip('serializes and deserializes dataValidations — not supported: data validation', () => {});
     it.skip('with zip compression option — not supported: zip compression options', () => {});
 
-    it('writes notes — not supported: notes', async () => {
-      await withTempDir(async (dir) => {
-        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 'wb.test.xlsx') });
-        const ws = wb.addWorksheet('Hello');
-        await expectNotSupported(() => {
-          ws.addRow(['Hello, World!']).getCell(1).note = 'Here is a nice note';
+    for (const [title, box] of [
+      ['writes notes', { margins: { insetmode: 'auto', inset: [0.13, 0.13, 0.25, 0.25] }, protection: { locked: 'True', lockText: 'True' }, editAs: 'twoCells' }],
+      ['Cell annotation supports setting margins and protection properties', { margins: { insetmode: 'custom', inset: [0.25, 0.25, 0.35, 0.35] }, protection: { locked: 'False', lockText: 'False' }, editAs: 'oneCells' }],
+    ] as const) {
+      it(`${title} (box settings are not written)`, async () => {
+        await withTempDir(async (dir) => {
+          const filename = join(dir, 'wb.test.xlsx');
+          const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename });
+          const ws = wb.addWorksheet('Hello');
+          const row = ws.addRow([null, 5, null, 7]);
+          row.getCell(2).note = 'five';
+          const note = { texts: [{ font: { size: 12, color: { argb: 'FFFF6600' }, name: 'Calibri', scheme: 'minor' }, text: 'seven' }], ...box };
+          row.getCell(4).note = note;
+          row.commit();
+          await wb.commit();
+          const ws2 = (await readBack(filename)).getWorksheet('Hello');
+          expect(ws2.getCell('B1').value).toBe(5);
+          expect(ws2.getCell('B1').note).toBe('five');
+          expect(ws2.getCell('D1').value).toBe(7);
+          expect(ws2.getCell('D1').note.texts).toEqual([{ font: { size: 12, color: { argb: 'FFFF6600' }, name: 'Calibri' }, text: 'seven' }]);
+          expect(ws2.getCell('D1').note.margins).toBeUndefined();
         });
       });
-    });
-
-    it.skip('Cell annotation supports setting margins and protection properties — not supported: notes', () => {});
+    }
     it.skip('with background image — not supported: images', () => {});
     it.skip('with background image where worksheet is commited in advance — not supported: images', () => {});
 

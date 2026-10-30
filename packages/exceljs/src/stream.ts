@@ -1,8 +1,8 @@
 // exceljs streaming API: `stream.xlsx.WorkbookWriter` (lib/stream/xlsx/workbook-writer.js) and
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
-import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, richTextOut, styleIn, valueIn } from './convert';
+import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
+import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, styleIn, valueIn } from './convert';
 import type { DefinedNames } from './defined-names';
 import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
@@ -174,14 +174,16 @@ export class WorksheetWriter extends Worksheet {
     }
     const values: CellValue[] = [];
     const styles: (CellStyle | undefined)[] = [];
+    const links: (HyperlinkTarget | undefined)[] = [];
+    const notes: (NoteInput | undefined)[] = [];
     let styled = false;
     row._cells.forEach((cell, i) => {
       if (!cell) return;
-      // TODO(phase A2, notes fork): links are set per cell while rows are committed, but the core
-      // streaming writer takes a sheet's links up front (sheets[].hyperlinks). Wire them through
-      // per-row links of StreamRowInput once the core has them; until then a link would be lost,
-      // so it is refused rather than dropped.
-      if (cell.type === ValueType.Hyperlink) notSupported(`Hyperlinks in streamed worksheets (cell ${cell.address})`);
+      // Links and notes go with their row (StreamRowInput hyperlinks and notes, D-A12).
+      const link = cell.type === ValueType.Merge ? null : linkIn(cell);
+      if (link) links[i] = link;
+      const note = noteIn(cell);
+      if (note) notes[i] = note;
       values[i] = cell.type === ValueType.Merge ? null : (valueIn(cell) as CellValue);
       // Without useStyles exceljs still gives dates format 14 (styles-xform.js Mock, L498; X4-02).
       if (this.writer._useStyles) styles[i] = cellStyleIn(cell, styleIn(cell.style));
@@ -192,6 +194,8 @@ export class WorksheetWriter extends Worksheet {
     this.rowsOut.push({
       values: values as CellInput[],
       ...(styled ? { styles } : {}),
+      ...(links.length > 0 ? { hyperlinks: links } : {}),
+      ...(notes.length > 0 ? { notes } : {}),
       ...(row.height !== undefined ? { height: row.height } : {}),
       ...(row.hidden ? { hidden: true } : {}),
     });

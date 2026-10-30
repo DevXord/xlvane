@@ -3,7 +3,7 @@
 // writing go through xlvane (convert.ts).
 import { XlvError } from 'xlvane';
 import type { DefinedNames } from './defined-names';
-import type { Alignment, Borders, CellValue, ColumnDefn, Fill, Font, Style, WorksheetOptions, WorksheetView } from './types';
+import type { Alignment, Borders, CellValue, ColumnDefn, Comment, Fill, Font, Style, WorksheetOptions, WorksheetView } from './types';
 
 /**
  * Value types, as in exceljs `lib/doc/enums.js` (ValueType).
@@ -184,6 +184,7 @@ export class Cell {
   /** The cell's style; `font`, `fill`, … are shortcuts to its properties. */
   style: Style;
   private _value: CellValue = null;
+  private _note: string | Comment | undefined = undefined;
   /** @internal Master cell when this cell is part of a merged range but not its top-left cell. */
   _master: Cell | null = null;
   /** @internal Number of merged ranges this cell is the master of. */
@@ -327,11 +328,22 @@ export class Cell {
   set protection(v: unknown) {
     if (v !== undefined && v !== null) notSupported('Cell protection');
   }
-  get note(): undefined {
-    return undefined;
+  /**
+   * The cell's note: a string or `{ texts: [{ text, font? }] }`, as in exceljs (lib/doc/cell.js
+   * L224–230). The note belongs to this cell, also inside a merged range. `undefined` removes it.
+   */
+  get note(): string | Comment | undefined {
+    return this._note;
   }
-  set note(_v: unknown) {
-    notSupported('Cell notes (comments)');
+  set note(v: string | Comment | undefined) {
+    if (v === undefined || v === null) {
+      this._note = undefined;
+      return;
+    }
+    if (typeof v !== 'string' && (typeof v !== 'object' || Array.isArray(v) || (v.texts !== undefined && !Array.isArray(v.texts)))) {
+      notSupported(`A note of cell ${this.address} that is not a string or { texts: [...] }`);
+    }
+    this._note = v;
   }
   get dataValidation(): undefined {
     return undefined;

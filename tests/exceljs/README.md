@@ -42,7 +42,7 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 |---|---|---|---|
 | `workbook.test.ts` | `spec/unit/doc/workbook.spec.js` | 8 | 1 |
 | `row.test.ts` | `spec/unit/doc/row.spec.js` | 5 | 9 |
-| `cell.test.ts` | `spec/unit/doc/cell.spec.js` | 5 | 7 |
+| `cell.test.ts` | `spec/unit/doc/cell.spec.js` | 6 | 6 |
 | `column.test.ts` | `spec/unit/doc/column.spec.js` | 6 | 3 |
 | `worksheet-merge.test.ts` | `spec/unit/doc/worksheet.merge.spec.js` | 5 | 0 |
 | `worksheet-values.test.ts` | `spec/unit/doc/worksheet.values.spec.js` | 16 | 12 |
@@ -50,7 +50,7 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 | `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` | 19 (1 added) | 17 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 15 | 8 |
 | `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
-| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js` | 13 (3 added) | 9 |
+| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js` | 14 (3 added) | 8 |
 | `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 2 (added, not upstream) | 29 |
 
 "Passing" includes tests that expect `XLV_E_NOT_SUPPORTED` for an unsupported feature.
@@ -60,7 +60,7 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 Each skipped test names its reason in the title. The reasons are:
 
 - **Unsupported features** (they throw `XLV_E_NOT_SUPPORTED`; where cheap, one test checks that):
-  notes, images, conditional formatting, data validation, CSV, print settings, `insertRow`,
+  images, conditional formatting, data validation, CSV, print settings, `insertRow`,
   `spliceRows`, `spliceColumns`, `duplicateRow`, `addRow(values, 'i')`, shared-formula filling,
   zip compression options and workbook views.
 - **Internal API**: tests of internal classes and fields (`new Cell`, `Column.toModel`,

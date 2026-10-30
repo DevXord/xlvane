@@ -10,6 +10,8 @@ import {
   type FrozenPanes,
   type HyperlinkTarget,
   type NewWorkbook,
+  type Note as XlvNote,
+  type NoteInput,
   type RichTextRun,
   type SheetView,
   type SheetViewOptions,
@@ -17,7 +19,7 @@ import {
   type WorkbookProperties,
 } from 'xlvane';
 import { columnLetter, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
-import type { Alignment, Borders, CellValue, Color, Fill, Font, Style, WorksheetView } from './types';
+import type { Alignment, Borders, CellValue, Color, Comment, Fill, Font, Style, WorksheetView } from './types';
 
 /**
  * Format codes exceljs writes as built-in ids (lib/xlsx/defaultnumformats.js, used by
@@ -228,6 +230,34 @@ export function linkIn(cell: Cell): HyperlinkTarget | null {
   return target.startsWith('#') ? { location: target.slice(1), ...tooltip } : { url: target, ...tooltip };
 }
 
+/**
+ * The note of a cell for `NewSheet.note`, or `null`. exceljs writes every note with the author
+ * "Author" (comments-xform.js L29–31; X4-14), so xlvane does too. `margins`, `protection` and
+ * `editAs` are not written (D-A14).
+ */
+export function noteIn(cell: Cell): NoteInput | null {
+  const note = cell.note;
+  if (note === undefined) return null;
+  if (typeof note === 'string') return { text: note, author: NOTE_AUTHOR };
+  const texts = note.texts ?? [];
+  return texts.length === 0 ? { text: '', author: NOTE_AUTHOR } : { runs: runsIn(texts, cell.address), author: NOTE_AUTHOR };
+}
+
+/** The author exceljs writes for every note. */
+export const NOTE_AUTHOR = 'Author';
+
+/**
+ * A note read by xlvane as exceljs gives it back: a string when it is one run without a font,
+ * otherwise `{ texts }` (lib/doc/note.js `set model`; X4-14). exceljs also merges the VML box
+ * settings into the object; xlvane does not read the VML (D-A12), so they are absent.
+ */
+export function noteOut(note: XlvNote): string | Comment {
+  const runs = note.runs;
+  if (!runs || runs.length === 0) return note.text;
+  if (runs.length === 1 && !runs[0]!.font) return runs[0]!.text;
+  return { texts: richTextOut(runs).richText };
+}
+
 /** Sheet layout from an exceljs view and `properties.tabColor`, applied to a new xlvane sheet. */
 export interface SheetLayoutIn {
   readonly freeze: FrozenPanes | null;
@@ -295,6 +325,8 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       }
       row._cells.forEach((cell) => {
         if (!cell) return;
+        const note = noteIn(cell);
+        if (note) sheet.note(cell.address, note);
         const style = cellStyleIn(cell, styleOf(cell.style));
         const value = cell.type === ValueType.Merge ? null : valueIn(cell);
         if (value === null && Object.keys(style).length === 0) return;

@@ -48,6 +48,8 @@ export async function run(ExcelJS, Workbook, dir) {
   sheet.getCell('A10').value = { text: 'Price list', hyperlink: 'https://example.com/prices?year=2024&q=1' };
   sheet.getCell('A11').value = { text: 'Mail us', hyperlink: 'mailto:sales@example.com' };
   sheet.getCell('A12').value = { text: 'Go to total', hyperlink: '#Sales!C5' };
+  sheet.getCell('A5').note = 'Checked by finance';
+  sheet.getCell('B4').note = { texts: [{ font: { bold: true }, text: 'Cocoa' }, { text: ' is new this year' }] };
   await workbook.xlsx.writeFile(path);
 
   // --- read it back ---
@@ -103,6 +105,7 @@ export async function run(ExcelJS, Workbook, dir) {
     company: { company: read.company ?? null, manager: read.manager ?? null },
     tabColor: ws.properties.tabColor ?? null,
     view: { state: view.state ?? null, zoomScale: view.zoomScale ?? null, showGridLines: view.showGridLines ?? null, topLeftCell: view.topLeftCell ?? null },
+    notes: { a5: ws.getCell('A5').note ?? null, b4texts: ws.getCell('B4').note?.texts ?? null, a1: ws.getCell('A1').note ?? null },
     links: {
       a10: ws.getCell('A10').value,
       a10type: ws.getCell('A10').type,

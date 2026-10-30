@@ -28,7 +28,6 @@ const PATTERNS: readonly { readonly api: string; readonly status: 'not supported
   { api: 'dataValidations', status: 'not supported', re: /\.dataValidations?\b/ },
   { api: 'protect / unprotect', status: 'not supported', re: /\.(?:un)?protect\s*\(/ },
   { api: 'pageSetup / headerFooter', status: 'not supported', re: /\.(?:pageSetup|headerFooter)\b/ },
-  { api: 'cell notes', status: 'not supported', re: /\.note\s*=/ },
   { api: 'ModelContainer', status: 'not supported', re: /\bModelContainer\b/ },
   { api: 'deep import (exceljs/...)', status: 'not supported', re: /['"]exceljs\/[^'"]+['"]/ },
   { api: 'sharedFormula values', status: 'partly', re: /\bsharedFormula\s*:/ },

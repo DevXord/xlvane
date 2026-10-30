@@ -2,8 +2,9 @@
 // changes: Mocha/Chai → Vitest; the internal sheet mock and `new Cell(...)` are replaced by a
 // real worksheet; `cell.merge`/`unmerge` (internal) become `ws.mergeCells`/`ws.unMergeCells`;
 // tests of internals (`_mergeCount`, `_upgradeToHyperlink`, constructor validation,
-// `effectiveType`, `html`, shared-formula translation in memory) are skipped; notes expect
-// XLV_E_NOT_SUPPORTED.
+// `effectiveType`, `html`, shared-formula translation in memory) are skipped; the note tests
+// check `cell.note` instead of the internal `cell.model.comment`, and the box defaults that
+// exceljs merges into the model (margins, protection, editAs) are not added (D-A14).
 import { beforeEach, describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, styles } from './helpers';
 
@@ -106,11 +107,28 @@ describe('Cell', () => {
   it.skip('shares formulas — not supported: in-memory shared formula translation (sharedFormula values are read as plain formulas)', () => {});
   it.skip('escapes dangerous html — not supported: cell.html', () => {});
 
-  it('can set comment — not supported: notes', async () => {
-    await expectNotSupported(() => {
-      ws.getCell('A1').note = { texts: [{ text: 'This is ' }] };
-    });
+  it('can set comment', () => {
+    const a1 = ws.getCell('A1');
+    const comment = {
+      texts: [{ font: { size: 12, color: { theme: 0 }, name: 'Calibri', family: 2, scheme: 'minor' }, text: 'This is ' }],
+      margins: { insetmode: 'auto', inset: [0.13, 0.13, 0.25, 0.25] },
+      protection: { locked: 'True', lockText: 'True' },
+      editAs: 'twoCells',
+    };
+    a1.note = comment;
+    a1.value = 'test set value';
+    expect(a1.note).toEqual(comment);
   });
 
-  it.skip('Cell comments supports setting margins, protection, and position properties — not supported: notes', () => {});
+  it('Cell comments supports setting margins, protection, and position properties (without the model defaults)', () => {
+    const a1 = ws.getCell('A1');
+    const comment = {
+      texts: [{ font: { size: 12, color: { theme: 0 }, name: 'Calibri', family: 2, scheme: 'minor' }, text: 'This is ' }],
+      protection: { locked: 'False', lockText: 'True' },
+    };
+    a1.note = comment;
+    a1.value = 'test set value';
+    expect(a1.note.texts).toEqual(comment.texts);
+    expect(a1.note.protection).toEqual(comment.protection);
+  });
 });
