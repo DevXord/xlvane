@@ -33,13 +33,16 @@
     "xlvane": "./dist/cli.js"
   },
   "files": [
-    "dist"
+    "dist",
+    "docs",
+    "skills",
+    "llms-full.txt"
   ],
   "engines": {
     "node": ">=22"
   },
   "scripts": {
-    "build": "tsdown"
+    "build": "tsdown && node ../../scripts/package-docs.mjs"
   },
   "dependencies": {
     "fflate": "^0.8.3"

@@ -335,6 +335,32 @@ At the maintainer's decision `migrate` reports and changes `package.json` only w
 ### D-608 Size budgets (2026-10-30)
 At the maintainer's decision the 125 kB budget covers the library files of `dist/` and `dist/cli.js` has its own budget of 40 kB gzip. Measured: library 104.1 kB (from 101.7 kB; adding the CLI entry changed how tsdown splits shared chunks), CLI 20.3 kB.
 
+## Decisions: phase 7 (agent integration)
+
+### D-701 MCP SDK and dependencies (2026-10-30)
+At the maintainer's decision `@xlvane/mcp` uses the v2 SDK, `@modelcontextprotocol/server` 2.4.0, pinned exactly (F-MCP-01). Its runtime dependencies are `xlvane` and `@modelcontextprotocol/server` only (checked by `tests/policy/packages.test.ts`); the SDK brings `@modelcontextprotocol/core` and zod. Input schemas are plain JSON Schema passed through the SDK's `fromJsonSchema`, so the package imports no schema library. The maintainer approved two root development dependencies: `@modelcontextprotocol/client` 2.4.0 (tests on an in-memory and a stdio client) and `skills` 1.7.4 (the install test). Licenses: the SDK packages are Apache-2.0, zod, fflate and skills MIT.
+
+### D-702 Tools (2026-10-30)
+Seven tools as in docs/PLAN.md section 4, registered in a fixed order (the 2026-07-28 spec says tools/list SHOULD be deterministic, F-MCP-02): `inspect_workbook`, `read_table`, `diff`, `validate`, then the write tools `write_table`, `edit_cells`, `convert`. Each has a title, a factual description, an input schema with `additionalProperties: false` and annotations (`readOnlyHint` on the read tools; `destructiveHint: false` on the write tools, which never delete and replace only with `overwrite: true`). Results are `structuredContent` plus the same JSON as text; `XlvError`s become tool errors (`isError: true`) with code, location, hint and details. `read_table` pages with `offset`/`limit` (at most `--max-rows`, default 1000); `diff` lists at most `maxChanges` changes per sheet. Cell values in write calls accept `{ "date": "YYYY-MM-DD..." }` for dates, because JSON has no date type and strings must stay strings.
+
+### D-703 Path policy (2026-10-30)
+The 2026-07-28 spec deprecates Roots and suggests passing directories through server configuration (F-MCP-02), so the server takes `--root` directories at start; at the maintainer's decision at least one is required. Roots are resolved with `realpath`. A file is read only if its real path is inside a root; a file is written only if the real path of its directory is inside a root and the file itself is not a symbolic link. New files are created with `wx`; existing files are replaced only with `overwrite: true`, via a temporary file and a rename (a rename replaces a link instead of following it). Violations give `XLV_E_PATH_NOT_ALLOWED` (new code). Files above `--max-file-size` (default 64 MiB, below the library's 256 MiB default because tool calls are not reviewed by a person) are refused for reading and writing.
+
+### D-704 Write tools only with --allow-write (2026-10-30)
+At the maintainer's decision the write tools are not registered without `--allow-write`; the server instructions say so, so a client knows how writing is enabled. The instructions contain only the configuration (roots, writing, limits) and the error format.
+
+### D-705 Entry points (2026-10-30)
+`createServer(options): Promise<McpServer>` (asynchronous because the roots are resolved on the file system) and `runCli(args): Promise<number>`, the contract `xlvane mcp` uses (D-607). `runCli` serves stdio through the SDK's `serveStdio` and resolves when stdin ends. The package has a `bin`, `xlvane-mcp`, so clients can start it with `npx @xlvane/mcp --root <dir>`. stdout carries only the protocol; messages go to stderr.
+
+### D-706 Agent Skill (2026-10-30)
+`skills/xlvane/SKILL.md` follows the Agent Skills specification (F-SKILL-01) and lives where the `skills` CLI discovers it (`skills/<name>/SKILL.md`). It is copied into the `xlvane` package. `tests/skill.test.ts` installs it with one command (`skills add <path> --skill xlvane --agent claude-code --yes --copy`, with `DISABLE_TELEMETRY=1`); its TypeScript blocks are compiled by the TSDoc examples test. The skill states that the packages are not published yet; that line must be removed at publication.
+
+### D-707 Documentation in the tarball (2026-10-30)
+`scripts/package-docs.mjs`, run by the `xlvane` build, copies the user documentation (errors.md, inspect-json.md, cli-json.md with its schemas, exceljs-compat.md) and the skill into the package and writes `llms-full.txt`: the README, the skill and those docs in one plain-text file, each part marked with an HTML comment naming its file. The copies are generated and not committed. `check:pkg` checks that the tarball contains them. `tests/policy/agent-texts.test.ts` scans READMEs, the skill, the docs, llms-full.txt and all sources for persuasion aimed at agents, attempts to override a model's instructions, hidden comments addressed to models and invisible characters (CLAUDE.md); it found one literal byte order mark in csv.ts, now written as `\uFEFF`.
+
+### D-708 No test rewrites packages/*/dist (2026-10-30)
+Tests that need built packages (alias, CLI binary, MCP over stdio) build them into their own directories with `tests/helpers/build-package.ts` (`tsdown --out-dir`), laid out as npm installs them, so parallel test files cannot see a half-written dist.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -381,6 +407,15 @@ See docs/facts/sml-write.md.
 
 ### F-EXCELJS-01 exceljs 4.4.0 behaviour
 The exceljs behaviours copied by `@xlvane/exceljs` are taken from the exceljs 4.4.0 source installed in `bench/node_modules/exceljs` (`lib/doc/enums.js` for `ValueType`, `FormulaType`, `ErrorValue`; `lib/exceljs.nodejs.js` for the CommonJS export; `lib/doc/worksheet.js` L134–173 for sheet-name rules; `lib/doc/cell.js`, `row.js`, `column.js`; `lib/stream/xlsx/*`) and from its specs at tag v4.4.0. Each behaviour lists its source file and line in docs/exceljs-compat.md.
+
+### F-MCP-01 MCP TypeScript SDK v2
+`@modelcontextprotocol/server` 2.4.0 is npm `latest` (`npm view`, 2026-10-30), Apache-2.0, `engines.node >=20`, dependencies zod ^4.2.0 and `@modelcontextprotocol/core` 2.4.0. Its README: "This is v2 of the MCP TypeScript SDK, the stable release line, implementing the 2026-07-28 MCP spec. It replaces the single `@modelcontextprotocol/sdk` package from v1" (v1 is 1.32.2). API used, from `dist/*.d.mts` of the tarball: `McpServer(serverInfo, { capabilities, instructions })`, `registerTool(name, { title, description, inputSchema, annotations }, cb)` where `inputSchema` is a Standard Schema with JSON Schema, `fromJsonSchema(schema)`, `InMemoryTransport.createLinkedPair()`, and `serveStdio(factory)` from `@modelcontextprotocol/server/stdio`. Client side (`@modelcontextprotocol/client` 2.4.0): `Client`, `listTools`, `callTool`, `getInstructions`, `StdioClientTransport` from `/stdio`. Verified by a prototype on 2026-10-30 (input validation errors come back as `isError` results).
+
+### F-MCP-02 MCP specification 2026-07-28
+From `docs/specification/2026-07-28/changelog.mdx` in github.com/modelcontextprotocol/modelcontextprotocol (main, read 2026-10-30): the protocol is stateless (no `initialize` handshake, protocol version and client capabilities in each request's `_meta`); servers MUST implement `server/discover`; protocol-level sessions are removed; Roots, Sampling and Logging are deprecated ("pass directories or files via tool parameters, resource URIs, or server configuration instead of Roots"); servers SHOULD return tools from `tools/list` in a deterministic order; `inputSchema` and `outputSchema` may use any JSON Schema 2020-12 keywords.
+
+### F-SKILL-01 Agent Skills
+Specification (github.com/agentskills/agentskills `docs/specification.mdx`, main, read 2026-10-30): a skill is a directory with `SKILL.md`, YAML frontmatter then Markdown; `name` required, 1–64 characters, lowercase letters, digits and hyphens, not starting or ending with a hyphen, no consecutive hyphens, equal to the parent directory name; `description` required, 1–1024 characters; optional `license`, `compatibility` (at most 500 characters), `metadata`, `allowed-tools`. The `skills` CLI (vercel-labs/skills README and docs/creating-skills.md, npm 1.7.4): `npx skills add <repository | URL | local path>`, options `--skill`, `--agent`, `--yes`, `--copy`; discovers `skills/<name>/SKILL.md`; requires Node.js 22.20 or later; `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` turns off telemetry and security-audit requests. agentskills.io itself was not reachable (proxy refusal).
 
 ### F-TOOL-11 Vitest execArgv
 Vitest 5 option `test.execArgv`: "Pass additional arguments to `node` process when spawning the worker" (default `[]`). Source: `node_modules/vitest/dist/chunks/plugin.d.C8mmycim.d.ts` (Vitest 5.0.5), checked 2026-10-30.

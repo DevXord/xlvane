@@ -8,6 +8,7 @@ declare module 'node:fs/promises' {
     readonly size: number;
     isFile(): boolean;
     isDirectory(): boolean;
+    isSymbolicLink(): boolean;
   }
   export function readFile(path: string | URL): Promise<Uint8Array>;
   export function readFile(path: string | URL, encoding: 'utf8'): Promise<string>;
@@ -23,6 +24,9 @@ declare module 'node:fs/promises' {
   export function mkdtemp(prefix: string): Promise<string>;
   export function rm(path: string | URL, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
   export function rename(oldPath: string | URL, newPath: string | URL): Promise<void>;
+  export function realpath(path: string | URL): Promise<string>;
+  export function lstat(path: string | URL): Promise<Stats>;
+  export function symlink(target: string | URL, path: string | URL): Promise<void>;
   export function copyFile(src: string | URL, dest: string | URL): Promise<void>;
 }
 
@@ -102,6 +106,7 @@ declare module 'node:process' {
   }
   const process: {
     readonly argv: string[];
+    readonly stdin: { once(event: 'end' | 'close', listener: () => void): unknown };
     readonly env: Record<string, string | undefined>;
     readonly stdout: WriteStream;
     readonly stderr: WriteStream;

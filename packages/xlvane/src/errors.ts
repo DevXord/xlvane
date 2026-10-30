@@ -45,6 +45,7 @@ export const ERROR_CODES = [
   'XLV_E_USAGE',
   'XLV_E_NOT_INSTALLED',
   'XLV_E_INTERNAL',
+  'XLV_E_PATH_NOT_ALLOWED',
 ] as const;
 
 /**

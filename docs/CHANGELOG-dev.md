@@ -2,6 +2,32 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 7: agent integration (2026-10-30)
+
+- **`@xlvane/mcp`**, on the official MCP SDK v2 (`@modelcontextprotocol/server` 2.4.0, spec 2026-07-28) (D-701 … D-705):
+  - tools: `inspect_workbook`, `read_table` (paging), `diff`, `validate`, and with `--allow-write` also `write_table`, `edit_cells`, `convert`;
+  - JSON Schema inputs, annotations, structured results, errors with code and hint;
+  - files only inside the `--root` directories, after resolving symbolic links (`XLV_E_PATH_NOT_ALLOWED`, new code);
+  - no overwriting without `"overwrite": true`; size limit;
+  - entry points `createServer`, `runCli` and the `xlvane-mcp` command; `xlvane mcp` starts the same server.
+- **Agent Skill:** `skills/xlvane/SKILL.md` (Agent Skills format), installable with `npx skills add <path> --skill xlvane` (D-706).
+- **Package `xlvane`:** ships `docs/`, `skills/` and `llms-full.txt` (D-707).
+- **Tests:**
+  - MCP server on an in-memory client: tool list and order, every tool, errors, schema validation;
+  - security: absolute paths, `..`, symlinked directories and files (including a dangling link), reading and writing outside the root, overwrite protection, size limits, write tools hidden;
+  - the built server over stdio, from `xlvane-mcp` and from `xlvane mcp`;
+  - `runCli` arguments;
+  - the skill's frontmatter, and its installation with the `skills` CLI;
+  - TSDoc and SKILL.md code blocks compile;
+  - a policy test of all texts read by agents (no persuasion, no instruction overrides, no hidden comments or invisible characters).
+- **Test infrastructure:** tests build packages into their own directories instead of `packages/*/dist` (D-708).
+- **Dev dependencies** (approved): `@modelcontextprotocol/client` 2.4.0, `skills` 1.7.4.
+- **Docs:** packages/mcp/README.md, the MCP and skill sections of README.md, decisions D-701 … D-708, facts F-MCP-01, F-MCP-02, F-SKILL-01.
+- **Not done in this phase:**
+  - HTTP transport (stdio only);
+  - `outputSchema` for the tools;
+  - MCP resources or prompts.
+
 ## Phase 6: command line (2026-10-30)
 
 - **`xlvane` command** (`packages/xlvane`, `bin` → `dist/cli.js`), on `util.parseArgs` and `util.styleText` without new dependencies (D-601 … D-603):

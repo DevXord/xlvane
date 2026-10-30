@@ -9,6 +9,7 @@
 // 4. Size budgets of xlvane (gzip): the library (every dist/*.js except cli.js, D-208, D-408)
 //    and the CLI (cli.js, D-608). Both are stated in packages/xlvane/README.md;
 //    tests/policy/size-budget.test.ts keeps the numbers in sync.
+// 5. The xlvane tarball contains docs/, the Agent Skill and llms-full.txt (D-707).
 import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
@@ -42,10 +43,12 @@ if (failures.length === 0) {
   for (const dir of packages) {
     const dist = join(root, dir, 'dist');
     for (const file of readdirSync(dist).filter((f) => f.endsWith('.js'))) {
-      if (dir === 'packages/xlvane' && file === CLI_FILE) {
-        const label = `${dir}/dist/${CLI_FILE} --version`;
-        const r = spawnSync(process.execPath, [join(dist, CLI_FILE), '--version'], { encoding: 'utf8' });
-        console.log(`\n> ${label}: ${r.status === 0 ? `ok (${r.stdout.trim()})` : `exit ${r.status} ${r.stderr}`}`);
+      if (file === CLI_FILE) {
+        // Command entry points run when loaded: xlvane prints its version, xlvane-mcp its help.
+        const flag = dir === 'packages/xlvane' ? '--version' : '--help';
+        const label = `${dir}/dist/${CLI_FILE} ${flag}`;
+        const r = spawnSync(process.execPath, [join(dist, CLI_FILE), flag], { encoding: 'utf8' });
+        console.log(`\n> ${label}: ${r.status === 0 ? `ok (${r.stdout.trim().split('\n')[0]})` : `exit ${r.status} ${r.stderr}`}`);
         if (r.status !== 0) failures.push(label);
         continue;
       }
@@ -58,6 +61,17 @@ if (failures.length === 0) {
         failures.push(label);
       }
     }
+  }
+}
+
+if (failures.length === 0) {
+  // 5. The xlvane tarball carries the docs, the Agent Skill and llms-full.txt (D-707).
+  const pack = spawnSync('npm', ['pack', '--dry-run', '--json'], { cwd: join(root, 'packages/xlvane'), encoding: 'utf8', shell: true });
+  const packed = pack.status === 0 ? JSON.parse(pack.stdout)[0].files.map((f) => f.path) : [];
+  for (const required of ['llms-full.txt', 'skills/xlvane/SKILL.md', 'docs/errors.md', 'docs/cli-json.md', 'docs/cli-json/common.schema.json', 'dist/cli.js']) {
+    const label = `xlvane tarball contains ${required}`;
+    console.log(`\n> ${label}: ${packed.includes(required) ? 'ok' : 'missing'}`);
+    if (!packed.includes(required)) failures.push(label);
   }
 }
 

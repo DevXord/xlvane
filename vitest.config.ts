@@ -5,8 +5,9 @@ import { defineConfig } from 'vitest/config';
 // too, with a small number of runs; `npm run fuzz` runs them with many more.
 export default defineConfig({
   resolve: {
-    // In-process tests load xlvane from its sources, not from dist: tests/exceljs/alias.test.ts
-    // rebuilds dist while other test files run.
+    // In-process tests load xlvane from its sources, not from dist, so they never depend on a
+    // stale build. Tests that need built packages build them into their own directories
+    // (tests/helpers/build-package.ts).
     alias: [
       { find: /^xlvane\/node$/, replacement: fileURLToPath(new URL('packages/xlvane/src/node.ts', import.meta.url)) },
       { find: /^xlvane$/, replacement: fileURLToPath(new URL('packages/xlvane/src/index.ts', import.meta.url)) },

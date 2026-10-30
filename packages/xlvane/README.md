@@ -2,7 +2,7 @@
 
 Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 
-Not published to npm yet. Planned next: MCP server (see [docs/PLAN.md](../../docs/PLAN.md)).
+Not published to npm yet. The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access.
 
 ## Command line in 5 minutes
 

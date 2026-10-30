@@ -2,11 +2,13 @@
   "name": "@xlvane/mcp",
   "version": "0.0.0",
   "private": true,
-  "description": "MCP server for working with XLSX files through xlvane. Not implemented yet (phase 7 of docs/PLAN.md).",
+  "description": "MCP server for XLSX files: inspect, read, write, edit, convert, compare and validate workbooks through xlvane, limited to the directories given at start.",
   "keywords": [
     "xlsx",
     "excel",
-    "mcp"
+    "spreadsheet",
+    "mcp",
+    "model-context-protocol"
   ],
   "license": "MIT",
   "repository": {
@@ -23,6 +25,9 @@
     },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "xlvane-mcp": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],
@@ -33,6 +38,7 @@
     "build": "tsdown"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
     "xlvane": "0.0.0"
   }
 }

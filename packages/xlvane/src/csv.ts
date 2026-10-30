@@ -138,7 +138,7 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
     lines.push(fields.join(delimiter));
   }
   const body = lines.length === 0 ? '' : lines.join(newline) + newline;
-  return (bom ? '﻿' : '') + body;
+  return (bom ? '\uFEFF' : '') + body;
 }
 
 /**

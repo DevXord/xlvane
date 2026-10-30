@@ -24,15 +24,17 @@ interface Manifest {
 const ALLOWED_RUNTIME_DEPENDENCIES: Record<string, readonly string[]> = {
   xlvane: ['fflate'],
   '@xlvane/exceljs': ['xlvane'],
-  '@xlvane/mcp': ['xlvane', '@modelcontextprotocol/sdk'],
+  '@xlvane/mcp': ['xlvane', '@modelcontextprotocol/server'],
 };
 
-/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301). */
+/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-701). */
 const APPROVED_DEV_DEPENDENCIES = [
   '@arethetypeswrong/cli',
+  '@modelcontextprotocol/client',
   'arktype',
   'fast-check',
   'publint',
+  'skills',
   'tsdown',
   'typescript',
   'valibot',
@@ -86,11 +88,18 @@ describe('package manifests', () => {
     expect(Object.keys(manifest.dependencies ?? {})).toEqual(['fflate']);
   });
 
-  it.each(PACKAGE_DIRS)('%s is ESM-only, MIT-licensed and ships only dist', async (dir) => {
+  /** Files in the tarball: dist, and for xlvane the docs, the Agent Skill and llms-full.txt (D-707). */
+  const FILES: Record<string, readonly string[]> = {
+    'packages/xlvane': ['dist', 'docs', 'skills', 'llms-full.txt'],
+    'packages/exceljs': ['dist'],
+    'packages/mcp': ['dist'],
+  };
+
+  it.each(PACKAGE_DIRS)('%s is ESM-only, MIT-licensed and ships only its listed files', async (dir) => {
     const manifest = await readManifest(dir);
     expect(manifest.type).toBe('module');
     expect(manifest.license).toBe('MIT');
-    expect(manifest.files).toEqual(['dist']);
+    expect(manifest.files).toEqual(FILES[dir]);
     expect(conditionNames(manifest.exports)).not.toContain('require');
     expect(conditionNames(manifest.exports)).not.toContain('node-addons');
     const license = await readFile(join(root, dir, 'LICENSE'), 'utf8');

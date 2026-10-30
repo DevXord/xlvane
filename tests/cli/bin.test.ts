@@ -2,10 +2,11 @@
 // It is built into its own directory under node_modules/.cache (so that fflate resolves), not
 // into packages/xlvane/dist, which other tests rebuild at the same time.
 import { spawnSync } from 'node:child_process';
-import { copyFile, mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { buildPackage } from '../helpers/build-package';
 import { withFixtures } from './helpers';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
@@ -15,10 +16,7 @@ let bin = '';
 beforeAll(async () => {
   await mkdir(join(ROOT, 'node_modules/.cache'), { recursive: true });
   dir = await mkdtemp(join(ROOT, 'node_modules/.cache/xlvane-cli-'));
-  const build = spawnSync('npx', ['tsdown', '--out-dir', join(dir, 'dist'), '--no-dts'], { cwd: join(ROOT, 'packages/xlvane'), encoding: 'utf8', timeout: 120_000 });
-  if (build.status !== 0) throw new Error(`build failed:\n${build.stdout}\n${build.stderr}`);
-  await copyFile(join(ROOT, 'packages/xlvane/package.json'), join(dir, 'package.json'));
-  bin = join(dir, 'dist/cli.js');
+  bin = join(await buildPackage('xlvane', dir), 'dist/cli.js');
 }, 180_000);
 
 afterAll(async () => {

@@ -168,6 +168,10 @@ The `xlvane` command line was used incorrectly: an unknown command or option, a 
 The `xlvane` command line caught an error that is not an `XlvError`. This is a bug in xlvane. `details.name` is the error's name; `--verbose` prints the stack trace.
 **Fix:** report it with the command and, if possible, the input file (see SECURITY.md for files that must stay private).
 
+### XLV_E_PATH_NOT_ALLOWED
+The MCP server (`@xlvane/mcp`) was asked to read or write a path outside the directories it was started with (`--root`), including paths that leave them through `..` or a symbolic link, or to write through a symbolic link. Nothing was read or written. `details.path` is the path as given and `details.roots` lists the allowed directories.
+**Fix:** use a path inside one of the listed directories, or restart the server with another `--root`.
+
 ## Warnings
 
 ### XLV_W_DIMENSION_MISMATCH

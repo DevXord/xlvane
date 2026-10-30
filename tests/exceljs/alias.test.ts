@@ -7,7 +7,7 @@
 // docs/lib/content/using-npm/package-spec.md, section "Aliases", branch `latest` at 158315cd,
 // read 2026-10-30). So after installation the package simply sits in node_modules/exceljs.
 // The packages are not published yet (CLAUDE.md: no publishing without the maintainer's
-// approval), so this test builds them and places the built @xlvane/exceljs at
+// approval), so this test builds them (into its own directory) and places the built @xlvane/exceljs at
 // node_modules/exceljs and xlvane at node_modules/xlvane, which is what module resolution sees
 // after `npm install` with the alias. The scripts in sample-project are then run with `node`.
 import { spawnSync } from 'node:child_process';
@@ -16,6 +16,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readWorkbook } from '../../packages/xlvane/src/read';
+import { buildPackage } from '../helpers/build-package';
 import { copyDir, expectedSummary, makeProject, ROOT, runScript, withoutKnownDifferences } from './project-helper';
 
 const SOFFICE = process.env['XLV_SOFFICE'] ?? 'soffice';
@@ -24,13 +25,11 @@ const hasSoffice = spawnSync(SOFFICE, ['--version'], { encoding: 'utf8', timeout
 let dir = '';
 
 beforeAll(async () => {
-  const build = spawnSync('npm', ['run', 'build', '-w', 'packages/xlvane', '-w', 'packages/exceljs'], { cwd: ROOT, encoding: 'utf8', timeout: 300_000 });
-  if (build.status !== 0) throw new Error(`build failed:\n${build.stderr}\n${build.stdout}`);
   dir = await makeProject('xlvane-alias-');
   const modules = join(dir, 'node_modules');
   // node_modules/exceljs = @xlvane/exceljs (package.json + dist), as the npm alias installs it.
-  await copyDir(join(ROOT, 'packages/exceljs'), join(modules, 'exceljs'), (name) => name === 'src' || name === 'node_modules' || name.startsWith('tsconfig') || name.startsWith('tsdown'));
-  await copyDir(join(ROOT, 'packages/xlvane'), join(modules, 'xlvane'), (name) => name === 'src' || name === 'node_modules' || name.startsWith('tsconfig') || name.startsWith('tsdown'));
+  await buildPackage('@xlvane/exceljs', modules, 'exceljs');
+  await buildPackage('xlvane', modules);
   await copyDir(join(ROOT, 'node_modules/fflate'), join(modules, 'fflate'));
 }, 400_000);
 
