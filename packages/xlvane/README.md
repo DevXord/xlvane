@@ -1,8 +1,8 @@
 # xlvane
 
-Read and inspect XLSX files from untrusted sources. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
+Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 
-Not published to npm yet. Writing workbooks is planned (see [docs/PLAN.md](../../docs/PLAN.md)).
+Not published to npm yet. Streaming and the task-oriented API are planned (see [docs/PLAN.md](../../docs/PLAN.md)).
 
 ## Reading a workbook
 
@@ -26,6 +26,32 @@ const workbook = await readWorkbookFile('report.xlsx');
 ```
 
 Cell values are numbers, strings, booleans, `Date`s (for date-formatted numbers and ISO date cells; the UTC fields of the `Date` hold the spreadsheet's date and time), error codes such as `"#DIV/0!"` (with `type: "error"`) or `null`. Formula cells carry `formula.text` and the cached result stored in the file; xlvane does not calculate formulas. Cells that have neither a value nor a formula are not stored.
+
+## Writing a workbook
+
+```ts
+import { createWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook(); // { dateSystem: '1904' } for the 1904 date system
+const sheet = workbook.addSheet('Sales');
+const header = { font: { bold: true }, fill: { color: 'D9E1F2' }, border: { bottom: { style: 'thin' } } } as const;
+sheet.set('A1', 'Region', header).set('B1', 'Revenue', header).set('C1', 'Date', header);
+sheet.set('A2', 'North').set('B2', 1250.5, { numFmt: '#,##0.00' }).set('C2', new Date(Date.UTC(2024, 0, 31)));
+sheet.set('B3', { formula: 'SUM(B2:B2)', result: 1250.5 });
+sheet.column('A', { width: 20 }).row(1, { height: 24 });
+sheet.merge('A5:C5').freeze({ rows: 1 }).autoFilter('A1:C2');
+const bytes = writeWorkbook(workbook); // Uint8Array
+```
+
+In Node.js, `writeWorkbookFile(workbook, 'sales.xlsx')` from `xlvane/node` writes the file; it never replaces an existing file unless you pass `{ overwrite: true }`.
+
+- Values: numbers, strings, booleans, `Date`s (stored as serial numbers with a `yyyy-mm-dd` or `yyyy-mm-dd hh:mm:ss` format unless the style sets one), `{ error: '#N/A' }`, and `{ formula, result }`. xlvane writes the formula text and the cached result you give; it does not calculate formulas.
+- Styles: font (name, size, bold, italic, underline, strike, colour), fill (solid colour or pattern), borders (top, right, bottom, left), alignment (horizontal, vertical, wrap, indent, rotation) and number format. Identical styles are stored once. `sheet.style(range, style)` merges a style into every cell of a range.
+- Layout: column widths and hidden columns, row heights and hidden rows, merged ranges, frozen rows and columns, autofilter, hidden and very hidden sheets.
+- Invalid input is rejected when it is set, with an `XlvError` saying what and where, for example `XLV_E_INVALID_SHEET_NAME` or `XLV_E_INVALID_STYLE` with the allowed values.
+- The output is deterministic: the same workbook always gives the same bytes. The test suite opens written files that use all of these features in LibreOffice and checks the values, styles and layout it sees.
+
+Reading returns the same information: `cell.style`, `sheet.columns`, `sheet.rowInfo(row)`, `sheet.freeze` and `sheet.autoFilter`.
 
 ## Inspecting a workbook
 
@@ -67,6 +93,10 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 | `maxXmlTextLength` | 8 Mi characters | huge text nodes or attribute values |
 | `maxXmlTreeElements` | 1 000 000 | huge workbook, styles or relationship parts (elements plus attributes) |
 | `maxCells` | 5 000 000 | workbooks too large to hold in memory (measured: about 180 bytes per numeric cell, Node.js 26) |
+
+## Package size
+
+**Size budget:** 70 kB of gzip-compressed JavaScript for `dist/*.js` (level 9, unminified as published; measured 58.4 kB on 2026-10-30). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
 Not supported: password-protected workbooks and legacy `.xls` files (both rejected with `XLV_E_UNSUPPORTED_CONTAINER`).
 

@@ -171,6 +171,41 @@ An independent review found inputs of tens of kilobytes that cost minutes of CPU
 - Malformed inline strings no longer leak text into the next cell, cells outside `sheetData` are ignored, and a missing styles or shared-strings part produces `XLV_W_PART_MISSING`.
 - The default `maxCells` is lowered from 10 000 000 to 5 000 000. Measured with Node.js 26.13.0: 1 000 000 numeric cells (dense rows) retain about 183 MB of heap, about 183 bytes per cell, so 10 M cells would need about 1.8 GB.
 
+## Decisions: phase 2 (writing and styles)
+
+### D-201 Writing API: an in-memory model plus `writeWorkbook` (2026-10-30)
+`createWorkbook()` returns a `NewWorkbook`; `addSheet()` returns a `NewSheet` with chainable `set`, `style`, `column`, `row`, `merge`, `freeze` and `autoFilter`. `writeWorkbook()` returns a `Uint8Array` and is runtime-neutral; `writeWorkbookFile()` in `xlvane/node` writes a file. The read model (`readWorkbook`) stays immutable and separate. Converting a read workbook into a `NewWorkbook` (needed by `editCells` and `appendRows`) is left for phase 3. Every value, style and option is validated when it is set, so errors point at the call that caused them. Option and style objects are read through `Object.keys` (own enumerable properties, each read once); unknown keys, including `__proto__`, are errors, and inherited properties are ignored.
+
+### D-202 Own deterministic ZIP writer (2026-10-30)
+`zip/writer.ts` writes local headers, the central directory and the end record itself (Z-02, Z-05, Z-07) and uses fflate's `deflateSync` (level 6) only to compress. An entry is stored instead when deflating does not make it smaller. Timestamps are fixed at 1980-01-01 00:00 (W2-40), flags are 0, names are ASCII, and there are no data descriptors and no extra fields, so the same input always gives the same bytes and every output passes our own strict reader. ZIP64 is not written: more than 65 534 parts or 4 GiB throws `XLV_E_LIMIT_EXCEEDED`. fflate's `zipSync` was not used because its timestamps default to the current time and its output layout is not ours to keep stable.
+
+### D-203 Phase 2 facts are partly provisional (2026-10-30) — to be reviewed
+The cloud session could not download ECMA-376 or Microsoft documentation (proxy refusal). The maintainer chose to supply the documents. Meanwhile the writer was built on a copy of the Transitional `sml.xsd` from the python-docx repository, the Open XML SDK part definitions and LibreOffice's behaviour, all pinned to commits in docs/facts/sml-write.md. Facts taken from them are marked PROVISIONAL and listed under "To verify". LibreOffice opening the files and keeping values, styles and layout (D-209) reduces the risk, but does not replace checking the specification.
+
+### D-204 Number format ids (2026-10-30)
+Format codes equal to a built-in, non-date "All Languages" format (ids 1–4, 9–13, 37–40, 48, 49; E-41) reuse that id. All other codes, including every date format, get declared `numFmt` records starting at id 164. Date formats are always declared because the built-in date ids are displayed differently per locale (E-41, E-42). 164 is the first id Excel uses for custom formats; ECMA-376 only says that ids outside the built-in list need a declared format (F-STY-04).
+
+### D-205 Default font, reserved fills and the Normal style (2026-10-30) — convention
+New workbooks use Calibri 11 as font 0, fills 0 and 1 are `none` and `gray125`, and there is one cell style "Normal" (W2-12, W2-14, W2-18). This matches the files Excel produces; it is not required by the parts of the schema checked so far. A cell's `style.font` is reported only for fonts other than font 0, and the writer completes partial fonts with the default name and size.
+
+### D-206 Range styling cap (2026-10-30)
+`sheet.style(range)` creates a cell for every position in the range, so ranges over 1 048 576 cells (one full column) throw `XLV_E_LIMIT_EXCEEDED`. Column and row default styles, which would style whole columns cheaply, are not modelled yet.
+
+### D-207 Writer limits taken from Excel (2026-10-30)
+Text up to 32 767 characters, column width up to 255 and row height up to 409 points (W-04, checked in phase 1). Sheet names (W2-20), formula length 8 192 (W2-21) and font size 409 (W2-19) are provisional. Font names are capped at 255 characters as an implementation limit. Strings with unpaired UTF-16 surrogates are rejected, because XML cannot hold them and the `_xHHHH_` escape of a lone surrogate is not decoded by readers that follow D-XS-3.
+
+### D-208 Package size budget (2026-10-30)
+70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done.
+
+### D-209 LibreOffice check of written files (2026-10-30)
+`tests/libreoffice/libreoffice.test.ts` writes workbooks covering every feature of the phase, converts them with `soffice --headless` to CSV (all sheets, contents as shown; F-LO-01) and back to XLSX, and checks values in the CSV and merges, frozen panes, filter, widths, heights, states and styles in LibreOffice's own XLSX. The test is skipped when `soffice` is missing and fails instead when `XLV_REQUIRE_LIBREOFFICE=1` (set in CI). Each run uses its own LibreOffice profile directory.
+
+### D-210 CI workflow (2026-10-30)
+`.github/workflows/ci.yml` runs typecheck, tests (with LibreOffice from the Ubuntu 24.04 `libreoffice-calc` package) and `check:pkg` on Node.js 22, 24 and 26, with `contents: read` permissions and `persist-credentials: false`. Actions are pinned to commit SHAs (F-GH-01). Bun, Deno, browsers and Workers remain for phase 9.
+
+### D-211 Reader additions for round trips (2026-10-30)
+`Cell.style` (frozen, shared per style index; parts equal to the defaults left out), `Sheet.columns` (the `col` records as ranges, so a file cannot make the reader expand millions of entries), `Sheet.rowInfo(row)`, `Sheet.freeze` (first sheet view, `frozen` or `frozenSplit` panes only) and `Sheet.autoFilter`. Colours are returned as upper-case ARGB strings, or as `{ theme, tint }`, `{ indexed }`, `{ auto: true }`. Formula text is now decoded as ST_Xstring (W2-02); before, `_xHHHH_` escapes in formulas were returned undecoded. The `inspect()` JSON is unchanged.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -193,3 +228,4 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/values.md | see file | A1 references, serial dates, number formats |
 | docs/facts/opc.md | see file | ECMA-376 Part 2 (packaging) |
 | docs/facts/sst-styles.md | see file | shared strings, ST_Xstring, styles |
+| docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-GH-01 | writer facts; partly PROVISIONAL (D-203): python-docx copy of sml.xsd, Open XML SDK, LibreOffice help, Node.js docs |

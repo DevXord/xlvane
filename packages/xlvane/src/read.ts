@@ -1,6 +1,6 @@
 import { XlvError, type XlvWarning } from './errors';
 import { resolveLimits, type ReadLimits } from './limits';
-import type { Cell, Conformance, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
+import type { Cell, ColumnInfo, Conformance, FrozenPanes, RowInfo, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
 import { parseCellRef } from './sml/cell-ref';
 import {
@@ -57,6 +57,22 @@ class ReadSheet implements Sheet {
 
   get cellCount(): number {
     return this.data?.cellCount ?? 0;
+  }
+
+  get columns(): readonly ColumnInfo[] {
+    return this.data?.columns ?? [];
+  }
+
+  get freeze(): FrozenPanes | null {
+    return this.data?.freeze ?? null;
+  }
+
+  get autoFilter(): string | null {
+    return this.data?.autoFilter ?? null;
+  }
+
+  rowInfo(row: number): RowInfo | undefined {
+    return this.data?.rowInfo.get(row);
   }
 
   cell(ref: string): Cell | undefined {

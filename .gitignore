@@ -5,3 +5,6 @@ coverage/
 .vitest/
 .DS_Store
 Thumbs.db
+
+# ECMA-376 and other reference documents supplied for fact checking (not redistributed)
+spec/

@@ -2,7 +2,7 @@
   "name": "xlvane",
   "version": "0.0.0",
   "private": true,
-  "description": "Read and inspect XLSX files from untrusted sources. ESM only, one runtime dependency (fflate).",
+  "description": "Read, inspect and write XLSX files; input is treated as untrusted. ESM only, one runtime dependency (fflate).",
   "keywords": [
     "xlsx",
     "excel",

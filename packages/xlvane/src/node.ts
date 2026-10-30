@@ -1,11 +1,12 @@
 // Node.js-only entry point (`xlvane/node`): file-system helpers around the core API. Uses
-// fs.promises.stat and fs.promises.readFile (Node.js fs documentation; F-NODE-03).
-import { readFile, stat } from 'node:fs/promises';
+// fs.promises.stat, readFile and writeFile (Node.js fs documentation; F-NODE-03, F-NODE-04).
+import { readFile, stat, writeFile } from 'node:fs/promises';
 import { XlvError } from './errors';
 import { inspect, type InspectOptions, type InspectReport } from './inspect';
 import { resolveLimits } from './limits';
 import type { Workbook } from './model';
 import { readWorkbook, type ReadOptions } from './read';
+import { writeWorkbook, type NewWorkbook } from './write';
 
 function describePath(path: string | URL): string {
   return typeof path === 'string' ? path : path.href;
@@ -85,4 +86,61 @@ export async function readWorkbookFile(path: string | URL, options?: ReadOptions
 export async function inspectFile(path: string | URL, options?: InspectOptions): Promise<InspectReport> {
   const bytes = await readInput(path, options?.limits);
   return inspect(bytes, options);
+}
+
+/** Options for {@link writeWorkbookFile}. */
+export interface WriteFileOptions {
+  /** Replace an existing file. Default `false`: an existing file is never overwritten. */
+  readonly overwrite?: boolean;
+}
+
+/**
+ * Writes a workbook created with `createWorkbook` to an XLSX file. Node.js only; in other
+ * runtimes use `writeWorkbook` from `xlvane` and save the bytes yourself. An existing file is
+ * not replaced unless `overwrite` is `true` (`XLV_E_FILE_EXISTS`); the check and the write are a
+ * single exclusive-create operation, so no other process can slip a file in between.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook } from 'xlvane';
+ * import { writeWorkbookFile } from 'xlvane/node';
+ *
+ * const workbook = createWorkbook();
+ * workbook.addSheet('Data').set('A1', 'Hello');
+ * await writeWorkbookFile(workbook, 'hello.xlsx');
+ * ```
+ */
+export async function writeWorkbookFile(workbook: NewWorkbook, path: string | URL, options?: WriteFileOptions): Promise<void> {
+  const overwrite = options?.overwrite ?? false;
+  if (typeof overwrite !== 'boolean') {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "overwrite" must be true or false.', {
+      hint: 'Pass { overwrite: true } to replace an existing file.',
+      details: { option: 'overwrite' },
+    });
+  }
+  const bytes = writeWorkbook(workbook);
+  const shown = describePath(path);
+  try {
+    // 'wx' fails if the path exists; 'w' creates or truncates (Node.js fs "File system flags", F-NODE-04).
+    await writeFile(path, bytes, { flag: overwrite ? 'w' : 'wx' });
+  } catch (error) {
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code: unknown }).code) : 'UNKNOWN';
+    if (code === 'EEXIST') {
+      throw new XlvError('XLV_E_FILE_EXISTS', `"${shown}" already exists.`, {
+        hint: 'Choose another path, or pass { overwrite: true } to replace the file.',
+        details: { path: shown },
+        cause: error,
+      });
+    }
+    throw new XlvError('XLV_E_FILE_WRITE', `Cannot write "${shown}" (${code}).`, {
+      hint:
+        code === 'ENOENT'
+          ? 'The directory does not exist. Create it first.'
+          : code === 'EACCES' || code === 'EPERM'
+            ? 'The process is not allowed to write there. Check the permissions.'
+            : 'Check that the directory exists and is writable.',
+      details: { path: shown, code },
+      cause: error,
+    });
+  }
 }

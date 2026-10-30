@@ -11,7 +11,7 @@ declare module 'node:fs/promises' {
   }
   export function readFile(path: string | URL): Promise<Uint8Array>;
   export function readFile(path: string | URL, encoding: 'utf8'): Promise<string>;
-  export function writeFile(path: string | URL, data: Uint8Array | string): Promise<void>;
+  export function writeFile(path: string | URL, data: Uint8Array | string, options?: { flag?: string }): Promise<void>;
   export function stat(path: string | URL): Promise<Stats>;
   export function readdir(path: string | URL): Promise<string[]>;
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;
@@ -50,4 +50,13 @@ declare module 'node:zlib' {
   export function crc32(data: Uint8Array | string, value?: number): number;
   export function deflateRawSync(data: Uint8Array, options?: { level?: number }): Uint8Array;
   export function inflateRawSync(data: Uint8Array): Uint8Array;
+}
+
+declare module 'node:child_process' {
+  /** https://nodejs.org/api/child_process.html#child_processspawnsynccommand-args-options (tests only). */
+  export function spawnSync(
+    command: string,
+    args: readonly string[],
+    options?: { timeout?: number; encoding?: 'utf8'; cwd?: string },
+  ): { status: number | null; stdout: string; stderr: string; error?: Error };
 }

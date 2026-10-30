@@ -1,5 +1,6 @@
 // Public types of the read model. A workbook read by `readWorkbook` is immutable.
 import type { XlvWarning } from './errors';
+import type { CellStyle } from './style';
 
 /** The kind of value a cell holds after reading. */
 export type CellType = 'number' | 'string' | 'boolean' | 'error' | 'date' | 'empty';
@@ -44,6 +45,35 @@ export interface Cell {
   readonly styleIndex: number;
   /** Number format code applied to the cell, or `null` for the General format. */
   readonly numFmt: string | null;
+  /**
+   * The cell's formatting: font, fill, border, alignment and number format. Parts that equal the
+   * workbook defaults are left out, so an unformatted cell has `{}`. Colours are 8-digit ARGB
+   * strings or theme/indexed objects. The object is frozen and shared by cells with the same
+   * formatting.
+   */
+  readonly style: CellStyle;
+}
+
+/** A `col` definition of a worksheet: width and visibility of columns `min` to `max` (1-based). */
+export interface ColumnInfo {
+  readonly min: number;
+  readonly max: number;
+  /** Width in characters, or `null` if the file does not set one. */
+  readonly width: number | null;
+  readonly hidden: boolean;
+}
+
+/** Height and visibility of a row. */
+export interface RowInfo {
+  /** Height in points, or `null` if the file does not set one. */
+  readonly height: number | null;
+  readonly hidden: boolean;
+}
+
+/** Rows at the top and columns at the left that stay visible when scrolling. */
+export interface FrozenPanes {
+  readonly rows: number;
+  readonly cols: number;
 }
 
 /** The kind of sheet, from the relationship that points at its part. */
@@ -76,6 +106,14 @@ export interface Sheet {
   readonly merges: readonly string[];
   /** Number of cells read from the sheet. */
   readonly cellCount: number;
+  /** Column definitions in file order. Columns without one have the default width. */
+  readonly columns: readonly ColumnInfo[];
+  /** Frozen rows and columns of the sheet's first view, or `null`. */
+  readonly freeze: FrozenPanes | null;
+  /** The autofilter range, for example `"A1:D100"`, or `null`. */
+  readonly autoFilter: string | null;
+  /** Height and visibility of a row (1-based), or `undefined` if the file sets neither. */
+  rowInfo(row: number): RowInfo | undefined;
   /** Returns the cell at an A1-style reference, or `undefined` if the file has none there. */
   cell(ref: string): Cell | undefined;
   /** Rows in ascending order; each row lists its cells in ascending column order. */

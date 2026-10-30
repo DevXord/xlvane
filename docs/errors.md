@@ -9,7 +9,7 @@ Codes are never reused for a different condition. New codes are added here first
 ## Errors
 
 ### XLV_E_INVALID_INPUT
-The input is not file contents: `readWorkbook` and `inspect` accept a `Uint8Array`, an `ArrayBuffer` (or another typed-array view) and, for `inspect`, a workbook returned by `readWorkbook`.
+The input is not what the function expects: `readWorkbook` and `inspect` accept a `Uint8Array`, an `ArrayBuffer` (or another typed-array view) and, for `inspect`, a workbook returned by `readWorkbook`.
 **Fix:** pass the bytes of the file. A path string is the most common mistake; in Node.js use `readWorkbookFile()` or `inspectFile()` from `xlvane/node`.
 
 ### XLV_E_INVALID_OPTION
@@ -89,16 +89,44 @@ A part exists but has the wrong structure: for example the workbook part's root 
 **Fix:** check that the file is an Excel workbook (not a Word or PowerPoint document) and re-save it in a spreadsheet application.
 
 ### XLV_E_INVALID_CELL_REF
-A cell or row reference is not valid or lies outside the sheet grid (A1 to XFD1048576). Thrown while reading a damaged worksheet, or by `sheet.cell(ref)` when `ref` is not an A1-style reference. `details.ref` holds the reference.
+A cell or row reference is not valid or lies outside the sheet grid (A1 to XFD1048576). Thrown while reading a damaged worksheet, by `sheet.cell(ref)` when `ref` is not an A1-style reference, and by the writer's `set`, `style`, `column`, `row`, `merge` and `autoFilter` for references, ranges, column letters or row numbers outside the grid. `details.ref` holds the reference.
 **Fix:** for files, re-save them in a spreadsheet application. For `sheet.cell()`, pass a reference such as `"B7"`.
 
 ### XLV_E_SHEET_NOT_FOUND
-`workbook.getSheet(name)` found no sheet with that name. Sheet names are compared exactly (case-sensitively). The hint suggests close matches and lists the available sheets; `details.available` holds the names.
+`workbook.getSheet(name)` (of a read or a new workbook) found no sheet with that name. Sheet names are compared exactly (case-sensitively). The hint suggests close matches and lists the available sheets; `details.available` holds the names.
 **Fix:** use one of the listed names, or iterate over `workbook.sheets`.
 
 ### XLV_E_FILE_READ
 `xlvane/node` could not read the file: it does not exist, is a directory, or cannot be read. `details.path` holds the path and `details.code` the operating-system error code (e.g. `ENOENT`).
 **Fix:** check the path and the file permissions.
+
+### XLV_E_INVALID_VALUE
+A value given to the writer cannot be stored in a cell: `NaN` or an infinite number, text longer than 32 767 characters (the Excel limit) or with an unpaired UTF-16 surrogate, an invalid `Date` or a date outside the workbook's date system (the 1900 system covers 1899-12-31 to 9999-12-31, the 1904 system 1904-01-01 to 9999-12-31), an unknown error value, an empty formula, a column width outside 0–255 or a row height outside 0–409. `location` names the sheet and cell.
+**Fix:** convert the value first, for example write it as text, or leave the cell empty.
+
+### XLV_E_INVALID_STYLE
+A style object has an unknown property (including `__proto__`), a wrong type or a value outside the allowed set, for example a colour that is not 6 or 8 hex digits or a border style Excel does not know. `details.property` is the path of the property, e.g. `font.color`; the hint lists the allowed values and suggests the closest one.
+**Fix:** correct the property; the allowed values are those of the `CellStyle` type.
+
+### XLV_E_INVALID_SHEET_NAME
+A sheet name is empty, longer than 31 characters, contains one of `\ / ? * : [ ]` or a control character, or starts or ends with an apostrophe.
+**Fix:** choose another name.
+
+### XLV_E_DUPLICATE_SHEET_NAME
+The workbook already has a sheet with this name. Names are compared ignoring upper and lower case. `details.existing` is the name of the existing sheet.
+**Fix:** choose another name, or get the existing sheet with `getSheet()`.
+
+### XLV_E_OVERLAPPING_MERGE
+A range passed to `merge()` shares cells with a range merged before. `details.other` is that range.
+**Fix:** merge ranges that do not overlap.
+
+### XLV_E_FILE_EXISTS
+`writeWorkbookFile` was asked to write to a path where a file already exists, and `overwrite` was not set. Nothing was written.
+**Fix:** choose another path, or pass `{ overwrite: true }` if the file should be replaced.
+
+### XLV_E_FILE_WRITE
+`writeWorkbookFile` could not write the file. `details.code` is the operating-system error code, for example `ENOENT` when the directory does not exist or `EACCES` when writing is not permitted.
+**Fix:** check that the directory exists and is writable.
 
 ## Warnings
 

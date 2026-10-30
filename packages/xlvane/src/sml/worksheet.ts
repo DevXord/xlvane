@@ -3,7 +3,7 @@
 // §18.3.1.35 dimension; docs/facts/ecma-376.md E-20 … E-39).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Cell, CellType, CellValue, Conformance, DateSystem, Formula, FormulaKind } from '../model';
+import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RowInfo } from '../model';
 import type { WarningCollector } from '../util/warnings';
 import { parseXml } from '../xml/parser';
 import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange } from './cell-ref';
@@ -49,6 +49,14 @@ export interface WorksheetData {
   readonly dimension: string | null;
   readonly merges: string[];
   readonly cellCount: number;
+  /** `col` elements in file order (W2-03). */
+  readonly columns: ColumnInfo[];
+  /** Rows with a height or hidden flag (W2-04). */
+  readonly rowInfo: Map<number, RowInfo>;
+  /** Frozen panes of the first sheet view (W2-05). */
+  readonly freeze: FrozenPanes | null;
+  /** `autoFilter@ref` (W2-06). */
+  readonly autoFilter: string | null;
 }
 
 const FORMULA_KINDS: readonly FormulaKind[] = ['normal', 'shared', 'array', 'dataTable'];
@@ -122,6 +130,11 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
   let ns: string | null = null;
   let dimension: string | null = null;
   let cellCount = 0;
+  const columns: ColumnInfo[] = [];
+  const rowInfo = new Map<number, RowInfo>();
+  let freeze: FrozenPanes | null = null;
+  let autoFilter: string | null = null;
+  let sheetViews = 0;
   let currentRow = 0;
   let lastCol = 0;
   let cell: PendingCell | null = null;
@@ -267,7 +280,8 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       const ref = p.formulaAttrs.get('ref') ?? null;
       // A formula is shared only when both t="shared" and si are present (E-28).
       if (kind === 'shared' && sharedIndex === null) kind = 'normal';
-      let text: string | null = p.formulaText;
+      // ST_Formula is an ST_Xstring (W2-02), so _xHHHH_ escapes are decoded.
+      let text: string | null = decodeXstring(p.formulaText);
       if (kind === 'shared' && ref === null) {
         // A dependent cell of a shared formula: its own text, if any, is ignored (E-28).
         text = null;
@@ -305,7 +319,17 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       }
       cellCount++;
     }
-    rowCells.set(p.col, { ref: p.ref, row: p.row, col: p.col, type, value, formula, styleIndex: p.styleIndex, numFmt: format.code });
+    rowCells.set(p.col, {
+      ref: p.ref,
+      row: p.row,
+      col: p.col,
+      type,
+      value,
+      formula,
+      styleIndex: p.styleIndex,
+      numFmt: format.code,
+      style: ctx.styles.cellStyle(p.styleIndex, format.code),
+    });
   };
 
   parseXml(
@@ -349,6 +373,20 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
           const range = parseRange(ref);
           if (range === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The merged range "${ref.slice(0, 40)}" is not a valid range.`, loc());
           else merges.push(formatRange(range));
+        } else if (depth === 2 && local === 'autoFilter') {
+          const ref = attrs.get('ref');
+          const range = ref === undefined ? null : parseRange(ref);
+          if (range === null) {
+            if (ref !== undefined) ctx.warnings.add('XLV_W_INVALID_VALUE', `The autofilter range "${ref.slice(0, 40)}" is not a valid range.`, loc());
+          } else autoFilter = formatRange(range);
+        } else if (depth === 3 && local === 'sheetView' && parent === 'sheetViews') {
+          sheetViews++;
+        } else if (depth === 4 && local === 'pane' && parent === 'sheetView' && sheetViews === 1) {
+          freeze = parsePane(attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+        } else if (depth === 3 && local === 'col' && parent === 'cols') {
+          const col = parseColumn(attrs);
+          if (col === null) ctx.warnings.add('XLV_W_INVALID_VALUE', 'A column definition (col) has invalid min, max or width attributes; it is ignored.', loc());
+          else columns.push(col);
         } else if (depth === 3 && local === 'row' && parent === 'sheetData') {
           const r = attrs.get('r');
           if (r === undefined) currentRow++;
@@ -359,6 +397,15 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
           }
           if (currentRow > MAX_ROWS) invalidRef(String(currentRow), 'Row number');
           lastCol = 0;
+          const ht = attrs.get('ht');
+          const height = ht === undefined ? null : parseXsdDouble(ht);
+          const hiddenRaw = attrs.get('hidden');
+          const hidden = hiddenRaw === undefined ? false : parseXsdBoolean(hiddenRaw) === true;
+          if (ht !== undefined && (height === null || height < 0)) {
+            ctx.warnings.add('XLV_W_INVALID_VALUE', `The row height "${ht.slice(0, 20)}" is not a valid number; it is ignored.`, loc());
+          }
+          const validHeight = height !== null && height >= 0 ? height : null;
+          if (validHeight !== null || hidden) rowInfo.set(currentRow, { height: validHeight, hidden });
         } else if (depth === 4 && local === 'c' && parent === 'row' && path[1] === 'sheetData') {
           const r = attrs.get('r');
           let row = currentRow;
@@ -423,7 +470,42 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
     },
     { part: ctx.part, limits: ctx.limits },
   );
-  return { rows, dimension, merges, cellCount };
+  return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter };
+}
+
+/** Parses a `col` element (CT_Col, W2-03); `null` if min/max are missing or out of range. */
+function parseColumn(attrs: ReadonlyMap<string, string>): ColumnInfo | null {
+  const min = parseUint(attrs.get('min') ?? '', 5);
+  const max = parseUint(attrs.get('max') ?? '', 5);
+  if (min === null || max === null || min < 1 || max < min || max > MAX_COLUMNS) return null;
+  const rawWidth = attrs.get('width');
+  const width = rawWidth === undefined ? null : parseXsdDouble(rawWidth);
+  if (rawWidth !== undefined && (width === null || width < 0)) return null;
+  const hidden = attrs.get('hidden');
+  return { min, max, width, hidden: hidden !== undefined && parseXsdBoolean(hidden) === true };
+}
+
+/**
+ * Reads frozen panes from a `pane` element (CT_Pane, W2-05): only the states `frozen` and
+ * `frozenSplit` freeze rows and columns; xSplit and ySplit then count the frozen columns and rows.
+ */
+function parsePane(attrs: ReadonlyMap<string, string>, warn: (message: string) => void): FrozenPanes | null {
+  const state = attrs.get('state') ?? 'split';
+  if (state !== 'frozen' && state !== 'frozenSplit') return null;
+  const count = (name: string, max: number): number | null => {
+    const raw = attrs.get(name);
+    if (raw === undefined) return 0;
+    const n = parseXsdDouble(raw);
+    if (n === null || !Number.isInteger(n) || n < 0 || n >= max) {
+      warn(`The frozen pane attribute ${name}="${raw.slice(0, 20)}" is not a valid count; the frozen panes are ignored.`);
+      return null;
+    }
+    return n;
+  };
+  const cols = count('xSplit', MAX_COLUMNS);
+  const rows = count('ySplit', MAX_ROWS);
+  if (cols === null || rows === null || (rows === 0 && cols === 0)) return null;
+  return { rows, cols };
 }
 
 function formatCellRefSafe(row: number, col: number): string {

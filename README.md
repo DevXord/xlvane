@@ -1,6 +1,6 @@
 # xlvane
 
-An MIT-licensed library for reading (and, in later phases, writing) XLSX files, designed for input from untrusted sources.
+An MIT-licensed library for reading and writing XLSX files, designed for input from untrusted sources.
 
 **Status:** early development, nothing is published to npm yet. The work follows [docs/PLAN.md](docs/PLAN.md) phase by phase; see [docs/CHANGELOG-dev.md](docs/CHANGELOG-dev.md) for what is done.
 
@@ -8,7 +8,7 @@ An MIT-licensed library for reading (and, in later phases, writing) XLSX files, 
 
 | Package | Contents | Runtime dependencies |
 |---|---|---|
-| [`xlvane`](packages/xlvane) | Core library: safe reading and `inspect()` (writing is planned) | `fflate` |
+| [`xlvane`](packages/xlvane) | Core library: safe reading, `inspect()`, writing with styles | `fflate` |
 | [`@xlvane/exceljs`](packages/exceljs) | exceljs-compatible API (phase 5, not implemented) | `xlvane` |
 | [`@xlvane/mcp`](packages/mcp) | MCP server (phase 7, not implemented) | `xlvane` |
 

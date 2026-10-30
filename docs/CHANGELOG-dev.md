@@ -2,6 +2,17 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 2: writing and styles (2026-10-30)
+
+- **Public API** (`xlvane`): `createWorkbook({ dateSystem })`, `NewWorkbook` (`addSheet`, `getSheet`, `sheets`), `NewSheet` (`set`, `style`, `column`, `row`, `merge`, `freeze`, `autoFilter`), `writeWorkbook()`, `ERROR_VALUES` and the style types (`CellStyle`, `FontStyle`, `FillStyle`, `BorderStyle`, `AlignmentStyle`, `Color`, …). `xlvane/node`: `writeWorkbookFile(workbook, path, { overwrite })`, which never replaces a file unless asked (exclusive create).
+- **Writer**: several sheets with visibility; numbers, strings (shared string table), booleans, errors, dates (serials with a date format, 1900 and 1904 systems), formula text with cached results; fonts, fills, borders, alignment and number formats, deduplicated; column widths, hidden columns, row heights, hidden rows, merges, frozen panes, autofilter. Deterministic output (D-202). XML escaping and the ST_Xstring `_xHHHH_` encoding are the exact inverses of the reader's rules.
+- **Reader additions** (D-211): `cell.style`, `sheet.columns`, `sheet.rowInfo()`, `sheet.freeze`, `sheet.autoFilter`; formula text is decoded as ST_Xstring.
+- **Validation**: 7 new error codes (`XLV_E_INVALID_VALUE`, `XLV_E_INVALID_STYLE`, `XLV_E_INVALID_SHEET_NAME`, `XLV_E_DUPLICATE_SHEET_NAME`, `XLV_E_OVERLAPPING_MERGE`, `XLV_E_FILE_EXISTS`, `XLV_E_FILE_WRITE`) in docs/errors.md; hints list allowed values and suggest close matches.
+- **Tests**: writer unit tests, round trips (write, read, compare) for values, dates, formulas, styles and layout, property-based round trips, writer security tests (prototype keys in styles, getters, sheet names such as `__proto__`, markup in formula text), ZIP and XML writer tests, and a LibreOffice test (D-209) that converts written files to CSV and back to XLSX with `soffice --headless` and checks values, styles and layout. Final run on Node.js 22.22.0 with LibreOffice 24.2.7.2: `npm test` 521 passed (4 todo: corpus files not supplied yet), `npm run fuzz` 31 properties passed, `npm run typecheck` and `npm run check:pkg` passed.
+- **Package**: size budget 70 kB gzip, measured 58.4 kB, enforced by `check:pkg` (D-208); CI workflow for Node.js 22/24/26 with LibreOffice, actions pinned to SHAs (D-210).
+- **Facts**: docs/facts/sml-write.md. Many writer facts are PROVISIONAL because the ECMA-376 documents could not be downloaded in the cloud session (D-203); they must be checked when the maintainer supplies them.
+- **Not done in this phase**: verification of the provisional facts against ECMA-376 and [MS-OI29500]; converting a read workbook into a writable one (phase 3, `editCells`); rich text, hyperlinks, comments, conditional formatting, column default styles; ZIP64 writing (phase 4); TSDoc example compilation test (phase 3).
+
 ## Phase 1: safe reading and `inspect()` (2026-10-30)
 
 - **Public API** (`xlvane`): `readWorkbook(bytes, { limits })`, `inspect(input, options)`, `XlvError`/`isXlvError`, `ERROR_CODES`, `WARNING_CODES`, `DEFAULT_READ_LIMITS` and the model types. `xlvane/node`: `readWorkbookFile(path)`, `inspectFile(path)`.
