@@ -220,3 +220,27 @@ describe('tables move with their rows (TD-11)', () => {
     expect(codeOf(() => deleteRows(bytes, { sheet: 'S', at: 4, count: 3 }))).toBe('XLV_E_NOT_SUPPORTED');
   });
 });
+
+describe('review fixes (D-D05)', () => {
+  function tableBook(): Uint8Array {
+    const wb = createWorkbook();
+    wb.addSheet('S').addTable({ name: 'Sales', ref: 'A3', totalsRow: true, columns: [{ name: 'R', totalsRowLabel: 'Total' }, { name: 'V', totalsRowFunction: 'sum' }], rows: [['a', 1], ['b', 2], ['c', 3]] });
+    return writeWorkbook(wb);
+  }
+
+  it('derives a table filter from the new table range when rows are inserted above its totals row', () => {
+    const t = readWorkbook(insertRows(tableBook(), { sheet: 'S', at: 7 }).bytes).getSheet('S').tables[0];
+    expect([t?.ref, t?.autoFilter]).toEqual(['A3:B8', 'A3:B7']);
+  });
+
+  it('moves sortState ranges with their rows and refuses custom sheet views', () => {
+    const sheet = (extra: string): Uint8Array => buildXlsx({ sheets: [{ name: 'S', data: row(1, c('A1', 0)) + row(2, c('A2', 2)) + row(3, c('A3', 1)), after: extra }] });
+    const sorted = sheet('<autoFilter ref="A1:A3"><sortState ref="A2:A3"><sortCondition ref="A2:A3"/></sortState></autoFilter><sortState ref="A2:A3"><sortCondition descending="1" ref="A2:A3"/></sortState>');
+    const out = part(insertRows(sorted, { sheet: 'S', at: 2 }).bytes, 'xl/worksheets/sheet1.xml');
+    expect(out).toContain('<autoFilter ref="A1:A4"><sortState ref="A3:A4"><sortCondition ref="A3:A4"/></sortState></autoFilter>');
+    expect(out).toContain('<sortState ref="A3:A4"><sortCondition descending="1" ref="A3:A4"/></sortState>');
+    expect(part(deleteRows(sorted, { sheet: 'S', at: 2 }).bytes, 'xl/worksheets/sheet1.xml')).toContain('<sortState ref="A2:A2"><sortCondition descending="1" ref="A2:A2"/></sortState>');
+    const views = sheet('<customSheetViews><customSheetView guid="{00000000-0000-0000-0000-000000000001}"/></customSheetViews>');
+    expect(codeOf(() => insertRows(views, { sheet: 'S', at: 2 }))).toBe('XLV_E_NOT_SUPPORTED');
+  });
+});

@@ -196,3 +196,10 @@ describe('writing hyperlinks', () => {
     expectXlvError(() => sheet.link('A1', JSON.parse('{"__proto__": {"url": "x"}, "location": "S!A1"}') as never), 'XLV_E_INVALID_HYPERLINK', { property: '__proto__' });
   });
 });
+
+describe('review fixes (D-D05)', () => {
+  it('refuses URLs with characters that a relationship target cannot carry', () => {
+    const s = createWorkbook().addSheet('S');
+    for (const url of ['https://e.com/￿', 'https://e.com/￾', 'https://e.com/a b\tc', 'https://e.com/\n']) expectXlvError(() => s.link('A1', { url }), 'XLV_E_INVALID_HYPERLINK');
+  });
+});

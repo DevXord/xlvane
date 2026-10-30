@@ -27,7 +27,7 @@ import {
   type SheetProtectionOptions,
   type WorkbookProtectionOptions,
 } from './printing';
-import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
+import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, formatRange, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
 import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type NormalizedColor, type NormalizedStyle } from './style';
@@ -728,7 +728,16 @@ export class NewSheet {
    * ```
    */
   autoFilter(range: string | null): this {
-    this.filter = range === null ? null : this.range(range);
+    const filter = range === null ? null : this.range(range);
+    const table = filter === null ? undefined : this.tableList.find((t) => rangesOverlap(t.range, filter));
+    if (filter !== null && table !== undefined) {
+      throw new XlvError('XLV_E_INVALID_OPTION', `The filter ${formatRange(filter)} overlaps table "${table.name}" (${formatRange(table.range)}).`, {
+        location: { sheet: this.name },
+        hint: 'A table has its own filter, and the sheet filter must not share cells with a table ([MS-OI29500] §2.1.680 h); filter a range outside the table.',
+        details: { option: 'autoFilter', table: table.name },
+      });
+    }
+    this.filter = filter;
     return this;
   }
 
@@ -1430,6 +1439,9 @@ export class NewWorkbook {
       if (rangesOverlap(t.range, other.range)) {
         throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps table "${other.name}" (${ref(other.range)}).`, { location: where, hint: 'Tables must not share cells ([MS-OI29500] §2.1.680 h); move one of them.', details: { name: t.name } });
       }
+    }
+    if (sheet.filter !== null && rangesOverlap(t.range, sheet.filter)) {
+      throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps the sheet filter ${ref(sheet.filter)}.`, { location: where, hint: 'A table has its own filter, and the sheet filter must not share cells with a table ([MS-OI29500] §2.1.680 h); remove the sheet filter (autoFilter(null)) or move the table.', details: { name: t.name } });
     }
     for (const m of sheet.mergeList) {
       if (rangesOverlap(t.range, m)) {

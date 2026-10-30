@@ -210,3 +210,24 @@ describe('readTable by table name, inspect and editing', () => {
     expect(parts(edited)['xl/tables/table1.xml']).toBe(parts(bytes)['xl/tables/table1.xml']);
   });
 });
+
+describe('review fixes (D-D05)', () => {
+  const table = { name: 'T', ref: 'A1', columns: [{ name: 'A' }, { name: 'B' }], rows: [[1, 2]] };
+
+  it('refuses a table that overlaps the sheet filter, in either order and in the streaming writer', () => {
+    const one = createWorkbook().addSheet('S');
+    one.addTable(table);
+    expectXlvError(() => one.autoFilter('A1:A5'), 'XLV_E_INVALID_OPTION');
+    one.autoFilter('D1:E3');
+    const two = createWorkbook().addSheet('S');
+    two.autoFilter('A1:A5');
+    expectXlvError(() => two.addTable(table), 'XLV_E_INVALID_TABLE');
+    expectXlvError(() => writeWorkbookStream({ sheets: [{ name: 'S', autoFilter: true, tables: [{ name: 'T', ref: 'A1:B2', columns: [{ name: 'A' }, { name: 'B' }] }], rows: [['A', 'B'], [1, 2]] }] }), 'XLV_E_INVALID_TABLE');
+  });
+
+  it('refuses table names equal to built-in names', () => {
+    for (const name of ['Print_Area', 'print_titles', '_xlnm.Print_Area', 'Criteria', 'Extract', 'Database']) {
+      expectXlvError(() => createWorkbook().addSheet('S').addTable({ ...table, name }), 'XLV_E_INVALID_TABLE');
+    }
+  });
+});

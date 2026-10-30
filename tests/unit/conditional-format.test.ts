@@ -182,3 +182,15 @@ describe('writing conditional formatting', () => {
     expect(readWorkbook(deleted.bytes).getSheet('S').conditionalFormats[0]?.sqref).toBe('A2:A5');
   });
 });
+
+describe('review fixes (D-D05)', () => {
+  it('refuses rule text that XML cannot carry and keeps other text as written (xsd:string)', () => {
+    const rule = (text: string) => [{ type: 'containsText' as const, operator: 'containsText' as const, text, formulas: ['NOT(ISERROR(SEARCH("a",A1)))'], style: { font: { bold: true } } }];
+    for (const bad of ['a\u0001b', 'a\uFFFEb', 'a\uD800b']) expectXlvError(() => createWorkbook().addSheet('S').conditionalFormat('A1:A3', rule(bad)), 'XLV_E_INVALID_OPTION');
+    const wb = createWorkbook();
+    wb.addSheet('S').conditionalFormat('A1:A3', rule('a_x0041_b\tc'));
+    const bytes = writeWorkbook(wb);
+    expect(part(bytes, 'xl/worksheets/sheet1.xml')).toContain('text="a_x0041_b&#9;c"');
+    expect(readWorkbook(bytes).getSheet('S').conditionalFormats[0]?.rules[0]?.text).toBe('a_x0041_b\tc');
+  });
+});

@@ -149,3 +149,12 @@ describe('protecting with a password', () => {
     expect(strFromU8(unzipSync(writeWorkbook(wb))['xl/workbook.xml']!)).not.toContain('workbookProtection');
   });
 });
+
+describe('review fixes (D-D05)', () => {
+  it('rejects a verifier whose hash length does not match the algorithm before spinning', () => {
+    const started = performance.now();
+    const bad = { algorithmName: 'SHA-512', hashValue: 'AAAA', saltValue: SALT, spinCount: 10_000_000 };
+    expect(verifyPassword(bad, 'secret')).toBe(false);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+});

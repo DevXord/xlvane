@@ -257,8 +257,10 @@ function verifierOf(v: PasswordVerifier | SheetProtection | WorkbookProtection):
  * recomputed per [MS-OFFCRYPTO] §2.4.2.4; as [MS-XLSX] §2.6.56 and [MS-XLSB] §2.2.10 require,
  * the variant that hashes the 16-bit legacy verifier as a single character is tried too
  * (SR-56). A legacy `password` is compared as stored, in either byte order. Returns `false` when
- * there is no verifier. A check helper only: xlvane does not need passwords to read or edit
- * protected sheets.
+ * there is no verifier, or when the stored hash has the wrong length for its algorithm. A check
+ * helper only: xlvane does not need passwords to read or edit protected sheets. Cost: a strong
+ * verifier is hashed `spinCount + 1` times, twice for a wrong password (the two variants); a
+ * file may ask for up to 10,000,000 iterations, which takes minutes in plain JavaScript.
  *
  * @example
  * ```ts
@@ -283,7 +285,10 @@ export function verifyPassword(verifier: PasswordVerifier | SheetProtection | Wo
     const salt = typeof v.saltValue === 'string' ? fromBase64(v.saltValue) : new Uint8Array(0);
     const expected = fromBase64(v.hashValue);
     const spin = v.spinCount ?? 0;
-    if (salt === null || expected === null || !Number.isInteger(spin) || spin < 0 || spin > MAX_SPIN || salt.length > MAX_SALT) return false;
+    // A hash whose length is not the algorithm's digest length can never match, so it is
+    // rejected before any hashing (D-D05): a file may ask for up to 10,000,000 iterations.
+    const digest = { 'SHA-1': 20, 'SHA-256': 32, 'SHA-384': 48, 'SHA-512': 64 }[algorithm];
+    if (salt === null || expected === null || expected.length !== digest || !Number.isInteger(spin) || spin < 0 || spin > MAX_SPIN || salt.length > MAX_SALT) return false;
     const p = password.startsWith('\uFEFF') ? password.slice(1) : password;
     const same = (h: Uint8Array): boolean => h.length === expected.length && h.every((b, i) => b === expected[i]);
     if (same(isoHash(algorithm, salt, passwordBytes(p), spin))) return true;

@@ -90,8 +90,10 @@ export function normalizeHyperlink(value: unknown, where: { sheet: string; cell:
       throw invalid(`The hyperlink property "${k}" for ${where.cell} has ${String(v.length)} characters; at most ${String(MAX_LENGTH[k])} are allowed.`, where, `Shorten "${k}" to ${String(MAX_LENGTH[k])} characters or fewer.`, k);
     }
     if (firstLoneSurrogate(v) !== -1) throw invalid(`The hyperlink property "${k}" for ${where.cell} contains an unpaired surrogate.`, where, 'Remove the broken character.', k);
-    if (k === 'url' && (v === '' || /[\x00-\x1F\x7F]/.test(v))) {
-      throw invalid(`The hyperlink URL for ${where.cell} is empty or contains control characters.`, where, 'Pass the address as text, for example url: "https://example.com".', k);
+    // The URL becomes a relationship Target (xsd:anyURI, written as is): control characters
+    // including tab, LF and CR, and U+FFFE/U+FFFF, which XML cannot carry, are refused (D-D05).
+    if (k === 'url' && (v === '' || /[\x00-\x1F\x7F\uFFFE\uFFFF]/.test(v))) {
+      throw invalid(`The hyperlink URL for ${where.cell} is empty or contains control characters or non-characters.`, where, 'Pass the address as text, for example url: "https://example.com"; percent-encode unusual characters.', k);
     }
     out[k] = v;
   }

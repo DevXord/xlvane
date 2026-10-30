@@ -231,8 +231,16 @@ function checkTableName(value: unknown, what: string, sheet: string): string {
   if (!NAME_RE.test(value) || firstLoneSurrogate(value) !== -1 || upper === 'TRUE' || upper === 'FALSE' || A1_NAME_RE.test(value) || R1C1_NAME_RE.test(value)) {
     throw invalidTable(sheet, `"${value.slice(0, 40)}" is not a valid table ${what}.`, `${hint} It must not read as a cell reference such as "A1" or "R1C1".`, { name: value.slice(0, 40) });
   }
+  // The built-in names of P1 §18.2.5 (W2-06), with or without `_xlnm.`, are refused so a table
+  // cannot be confused with a print area or filter name (D-D05).
+  if (BUILT_IN_NAMES.has(upper.replace(/^_XLNM\./, '')) || upper.startsWith('_XL')) {
+    throw invalidTable(sheet, `"${value.slice(0, 40)}" is a built-in name of Excel and cannot name a table.`, `${hint} Built-in names such as Print_Area, Print_Titles, Criteria or Database are reserved.`, { name: value.slice(0, 40) });
+  }
   return value;
 }
+
+/** The built-in defined names of ECMA-376 Part 1 §18.2.5 without the `_xlnm.` prefix (W2-06), upper case. */
+const BUILT_IN_NAMES = new Set(['PRINT_AREA', 'PRINT_TITLES', 'CRITERIA', '_FILTERDATABASE', 'EXTRACT', 'CONSOLIDATE_AREA', 'DATABASE', 'SHEET_TITLE']);
 
 function text(value: unknown, sheet: string, what: string, max: number): string {
   if (typeof value !== 'string' || value.length > max || firstLoneSurrogate(value) !== -1) {

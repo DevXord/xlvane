@@ -345,6 +345,15 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       autoFilter = sheet.filter ?? false;
     } else if (typeof filter === 'boolean') autoFilter = filter;
     else throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].autoFilter must be true, false or a range.`, { hint: 'Use autoFilter: true for a filter over all rows.', details: { option: 'autoFilter' } });
+    // autoFilter: true covers every used cell, so it would always overlap a table of the sheet
+    // ([MS-OI29500] §2.1.680 h, D-D05).
+    if (autoFilter === true && sheet.tableList.length > 0) {
+      throw new XlvError('XLV_E_INVALID_TABLE', `sheets[${String(i)}] has autoFilter: true and tables; the filter would cover the table "${sheet.tableList[0]!.name}".`, {
+        location: { sheet: sheet.name },
+        hint: 'Tables have their own filters. Remove autoFilter, or give it a range outside the tables.',
+        details: { name: sheet.tableList[0]!.name },
+      });
+    }
     const rows = s.get('rows');
     if (!isIterable(rows)) {
       throw new XlvError('XLV_E_TABLE_INVALID', `sheets[${String(i)}].rows is not an iterable.`, { hint: 'Pass an array, a generator or an async iterable of rows.', details: { row: 0 } });

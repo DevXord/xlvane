@@ -254,3 +254,70 @@ describe('inserting and deleting rows moves pictures (TD-38)', () => {
     expectXlvError(() => insertRows(chart, { sheet: 'Report', at: 1 }), 'XLV_E_NOT_SUPPORTED');
   });
 });
+
+describe('review fixes (D-D05)', () => {
+  const twoCell = (bytes: Uint8Array): string[] =>
+    readWorkbook(bytes).getSheet('S').images.map((i) => (i.anchor.type === 'twoCell' ? `${i.anchor.from.cell}:${i.anchor.to.cell}` : '?'));
+  function book(): Uint8Array {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    s.addImage(wb.addImage(PNG), 'H2:J6');
+    return writeWorkbook(wb);
+  }
+
+  it('does not grow a picture whose bottom edge is on the boundary when rows are inserted just below it', () => {
+    const before = twoCell(book());
+    const inserted = insertRows(book(), { sheet: 'S', at: 7, count: 3 }).bytes;
+    expect(twoCell(inserted)).toEqual(before);
+    expect(twoCell(deleteRows(inserted, { sheet: 'S', at: 7, count: 3 }).bytes)).toEqual(before);
+    expect(twoCell(deleteRows(book(), { sheet: 'S', at: 8 }).bytes)).toEqual(before);
+    expect(twoCell(insertRows(book(), { sheet: 'S', at: 6 }).bytes)).toEqual(['H2:K8']);
+  });
+
+  it('refuses names, descriptions and links that XML or a URI cannot carry', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    const img = wb.addImage(PNG);
+    for (const bad of ['x￾y', 'x￿y', 'x\uD800y']) {
+      expectXlvError(() => s.addImage(img, 'A1:B2', { description: bad }), 'XLV_E_INVALID_OPTION');
+      expectXlvError(() => s.addImage(img, 'A1:B2', { name: bad }), 'XLV_E_INVALID_OPTION');
+      expectXlvError(() => s.addImage(img, 'A1:B2', { hyperlink: `https://e.com/${bad}` }), 'XLV_E_INVALID_OPTION');
+    }
+    expectXlvError(() => s.addImage(img, 'A1:B2', { hyperlink: 'https://e.com/a\tb' }), 'XLV_E_INVALID_OPTION');
+    s.addImage(img, 'A1:B2', { name: 'Logo\tline', description: 'two\nlines' });
+    expect(readWorkbook(writeWorkbook(wb)).getSheet('S').images[0]?.description).toBe('two\nlines');
+  });
+
+  it('keeps pictures that reach the last column or row readable', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    const img = wb.addImage(PNG);
+    s.addImage(img, 'XFC1:XFD2');
+    s.addImage(img, 'A1048575:B1048576');
+    const bytes = writeWorkbook(wb);
+    expect(parts(bytes)['xl/drawings/drawing1.xml']).not.toMatch(/<xdr:col>16384<|<xdr:row>1048576</);
+    // The `to` marker is exclusive (its cell is the one after the range) except at the last column
+    // or row, where it is that column or row with a full-width or full-height offset.
+    const read = readWorkbook(bytes).getSheet('S').images.map((i) => (i.anchor.type === 'twoCell' ? [i.anchor.from.cell, i.anchor.to.cell, i.anchor.to.colOffset, i.anchor.to.rowOffset] : []));
+    expect(read).toEqual([
+      ['XFC1', 'XFD3', 64 * 9525, 0],
+      ['A1048575', 'C1048576', 0, 20 * 9525],
+    ]);
+  });
+
+  it('refuses sizes that round to 0 EMU', () => {
+    const wb = createWorkbook();
+    const img = wb.addImage(PNG);
+    expectXlvError(() => wb.addSheet('S').addImage(img, { from: 'A1', size: { width: 1e-9, height: 10 } }), 'XLV_E_INVALID_OPTION');
+  });
+
+  it('scans malformed drawings in linear time when rows move', () => {
+    const wb = createWorkbook();
+    wb.addSheet('S').addImage(wb.addImage(PNG), 'H2:J6');
+    const bad = patch(writeWorkbook(wb), (name, text) => (name === 'xl/drawings/drawing1.xml' ? text.replace('</xdr:wsDr>', '<xdr:twoCellAnchor/>'.repeat(40_000) + '</xdr:wsDr>') : text));
+    const started = performance.now();
+    expectXlvError(() => insertRows(bad, { sheet: 'S', at: 1 }), 'XLV_E_NOT_SUPPORTED');
+    // A regular expression over the whole part needed about 5 s here (quadratic); the scanner is linear.
+    expect(performance.now() - started).toBeLessThan(1500);
+  });
+});

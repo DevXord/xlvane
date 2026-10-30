@@ -10,7 +10,7 @@ import type { OpcPackage, Relationship } from './opc/package';
 import { formatCellRef, parseCellRef, parseRange } from './sml/cell-ref';
 import { classifyRelationship, PACKAGE_REL_NS, REL_NS } from './sml/namespaces';
 import { childNamed, parseXmlTree, type XmlElement } from './xml/tree';
-import { escapeAttr } from './xml/writer';
+import { escapeAttr, firstLoneSurrogate } from './xml/writer';
 
 /**
  * Image formats xlvane writes and recognises (maintainer's decision, D-D03).
@@ -419,8 +419,13 @@ export function normalizeImage(image: number, count: number, anchor: unknown, op
     for (const [key, value] of Object.entries(options)) {
       if (key !== 'name' && key !== 'description' && key !== 'hyperlink') throw invalid(`Unknown image option "${key.slice(0, 40)}".`, 'Use name, description or hyperlink.', { option: key.slice(0, 40) });
       if (value === undefined) continue;
-      if (typeof value !== 'string' || value.length > 2084 || /[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value) || (key !== 'description' && value === '')) {
-        throw invalid(`The image option "${key}" must be a text of 1 to 2084 characters without control characters.`, key === 'hyperlink' ? 'For example hyperlink: "https://example.com".' : 'For example name: "Logo".', { option: key });
+      // name and description are xsd:string (no _x escape): characters XML 1.0 cannot carry
+      // (control characters other than tab, LF and CR, U+FFFE, U+FFFF, lone surrogates) are
+      // refused. A hyperlink is a relationship target (a URI): tab, LF and CR are refused too
+      // (D-D05).
+      const control = key === 'hyperlink' ? /[\u0000-\u001f\u007f\ufffe\uffff]/ : /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/;
+      if (typeof value !== 'string' || value.length > 2084 || control.test(value) || firstLoneSurrogate(value) !== -1 || (key !== 'description' && value === '')) {
+        throw invalid(`The image option "${key}" must be a text of 1 to 2084 characters without control or non-characters.`, key === 'hyperlink' ? 'For example hyperlink: "https://example.com".' : 'For example name: "Logo".', { option: key });
       }
       if (key === 'name') name = value;
       else if (key === 'description') description = value;
@@ -466,8 +471,8 @@ function checkAnchor(anchor: unknown): void {
   } else {
     if (o['editAs'] !== undefined) throw invalid('editAs applies to pictures with two corners only.', 'Use { from, to, editAs } or leave editAs out.', { option: 'editAs' });
     const s = o['size'] as { width?: unknown; height?: unknown } | null;
-    const ok = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && v > 0 && v * EMU_PER_PIXEL <= MAX_COORDINATE;
-    if (typeof s !== 'object' || s === null || !ok(s.width) || !ok(s.height)) throw invalid('The picture size must be { width, height } in pixels, both above 0.', 'For example size: { width: 160, height: 90 }.', { option: 'size' });
+    const ok = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && Math.round(v * EMU_PER_PIXEL) >= 1 && v * EMU_PER_PIXEL <= MAX_COORDINATE;
+    if (typeof s !== 'object' || s === null || !ok(s.width) || !ok(s.height)) throw invalid('The picture size must be { width, height } in pixels, both at least 1 EMU (1/9525 pixel).', 'For example size: { width: 160, height: 90 }.', { option: 'size' });
   }
 }
 
@@ -511,7 +516,12 @@ export function resolveImage(s: StoredImage, m: SheetMetrics): ResolvedImage {
   const anchor = s.anchor;
   if (typeof anchor === 'string') {
     const range = parseRange(anchor.trim().toUpperCase())!;
-    return { ...base, from: { col: range.start.col - 1, row: range.start.row - 1, colOff: 0, rowOff: 0 }, to: { col: range.end.col, row: range.end.row, colOff: 0, rowOff: 0 }, ext: null, editAs: null };
+    // The exclusive `to` marker is the start of the next column and row; at the last column or
+    // row (beyond the marker limits, TD-32) it is the start of that column or row plus its full
+    // width or height (D-D05).
+    const toCol = range.end.col > MAX_MARKER_COL ? { col: MAX_MARKER_COL, colOff: m.colPixels(MAX_MARKER_COL) * EMU_PER_PIXEL } : { col: range.end.col, colOff: 0 };
+    const toRow = range.end.row > MAX_MARKER_ROW ? { row: MAX_MARKER_ROW, rowOff: m.rowPixels(MAX_MARKER_ROW) * EMU_PER_PIXEL } : { row: range.end.row, rowOff: 0 };
+    return { ...base, from: { col: range.start.col - 1, row: range.start.row - 1, colOff: 0, rowOff: 0 }, to: { ...toCol, ...toRow }, ext: null, editAs: null };
   }
   const from = toMarker(position(anchor.from, 'from'), m);
   if ('to' in anchor && anchor.to !== undefined) return { ...base, from, to: toMarker(position(anchor.to, 'to'), m), ext: null, editAs: anchor.editAs ?? null };

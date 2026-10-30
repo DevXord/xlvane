@@ -864,6 +864,11 @@ export function normalizeCfRule(rule: unknown, index: number, where: Where): Omi
     timePeriod = enumValue(o.get('timePeriod'), TIME_PERIODS, `${what}.timePeriod`, where);
   } else only('timePeriod', ['timePeriod']);
   const text = only('text', CF_TEXT_TYPES) ? textValue(o.get('text'), `${what}.text`, MAX_FORMULA, where) : null;
+  // cfRule@text is xsd:string, not ST_Xstring (sml.xsd CT_CfRule), so characters XML 1.0
+  // cannot carry cannot be escaped and are refused (D-D05).
+  if (text !== null && /[\u0000-\u0008\u000b\u000c\u000e-\u001f\ufffe\uffff]/.test(text)) {
+    throw fail(where, `${what}.text`, `The ${what}.text contains a control character or non-character that XML cannot carry.`, 'Remove the character; tab, line feed and carriage return are allowed.');
+  }
   const rank = only('rank', ['top10']) ? intValue(o.get('rank'), `${what}.rank`, 0, 4_294_967_295, where) : null;
   const flag = (k: string, types: readonly ConditionalFormatType[], dflt: boolean): boolean => (only(k, types) ? boolValue(o.get(k), `${what}.${k}`, where) : dflt);
   const percent = flag('percent', ['top10'], false);

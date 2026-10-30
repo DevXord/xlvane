@@ -21,7 +21,7 @@ import { resolveLimits, type ReadLimits } from './limits';
 import type { Sheet, Workbook } from './model';
 import { openPackage, type OpcPackage } from './opc/package';
 import { readWorkbook } from './read';
-import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange } from './sml/cell-ref';
+import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { shiftFormula } from './sml/formula-shift';
 import { classifyRelationship } from './sml/namespaces';
 import { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
@@ -84,6 +84,7 @@ const REFUSED_ELEMENTS: Readonly<Record<string, string>> = {
   controls: 'form controls',
   scenarios: 'scenarios',
   cellWatches: 'cell watches',
+  customSheetViews: 'custom sheet views',
 };
 
 const WORKAROUND = 'Insert or delete the rows in a spreadsheet application, or remove that content first.';
@@ -483,7 +484,32 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     }
   }
 
-  return { text: applyEdits(text, edits), hasFormulas };
+  const result = applyEdits(text, edits);
+  return { text: /sortState/.test(result) ? rewriteSortStates(result, part, sheet, c, limits) : result, hasFormulas };
+}
+
+/**
+ * Moves the sort ranges of the changed sheet (`sortState` at sheet level or inside `autoFilter`,
+ * and their `sortCondition`s) as ranges move (D-B01). A sort range that is deleted entirely is
+ * removed; one that cannot be adjusted is refused. Runs on the text after the other edits, so
+ * a sort state inside a removed filter is already gone.
+ */
+function rewriteSortStates(text: string, part: string, sheet: Sheet, c: RowChange, limits: ReadLimits): string {
+  const { elements } = scan(text, part, limits, (local) => local === 'sortState' || local === 'sortCondition');
+  const edits: [number, number, string][] = [];
+  const removed: [number, number][] = [];
+  for (const e of elements) {
+    if (removed.some(([a, b]) => e.start.start >= a && e.end.end <= b)) continue;
+    const ref = e.attrs.get('ref');
+    if (ref === undefined) continue;
+    const out = adjustRange(ref, refChange(c, sheet.name));
+    if (out === null) throw notSupported(`A sort range of sheet "${sheet.name}" cannot be adjusted: "${ref.slice(0, 60)}".`, { part, sheet: sheet.name });
+    if (out === '') {
+      edits.push([e.start.start, e.end.end, '']);
+      removed.push([e.start.start, e.end.end]);
+    } else if (out !== ref) edits.push([e.start.start, e.start.end, setAttr(text.slice(e.start.start, e.start.end), 'ref', out)]);
+  }
+  return edits.length === 0 ? text : applyEdits(text, edits);
 }
 
 /** Rewrites the notes of the changed sheet: the Comments part and the note shapes of its VML part. */
@@ -557,22 +583,32 @@ function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string,
     const name = classifyRelationship(r.type)?.name;
     if (!r.external && name !== 'image' && name !== 'hyperlink') throw notSupported(`The drawing of sheet "${sheet.name}" has a related part of type "${name ?? r.type}" (${r.target}), which xlvane cannot move with its rows yet.`, where, { type: r.type });
   }
-  const anchors = /<([A-Za-z_][\w.-]*:)?(twoCellAnchor|oneCellAnchor|absoluteAnchor)\b[\s\S]*?<\/\1\2>/g;
-  const rest = text.replace(anchors, (anchor, p: string | undefined) => (new RegExp(`<${p ?? ''}pic[\\s>]`).test(anchor) ? '' : anchor));
-  if (/graphicFrame|<[^>]*:sp[\s>]|grpSp|cxnSp|contentPart|AlternateContent|twoCellAnchor|oneCellAnchor|absoluteAnchor/.test(rest)) {
-    throw notSupported(`The drawing of sheet "${sheet.name}" has charts, shapes or other objects besides pictures, which xlvane cannot move with its rows yet.`, where);
+  // The anchors are the children of `wsDr`, located with the element scanner (linear in the
+  // part's size and bounded by the read limits, D-D05); only anchors holding a picture move.
+  const { elements } = scan(text, rel.target, edit.limits, (_local, depth) => depth === 2);
+  const anchorKinds = new Set(['twoCellAnchor', 'oneCellAnchor', 'absoluteAnchor']);
+  const others = (): XlvError => notSupported(`The drawing of sheet "${sheet.name}" has charts, shapes or other objects besides pictures, which xlvane cannot move with its rows yet.`, where);
+  for (const e of elements) {
+    if (!anchorKinds.has(e.local) || e.start.empty) throw others();
+    const pre = e.start.qname.slice(0, e.start.qname.length - e.local.length);
+    if (!new RegExp(`<${pre.replace(/[.]/g, '\\.')}pic[\\s>]`).test(text.slice(e.start.start, e.end.end))) throw others();
   }
   const end = c.at - c.count - 1;
   // A marker at the start of row m + 1 (0-based m): its new row, as a range end moves (R-03, R-08).
-  const moveMarker = (m: number): number => {
-    const one = m + 1;
+  // A `to` marker with no offset that lies on the boundary below the last covered row (0-based
+  // m = 1-based last row) moves as that last row does, so rows inserted just below the picture
+  // leave it as it is, as LibreOffice 24.2.7.2 does (D-D05).
+  const moveMarker = (m: number, boundary = false): number => {
+    const one = boundary ? m : m + 1;
     if (c.count > 0) return one >= c.at ? m + c.count : m;
     return one < c.at ? m : one > end ? m + c.count : c.at - 1;
   };
-  let changed = false;
-  const out = text.replace(anchors, (anchor, p: string | undefined, kind: string) => {
-    if (kind === 'absoluteAnchor') return anchor;
-    const pre = p ?? '';
+  const edits: [number, number, string][] = [];
+  for (const e of elements) {
+    const kind = e.local;
+    if (kind === 'absoluteAnchor') continue;
+    const anchor = text.slice(e.start.start, e.end.end);
+    const pre = e.start.qname.slice(0, e.start.qname.length - kind.length).replace(/[.]/g, '\\.');
     const marker = (local: 'from' | 'to'): { row: number; rowOff: number } | null => {
       const m = new RegExp(`<${pre}${local}>[\\s\\S]*?<${pre}row>\\s*(\\d+)\\s*</${pre}row>\\s*<${pre}rowOff>\\s*([^<]*?)\\s*</${pre}rowOff>`).exec(anchor);
       return m === null ? null : { row: Number(m[1]), rowOff: Number(m[2]) || 0 };
@@ -583,17 +619,17 @@ function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string,
     const first = from.row + 1;
     const last = to === null ? first : to.rowOff === 0 && to.row > from.row ? to.row : to.row + 1;
     if (c.count < 0 && first <= end && last >= c.at) throw notSupported(`Deleting rows ${String(c.at)} to ${String(end)} of sheet "${sheet.name}" would cut a picture (rows ${String(first)} to ${String(last)}), which xlvane does not do.`, where, { cell: formatCellRef(first, 1) });
-    const rows = [moveMarker(from.row), to === null ? null : moveMarker(to.row)];
+    const rows = [moveMarker(from.row), to === null ? null : moveMarker(to.row, to.rowOff === 0 && to.row > from.row)];
     if (rows.some((r) => r !== null && r > MAX_ROWS - 1)) throw notSupported(`Inserting rows would push a picture of sheet "${sheet.name}" beyond the last row.`, where);
-    if (rows[0] === from.row && (to === null || rows[1] === to.row)) return anchor;
-    changed = true;
+    if (rows[0] === from.row && (to === null || rows[1] === to.row)) continue;
     let k = 0;
-    return anchor.replace(new RegExp(`(<${pre}row>)\\s*\\d+\\s*(</${pre}row>)`, 'g'), (all, open: string, close: string) => {
+    const moved = anchor.replace(new RegExp(`(<${pre}row>)\\s*\\d+\\s*(</${pre}row>)`, 'g'), (all, open: string, close: string) => {
       const value = rows[k++];
       return value === null || value === undefined ? all : `${open}${String(value)}${close}`;
     });
-  });
-  if (changed) edit.write(rel.target, out);
+    edits.push([e.start.start, e.end.end, moved]);
+  }
+  if (edits.length > 0) edit.write(rel.target, applyEdits(text, edits));
 }
 
 /**
@@ -612,6 +648,7 @@ function rewriteTables(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, 
     const { root, elements } = scan(text, rel.target, edit.limits, (local, depth, parent) => (depth === 2 && local === 'autoFilter') || (depth === 4 && parent === 'tableColumn' && (local === 'calculatedColumnFormula' || local === 'totalsRowFormula')));
     const name = root.attrs.get('displayName') ?? root.attrs.get('name') ?? '';
     const edits: [number, number, string][] = [];
+    let derivedFilter: { from: string; to: string } | null = null;
     if (target) {
       const ref = root.attrs.get('ref') ?? '';
       const range = parseRange(ref.trim().toUpperCase());
@@ -631,6 +668,12 @@ function rewriteTables(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, 
       if (newRef === null || newRef === '') throw notSupported(`Table "${name}" of sheet "${sheet.name}" cannot be moved with its rows.`, where, { table: name });
       const moved = parseRange(newRef);
       if (moved !== null && moved.end.row - moved.start.row < range.end.row - range.start.row && c.count > 0) throw notSupported(`Inserting rows would push table "${name}" beyond the last row.`, where, { table: name });
+      // A filter in the form xlvane and Excel write (header and data rows, TD-08) is derived from
+      // the new table range, so rows inserted just above the totals row join it (D-D05).
+      if (header === 1 && moved !== null) {
+        const filterOf = (r: CellRange): string => formatRange({ start: r.start, end: { col: r.end.col, row: r.end.row - totals } });
+        derivedFilter = { from: filterOf(range), to: filterOf(moved) };
+      }
       if (newRef !== ref) edits.push([root.start.start, root.start.end, setAttr(text.slice(root.start.start, root.start.end), 'ref', newRef)]);
     }
     for (const e of elements) {
@@ -638,7 +681,7 @@ function rewriteTables(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, 
         if (!target) continue;
         const ref = e.attrs.get('ref');
         if (ref === undefined) continue;
-        const out = adjustRange(ref, refChange(c, sheet.name));
+        const out = derivedFilter !== null && ref.trim().toUpperCase() === derivedFilter.from ? derivedFilter.to : adjustRange(ref, refChange(c, sheet.name));
         if (out === null || out === '') throw notSupported(`The filter of table "${name}" of sheet "${sheet.name}" cannot be moved with its rows.`, where, { table: name });
         if (out !== ref) edits.push([e.start.start, e.start.end, setAttr(text.slice(e.start.start, e.start.end), 'ref', out)]);
         continue;

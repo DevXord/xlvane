@@ -2,6 +2,13 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase D: tables and images (2026-10-30)
+
+- **Size budget** raised to 250 kB after measuring SheetJS and exceljs, then to 300 kB at the maintainer's request (D-D01); library now 190.4 kB.
+- **Core** (D-D02, D-D03): tables (addTable, Sheet.tables, readTable by name, totals, styles, Excel's name rules) and pictures (PNG/JPEG/GIF by signature, anchors, background, links, media stored once); insertRows/deleteRows move tables and pictures; charts and shapes kept and reported.
+- **@xlvane/exceljs** (D-D04): exceljs's table and image APIs; loaded tables editable; exceljs bugs not reproduced (SUBTOTAL codes, names, commit cache, duplicate rels).
+- **Independent review** (D-D05): 7 confirmed bugs and 5 suspicions fixed with regression tests.
+
 ## Phase C: sheet rules, printing and protection passwords (2026-10-30)
 
 - **Sources:** third local review report (ECMA-376 Part 1 §18.3.1.x, §18.8 dxf, §18.18; [MS-OI29500] limits and CF/DV formula grammars; [MS-XLSX] x14). [MS-OFFCRYPTO] (password hashing) was not available.
