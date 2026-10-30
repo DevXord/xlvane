@@ -252,7 +252,17 @@ describe('Worksheet', () => {
     });
   });
 
-  it.skip('returns sheet values — not supported: getSheetValues', () => {});
+  it('returns sheet values', () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet();
+    ws.getCell('A1').value = 11;
+    ws.getCell('C1').value = 'C1';
+    ws.getCell('A2').value = 21;
+    ws.getCell('B2').value = 'B2';
+    ws.getCell('A4').value = 'end';
+    // eslint-disable-next-line no-sparse-arrays
+    expect(ws.getSheetValues()).toEqual([, [, 11, , 'C1'], [, 21, 'B2'], , [, 'end']]);
+  });
 
   it('sets row styles', () => {
     const ws = new ExcelJS.Workbook().addWorksheet('basket');

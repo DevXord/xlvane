@@ -1,8 +1,7 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/worksheet.values.spec.js (MIT, Copyright (c)
 // 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest; sparse array literals written out
 // explicitly; column `defn` and `headers` assertions removed (multi-row headers are not
-// supported); the Splice tests use the ported `test-spliced-sheet.js` (./spliced-sheets.ts);
-// `getSheetValues` and `actualColumnCount` are skipped (outside the supported subset).
+// supported); the Splice tests use the ported `test-spliced-sheet.js` (./spliced-sheets.ts).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
 import { splicedSheets } from './spliced-sheets';
@@ -330,7 +329,17 @@ describe('Worksheet', () => {
       expect(count).toBe(7);
     });
 
-    it.skip('returns sheet values — not supported: getSheetValues', () => {});
+    it('returns sheet values', () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet();
+      ws.getCell('A1').value = 11;
+      ws.getCell('C1').value = 'C1';
+      ws.getCell('A2').value = 21;
+      ws.getCell('B2').value = 'B2';
+      ws.getCell('A4').value = 'end';
+      // eslint-disable-next-line no-sparse-arrays
+      expect(ws.getSheetValues()).toEqual([, [, 11, , 'C1'], [, 21, 'B2'], , [, 'end']]);
+    });
 
     it('calculates rowCount and actualRowCount', () => {
       const ws = new ExcelJS.Workbook().addWorksheet();
@@ -355,6 +364,17 @@ describe('Worksheet', () => {
       expect(ws.columnCount).toBe(6);
     });
 
-    it.skip('calculates actualColumnCount — not supported: actualColumnCount', () => {});
+    it('calculates columnCount and actualColumnCount', () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet();
+      ws.getCell('A1').value = 'A1';
+      ws.getCell('C1').value = 'C1';
+      ws.getCell('A3').value = 'A3';
+      ws.getCell('D3').value = 'D3';
+      ws.getCell('E4').value = null;
+      ws.getCell('F5').value = 'F5';
+      expect(ws.columnCount).toBe(6);
+      expect(ws.actualColumnCount).toBe(4);
+    });
   });
 });

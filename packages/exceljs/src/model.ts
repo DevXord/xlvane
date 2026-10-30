@@ -153,7 +153,15 @@ export function typeOf(value: unknown): number {
     if (value['sharedString']) return ValueType.SharedString;
     if (value['error']) return ValueType.Error;
   }
+  // Any other object or array is exceljs's JSON value: type String, written as its JSON text
+  // (lib/doc/cell.js L1014–1054, L1093).
+  if (typeof value === 'object') return ValueType.String;
   return -1;
+}
+
+/** `true` for exceljs's JSON values: objects and arrays that are no other kind of value. */
+export function isJsonValue(value: unknown): boolean {
+  return typeof value === 'object' && value !== null && !(value instanceof Date) && !(value instanceof String) && typeOf(value) === ValueType.String;
 }
 
 /** Checks a value for writing support (D-503); unsupported kinds throw XLV_E_NOT_SUPPORTED. */
@@ -270,6 +278,7 @@ export class Cell {
       // RichTextValue.text joins the texts of the runs (lib/doc/cell.js L511).
       if (Array.isArray(v['richText'])) return (v['richText'] as { text?: unknown }[]).map((r) => String(r.text ?? '')).join('');
     }
+    if (isJsonValue(v)) return JSON.stringify(v);
     return String(v);
   }
 

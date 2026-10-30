@@ -1,12 +1,12 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/cell.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
 // changes: Mocha/Chai → Vitest; the internal sheet mock and `new Cell(...)` are replaced by a
 // real worksheet; `cell.merge`/`unmerge` (internal) become `ws.mergeCells`/`ws.unMergeCells`;
-// tests of internals (`_mergeCount`, `_upgradeToHyperlink`, constructor validation,
-// `effectiveType`, `html`, shared-formula translation in memory) are skipped; the note tests
+// tests of internals (`_mergeCount`, `_upgradeToHyperlink`, constructor validation, `html`,
+// shared-formula translation in memory) are skipped; the note tests
 // check `cell.note` instead of the internal `cell.model.comment`, and the box defaults that
 // exceljs merges into the model (margins, protection, editAs) are not added (D-A14).
 import { beforeEach, describe, expect, it } from 'vitest';
-import { ExcelJS, expectNotSupported, styles } from './helpers';
+import { ExcelJS, styles } from './helpers';
 
 let ws: any;
 
@@ -53,11 +53,10 @@ describe('Cell', () => {
     expect((a1.value = null)).toBeNull();
     expect(a1.type).toBe(ExcelJS.ValueType.Null);
 
-    // Change for xlvane: exceljs stores an arbitrary object and reports type String; xlvane
-    // throws XLV_E_NOT_SUPPORTED instead of writing it.
-    await expectNotSupported(() => {
-      a1.value = { json: 'data' };
-    });
+    // exceljs JSON values: any other object is kept and reported as String (written as JSON text).
+    expect((a1.value = { json: 'data' })).toEqual({ json: 'data' });
+    expect(a1.value).toEqual({ json: 'data' });
+    expect(a1.type).toBe(ExcelJS.ValueType.String);
   });
 
   it.skip('validates options on construction — not supported: Cell constructor is internal', () => {});
@@ -103,7 +102,29 @@ describe('Cell', () => {
     expect(ws.getCell('A1').font).toEqual(styles.fonts.broadwayRedOutline20);
   });
 
-  it.skip('has effective types — not supported: cell.effectiveType', () => {});
+  it('has effective types', () => {
+    const a1 = new ExcelJS.Workbook().addWorksheet('S').getCell('A1');
+    expect(a1.type).toBe(ExcelJS.ValueType.Null);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.Null);
+    a1.value = 5;
+    expect(a1.type).toBe(ExcelJS.ValueType.Number);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.Number);
+    a1.value = 'Hello, World!';
+    expect(a1.type).toBe(ExcelJS.ValueType.String);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.String);
+    a1.value = new Date();
+    expect(a1.type).toBe(ExcelJS.ValueType.Date);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.Date);
+    a1.value = { formula: 'A2', result: 5 };
+    expect(a1.type).toEqual(ExcelJS.ValueType.Formula);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.Number);
+    a1.value = { formula: 'A2', result: 'Hello, World!' };
+    expect(a1.type).toEqual(ExcelJS.ValueType.Formula);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.String);
+    a1.value = { hyperlink: 'http://www.link.com', text: 'www.link.com' };
+    expect(a1.type).toEqual(ExcelJS.ValueType.Hyperlink);
+    expect(a1.effectiveType).toBe(ExcelJS.ValueType.Hyperlink);
+  });
   it.skip('shares formulas — not supported: in-memory shared formula translation (sharedFormula values are read as plain formulas)', () => {});
   it.skip('escapes dangerous html — not supported: cell.html', () => {});
 

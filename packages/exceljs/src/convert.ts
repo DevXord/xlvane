@@ -26,7 +26,7 @@ import {
   XlvError,
 } from 'xlvane';
 import { imageAnchorIn, imageBytes, tableInput, type ImageData } from './media';
-import { columnLetter, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
+import { columnLetter, isJsonValue, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
 import { conditionalFormatsIn, dataValidationsIn, headerFooterIn, pageSetupIn, protectionIn, rowBreaksIn } from './sheet-rules';
 import type { Alignment, Borders, CellValue, Color, Comment, Fill, Font, Style, WorksheetView } from './types';
 
@@ -228,6 +228,8 @@ export function valueIn(cell: Cell): CellInput {
     if (typeof v['error'] === 'string') return { error: v['error'] as '#N/A' };
     if (Array.isArray(v['richText'])) return { richText: runsIn(v['richText'] as unknown[], cell.address) };
   }
+  // exceljs JSON values are written as their JSON text (lib/doc/cell.js L1014; X4-26).
+  if (isJsonValue(v)) return JSON.stringify(v);
   return notSupported(`The value of cell ${cell.address}`);
 }
 
@@ -311,6 +313,8 @@ export interface WorkbookMeta {
   readonly definedNames?: readonly { name: string; ranges: string[] }[];
   /** The workbook's images, by exceljs image id (`workbook.addImage`). */
   readonly media?: readonly ImageData[];
+  /** `false` writes no cell or column styles, as exceljs `xlsx.write(…, { useStyles: false })` (dates keep format 14). */
+  readonly useStyles?: boolean;
 }
 
 /** Builds an xlvane workbook from the exceljs model (D-503). */
@@ -343,8 +347,9 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   };
   for (const ws of sheets) {
     const sheet = book.addSheet(ws.name, { state: ws.state });
+    const useStyles = meta.useStyles !== false;
     ws.columns.forEach((column) => {
-      const options = columnIn(column, true);
+      const options = columnIn(column, useStyles);
       if (options) sheet.column(column.number, options);
     });
     const styleCache = new Map<Style, CellStyle>();
@@ -365,7 +370,7 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         if (!cell) return;
         const note = noteIn(cell);
         if (note) sheet.note(cell.address, note);
-        const style = cellStyleIn(cell, styleOf(cell.style));
+        const style = useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {};
         const value = cell.type === ValueType.Merge ? null : valueIn(cell);
         if (value === null && Object.keys(style).length === 0) return;
         sheet.set(cell.address, value, style);

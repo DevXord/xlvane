@@ -66,9 +66,10 @@ describe('hyperlink values', () => {
     expect(ws.getCell('A1').hyperlink).toBe('https://example.com');
     ws.getCell('A2').value = 'plain';
     expect(ws.getCell('A2').hyperlink).toBeUndefined();
-    await expectNotSupported(() => {
-      ws.getCell('A3').value = { text: '', hyperlink: 'https://example.com' };
-    });
+    // Without text it is no link: exceljs stores it as a JSON value of type String.
+    ws.getCell('A3').value = { text: '', hyperlink: 'https://example.com' };
+    expect(ws.getCell('A3').type).toBe(ExcelJS.ValueType.String);
+    expect(ws.getCell('A3').hyperlink).toBeUndefined();
   });
 
   it('reports invalid links with XLV_E_INVALID_HYPERLINK when writing', async () => {

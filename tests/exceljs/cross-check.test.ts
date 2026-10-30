@@ -38,6 +38,11 @@ describe.skipIf(!installed)('cross-check with exceljs 4.4.0', () => {
     expect(cjs).toEqual(expected);
   });
 
+  it('resolves the documented deep imports', () => {
+    const summary = runScript(dir, 'deep-imports.cjs');
+    for (const value of Object.values(summary)) expect(value).toEqual({ workbook: 'function', value: 1, valueTypeNumber: 2 });
+  });
+
   it('rejects named ESM imports, which @xlvane/exceljs adds', () => {
     expect(() => runScript(dir, 'esm-named.mjs')).toThrow(/Named export '\w+' not found/);
   });

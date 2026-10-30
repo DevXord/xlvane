@@ -1,4 +1,54 @@
 {
+  "csv": {
+    "default": "Name,Amount,Paid,When,Note\n\"Tea, green\",12.5,true,2024-01-31T08:15:00+00:00,\"said \"\"hi\"\"\"\nCoffee,-3,false,,#N/A\n\nhttps://example.com/a,25",
+    "custom": "Name;Amount;Paid;When;Note\r\nTea, green;12.5;true;31/01/2024 08:15;\"said \"\"hi\"\"\"\r\nCoffee;-3;false;;#N/A\r\nhttps://example.com/a;25\r\n",
+    "sheet": "Imported",
+    "rows": [
+      [
+        1,
+        [
+          "Name",
+          "Amount",
+          "Paid",
+          "When",
+          "Note"
+        ]
+      ],
+      [
+        2,
+        [
+          "Tea, green",
+          12.5,
+          true,
+          "2024-01-31T08:15:00.000Z",
+          "said \"hi\""
+        ]
+      ],
+      [
+        3,
+        [
+          "Coffee",
+          -3,
+          false,
+          null,
+          {
+            "error": "#N/A"
+          }
+        ]
+      ],
+      [
+        4,
+        []
+      ],
+      [
+        5,
+        [
+          "https://example.com/a",
+          25
+        ]
+      ]
+    ]
+  },
   "media": {
     "table": {
       "name": "Fruit",

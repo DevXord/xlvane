@@ -200,7 +200,8 @@ describe('migrate', () => {
 
   it('scans only files that mention exceljs', () => {
     expect(scanSource('a.js', 'ws.insertRow(1, [])')).toEqual([]);
-    expect(scanSource('a.js', "import ExcelJS from 'exceljs';\nwb.csv.writeFile('x')").map((f) => f.api)).toEqual(['workbook.csv']);
+    expect(scanSource('a.js', "import ExcelJS from 'exceljs';\nwb.csv.writeFile('x')").map((f) => f.api)).toEqual([]);
+    expect(scanSource('a.js', "const ExcelJS = require('exceljs/dist/es5');\nconst cell = require('exceljs/lib/doc/cell');").map((f) => f.api)).toEqual(['deep import (exceljs/lib/...)']);
   });
 
   it('skips node_modules', async () => {

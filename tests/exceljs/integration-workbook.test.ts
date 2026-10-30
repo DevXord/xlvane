@@ -6,8 +6,9 @@
 // is written) and expect `topLeftCell` of a split view and `activeCell` to be absent (not
 // written by xlvane);
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
-// unsupported features (createTestBook fixtures, compression options, CSV, workbook views,
-// fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; the dataValidations test builds only its
+// unsupported features (createTestBook fixtures, workbook views, fillFormula) are skipped or
+// expect XLV_E_NOT_SUPPORTED; the two CSV tests build the CSV part of createTestBook themselves
+// (row 1 and the merged A2:B3 of spec/utils/test-values-sheet.js); the dataValidations test builds only its
 // own sheet (createTestBook with ['dataValidations'], tests/exceljs/sheet-rules-sheets.ts); the
 // duplicateRow tests build the sheet in memory (the fixture duplicateRowTest.xlsx was not copied)
 // and compare styles by value (xlvane copies styles instead of sharing the object); `equalDate`
@@ -24,7 +25,7 @@ describe('Workbook', () => {
 
     describe('Xlsx Zip Compression', () => {
       for (const level of ['best', 'default', 'fast', 'no']) {
-        it.skip(`xlsx file with ${level} compression — not supported: zip compression options`, () => {});
+        it.skip(`xlsx file with ${level} compression — not supported: createTestBook fixture`, () => {});
       }
     });
 
@@ -198,13 +199,75 @@ describe('Workbook', () => {
 
     it.skip('a lot of sheets to xlsx file — not supported: createTestBook fixture', () => {});
 
-    it('csv file — not supported: csv', async () => {
+    // exceljs spec/utils/data/sheet-values.json.
+    const testValues = { str: 'Hello, World!', str2: '<a href="www.whatever.com">Talk to the H&</a>', date: new Date('2016-08-16T16:23:59.720Z') };
+    // exceljs createTestBook(wb, 'csv') / checkTestBook(wb2, 'csv') (spec/utils/test-values-sheet.js,
+    // row 1 and the merged A2:B3), written out here because the fixture needs outline levels.
+    const csvBook = () => {
       const wb = new ExcelJS.Workbook();
-      wb.addWorksheet('blort').getCell('A1').value = 1;
-      await expectNotSupported(() => wb.csv.writeBuffer());
+      const ws = wb.addWorksheet('sheet1');
+      ws.getCell('A1').value = 7;
+      ws.getCell('B1').value = testValues.str;
+      ws.getCell('C1').value = testValues.date;
+      ws.getCell('D1').value = { formula: 'A1', result: 7 };
+      ws.getCell('E1').value = { formula: 'A2' };
+      ws.getCell('F1').value = { hyperlink: 'http://www.link.com', text: 'www.link.com' };
+      ws.getCell('G1').value = testValues.str2;
+      ws.getCell('H1').value = { num: 7, str: 'Hello, World!' };
+      ws.getCell('I1').value = true;
+      ws.getCell('J1').value = false;
+      ws.getCell('K1').value = { error: '#N/A' };
+      ws.getCell('L1').value = { error: '#VALUE!' };
+      ws.getCell('A2').value = 5;
+      ws.mergeCells('A2:B3');
+      ws.mergeCells('C2:D3');
+      return wb;
+    };
+    const checkCsvBook = (wb: any) => {
+      const ws = wb.getWorksheet('sheet1');
+      expect(ws).toBeDefined();
+      expect(ws.getCell('A1').value).toBe(7);
+      expect(ws.getCell('A1').type).toBe(ExcelJS.ValueType.Number);
+      expect(ws.getCell('B1').value).toBe(testValues.str);
+      expect(Math.abs(ws.getCell('C1').value.getTime() - testValues.date.getTime())).toBeLessThan(1000);
+      expect(ws.getCell('C1').type).toBe(ExcelJS.ValueType.Date);
+      expect(ws.getCell('D1').value).toBe(7);
+      expect(ws.getCell('E1').value).toBeNull();
+      expect(ws.getCell('F1').value).toBe('http://www.link.com');
+      expect(ws.getCell('F1').type).toBe(ExcelJS.ValueType.String);
+      expect(ws.getCell('G1').value).toBe(testValues.str2);
+      expect(ws.getCell('H1').value).toBe('{"num":7,"str":"Hello, World!"}');
+      expect(ws.getCell('I1').value).toBe(true);
+      expect(ws.getCell('J1').value).toBe(false);
+      expect(ws.getCell('K1').value).toEqual({ error: '#N/A' });
+      expect(ws.getCell('K1').type).toBe(ExcelJS.ValueType.Error);
+      expect(ws.getCell('L1').value).toEqual({ error: '#VALUE!' });
+      expect(ws.getCell('A2').value).toBe(5);
+      expect(ws.getCell('A2').master).toBe(ws.getCell('A2'));
+    };
+
+    it('csv file', async () => {
+      await withTempDir(async (dir) => {
+        const file = join(dir, 'wb.test.csv');
+        await csvBook().csv.writeFile(file);
+        const wb2 = new ExcelJS.Workbook();
+        await wb2.csv.readFile(file);
+        // exceljs names the sheet sheet1 as well (addWorksheet without a name).
+        checkCsvBook(wb2);
+      });
     });
 
-    it.skip('CSV file and its configuration — not supported: csv', () => {});
+    it('CSV file and its configuration', async () => {
+      const writeOptions = { dateFormat: 'DD/MM/YYYY HH:mm:ss', dateUTC: false, encoding: 'utf-8', includeEmptyRows: false, sheetName: 'sheet1', formatterOptions: { delimiter: '\t', quote: false } };
+      const readOptions = { dateFormats: ['DD/MM/YYYY HH:mm:ss'], sheetName: 'sheet1', parserOptions: { delimiter: '\t', quote: false } };
+      await withTempDir(async (dir) => {
+        const file = join(dir, 'wb.test.csv');
+        await csvBook().csv.writeFile(file, writeOptions);
+        const wb2 = new ExcelJS.Workbook();
+        await wb2.csv.readFile(file, readOptions);
+        checkCsvBook(wb2);
+      });
+    });
     it('defined names', async () => {
       const wb1 = new ExcelJS.Workbook();
       const ws1a = wb1.addWorksheet('blort');
@@ -421,9 +484,9 @@ describe('Workbook', () => {
     await expect(wb.xlsx.readFile('./wb.doesnotexist.xlsx')).rejects.toBeDefined();
   });
 
-  it('throws an error when csv file not found — not supported: csv', async () => {
+  it('throws an error when csv file not found', async () => {
     const wb = new ExcelJS.Workbook();
-    await expectNotSupported(() => wb.csv.readFile('./wb.doesnotexist.csv'));
+    await expect(wb.csv.readFile('./wb.doesnotexist.csv')).rejects.toBeDefined();
   });
 
   it('throw an error for wrong data type', async () => {

@@ -1,8 +1,8 @@
 // exceljs streaming API: `stream.xlsx.WorkbookWriter` (lib/stream/xlsx/workbook-writer.js) and
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
-import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, sheetRulesIn, styleIn, valueIn } from './convert';
+import { openWorkbookStream, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
+import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 import type { DefinedNames } from './defined-names';
 import { imageAnchorIn, imageBytes, type ImageData } from './media';
 import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
@@ -426,15 +426,153 @@ function notSupportedLater(feature: string): Error {
   return new Error(feature);
 }
 
-/** A worksheet read by {@link WorkbookReader}. */
-interface ReaderWorksheet extends AsyncIterable<Row> {
-  readonly name: string;
-  readonly id: number;
+type Listener = (...args: unknown[]) => void;
+
+/** The part of Node.js `EventEmitter` that exceljs's streaming reader uses; no node:events import. */
+class Emitter {
+  private readonly listeners = new Map<string, { fn: Listener; once: boolean }[]>();
+
+  on(event: string, fn: Listener): this {
+    const list = this.listeners.get(event) ?? [];
+    list.push({ fn, once: false });
+    this.listeners.set(event, list);
+    return this;
+  }
+
+  addListener(event: string, fn: Listener): this {
+    return this.on(event, fn);
+  }
+
+  once(event: string, fn: Listener): this {
+    this.on(event, fn);
+    this.listeners.get(event)!.at(-1)!.once = true;
+    return this;
+  }
+
+  off(event: string, fn: Listener): this {
+    const list = this.listeners.get(event);
+    if (list) {
+      const i = list.findIndex((l) => l.fn === fn);
+      if (i >= 0) list.splice(i, 1);
+    }
+    return this;
+  }
+
+  removeListener(event: string, fn: Listener): this {
+    return this.off(event, fn);
+  }
+
+  removeAllListeners(event?: string): this {
+    if (event === undefined) this.listeners.clear();
+    else this.listeners.delete(event);
+    return this;
+  }
+
+  listenerCount(event: string): number {
+    return this.listeners.get(event)?.length ?? 0;
+  }
+
+  emit(event: string, ...args: unknown[]): boolean {
+    const list = this.listeners.get(event);
+    if (!list || list.length === 0) {
+      // Node.js throws an unhandled 'error' event; so does this emitter.
+      if (event === 'error') throw args[0] instanceof Error ? args[0] : new Error(String(args[0]));
+      return false;
+    }
+    for (const l of [...list]) {
+      if (l.once) this.off(event, l.fn);
+      l.fn(...args);
+    }
+    return true;
+  }
+}
+
+/** exceljs `WorkbookReader.Options` (workbook-reader.js L326–332). */
+const READER_OPTIONS: Record<string, readonly string[]> = {
+  worksheets: ['emit', 'ignore'],
+  sharedStrings: ['cache', 'emit', 'ignore'],
+  hyperlinks: ['cache', 'emit', 'ignore'],
+  styles: ['cache', 'ignore'],
+  entries: ['emit', 'ignore'],
+};
+
+/**
+ * Options of {@link WorkbookReader}, as exceljs `WorkbookStreamReaderOptions` (index.d.ts L1988).
+ *
+ * @example
+ * ```ts
+ * import type { WorkbookReaderOptions } from '@xlvane/exceljs';
+ *
+ * const options: WorkbookReaderOptions = { styles: 'cache', entries: 'emit' };
+ * ```
+ */
+export interface WorkbookReaderOptions {
+  worksheets?: 'emit' | 'ignore';
+  /** Only `cache` (the default): `emit` and `ignore` throw `XLV_E_NOT_SUPPORTED`. */
+  sharedStrings?: 'cache' | 'emit' | 'ignore';
+  /** `ignore` (default) or `cache`, which changes nothing for files in schema order (links follow the rows); `emit` throws `XLV_E_NOT_SUPPORTED`. */
+  hyperlinks?: 'cache' | 'emit' | 'ignore';
+  /** `cache` gives the cells their styles; `ignore` (default) does not. */
+  styles?: 'cache' | 'ignore';
+  /** `emit` sends `entry` events for the workbook and each worksheet. */
+  entries?: 'emit' | 'ignore';
+}
+
+function readerOptions(raw: Record<string, unknown>): Required<WorkbookReaderOptions> {
+  const out: Record<string, string> = { worksheets: 'emit', sharedStrings: 'cache', hyperlinks: 'ignore', styles: 'ignore', entries: 'ignore' };
+  for (const [key, allowed] of Object.entries(READER_OPTIONS)) {
+    const v = raw[key];
+    if (v === undefined) continue;
+    if (typeof v !== 'string' || !allowed.includes(v)) {
+      throw new XlvError('XLV_E_INVALID_OPTION', `The WorkbookReader option "${key}" must be one of ${allowed.map((a) => `"${a}"`).join(', ')}.`, {
+        hint: `For example { ${key}: "${allowed[0]!}" }.`,
+        details: { option: key },
+      });
+    }
+    out[key] = v;
+  }
+  if (out['sharedStrings'] !== 'cache') notSupported(`WorkbookReader option sharedStrings: "${out['sharedStrings']!}" (only "cache")`);
+  if (out['hyperlinks'] === 'emit') notSupported('WorkbookReader option hyperlinks: "emit"');
+  return out as Required<WorkbookReaderOptions>;
+}
+
+/** The range of the rows read so far, as exceljs's `Dimensions` (lib/doc/range.js). */
+class ReaderDimensions {
+  top = 0;
+  left = 0;
+  bottom = 0;
+  right = 0;
+
+  /** @internal */
+  expandRow(row: Row): void {
+    const d = row.dimensions;
+    if (!d) return;
+    if (!this.top || row.number < this.top) this.top = row.number;
+    if (!this.left || d.min < this.left) this.left = d.min;
+    if (!this.bottom || row.number > this.bottom) this.bottom = row.number;
+    if (!this.right || d.max > this.right) this.right = d.max;
+  }
+
+  get model(): { top: number; left: number; bottom: number; right: number } {
+    return { top: this.top, left: this.left, bottom: this.bottom, right: this.right };
+  }
+
+  get tl(): string {
+    return `${columnLetter(this.left || 1)}${String(this.top || 1)}`;
+  }
+
+  get br(): string {
+    return `${columnLetter(this.right || 1)}${String(this.bottom || 1)}`;
+  }
+
+  get range(): string {
+    return `${this.tl}:${this.br}`;
+  }
 }
 
 /**
- * The streaming reader of exceljs (`ExcelJS.stream.xlsx.WorkbookReader`): iterate worksheets
- * and their rows with `for await`. Each row is a `Row` with cells; rows are not kept.
+ * A worksheet read by {@link WorkbookReader}, as exceljs `WorksheetReader`: iterate its rows with
+ * `for await`, or call `read()` and listen to `row` and `finished` events.
  *
  * @example
  * ```ts
@@ -442,18 +580,107 @@ interface ReaderWorksheet extends AsyncIterable<Row> {
  *
  * const reader = new ExcelJS.stream.xlsx.WorkbookReader('big.xlsx', {});
  * for await (const worksheet of reader) {
+ *   console.log(worksheet.name, worksheet.state);
+ *   for await (const row of worksheet) console.log(row.number);
+ *   console.log(worksheet.dimensions.range);
+ * }
+ * ```
+ */
+export class WorksheetReader extends Emitter implements AsyncIterable<Row> {
+  readonly dimensions: ReaderDimensions = new ReaderDimensions();
+
+  /** @internal */
+  constructor(
+    readonly workbook: WorkbookReader,
+    readonly id: number,
+    readonly name: string,
+    readonly state: 'visible' | 'hidden' | 'veryHidden',
+    private readonly sheet: Worksheet,
+    private readonly rows: () => AsyncIterable<Row>,
+  ) {
+    super();
+  }
+
+  /** Column definitions read so far, or `null` (as exceljs before any `getColumn`). */
+  get columns(): ReturnType<Worksheet['getColumn']>[] | null {
+    return this.sheet.columns.length > 0 ? this.sheet.columns : null;
+  }
+
+  getColumn(c: number | string): ReturnType<Worksheet['getColumn']> {
+    return this.sheet.getColumn(c);
+  }
+
+  getColumnKey(key: string): ReturnType<Worksheet['getColumnKey']> {
+    return this.sheet.getColumnKey(key);
+  }
+
+  setColumnKey(key: string, value: ReturnType<Worksheet['getColumn']>): void {
+    this.sheet.setColumnKey(key, value);
+  }
+
+  deleteColumnKey(key: string): void {
+    this.sheet.deleteColumnKey(key);
+  }
+
+  eachColumnKey(f: Parameters<Worksheet['eachColumnKey']>[0]): void {
+    this.sheet.eachColumnKey(f);
+  }
+
+  /** Not valid on a streamed worksheet (it throws in exceljs too). */
+  destroy(): never {
+    throw new Error('Invalid Operation: destroy');
+  }
+
+  async *[Symbol.asyncIterator](): AsyncIterator<Row> {
+    for await (const row of this.rows()) {
+      this.dimensions.expandRow(row);
+      yield row;
+    }
+  }
+
+  /** Events of the rows: `row` (a Row), then `finished`; `error` on failure. */
+  async *parse(): AsyncGenerator<{ eventType: string; value: unknown }[]> {
+    for await (const row of this) yield [{ eventType: 'row', value: row }];
+  }
+
+  /** Reads the rows and emits `row` events, then `finished` (or `error`). */
+  async read(): Promise<void> {
+    try {
+      for await (const row of this) this.emit('row', row);
+      this.emit('finished');
+    } catch (error) {
+      this.emit('error', error);
+    }
+  }
+}
+
+/**
+ * The streaming reader of exceljs (`ExcelJS.stream.xlsx.WorkbookReader`): iterate worksheets
+ * and their rows with `for await`, or call `read()` and listen to `worksheet`, `end`,
+ * `finished` and `error` events (and `entry` with `entries: 'emit'`). Rows are not kept.
+ *
+ * @example
+ * ```ts
+ * import ExcelJS from '@xlvane/exceljs';
+ *
+ * const reader = new ExcelJS.stream.xlsx.WorkbookReader('big.xlsx', { styles: 'cache' });
+ * for await (const worksheet of reader) {
  *   for await (const row of worksheet) console.log(row.number, row.values);
  * }
  * ```
  */
-export class WorkbookReader implements AsyncIterable<ReaderWorksheet> {
+export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetReader> {
+  private options: Required<WorkbookReaderOptions>;
+
   constructor(
     private readonly input: string | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array>,
-    private readonly options: Record<string, unknown> = {},
-  ) {}
+    options: WorkbookReaderOptions | Record<string, unknown> = {},
+  ) {
+    super();
+    this.options = readerOptions(options as Record<string, unknown>);
+  }
 
-  private async open(): Promise<Awaited<ReturnType<typeof openWorkbookStream>>> {
-    const input = this.input;
+  private async open(input: string | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array>): Promise<Awaited<ReturnType<typeof openWorkbookStream>>> {
     if (typeof input === 'string') {
       const { openWorkbookStreamFile } = await import('xlvane/node');
       return openWorkbookStreamFile(input);
@@ -464,39 +691,63 @@ export class WorkbookReader implements AsyncIterable<ReaderWorksheet> {
     return openWorkbookStream(new Blob(chunks as BlobPart[]));
   }
 
-  async *[Symbol.asyncIterator](): AsyncIterator<ReaderWorksheet> {
-    if (this.options['worksheets'] === 'ignore') return;
-    const book = await this.open();
+  /** Worksheet events in workbook order, as exceljs `parse()` yields them (`{ eventType: 'worksheet', value }`). */
+  async *parse(input?: string | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array>, options?: WorkbookReaderOptions): AsyncGenerator<{ eventType: string; value: unknown }> {
+    if (options) this.options = readerOptions(options as Record<string, unknown>);
+    const book = await this.open(input ?? this.input);
+    if (this.options.entries === 'emit') this.emit('entry', { type: 'workbook' });
+    if (this.options.worksheets === 'ignore') return;
     const host = new Workbook();
+    const styles = this.options.styles === 'cache';
     let id = 0;
     for (const info of book.sheets) {
       if (info.kind !== 'worksheet') continue;
       id++;
+      if (this.options.entries === 'emit') this.emit('entry', { type: 'worksheet', id: String(id) });
       const sheet = host.addWorksheet(info.name, { state: info.state });
       const name = info.name;
-      yield {
-        name,
-        id,
-        async *[Symbol.asyncIterator](): AsyncIterator<Row> {
-          for await (const r of book.rows(name)) {
-            const row = sheet.getRow(r.number);
-            for (const cell of r.cells) {
-              const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
-              row.getCell(cell.col).value =
-                cell.formula && cell.formula.text !== null ? (plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number }) : cell.richText ? richTextOut(cell.richText) : plain;
-            }
-            if (r.height !== null) row.height = r.height;
-            if (r.hidden) row.hidden = true;
-            sheet._rows[r.number - 1] = undefined;
-            yield row;
+      const rows = async function* (): AsyncGenerator<Row> {
+        for await (const r of book.rows(name)) {
+          const row = sheet.getRow(r.number);
+          for (const cell of r.cells) {
+            const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
+            const target = row.getCell(cell.col);
+            target.value =
+              cell.formula && cell.formula.text !== null ? (plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number }) : cell.richText ? richTextOut(cell.richText) : plain;
+            // styles: 'cache' gives cells their style (worksheet-reader.js L282–286).
+            if (styles) target.style = styleOut(cell.style, cell.numFmt);
           }
-        },
+          if (r.height !== null) row.height = r.height;
+          if (r.hidden) row.hidden = true;
+          sheet._rows[r.number - 1] = undefined;
+          yield row;
+        }
       };
+      yield { eventType: 'worksheet', value: new WorksheetReader(this, id, info.name, info.state, sheet, rows) };
     }
   }
 
-  /** exceljs event API (`reader.read()` with `on('worksheet')`) is not supported. */
-  read(): never {
-    return notSupported("WorkbookReader.read() and its events (use 'for await' instead)");
+  async *[Symbol.asyncIterator](): AsyncIterator<WorksheetReader> {
+    for await (const { eventType, value } of this.parse()) if (eventType === 'worksheet') yield value as WorksheetReader;
+  }
+
+  /**
+   * Reads the workbook and emits events, as exceljs `read()`: `worksheet` for each worksheet
+   * (its rows are read after the listeners run; listen to the worksheet's `row` events), then
+   * `end` and `finished`; `error` on failure.
+   */
+  async read(input?: string | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array>, options?: WorkbookReaderOptions): Promise<void> {
+    try {
+      for await (const { eventType, value } of this.parse(input, options)) {
+        if (eventType === 'worksheet') {
+          this.emit('worksheet', value);
+          await (value as WorksheetReader).read();
+        }
+      }
+      this.emit('end');
+      this.emit('finished');
+    } catch (error) {
+      this.emit('error', error);
+    }
   }
 }

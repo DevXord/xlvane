@@ -142,10 +142,31 @@ export async function run(ExcelJS, Workbook, dir) {
       if (cell.font?.bold) editBold.push(cell.address);
     });
   });
+  // --- CSV (workbook.csv) ---
+  const csvBook = new Workbook();
+  const csvSheet = csvBook.addWorksheet('Csv');
+  csvSheet.addRow(['Name', 'Amount', 'Paid', 'When', 'Note']);
+  csvSheet.addRow(['Tea, green', 12.5, true, new Date(Date.UTC(2024, 0, 31, 8, 15)), 'said "hi"']);
+  csvSheet.addRow(['Coffee', -3, false, null, { error: '#N/A' }]);
+  csvSheet.getCell('A5').value = { text: 'site', hyperlink: 'https://example.com/a' };
+  csvSheet.getCell('B5').value = { formula: 'B2*2', result: 25 };
+  const csvDefault = (await csvBook.csv.writeBuffer()).toString();
+  const csvOptions = { dateFormat: 'DD/MM/YYYY HH:mm', dateUTC: true, includeEmptyRows: false, formatterOptions: { delimiter: ';', rowDelimiter: '\r\n', includeEndRowDelimiter: true } };
+  const csvCustom = (await csvBook.csv.writeBuffer(csvOptions)).toString();
+  const csvPath = `${dir}/data.csv`;
+  await csvBook.csv.writeFile(csvPath);
+  const csvRead = new Workbook();
+  const csvWs = await csvRead.csv.readFile(csvPath, { sheetName: 'Imported' });
+  const csvRows = [];
+  csvWs.eachRow({ includeEmpty: true }, (row, rowNumber) => {
+    csvRows.push([rowNumber, row.values.slice(1).map((v) => (v instanceof Date ? v.toISOString() : v))]);
+  });
+
   const readMedia = read.getWorksheet('Media');
   const table = readMedia.getTables()[0];
   const tableModel = table.model ?? table.table;
   return {
+    csv: { default: csvDefault, custom: csvCustom, sheet: csvWs.name, rows: csvRows },
     media: {
       table: { name: tableModel.name, tableRef: tableModel.tableRef, headerRow: tableModel.headerRow, totalsRow: tableModel.totalsRow, columns: tableModel.columns.map((c) => c.name), b4: readMedia.getCell('B4').value, c5: readMedia.getCell('C5').value, b5: readMedia.getCell('B5').value },
       images: readMedia.getImages().map((i) => ({ tl: [i.range.tl.nativeCol, i.range.tl.nativeRow], br: i.range.br ? [i.range.br.nativeCol, i.range.br.nativeRow] : null, ext: i.range.ext ?? null, bytes: read.getImage(i.imageId).buffer.length })),

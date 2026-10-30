@@ -2,9 +2,10 @@
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
 import { colorOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
+import { CsvIO } from './csv';
 import { DefinedNames, extractRanges } from './defined-names';
 import { imageBytes, imageOut, mediaOut, tableOut, type ImageData } from './media';
-import { notSupported, Worksheet } from './model';
+import { Worksheet } from './model';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
 
@@ -16,6 +17,82 @@ const NodeBuffer: BufferCtor | undefined = (globalThis as { Buffer?: BufferCtor 
 
 function asBuffer(bytes: Uint8Array): Uint8Array {
   return NodeBuffer ? NodeBuffer.from(bytes.buffer as ArrayBuffer, bytes.byteOffset, bytes.byteLength) : bytes;
+}
+
+/**
+ * Options of `xlsx.load`, `read` and `readFile`, as exceljs `XlsxReadOptions` (index.d.ts L1460;
+ * lib/xlsx/xlsx.js L257, lib/xlsx/xform/sheet/worksheet-xform.js L95, L372; X4-25).
+ *
+ * @example
+ * ```ts
+ * import type { XlsxReadOptions } from '@xlvane/exceljs';
+ *
+ * const options: XlsxReadOptions = { ignoreNodes: ['dataValidations'], maxRows: 100_000 };
+ * ```
+ */
+export interface XlsxReadOptions {
+  /** Worksheet elements to skip, by element name (`sheetData`, `mergeCells`, `hyperlinks`, `dataValidations`, …). */
+  ignoreNodes?: string[];
+  /** Refuse a worksheet with more rows than this (`XLV_E_LIMIT_EXCEEDED`). */
+  maxRows?: number;
+  /** Refuse a row with more cells than this (`XLV_E_LIMIT_EXCEEDED`). */
+  maxCols?: number;
+  /** `load` only: the data is a base64 string. */
+  base64?: boolean;
+}
+
+/**
+ * Options of `xlsx.writeBuffer`, `write` and `writeFile`, as exceljs `XlsxWriteOptions`
+ * (index.d.ts L1447–1472; lib/xlsx/xlsx.js L602–603). `useSharedStrings` and `zip` are accepted
+ * and change nothing in the content: xlvane always writes a shared string table and compresses
+ * with its own settings.
+ *
+ * @example
+ * ```ts
+ * import type { XlsxWriteOptions } from '@xlvane/exceljs';
+ *
+ * const options: XlsxWriteOptions = { useStyles: false };
+ * ```
+ */
+export interface XlsxWriteOptions {
+  /** `false` writes no cell or column styles; dates keep format 14, as in exceljs. */
+  useStyles?: boolean;
+  useSharedStrings?: boolean;
+  zip?: Record<string, unknown>;
+}
+
+function readOptions(options: unknown): XlsxReadOptions {
+  if (options === undefined || options === null) return {};
+  if (typeof options !== 'object') throw new XlvError('XLV_E_INVALID_OPTION', 'The read options must be an object.', { hint: 'For example { maxRows: 100000 }.', details: { option: 'options' } });
+  const o = options as Record<string, unknown>;
+  const limit = (name: 'maxRows' | 'maxCols'): number | undefined => {
+    const v = o[name];
+    if (v === undefined || v === null || v === 0) return undefined;
+    if (typeof v !== 'number' || !Number.isInteger(v) || v < 1) {
+      throw new XlvError('XLV_E_INVALID_OPTION', `The option "${name}" must be a whole number of at least 1.`, { hint: `For example { ${name}: 100000 }.`, details: { option: name } });
+    }
+    return v;
+  };
+  const ignore = o['ignoreNodes'];
+  if (ignore !== undefined && (!Array.isArray(ignore) || !ignore.every((n) => typeof n === 'string'))) {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "ignoreNodes" must be an array of element names.', { hint: "For example { ignoreNodes: ['dataValidations'] }.", details: { option: 'ignoreNodes' } });
+  }
+  const maxRows = limit('maxRows');
+  const maxCols = limit('maxCols');
+  return { ...(ignore ? { ignoreNodes: ignore as string[] } : {}), ...(maxRows ? { maxRows } : {}), ...(maxCols ? { maxCols } : {}), ...(o['base64'] === true ? { base64: true } : {}) };
+}
+
+function fromBase64(data: unknown): Uint8Array {
+  const text = typeof data === 'string' ? data : data instanceof Uint8Array ? new TextDecoder().decode(data) : String(data);
+  let binary: string;
+  try {
+    binary = atob(text.replace(/\s+/g, ''));
+  } catch (cause) {
+    throw new XlvError('XLV_E_INVALID_INPUT', 'workbook.xlsx.load(data, { base64: true }) got data that is not base64.', { hint: 'Pass the base64 text of the file, or drop the base64 option for bytes.', cause });
+  }
+  const out = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) out[i] = binary.charCodeAt(i);
+  return out;
 }
 
 function toBytes(data: unknown): Uint8Array {
@@ -53,20 +130,22 @@ export class XlsxIO {
   constructor(private readonly workbook: Workbook) {}
 
   /** Reads XLSX bytes into the workbook (its sheets are replaced) and returns the workbook. */
-  async load(data: Uint8Array | ArrayBuffer, _options?: unknown): Promise<Workbook> {
-    this.workbook._fill(readBytes(toBytes(data)));
+  async load(data: Uint8Array | ArrayBuffer | string, options?: XlsxReadOptions): Promise<Workbook> {
+    const o = readOptions(options);
+    this.workbook._fill(readBytes(o.base64 ? fromBase64(data) : toBytes(data)), o);
     return this.workbook;
   }
 
   /** Reads an XLSX file (Node.js). */
-  async readFile(path: string, _options?: unknown): Promise<Workbook> {
+  async readFile(path: string, options?: XlsxReadOptions): Promise<Workbook> {
+    const o = readOptions(options);
     const { readWorkbookFile } = await import('xlvane/node');
-    this.workbook._fill(await readWorkbookFile(path));
+    this.workbook._fill(await readWorkbookFile(path), o);
     return this.workbook;
   }
 
   /** Reads XLSX data from a readable stream (Node.js stream or any async iterable of bytes). */
-  async read(stream: AsyncIterable<Uint8Array>, _options?: unknown): Promise<Workbook> {
+  async read(stream: AsyncIterable<Uint8Array>, options?: XlsxReadOptions): Promise<Workbook> {
     const chunks: Uint8Array[] = [];
     let size = 0;
     for await (const chunk of stream) {
@@ -79,31 +158,43 @@ export class XlsxIO {
       all.set(c, at);
       at += c.length;
     }
-    return this.load(all);
+    return this.load(all, { ...readOptions(options), base64: false });
   }
 
   /** Writes the workbook and returns the file contents (a Buffer in Node.js). */
-  async writeBuffer(_options?: unknown): Promise<Uint8Array> {
-    return asBuffer(this.bytes());
+  async writeBuffer(options?: XlsxWriteOptions): Promise<Uint8Array> {
+    return asBuffer(this.bytes(options));
   }
 
   /** Writes the workbook to a file, replacing an existing file as exceljs does (Node.js). */
-  async writeFile(path: string, _options?: unknown): Promise<void> {
+  async writeFile(path: string, options?: XlsxWriteOptions): Promise<void> {
     const { writeWorkbookFile } = await import('xlvane/node');
-    await writeWorkbookFile(toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, this.workbook._meta()), path, { overwrite: true });
+    await writeWorkbookFile(this.book(options), path, { overwrite: true });
   }
 
   /** Writes the workbook to a writable stream and ends it. */
-  async write(stream: WritableLike, _options?: unknown): Promise<void> {
-    const bytes = asBuffer(this.bytes());
+  async write(stream: WritableLike, options?: XlsxWriteOptions): Promise<void> {
+    const bytes = asBuffer(this.bytes(options));
     stream.write(bytes);
     await new Promise<void>((resolve) => {
       stream.end(() => resolve());
     });
   }
 
-  private bytes(): Uint8Array {
-    return writeWorkbook(toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, this.workbook._meta()));
+  /** Removed in exceljs 4 (it throws there too); use `read`. */
+  createInputStream(): never {
+    throw new Error(
+      '`XLSX#createInputStream` is deprecated. You should use `XLSX#read` instead. This method will be removed in version 5.0. Please follow upgrade instruction: https://github.com/exceljs/exceljs/blob/master/UPGRADE-4.0.md',
+    );
+  }
+
+  private book(options: XlsxWriteOptions | undefined) {
+    const useStyles = options?.useStyles !== false;
+    return toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, { ...this.workbook._meta(), useStyles });
+  }
+
+  private bytes(options: XlsxWriteOptions | undefined): Uint8Array {
+    return writeWorkbook(this.book(options));
   }
 }
 
@@ -137,9 +228,9 @@ export class Workbook {
   language: string | undefined;
   revision: string | number | undefined;
   contentStatus: string | undefined;
-  /** Kept on the object; not written yet (it belongs to `docProps/app.xml`). */
+  /** Written to `docProps/app.xml`, always (`company || ''`), as exceljs (X4-13). */
   company: string | undefined = '';
-  /** Kept on the object; not written yet (it belongs to `docProps/app.xml`). */
+  /** Written to `docProps/app.xml` when defined, as exceljs (X4-13). */
   manager: string | undefined = '';
   /** Workbook properties; `date1904: true` selects the 1904 date system. */
   properties: { date1904?: boolean; [key: string]: unknown } = {};
@@ -148,6 +239,7 @@ export class Workbook {
   /** @internal */
   _sheets: (Worksheet | undefined)[] = [];
   private _xlsx: XlsxIO | undefined;
+  private _csv: CsvIO | undefined;
   private order = 0;
   private readonly orders = new Map<Worksheet, number>();
 
@@ -156,8 +248,10 @@ export class Workbook {
     return this._xlsx;
   }
 
-  get csv(): never {
-    return notSupported('CSV (workbook.csv); use toCSV/fromCSV from xlvane');
+  /** CSV reading and writing, as exceljs `workbook.csv` (X4-23, X4-24). */
+  get csv(): CsvIO {
+    this._csv ??= new CsvIO(this);
+    return this._csv;
   }
 
   private readonly _definedNames = new DefinedNames();
@@ -259,8 +353,28 @@ export class Workbook {
     return this._media[id];
   }
 
-  /** @internal Replaces the sheets with those of a workbook read by xlvane. */
-  _fill(read: XlvWorkbook): void {
+  /**
+   * @internal Replaces the sheets with those of a workbook read by xlvane. `options.ignoreNodes`
+   * skips what exceljs skips for those worksheet elements, and `maxRows`/`maxCols` refuse
+   * bigger worksheets (worksheet-xform.js L95, L372; list-xform.js L75; row-xform.js L119; X4-25).
+   */
+  _fill(read: XlvWorkbook, options: XlsxReadOptions = {}): void {
+    const ignore = new Set(options.ignoreNodes ?? []);
+    const use = (node: string): boolean => !ignore.has(node);
+    for (const s of read.sheets) {
+      if (s.kind !== 'worksheet' || (options.maxRows === undefined && options.maxCols === undefined) || !use('sheetData')) continue;
+      const perRow = new Map<number, number>();
+      for (const cell of s.cells()) perRow.set(cell.row, (perRow.get(cell.row) ?? 0) + 1);
+      const limit = (name: 'maxRows' | 'maxCols', max: number, value: number): never => {
+        throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Worksheet "${s.name}" has more ${name === 'maxRows' ? 'rows' : 'cells in a row'} than ${name} (${String(max)}).`, {
+          location: { sheet: s.name },
+          hint: `Raise the option, for example { ${name}: ${String(max * 2)} }, or leave it out.`,
+          details: { limit: name, value: max, found: value },
+        });
+      };
+      if (options.maxRows !== undefined && perRow.size > options.maxRows) limit('maxRows', options.maxRows, perRow.size);
+      if (options.maxCols !== undefined) for (const count of perRow.values()) if (count > options.maxCols) limit('maxCols', options.maxCols, count);
+    }
     this._sheets = [];
     this.orders.clear();
     this.order = 0;
@@ -295,7 +409,7 @@ export class Workbook {
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet') continue;
       const ws = this.addWorksheet(s.name, { state: s.state });
-      for (const c of s.columns) {
+      for (const c of use('cols') ? s.columns : []) {
         const last = Math.min(c.max, 16_384);
         for (let n = c.min; n <= last; n++) {
           const column = ws.getColumn(n);
@@ -304,14 +418,14 @@ export class Workbook {
           if (c.style) column.style = styleOut(c.style, typeof c.style.numFmt === 'string' ? c.style.numFmt : null);
         }
       }
-      for (const cell of s.cells()) {
+      for (const cell of use('sheetData') ? s.cells() : []) {
         const target = ws.getCell(cell.row, cell.col);
         let value: CellValue;
         const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
         if (cell.formula && cell.formula.text !== null) {
           value = plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number };
         } else value = cell.richText ? richTextOut(cell.richText) : plain;
-        if (cell.hyperlink) {
+        if (cell.hyperlink && use('hyperlinks')) {
           // cell-xform.js L477–489: a linked cell becomes { text, hyperlink }, its text being the
           // value or the formula result (X4-10). xlvane also reads links stored only as a
           // location, and the tooltip, which exceljs drops.
@@ -331,28 +445,28 @@ export class Workbook {
       }
       // Notes are read for every cell, also one without a value; exceljs loses those (X4-14).
       for (const note of s.notes) ws.getCell(note.ref).note = noteOut(note);
-      for (const m of s.merges) if (m.includes(':')) ws.mergeCells(m);
+      for (const m of use('mergeCells') ? s.merges : []) if (m.includes(':')) ws.mergeCells(m);
       // exceljs reads one view per sheetView, with every setting (sheet-view-xform.js; X4-11).
-      ws.views = [viewOut(s.view, s.freeze)];
+      if (use('sheetViews')) ws.views = [viewOut(s.view, s.freeze)];
       const tab = colorOut(s.tabColor ?? undefined);
-      if (tab) ws.properties['tabColor'] = tab;
-      if (s.autoFilter) ws.autoFilter = s.autoFilter;
+      if (tab && use('sheetPr')) ws.properties['tabColor'] = tab;
+      if (s.autoFilter && use('autoFilter')) ws.autoFilter = s.autoFilter;
       // Validations, conditional formats, protection and printing (X4-16 … X4-19; D-C06).
-      ws.dataValidations.model = dataValidationsOut(s.dataValidations, read.dateSystem === '1904');
-      ws.conditionalFormattings = conditionalFormatsOut(s.conditionalFormats);
-      ws.sheetProtection = s.protection ? protectionOut(s.protection) : null;
-      ws.pageSetup = pageSetupOut(s.pageSetup, s.printArea, s.printTitles);
-      ws.headerFooter = headerFooterOut(s.headerFooter) as HeaderFooter;
-      ws.rowBreaks = rowBreaksOut(s.pageBreaks.rows);
+      if (use('dataValidations')) ws.dataValidations.model = dataValidationsOut(s.dataValidations, read.dateSystem === '1904');
+      if (use('conditionalFormatting')) ws.conditionalFormattings = conditionalFormatsOut(s.conditionalFormats);
+      if (use('sheetProtection')) ws.sheetProtection = s.protection ? protectionOut(s.protection) : null;
+      if (use('pageSetup')) ws.pageSetup = pageSetupOut(s.pageSetup, s.printArea, s.printTitles);
+      if (use('headerFooter')) ws.headerFooter = headerFooterOut(s.headerFooter) as HeaderFooter;
+      if (use('rowBreaks')) ws.rowBreaks = rowBreaksOut(s.pageBreaks.rows);
       // Tables with their ref and rows (X4-21); pictures and the background (X4-22).
-      for (const def of s.tables) ws.tables[def.name] = tableOut(ws, def);
-      for (const img of s.images) {
+      for (const def of use('tableParts') ? s.tables : []) ws.tables[def.name] = tableOut(ws, def);
+      for (const img of use('drawing') ? s.images : []) {
         const id = img.image === null ? undefined : mediaIds.get(img.image);
         const media = id === undefined ? null : imageOut(ws, img, id);
         if (media) ws._media.push(media);
       }
       const background = s.backgroundImage === null ? undefined : mediaIds.get(s.backgroundImage);
-      if (background !== undefined) ws._media.push({ type: 'background', imageId: background });
+      if (background !== undefined && use('picture')) ws._media.push({ type: 'background', imageId: background });
     }
   }
 }

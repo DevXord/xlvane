@@ -55,6 +55,12 @@ describe('exceljs alias: code written for exceljs runs unchanged', () => {
     expect(withoutKnownDifferences(summary)).toEqual(withoutKnownDifferences(await expectedSummary()));
   });
 
+  it('resolves the deep imports exceljs documents (dist/es5, dist/exceljs.js, dist/exceljs.min.js) to the same API', () => {
+    const summary = runScript(dir, 'deep-imports.cjs');
+    for (const value of Object.values(summary)) expect(value).toEqual({ workbook: 'function', value: 1, valueTypeNumber: 2 });
+    expect(Object.keys(summary)).toEqual(['exceljs/dist/es5', 'exceljs/dist/es5/index.js', 'exceljs/dist/exceljs.js', 'exceljs/dist/exceljs.min.js']);
+  });
+
   it('also supports named imports, which exceljs 4.4.0 does not', () => {
     const summary = runScript(dir, 'esm-named.mjs');
     expect(summary['namedImportsAreSame']).toBe(true);
