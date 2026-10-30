@@ -283,7 +283,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 ## Package size
 
-**Size budget:** 175 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 122.9 kB on 2026-10-30, after phase A2 hyperlinks). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 20.3 kB). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
+**Size budget:** 250 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 171.1 kB on 2026-10-30, after phase C). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 20.3 kB). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
 Not supported: password-protected workbooks and legacy `.xls` files (both rejected with `XLV_E_UNSUPPORTED_CONTAINER`).
 
