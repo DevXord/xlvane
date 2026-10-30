@@ -4,7 +4,7 @@
 // Skipped when `soffice` is not installed, unless XLV_REQUIRE_LIBREOFFICE=1 (set in CI).
 // CSV filter options: LibreOffice help "CSV Filter Options" (docs/decisions.md F-LO-01).
 import { spawnSync } from 'node:child_process';
-import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -279,4 +279,32 @@ describe.skipIf(!available && !required)('LibreOffice opens files written by xlv
     // The other sheets came through unchanged.
     expect(parseCsv(await readFile(join(dir, 'edited-csv', 'edited-Hidden.csv'), 'utf8'))).toEqual([['secret']]);
   });
+
+  it('opens Apache POI corpus files after xlvane edited them', { timeout: 300_000 }, async () => {
+    // Every 12th readable file of tests/corpus/poi (written by Excel, LibreOffice and others).
+    const corpus = new URL('../corpus/poi/', import.meta.url);
+    const names = (await readdir(corpus)).filter((n) => n.endsWith('.xlsx')).sort();
+    const picked: string[] = [];
+    let readable = 0;
+    for (const name of names) {
+      let bytes: Uint8Array;
+      try {
+        bytes = await readFile(new URL(name, corpus));
+        const sheet = readWorkbook(bytes).sheets.find((s) => s.kind === 'worksheet' && s.state === 'visible');
+        if (!sheet || readable++ % 12 !== 0) continue;
+        const { bytes: edited } = editCells(bytes, [{ sheet: sheet.name, cell: 'XFA1', value: 'xlvane' }]);
+        const file = join(dir, 'poi', `${String(picked.length).padStart(2, '0')}.xlsx`);
+        await mkdir(join(dir, 'poi'), { recursive: true });
+        await writeFile(file, edited);
+        picked.push(file);
+      } catch {
+        continue;
+      }
+    }
+    expect(picked.length).toBeGreaterThan(20);
+    soffice(['--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', join(dir, 'poi-resaved'), ...picked]);
+    const resaved = await readdir(join(dir, 'poi-resaved'));
+    expect(resaved.length).toBe(picked.length);
+  });
 });
+

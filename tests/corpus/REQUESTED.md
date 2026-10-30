@@ -35,13 +35,9 @@ Sheet `Second`: cell A1 = `=Data!B2`.
 | `excel/password.xlsx` | Desktop: File → Info → Protect Workbook → Encrypt with Password, password `test`. | encrypted workbook error |
 | `excel/legacy.xls` | Desktop: save "basic-types" as Excel 97-2003 Workbook (*.xls). | legacy format error |
 
-## LibreOffice Calc (free download from libreoffice.org)
+## LibreOffice Calc
 
-| File | How to make it | Covers |
-|---|---|---|
-| `libreoffice/basic-types.xlsx` | "basic-types" content, File → Save As → "Excel 2007-365 (.xlsx)", keep format. | cell types as written by LibreOffice |
-| `libreoffice/formulas-merged-hidden.xlsx` | The `excel/formulas.xlsx` content on sheet `Formulas` (array formula with Ctrl+Shift+Enter, skip SEQUENCE), plus a `Report` sheet with A1:D1 merged and a hidden sheet `Hidden`. | formulas, merges, hidden sheets |
-| `libreoffice/date1904.xlsx` | Tools → Options → LibreOffice Calc → Calculate → Date: 01/01/1904; A1 = 1904-01-01, A2 = 2024-01-31. | 1904 date system |
+Done: `libreoffice/basic-types.xlsx`, `libreoffice/formulas-merged-hidden.xlsx` and `libreoffice/date1904.xlsx` are made by `scripts/make-lo-corpus.mjs` with LibreOffice's own XLSX export (LibreOffice 24.2.7.2); the array formula is left out. The Apache POI corpus (`tests/corpus/poi`) adds files written by LibreOffice 3.5 to 25.8.
 
 ## Google Sheets
 
@@ -49,3 +45,13 @@ Sheet `Second`: cell A1 = `=Data!B2`.
 |---|---|---|
 | `google-sheets/basic-types.xlsx` | "basic-types" content, File → Download → Microsoft Excel (.xlsx). | cell types as written by Google Sheets |
 | `google-sheets/formulas-merged-hidden.xlsx` | B1:B10 = `=A1*2` filled down, an `=ARRAYFORMULA(A1:A3*10)`, A1:D1 merged on another sheet, one hidden sheet; download as .xlsx. | formulas, merges, hidden sheets |
+
+## Apple Numbers
+
+| File | How to make it | Covers |
+|---|---|---|
+| `numbers/basic-types.xlsx` | "basic-types" content, File → Export To → Excel… (.xlsx). | cell types as written by Numbers |
+
+## Status
+
+The Apache POI corpus (`tests/corpus/poi`, 340 files) covers Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and damaged files. Still missing from public corpora with a clear license: Google Sheets and Numbers exports, and the Excel files above with the shared "basic-types" content.

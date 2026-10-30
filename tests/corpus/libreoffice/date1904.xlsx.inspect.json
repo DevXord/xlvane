@@ -1,0 +1,48 @@
+{
+  "schemaVersion": 1,
+  "format": "xlsx",
+  "conformance": "transitional",
+  "dateSystem": "1904",
+  "hasMacros": false,
+  "externalLinkCount": 0,
+  "sheetCount": 1,
+  "sheets": [
+    {
+      "name": "Dates",
+      "index": 0,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1:A2",
+      "usedRange": "A1:A2",
+      "cellCount": 2,
+      "formulaCount": 0,
+      "mergedRanges": [],
+      "formulas": [],
+      "rowCount": 2,
+      "columnCount": 1,
+      "headerRow": null,
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": null,
+          "dominantType": "date",
+          "types": {
+            "number": 0,
+            "string": 0,
+            "boolean": 0,
+            "date": 2,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            "1904-01-01T00:00:00.000",
+            "2024-01-31T00:00:00.000"
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    }
+  ],
+  "warnings": []
+}

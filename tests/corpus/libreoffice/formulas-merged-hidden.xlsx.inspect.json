@@ -1,0 +1,261 @@
+{
+  "schemaVersion": 1,
+  "format": "xlsx",
+  "conformance": "transitional",
+  "dateSystem": "1900",
+  "hasMacros": false,
+  "externalLinkCount": 0,
+  "sheetCount": 3,
+  "sheets": [
+    {
+      "name": "Formulas",
+      "index": 0,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1:C10",
+      "usedRange": "A1:C10",
+      "cellCount": 21,
+      "formulaCount": 11,
+      "mergedRanges": [],
+      "formulas": [
+        {
+          "cell": "B1",
+          "formula": "A1*2"
+        },
+        {
+          "cell": "C1",
+          "formula": "SUM(B1:B10)"
+        },
+        {
+          "cell": "B2",
+          "formula": "A2*2"
+        },
+        {
+          "cell": "B3",
+          "formula": "A3*2"
+        },
+        {
+          "cell": "B4",
+          "formula": "A4*2"
+        },
+        {
+          "cell": "B5",
+          "formula": "A5*2"
+        },
+        {
+          "cell": "B6",
+          "formula": "A6*2"
+        },
+        {
+          "cell": "B7",
+          "formula": "A7*2"
+        },
+        {
+          "cell": "B8",
+          "formula": "A8*2"
+        },
+        {
+          "cell": "B9",
+          "formula": "A9*2"
+        }
+      ],
+      "rowCount": 10,
+      "columnCount": 3,
+      "headerRow": null,
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": null,
+          "dominantType": "number",
+          "types": {
+            "number": 10,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            1,
+            2,
+            3
+          ]
+        },
+        {
+          "index": 2,
+          "letter": "B",
+          "header": null,
+          "dominantType": "number",
+          "types": {
+            "number": 10,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            2,
+            4,
+            6
+          ]
+        },
+        {
+          "index": 3,
+          "letter": "C",
+          "header": null,
+          "dominantType": "number",
+          "types": {
+            "number": 1,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 9
+          },
+          "samples": [
+            110
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    },
+    {
+      "name": "Report",
+      "index": 1,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1:D5",
+      "usedRange": "A1:D5",
+      "cellCount": 17,
+      "formulaCount": 0,
+      "mergedRanges": [
+        "A1:D1"
+      ],
+      "formulas": [],
+      "rowCount": 5,
+      "columnCount": 4,
+      "headerRow": {
+        "row": 2,
+        "confidence": "high"
+      },
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": "Region",
+          "dominantType": "string",
+          "types": {
+            "number": 0,
+            "string": 3,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            "North",
+            "South",
+            "East"
+          ]
+        },
+        {
+          "index": 2,
+          "letter": "B",
+          "header": "Q1",
+          "dominantType": "number",
+          "types": {
+            "number": 3,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            1,
+            4,
+            7
+          ]
+        },
+        {
+          "index": 3,
+          "letter": "C",
+          "header": "Q2",
+          "dominantType": "number",
+          "types": {
+            "number": 3,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            2,
+            5,
+            8
+          ]
+        },
+        {
+          "index": 4,
+          "letter": "D",
+          "header": "Q3",
+          "dominantType": "number",
+          "types": {
+            "number": 3,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            3,
+            6,
+            9
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    },
+    {
+      "name": "Hidden",
+      "index": 2,
+      "kind": "worksheet",
+      "state": "hidden",
+      "dimension": "A1",
+      "usedRange": "A1",
+      "cellCount": 1,
+      "formulaCount": 0,
+      "mergedRanges": [],
+      "formulas": [],
+      "rowCount": 1,
+      "columnCount": 1,
+      "headerRow": {
+        "row": 1,
+        "confidence": "low"
+      },
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": "hidden value",
+          "dominantType": "empty",
+          "types": {
+            "number": 0,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": []
+        }
+      ],
+      "columnsTruncated": false
+    }
+  ],
+  "warnings": []
+}

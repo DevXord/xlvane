@@ -1,0 +1,1409 @@
+{
+  "123233_charts.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_INVALID_VALUE"
+    ]
+  },
+  "1_NoIden.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "45430.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "45540_classic_Footer.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "45540_classic_Header.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "45540_form_Footer.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "45540_form_Header.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "45544.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "46536.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47090.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47504.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47668.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47737.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "47804.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47813.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47862.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "47889.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "48495.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "48539.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "48703.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "48779.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "48923.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "48962.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49156.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49273.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49325.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49609.xlsx": {
+    "ok": false,
+    "error": "XLV_E_PART_MISSING"
+  },
+  "49783.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49872.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49928.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "49966.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50096.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50299.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50755_workday_formula_example.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50784-font_theme_colours.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50786-indexed_colours.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50795.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50846-border_colours.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "50867_with_table.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51222.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51470.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51519.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51585.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51626.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51626_contact.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51710.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51850.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51963.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "51998.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "52348.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_INVALID_VALUE"
+    ]
+  },
+  "52425.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "52575_main.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "52716.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53101.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53105.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53282.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53282b.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53568.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53734.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53798.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "53798_shiftNegative_TMPL.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54034.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54071.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54084 - Greek - beyond BMP.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54206.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "54288-ref.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54288.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54399.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "54436.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54524.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54607.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "54764-2.xlsx": {
+    "ok": false,
+    "error": "XLV_E_XML_DTD_FORBIDDEN"
+  },
+  "54764.xlsx": {
+    "ok": false,
+    "error": "XLV_E_XML_DTD_FORBIDDEN"
+  },
+  "55406_Conditional_formatting_sample.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55640.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55745.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55814.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55850.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55864.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55906-MultiSheetRefs.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55923.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55924.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55926.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "55927.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56011.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56017.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56169.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56170.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56274.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56278.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56295.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56315.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56420.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56502.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "56511.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56514.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56557.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56574.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56644.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56688_1.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56688_2.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56688_3.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56688_4.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56702.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56730.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56737.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56822-Countifs.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "56957.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57171_57163_57165.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57176.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57196.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57236.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57362.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57423.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57482-OnlyNumeric.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57523.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57535.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57798.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57826.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57828.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57838.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57890.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "57914.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58106.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58315.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58616.xlsx": {
+    "ok": false,
+    "error": "XLV_E_UNSUPPORTED_CONTAINER"
+  },
+  "58648.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58731.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58747.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58760.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "58896.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59021.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59026.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59106.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59132.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59264.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59388.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59687.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59736.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "59746_NoRowNums.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_INVALID_VALUE"
+    ]
+  },
+  "59775.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "60255_extra_drawingparts.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "60289.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "60384.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "60509.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "60709.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "60825.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_SHEET_PART_MISSING"
+    ]
+  },
+  "61034.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "61060-conditional-number-formatting.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "61063.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "61281.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "61605.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "61652.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "61869.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "62272.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "62629_toMerge.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "62834.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "63934.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "64450.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "64508.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "64667.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "64750.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "64759.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "66365.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "70005-countifs.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "AmpersandHeader.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "AverageTaxRates.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Booleans.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "BrNotClosed.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "CVLKRA-KYC_Download_File_Structure_V3.1.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "CustomXMLMapping-singleattributenamespace.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "CustomXMLMappings-complex-type.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "CustomXMLMappings.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "CustomXmlMappings-inverse-order.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "DataTableCities.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "DataValidationEvaluations.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "DataValidationListTooLong.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "DataValidations-49244.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "DateFormatNumberTests.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "DateFormatTests.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "ElapsedFormatTests.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "ExcelPivotTableSample.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "ExcelTables.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Excel_file_with_trash_item.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "FillWithoutColor.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "ForShifting.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "FormatChoiceTests.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "FormatConditionTests.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "FormatKM.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Formatting.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "FormulaEvalTestData_Copy.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "FormulaSheetRange.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "GeneralFormatTests.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "GroupTest.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "HeaderFooterComplexFormats.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "HsGetVal.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "InlineString.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "InlineStrings.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Intersection-52111-xssf.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "MalformedSSTCount.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "MatrixFormulaEvalTestData.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "NewStyleConditionalFormattings.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "NewlineInFormulas.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "NumberFormatApproxTests.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "NumberFormatTests.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "RepeatingRowsCols.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SampleSS.strict.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SampleSS.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SheetTabColors.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "ShrinkToFit.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SimpleMultiCell.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SimpleNormal.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SimpleScatterChart.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SimpleStrict.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SimpleWithComments.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "SingleCellTable.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "StructuredReferences.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Tables.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "TablesWithDifferentHeaders.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "TestShiftRowSharedFormula.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "TextFormatTests.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Themes.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "Themes2.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "TwoSheetsNoneHidden.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "TwoSheetsOneHidden.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "VLookupFullColumn.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "ValueFunctionOfBlank.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WidthsAndHeights.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithChart.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithChartSheet.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithConditionalFormatting.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithDrawing.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithEmbeded.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithMoreVariousData.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithTable.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithTextBox.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithTextBox2.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithThreeCharts.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithTwoCharts.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "WithVariousData.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "XSSFSheet.copyRows.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "absolute-anchor-over-empty-sheet.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "atp.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug54803.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug60848_sumproduct_unary_minus.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug60858.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE",
+      "XLV_W_INVALID_VALUE"
+    ]
+  },
+  "bug63189.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug64512_embed.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug65306.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug65464.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug66215.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug66675.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug66827.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug67784.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "bug69769.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug69812.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "bug70146.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "chartTitle_noTitle.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "chartTitle_withTitle.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "chartTitle_withTitleFormula.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "chart_sheet.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "clone_sheet.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-4828727001088000.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-5089447305609216.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-5185049589579776.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-5265527465181184.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-5937385319563264.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-6123461607817216.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-6419366255919104.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-POIXSSFFuzzer-6448258963341312.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5025401116950528.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5542865479270400.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-5636439151607808.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6504225896792064.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "clusterfuzz-testcase-minimized-XLSX2CSVFuzzer-6594557414080512.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "commentTest.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "comments.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "conditional_formatting_cell_is.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "conditional_formatting_multiple_ranges.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "conditional_formatting_with_formula_on_second_sheet.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "craftonhills.edu_programreview_report.aspx_goalpriorityreport_0011d159-1eeb-4b63-8833-867b0926e5f3.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "crash-274d6342e4842d61be0fb48eaadad6208ae767ae.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "crash-9bf3cd4bd6f50a8a9339d363c2c7af14b536865c.xlsx": {
+    "ok": false,
+    "error": "XLV_E_UNSUPPORTED_CONTAINER"
+  },
+  "customIndexedColors.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_VERY_HIDDEN_SHEET"
+    ]
+  },
+  "dataValidationTableRange.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_FORMULA_NO_CACHED_VALUE"
+    ]
+  },
+  "decimal-format.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "duplicate-filename-case-insensitive.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "duplicate-filename.xlsx": {
+    "ok": false,
+    "error": "XLV_E_ZIP_CORRUPT"
+  },
+  "evaluate_formula_with_structured_table_references.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "formula-eval.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "github-321.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "headerFooterTest.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "invalid_cell_reference.xlsx": {
+    "ok": false,
+    "error": "XLV_E_INVALID_CELL_REF"
+  },
+  "link-external-workbook-a.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "link-external-workbook-b.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "noSharedStringTable.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "npe.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "picture-and-shape-same-size.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "poc-shared-strings.xlsx": {
+    "ok": false,
+    "error": "XLV_E_INVALID_CELL_REF"
+  },
+  "poc-xmlbomb-empty.xlsx": {
+    "ok": false,
+    "error": "XLV_E_XML_DTD_FORBIDDEN"
+  },
+  "poc-xmlbomb.xlsx": {
+    "ok": false,
+    "error": "XLV_E_XML_DTD_FORBIDDEN"
+  },
+  "protected_passtika.xlsx": {
+    "ok": false,
+    "error": "XLV_E_UNSUPPORTED_CONTAINER"
+  },
+  "ref-56737.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "ref2-56737.xlsx": {
+    "ok": true,
+    "warnings": [
+      "XLV_W_EXTERNAL_LINKS"
+    ]
+  },
+  "reordered_sheets.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "resize_compare.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "right-to-left.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "sample-beta.xlsx": {
+    "ok": false,
+    "error": "XLV_E_PART_INVALID"
+  },
+  "sample.strict.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "sample.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "shared_formulas.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "sharedhyperlink.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "sheetProtection_allLocked.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "sheetProtection_not_protected.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "simple-monthly-budget.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "simple-table-named-range.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "style-alternate-content.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "styles.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "table-sample.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "tableStyle.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "template.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "testSharedFormulasRangeSetBlankBug.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "testSharedFormulasSetBlank.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "test_conditional_formatting.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "tile-range-test.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "unicodeSheetName.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection-sheet_password-2013.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection-workbook_password-2013.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection-workbook_password_user_range-2010.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection_not_protected.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection_workbook_revision_protected.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection_workbook_structure_protected.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection_workbook_windows_protected.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "workbookProtection_worksheet_protected.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "xlookup.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "xlsx-corrupted.xlsx": {
+    "ok": false,
+    "error": "XLV_E_XML_MALFORMED"
+  },
+  "xlsx-jdbc.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "xssf-enum.xltx.xlsx": {
+    "ok": true,
+    "warnings": []
+  },
+  "xxe_in_schema.xlsx": {
+    "ok": true,
+    "warnings": []
+  }
+}

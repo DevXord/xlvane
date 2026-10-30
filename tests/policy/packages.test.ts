@@ -26,11 +26,13 @@ const ALLOWED_RUNTIME_DEPENDENCIES: Record<string, readonly string[]> = {
   '@xlvane/exceljs': ['xlvane'],
 };
 
-/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-706). */
+/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-706, D-906). */
 const APPROVED_DEV_DEPENDENCIES = [
   '@arethetypeswrong/cli',
   'arktype',
+  'deno',
   'fast-check',
+  'playwright',
   'publint',
   'skills',
   'tsdown',
@@ -38,6 +40,7 @@ const APPROVED_DEV_DEPENDENCIES = [
   'valibot',
   'vite',
   'vitest',
+  'workerd',
   'zod',
 ];
 
