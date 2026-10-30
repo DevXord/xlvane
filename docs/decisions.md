@@ -413,6 +413,25 @@ A trusted publisher is configured in the settings of an existing package, so doc
 ### D-1104 New sources and the local review report (2026-10-30)
 The maintainer supplied, in a folder on their machine, ECMA-376 Part 1 (5th edition, 2016, with its supporting archives), Parts 2–4, [MS-OI29500] revision 25.0 (2026-08-18), [MS-XLSX] revision 30.0 (2026-10-16), [MS-OFFMACRO2] revision 8.0 (2024-08-20), [MS-OE376] and other [MS-*] documents not related to SpreadsheetML. A local Claude Code session read them and wrote a report for the cloud session (quotes limited to what each fact needs; locators: section, printed page, and `pdftotext -layout` line numbers for Part 1, which match those already used in ecma-376.md). The documents are not in the repository. With the report the facts in docs/facts were updated: confirmed facts cite the document, section and page; facts the documents contradict are listed in D-1101 and D-1102 with the code changes they caused; facts not found stay PROVISIONAL with the searches made. [MS-XLSX] §2.2.2 (Excel's formula grammar for files, an ABNF) is a new source for docs/facts/formulas.md, next to ECMA-376 Part 1 §18.17 and [MS-OI29500] §2.1.859–§2.1.873 and §3.2.3.1. The maintainer's files from Excel, Google Sheets and Numbers (tests/corpus/REQUESTED.md) were not in the folder.
 
+### D-1101 Writer limits and style rules from [MS-OI29500] (2026-10-30)
+The maintainer chose "according to the documentation". Replaces D-207 (font name up to 255) and, for caller input, D-115 (writer numFmt up to 1024); the reader still classifies codes up to 1024 characters. The writers (`writeWorkbook`, the streaming writer, and the style passed to `editCells`/`appendRows`) check the limits Office documents in [MS-OI29500] rev. 25.0:
+- font size 1–409.55 (§2.1.677 c; before: > 0 … 409);
+- font name 1–31 characters (§2.1.711), counted in UTF-16 code units;
+- number format code 1–254 characters (§2.1.712 b);
+- indent 0–255 (§2.1.693 b; before: 250); text rotation 0–180 or 255 (§2.1.693 a);
+- column width 0–255 (§2.1.598 c); its TSDoc now gives the unit of ECMA-376 Part 1 §18.3.1.13 (characters of the maximum digit width including 5 px padding), not the number in Excel's column-width box;
+- sheet name without U+0003 (§2.1.578 a, §2.1.863 a).
+
+A value outside a range throws `XLV_E_INVALID_STYLE`, `XLV_E_INVALID_VALUE` or `XLV_E_INVALID_SHEET_NAME` with the range and a valid example in the hint. Record counts in the styles part (206 custom number formats, §2.1.713 g; 65430 cellXfs, fills and borders, §2.1.700, §2.1.705, §2.1.696; 65491 fonts, §2.1.707) throw `XLV_E_LIMIT_EXCEEDED` with `details.limit`. The streaming writer reports a count error when it builds the styles part, at the end of the stream.
+
+Styles already in a file changed by `editCells` are not held to these limits (`normalizeStyle(…, 'existing')` keeps the earlier implementation caps), so such files stay editable; `editCells` checks record counts only when it adds a record. The style rules of §2.1.721 a–f (applyX), §2.1.584 a (bookViews) and §2.1.706 a/§2.1.674 a (font child order) were already met; they are now cited in the code and tested (tests/unit/office-limits.test.ts). Facts: W2-03, W2-17, W2-19 in docs/facts/sml-write.md.
+
+### D-1102 Formula shifting follows the documented grammars (2026-10-30)
+The maintainer chose the safe option. Refines D-313. The shared-formula tokenizer (`sml/formula-shift.ts`) shifts only what ECMA-376 Part 1 §18.17, [MS-OI29500] §2.1.859–§2.1.873 or [MS-XLSX] §2.2.2 define, and accepts their union: numbers with `E` or `e` and an optional trailing `.`, Office name characters, the `_xlfn.`, `_xlfn._xlws.`, `_xlpm.` and `xlpm.` prefixes, and CR LF as white space. A formula is "not shiftable" when it contains the implicit-intersection operator `@` or any `#` outside strings and brackets other than the eight error constants (which includes the spill operator `A1#`), since no grammar defines them, or a reference-shaped token beyond XFD or row 1048576. Its dependents keep `formula.text` `null` with `XLV_W_SHARED_FORMULA_NOT_EXPANDED`; cached values stay available, and the master cell keeps its text. Nothing is guessed. `editCells` and `appendRows` never shift shared formulas. Facts: F2-* in docs/facts/formulas.md.
+
+### D-1103 Windows portability of the tests; explicit FileHandle closing (2026-10-30)
+The local review found failures on Windows and on Node.js 25. Tests start package CLIs (tsdown, skills) as `process.execPath <bin script from the package's package.json>`, never through `npx` or `node_modules/.bin` shims, which are `.cmd` files on Windows and need a shell; spawn failures report `result.error`. CLI error snapshots normalise the path separator to `/`. Node.js 25 made closing a FileHandle by garbage collection an error (DEP0137, F-NODE-11), so `writeWorkbookStreamFile` opens the file with `fsPromises.open` when the first bytes exist, writes with awaited `filehandle.write` calls until every byte is written (F-NODE-12), closes the handle explicitly on success and failure (removing a partial file on failure), and keeps it referenced meanwhile. As a result a streaming write whose rows never arrive (for example an exceljs `WorkbookWriter` that is never committed) creates no file, and an existing file is reported as `XLV_E_FILE_EXISTS` when the first bytes are ready. Reproduced and fixed on Node.js 25.8.2; regression test in tests/unit/node.test.ts.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -435,8 +454,8 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/values.md | see file | A1 references, serial dates, number formats |
 | docs/facts/opc.md | see file | ECMA-376 Part 2 (packaging) |
 | docs/facts/sst-styles.md | see file | shared strings, ST_Xstring, styles |
-| docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-GH-01 | writer facts; partly PROVISIONAL (D-203): python-docx copy of sml.xsd, Open XML SDK, LibreOffice help, Node.js docs |
-| docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; mostly PROVISIONAL (no ECMA-376 §18.17 available) |
+| docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-NODE-11 … F-NODE-13, F-GH-01 | writer facts, checked against ECMA-376 Part 1, [MS-OI29500] and [MS-XLSX] (D-1104); W2-21 and W2-32 PROVISIONAL |
+| docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; checked against ECMA-376 Part 1 §18.17, [MS-OI29500] and [MS-XLSX] §2.2.2 (D-1102, D-1104) |
 | docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |
 
 ### F-NODE-04 … F-NODE-05

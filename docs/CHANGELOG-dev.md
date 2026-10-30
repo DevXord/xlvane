@@ -2,6 +2,14 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## After phase 10: review with the supplied standards (2026-10-30)
+
+- **Sources:** ECMA-376 Part 1, [MS-OI29500] rev. 25.0 and [MS-XLSX] rev. 30.0, read through a local review report (D-1104); RFC 4180 for CSV. Facts in docs/facts updated with section and page.
+- **Writer limits** per [MS-OI29500] (D-1101): font size 1–409.55, font name ≤ 31 characters, number format code ≤ 254 characters, indent ≤ 255, styles-part record counts (`XLV_E_LIMIT_EXCEEDED`); existing styles in edited files are kept. Column width TSDoc corrected.
+- **Shared formulas** (D-1102): `@`, spill `#` and references beyond the grid are not shifted; numbers per the union of the grammars.
+- **Windows and Node.js 25** (D-1103): tests spawn CLIs without shims; `writeWorkbookStreamFile` closes its FileHandle explicitly.
+- **Tests:** tests/unit/office-limits.test.ts, new cases in shared-formula and node tests.
+
 ## Phase 10: publication prepared (2026-10-30)
 
 - **Packages:** `xlvane` and `@xlvane/exceljs` set to version 1.0.0, public, with provenance (D-1001); the "not published" texts are removed.

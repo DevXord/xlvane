@@ -46,8 +46,9 @@ export type UnderlineStyle = 'single' | 'double' | 'singleAccounting' | 'doubleA
  * ```
  */
 export interface FontStyle {
+  /** Font name, 1 to 31 characters (the length Office accepts), such as `"Arial"`. */
   readonly name?: string;
-  /** Size in points, greater than 0 and at most 409. */
+  /** Size in points, 1 to 409.55 (the range Office accepts). */
   readonly size?: number;
   readonly bold?: boolean;
   readonly italic?: boolean;
@@ -210,7 +211,7 @@ export interface AlignmentStyle {
   readonly horizontal?: HorizontalAlignment;
   readonly vertical?: VerticalAlignment;
   readonly wrapText?: boolean;
-  /** Indent level, 0 to 250. */
+  /** Indent level, 0 to 255. */
   readonly indent?: number;
   /** Text rotation in degrees: 0 to 180, or 255 for vertical text. */
   readonly textRotation?: number;
@@ -290,12 +291,59 @@ export const HORIZONTAL: readonly HorizontalAlignment[] = [
 export const VERTICAL: readonly VerticalAlignment[] = ['top', 'center', 'bottom', 'justify', 'distributed'];
 export const EDGES = ['left', 'right', 'top', 'bottom'] as const;
 
-/** Largest font size Excel accepts, in points (Excel specifications and limits, W2-19). */
-export const MAX_FONT_SIZE = 409;
-/** Longest number format code the writer accepts (the reader classifies codes up to this length, D-115). */
-export const MAX_NUMFMT_LENGTH = 1024;
-/** Longest font name accepted. Implementation cap, see docs/decisions.md D-207. */
-const MAX_FONT_NAME_LENGTH = 255;
+// Limits that Office applies to the styles part ([MS-OI29500] rev. 25.0, docs/decisions.md D-1101).
+// The writer enforces them for styles given by the caller; styles already in a file being edited
+// are checked only against the looser caps below them (`'existing'` mode of normalizeStyle).
+/** Smallest font size Office accepts, in points ([MS-OI29500] §2.1.677 c). */
+export const MIN_FONT_SIZE: number = 1;
+/** Largest font size Office accepts, in points ([MS-OI29500] §2.1.677 c). */
+export const MAX_FONT_SIZE: number = 409.55;
+/** Longest font name Office accepts, in characters before escaping ([MS-OI29500] §2.1.711). */
+export const MAX_FONT_NAME_LENGTH: number = 31;
+/** Longest number format code Office accepts: shorter than 255 characters ([MS-OI29500] §2.1.712 b). */
+export const MAX_NUMFMT_LENGTH: number = 254;
+/** Largest `indent` Office accepts ([MS-OI29500] §2.1.693 b). */
+export const MAX_INDENT: number = 255;
+/** Most custom number formats Office loads ([MS-OI29500] §2.1.713 g). */
+export const MAX_CUSTOM_NUMFMTS: number = 206;
+/** Most cell format (`xf`) records in `cellXfs` ([MS-OI29500] §2.1.700 a, c). */
+export const MAX_CELL_XFS: number = 65430;
+/** Most `font` records ([MS-OI29500] §2.1.707 a). */
+export const MAX_FONTS: number = 65491;
+/** Most `fill` records ([MS-OI29500] §2.1.705 a). */
+export const MAX_FILLS: number = 65430;
+/** Most `border` records ([MS-OI29500] §2.1.696). */
+export const MAX_BORDERS: number = 65430;
+
+/** Caps for styles read from a file that is being edited: the earlier implementation caps (D-115, D-207). */
+const EXISTING_MAX_FONT_NAME_LENGTH = 255;
+const EXISTING_MAX_NUMFMT_LENGTH = 1024;
+
+/** The style records Office limits in number, with the limit and how to stay below it. */
+export type StyleCountLimit = 'customNumFmts' | 'cellXfs' | 'fonts' | 'fills' | 'borders';
+const STYLE_COUNT_LIMITS: Readonly<Record<StyleCountLimit, { readonly max: number; readonly what: string; readonly hint: string }>> = {
+  customNumFmts: { max: MAX_CUSTOM_NUMFMTS, what: 'custom number formats', hint: 'Use fewer distinct number format codes, for example one code such as "#,##0.00" for all amounts.' },
+  cellXfs: { max: MAX_CELL_XFS, what: 'cell formats (cellXfs records)', hint: 'Use fewer distinct styles, for example one style object such as { font: { bold: true } } for all header cells.' },
+  fonts: { max: MAX_FONTS, what: 'fonts', hint: 'Use fewer distinct fonts, for example one font such as { name: "Arial", size: 11 } for all body cells.' },
+  fills: { max: MAX_FILLS, what: 'fills', hint: 'Use fewer distinct fills, for example one fill such as { color: "DDEBF7" } for all highlighted cells.' },
+  borders: { max: MAX_BORDERS, what: 'borders', hint: 'Use fewer distinct borders, for example one border such as { bottom: { style: "thin" } } for all underlined cells.' },
+};
+
+/**
+ * Throws `XLV_E_LIMIT_EXCEEDED` when a styles part would have more records of one kind than
+ * Office accepts ([MS-OI29500] §2.1.696, §2.1.700, §2.1.705, §2.1.707, §2.1.713 g).
+ */
+export function checkStyleCount(limit: StyleCountLimit, count: number): void {
+  const l = STYLE_COUNT_LIMITS[limit];
+  if (count <= l.max) return;
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The workbook needs ${String(count)} ${l.what}; Office accepts at most ${String(l.max)}.`, {
+    hint: l.hint,
+    details: { limit, value: l.max },
+  });
+}
+
+/** `'input'`: a style given by the caller (Office limits). `'existing'`: a style read from a file. */
+export type StyleSource = 'input' | 'existing';
 
 /** A validated colour: an ARGB string or one of the object forms, with only known keys. */
 export type NormalizedColor = Color;
@@ -363,12 +411,12 @@ function bool(value: unknown, path: string): boolean {
   throw invalid(path, `has the value ${describe(value)}.`, 'Use true or false.');
 }
 
-function integer(value: unknown, path: string, min: number, max: number, extra?: number): number {
+function integer(value: unknown, path: string, min: number, max: number, extra?: number, example?: number): number {
   if (typeof value === 'number' && Number.isInteger(value) && ((value >= min && value <= max) || value === extra)) return value;
   throw invalid(
     path,
     `has the value ${describe(value)}.`,
-    `Use a whole number from ${String(min)} to ${String(max)}${extra === undefined ? '' : ` or ${String(extra)}`}.`,
+    `Use a whole number from ${String(min)} to ${String(max)}${extra === undefined ? '' : ` or ${String(extra)}`}${example === undefined ? '' : `, such as ${String(example)}`}.`,
   );
 }
 
@@ -410,20 +458,22 @@ export function normalizeColor(value: unknown, path: string): NormalizedColor {
   throw invalid(path, 'is not a colour.', hint);
 }
 
-function normalizeFont(value: unknown): NonNullable<NormalizedStyle['font']> {
+function normalizeFont(value: unknown, source: StyleSource): NonNullable<NormalizedStyle['font']> {
   const o = readObject(value, 'font', ['name', 'size', 'bold', 'italic', 'underline', 'strike', 'color']);
   const out: NonNullable<NormalizedStyle['font']> = {};
   const name = o.get('name');
   if (name !== undefined) {
-    if (typeof name !== 'string' || name.length === 0 || name.length > MAX_FONT_NAME_LENGTH) {
-      throw invalid('font.name', `has the value ${describe(name)}.`, `Use a font name of 1 to ${String(MAX_FONT_NAME_LENGTH)} characters, such as "Arial".`);
+    const max = source === 'input' ? MAX_FONT_NAME_LENGTH : EXISTING_MAX_FONT_NAME_LENGTH;
+    if (typeof name !== 'string' || name.length === 0 || name.length > max) {
+      throw invalid('font.name', `has the value ${describe(name)}.`, `Use a font name of 1 to ${String(max)} characters, such as "Arial".`);
     }
     out.name = name;
   }
   const size = o.get('size');
   if (size !== undefined) {
-    if (typeof size !== 'number' || !(size > 0 && size <= MAX_FONT_SIZE)) {
-      throw invalid('font.size', `has the value ${describe(size)}.`, `Use a size in points greater than 0 and at most ${String(MAX_FONT_SIZE)}.`);
+    const ok = typeof size === 'number' && (source === 'input' ? size >= MIN_FONT_SIZE && size <= MAX_FONT_SIZE : size > 0 && Number.isFinite(size));
+    if (!ok) {
+      throw invalid('font.size', `has the value ${describe(size)}.`, `Use a size in points from ${String(MIN_FONT_SIZE)} to ${String(MAX_FONT_SIZE)}, such as 11.`);
     }
     out.size = size;
   }
@@ -472,7 +522,7 @@ function normalizeBorder(value: unknown): NonNullable<NormalizedStyle['border']>
   return out;
 }
 
-function normalizeAlignment(value: unknown): NonNullable<NormalizedStyle['alignment']> {
+function normalizeAlignment(value: unknown, source: StyleSource): NonNullable<NormalizedStyle['alignment']> {
   const o = readObject(value, 'alignment', ['horizontal', 'vertical', 'wrapText', 'indent', 'textRotation']);
   const out: NonNullable<NormalizedStyle['alignment']> = {};
   const h = o.get('horizontal');
@@ -483,28 +533,31 @@ function normalizeAlignment(value: unknown): NonNullable<NormalizedStyle['alignm
   if (wrap !== undefined && bool(wrap, 'alignment.wrapText')) out.wrapText = true;
   const indent = o.get('indent');
   if (indent !== undefined) {
-    const n = integer(indent, 'alignment.indent', 0, 250);
+    const n = integer(indent, 'alignment.indent', 0, source === 'input' ? MAX_INDENT : Number.MAX_SAFE_INTEGER, undefined, 2);
     if (n !== 0) out.indent = n;
   }
   const rotation = o.get('textRotation');
   if (rotation !== undefined) {
-    const n = integer(rotation, 'alignment.textRotation', 0, 180, 255);
+    // [MS-OI29500] §2.1.693 a: 0 to 180, or 255 for vertical text.
+    const n = integer(rotation, 'alignment.textRotation', 0, 180, 255, 45);
     if (n !== 0) out.textRotation = n;
   }
   return out;
 }
 
 /**
- * Validates a style given by the caller and returns a normalised copy. Throws
- * `XLV_E_INVALID_STYLE` for unknown keys (including `__proto__`), wrong types and values outside
- * the allowed sets. Each property of the input is read exactly once.
+ * Validates a style and returns a normalised copy. Throws `XLV_E_INVALID_STYLE` for unknown keys
+ * (including `__proto__`), wrong types and values outside the allowed sets. Each property of the
+ * input is read exactly once. With `source` `'input'` (the default) the values must be within the
+ * limits Office accepts; `'existing'` is for styles read from a file being edited, which are kept
+ * even when they are outside those limits.
  */
-export function normalizeStyle(value: unknown): NormalizedStyle {
+export function normalizeStyle(value: unknown, source: StyleSource = 'input'): NormalizedStyle {
   const o = readObject(value, 'style', ['font', 'fill', 'border', 'alignment', 'numFmt']);
   const out: NormalizedStyle = {};
   const font = o.get('font');
   if (font !== undefined) {
-    const f = normalizeFont(font);
+    const f = normalizeFont(font, source);
     if (Object.keys(f).length > 0) out.font = f;
   }
   const fill = o.get('fill');
@@ -516,13 +569,14 @@ export function normalizeStyle(value: unknown): NormalizedStyle {
   }
   const alignment = o.get('alignment');
   if (alignment !== undefined) {
-    const a = normalizeAlignment(alignment);
+    const a = normalizeAlignment(alignment, source);
     if (Object.keys(a).length > 0) out.alignment = a;
   }
   const numFmt = o.get('numFmt');
   if (numFmt !== undefined) {
-    if (typeof numFmt !== 'string' || numFmt.length === 0 || numFmt.length > MAX_NUMFMT_LENGTH) {
-      throw invalid('numFmt', `has the value ${describe(numFmt)}.`, `Use a number format code of 1 to ${String(MAX_NUMFMT_LENGTH)} characters, such as "#,##0.00" or "yyyy-mm-dd".`);
+    const max = source === 'input' ? MAX_NUMFMT_LENGTH : EXISTING_MAX_NUMFMT_LENGTH;
+    if (typeof numFmt !== 'string' || numFmt.length === 0 || numFmt.length > max) {
+      throw invalid('numFmt', `has the value ${describe(numFmt)}.`, `Use a number format code of 1 to ${String(max)} characters, such as "#,##0.00" or "yyyy-mm-dd".`);
     }
     if (numFmt !== 'General') out.numFmt = numFmt;
   }

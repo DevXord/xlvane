@@ -103,7 +103,13 @@ export interface AddSheetOptions {
  * ```
  */
 export interface ColumnOptions {
-  /** Width in characters (as in Excel's column width box), 0 to 255. */
+  /**
+   * Column width as stored in the file (`col@width`), 0 to 255 ([MS-OI29500] §2.1.598 c). The
+   * unit is characters of the maximum digit width of the Normal style's font, including 5 pixels
+   * of padding, truncated to 1/256 (ECMA-376 Part 1 §18.3.1.13). This is not the number Excel
+   * shows in its column width box: with Calibri 11, a column Excel shows as 8 characters wide is
+   * stored as 8.7109375. The value is written unchanged.
+   */
   readonly width?: number;
   readonly hidden?: boolean;
 }
@@ -157,14 +163,15 @@ export const ERROR_VALUES: readonly ErrorValue[] = ['#NULL!', '#DIV/0!', '#VALUE
 /** Most characters a cell can contain (Excel specifications and limits, W-04). */
 const MAX_CELL_TEXT = 32_767;
 /** Widest column, in characters (Excel specifications and limits, W-04). */
+/** Widest column Office accepts ([MS-OI29500] §2.1.598 c). */
 const MAX_COLUMN_WIDTH = 255;
 /** Tallest row, in points (Excel specifications and limits, W-04). */
 const MAX_ROW_HEIGHT = 409;
 /** Most cells one call to {@link NewSheet.style} may touch. Implementation cap (D-206). */
 export const MAX_STYLE_RANGE_CELLS = 1_048_576;
-/** Longest sheet name (Excel; to be verified, docs/facts/sml-write.md W2-20). */
+/** Longest sheet name ([MS-OI29500] §2.1.578 a; docs/facts/sml-write.md W2-20). */
 const MAX_SHEET_NAME = 31;
-/** Characters not allowed in sheet names (Excel; to be verified, W2-20). */
+/** Characters not allowed in sheet names (ECMA-376 Part 1 §18.17 sheet-name-special; [MS-OI29500] §2.1.578 a, W2-20). */
 const SHEET_NAME_FORBIDDEN = /[\\/?*:[\]]/;
 /** Formula text limit (Excel specifications and limits: 8,192 characters; to be verified, W2-21). */
 const MAX_FORMULA_LENGTH = 8192;
@@ -245,6 +252,8 @@ function checkSheetName(name: unknown): string {
   if (name.startsWith("'") || name.endsWith("'")) return fail('it starts or ends with an apostrophe.');
   if (firstLoneSurrogate(name) !== -1) return fail('it contains an unpaired UTF-16 surrogate.');
   // Characters that XML cannot represent; sheet names are attribute values, not ST_Xstring.
+  // This includes U+0003 END OF TEXT, which Office also excludes from sheet names
+  // ([MS-OI29500] §2.1.578 a, §2.1.863 a).
   if (/[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]/.test(name)) return fail('it contains a control character.');
   return name;
 }

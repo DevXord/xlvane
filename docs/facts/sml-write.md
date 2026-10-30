@@ -34,9 +34,10 @@ Sequence: `sheetPr`, `dimension`, `sheetViews`, `sheetFormatPr`, `cols`*, `sheet
 CT_Cell is the sequence `f`, `v`, `is`, `extLst` with attributes `r`, `s` (default 0), `t` (default `n`) (S-XSD L2274; agrees with E-20 … E-23). CT_CellFormula extends `ST_Formula`, which restricts `s:ST_Xstring` (S-XSD L216–218, L2751), so formula text uses the `_xHHHH_` escape like other ST_Xstring values (F-XS-01). PROVISIONAL for ST_Formula only; the reader now decodes formula text accordingly.
 **Verified (2026-10-30):** `sml.xsd` (Part 4 schema archive) ST_Formula L216–218 (`restriction base="s:ST_Xstring"`), CT_CellFormula L2751 (simpleContent extension of ST_Formula), CT_Cell L2274. ST_Formula is no longer provisional.
 
-### W2-03 — `cols` / `col` — VERIFIED (schema); unit PROVISIONAL
+### W2-03 — `cols` / `col` — VERIFIED (unit corrected 2026-10-30)
 CT_Cols holds 1..n `col`. CT_Col attributes: `min`, `max` (unsignedInt, required), `width` (double), `style` (default 0), `hidden`, `bestFit`, `customWidth`, `phonetic` (boolean, default false), `outlineLevel`, `collapsed`. Source: S-XSD L2233–2252. **Not checked:** the unit of `width` (the writer passes the caller's number through and documents it as "characters", as in Excel's column width box) and whether `customWidth="1"` is needed for a width to apply.
 **Verified:** `sml.xsd` (Part 4 schema archive) CT_Cols L2233–2237, CT_Col L2238–2252. The unit of `width` and the role of `customWidth` are prose in Part 1 §18.3.1.13 (not supplied).
+**Checked 2026-10-30 (D-1101, D-1104), corrects the unit:** `col@width` is in characters of the maximum digit width of the Normal font, including 5 px padding, truncated to 1/256: `Truncate([{Number of Characters} * {Maximum Digit Width} + {5 pixel padding}]/{Maximum Digit Width}*256)/256`. With Calibri 11 (maximum digit width 7 px), 8 characters are stored as 8.7109375. Source: ECMA-376 Part 1 §18.3.1.13, p.1601–1602. Office requires 0 ≤ width ≤ 255 ([MS-OI29500] rev. 25.0 §2.1.598 c, p.253). `customWidth` is not stated as required for `width` to apply. xlvane writes the caller's value unchanged, rejects values outside 0–255, and its TSDoc no longer calls the value the number in Excel's column-width box.
 
 ### W2-04 — `row` attributes — VERIFIED
 CT_Row attributes include `r`, `s`, `customFormat`, `ht` (double), `hidden`, `customHeight` (boolean, default false), `outlineLevel`, `collapsed`, `thickTop`, `thickBot`, `ph`. Source: S-XSD L2256–2273. **Not checked:** that `ht` is in points.
@@ -101,9 +102,10 @@ Attributes `auto` (boolean), `indexed` (unsignedInt), `rgb` (ST_UnsignedIntHex =
 **Verified:** `sml.xsd` (Part 4 schema archive) CT_Color L3502 (`tint` default `0.0`), ST_UnsignedIntHex L219–223 (hexBinary, length 4). The ARGB byte order needs Part 1 §18.8.19.
 **Checked 2026-10-30 (D-1104):** ECMA-376 Part 1, 5th ed. (2016) §18.8.19 fgColor `rgb`, p.1766 (also §18.8.3 bgColor, §18.3.1.15 color): "Standard Alpha Red Green Blue color value (ARGB)" — alpha first. [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.704 a, p.298: Office ranks `auto` < `indexed` < `rgb` < `theme` and keeps only the highest one.
 
-### W2-17 — CT_CellAlignment — VERIFIED (with a schema difference)
+### W2-17 — CT_CellAlignment — VERIFIED (with a schema difference; indent corrected 2026-10-30)
 Attributes `horizontal` (ST_HorizontalAlignment: `general`, `left`, `center`, `right`, `fill`, `justify`, `centerContinuous`, `distributed`), `vertical` (ST_VerticalAlignment: `top`, `center`, `bottom`, `justify`, `distributed`), `textRotation` (unsignedInt), `wrapText`, `indent` (unsignedInt), `relativeIndent`, `justifyLastLine`, `shrinkToFit`, `readingOrder`. Source: S-XSD L3402–3412, L3541–3561. **Not checked:** the meaning and range of `textRotation` (the writer accepts 0–180 and 255) and the maximum `indent` (the writer accepts 0–250).
 **Verified:** `sml.xsd` (Part 4 schema archive) CT_CellAlignment L3402–3412, ST_TextRotation L3413–3426, ST_HorizontalAlignment L3555, ST_VerticalAlignment L3567. **Difference between official sources:** the electronic `sml.xsd` types `textRotation` as ST_TextRotation, a union of 0–180 and the value 255, and gives `vertical` the default `bottom`; the schema printed in P4 Annex A (printed page 1003) and S-XSD type `textRotation` as xsd:unsignedInt with no `vertical` default. The writer's 0–180 or 255 satisfies both. The maximum `indent` (writer: 250) is not in the schema (xsd:unsignedInt) and stays PROVISIONAL (Excel behaviour).
+**Checked 2026-10-30 (D-1101, D-1104):** `textRotation` 0–180 or 255 for vertical text ([MS-OI29500] rev. 25.0 §2.1.693 a, p.295–296). `indent` at most 255 (§2.1.693 b); ECMA-376 Part 1 §18.8.1 sets no maximum. The writer's maximum changed from 250 to 255.
 
 ### W2-18 — Cell styles — VERIFIED
 CT_CellStyleXfs and CT_CellXfs hold 1..n `xf`; CT_CellStyles holds 1..n `cellStyle` with required `xfId` and optional `name`, `builtinId` (S-XSD L3572–3617). The writer writes one cell style xf and one cell style `Normal` with `builtinId="0"`; **not checked** that built-in id 0 is "Normal".
@@ -111,8 +113,9 @@ CT_CellStyleXfs and CT_CellXfs hold 1..n `xf`; CT_CellStyles holds 1..n `cellSty
 **Verified (builtinId 0):** `presetCellStyles.xml` in the Part 1 supporting archive `OfficeOpenXML-SpreadsheetMLStyles.zip` (supplied by the maintainer, 2026-10-30) defines the preset style `<normal builtinId="0">`, whose style sheet contains `<cellStyle name="Normal" xfId="0" builtinId="0"/>` (L47).
 **Checked 2026-10-30 (D-1104):** ECMA-376 Part 1, 5th ed. (2016) Annex G.2 Built-in Cell Styles, p.4472–4475: builtinId 0 = Normal (list 0–53); §18.8.7 cellStyle, p.1760: for built-in styles `builtinId` determines the style. [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.697, p.296–297: builtinId 0–53; 12–14 = Emphasis 1–3; `xfId` and `name` unique.
 
-### W2-19 — Font size limit — PROVISIONAL (Excel behaviour, not in ECMA-376)
+### W2-19 — Font size and related style limits — VERIFIED (corrected 2026-10-30)
 The writer accepts font sizes greater than 0 and at most 409 points. 409 is the Excel row-height limit (W-04); a font-size limit is **not checked** in the Excel specifications page.
+**Checked 2026-10-30 (D-1101, D-1104), corrects the range:** `sz@val` is a double from 1 to 409.55 inclusive ([MS-OI29500] rev. 25.0 §2.1.677 c, p.290); Office converts points to twips, so rounding may happen on save (§2.1.677 b). The writer now accepts 1–409.55 instead of "> 0 … 409". Related limits now enforced: font name 1–31 characters (§2.1.711); `formatCode` shorter than 255 characters (§2.1.712 b); at most 206 custom number formats (§2.1.713 g); at most 65430 cellXfs (§2.1.700 a, c), 65491 fonts (§2.1.707 a), 65430 fills (§2.1.705 a) and 65430 borders (§2.1.696). Style rules checked and tested: applyX (§2.1.721 a–f), bookViews always written (§2.1.584 a), font child order (§2.1.706 a, §2.1.674 a; CT_Font in sml.xsd is an unbounded choice).
 
 ## Workbook
 
@@ -174,6 +177,4 @@ DEP0137 "Closing fs.FileHandle on garbage collection" reached End-of-Life in v25
 `actions/checkout` tag v7.0.1 → commit 3d3c42e5aac5ba805825da76410c181273ba90b1; `actions/setup-node` tag v7.1.0 → commit 949feb2413d6458794dcd2491c4babbbce0c15c1 (`git ls-remote`, lightweight tags, 2026-10-30). Inputs used (`persist-credentials`, `node-version`) are declared in each action's `action.yml` at that tag.
 
 ## Still to verify
-Checked on 2026-10-30 against Part 2, Part 4 and the official Transitional `sml.xsd` (see "Check against the official documents" above). Still open:
-- **Part 1** (not supplied): the `width` unit and `customWidth` (W2-03), `ht` in points (W2-04), frozen-pane semantics (W2-05), `_xlnm._FilterDatabase` (W2-06), sheet names in formulas §18.17 (W2-08), font 0 (W2-12), ARGB order (W2-16), builtinId 0 = Normal (W2-18), content types §12.3 (W2-30), optionality of `docProps/app.xml` and the theme (W2-33).
-- **[MS-OI29500]** or Excel documentation: fills 0 and 1 (W2-14), `_FilterDatabase` (W2-06), maximum indent (W2-17), font size (W2-19), sheet names (W2-20), formula length (W2-21), part names (W2-32).
+The open points of phase 2 were checked on 2026-10-30 against ECMA-376 Part 1, [MS-OI29500] and [MS-XLSX] (D-1104); each entry above carries the result. Still PROVISIONAL: the formula length (W2-21, in none of the three documents) and the part names (W2-32, a convention).

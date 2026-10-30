@@ -18,7 +18,9 @@ An option is unknown, has the wrong type or is out of range. The hint lists the 
 
 ### XLV_E_LIMIT_EXCEEDED
 The file exceeds one of the resource limits (`ReadLimits`): input size, number of ZIP entries, decompressed size of one entry or of all entries, compression ratio, XML nesting depth, attribute count, name or text length, number of elements in a tree-parsed part, or number of cells. `details.limit` names the limit and `details.value` its current value. Sizes are measured on the bytes actually produced by decompression, so a file cannot avoid a limit by declaring false sizes.
-**Fix:** if the file comes from a trusted source and is simply large, raise the named limit, e.g. `{ limits: { maxCells: 50_000_000 } }`. A compression-ratio error on a small file usually means a zip bomb.
+
+The writers and `editCells` also throw this code when the styles part would hold more records than Office accepts ([MS-OI29500] rev. 25.0): more than 206 custom number formats (`details.limit` `customNumFmts`, §2.1.713 g), 65430 cell formats (`cellXfs`, §2.1.700), 65491 fonts (`fonts`, §2.1.707), 65430 fills (`fills`, §2.1.705) or 65430 borders (`borders`, §2.1.696). `editCells` counts the records already in the file plus the ones it adds, and checks only when it adds one. The writers also throw it for more rows than a sheet holds.
+**Fix:** if the file comes from a trusted source and is simply large, raise the named limit, e.g. `{ limits: { maxCells: 50_000_000 } }`. A compression-ratio error on a small file usually means a zip bomb. For a styles limit, use fewer distinct styles: reuse one style object (or one number format code) for all cells that should look the same.
 
 ### XLV_E_NOT_ZIP
 The input is not a ZIP archive, so it cannot be an XLSX file. CSV, HTML or text files saved with an `.xlsx` extension produce this error.
@@ -105,11 +107,11 @@ A value given to the writer cannot be stored in a cell: `NaN` or an infinite num
 **Fix:** convert the value first, for example write it as text, or leave the cell empty.
 
 ### XLV_E_INVALID_STYLE
-A style object has an unknown property (including `__proto__`), a wrong type or a value outside the allowed set, for example a colour that is not 6 or 8 hex digits or a border style Excel does not know. `details.property` is the path of the property, e.g. `font.color`; the hint lists the allowed values and suggests the closest one.
+A style object has an unknown property (including `__proto__`), a wrong type or a value outside the allowed set, for example a colour that is not 6 or 8 hex digits or a border style Excel does not know. The ranges are those Office accepts ([MS-OI29500] rev. 25.0): `font.size` 1 to 409.55 points (§2.1.677 c), `font.name` 1 to 31 characters (§2.1.711), `numFmt` 1 to 254 characters (shorter than 255, §2.1.712 b), `alignment.indent` 0 to 255 (§2.1.693 b), `alignment.textRotation` 0 to 180 or 255 (§2.1.693 a). Styles already in a file changed by `editCells` are kept even when they are outside these ranges; only the new style is checked. `details.property` is the path of the property, e.g. `font.color`; the hint names the allowed values or range with a valid example, and suggests the closest name.
 **Fix:** correct the property; the allowed values are those of the `CellStyle` type.
 
 ### XLV_E_INVALID_SHEET_NAME
-A sheet name is empty, longer than 31 characters, contains one of `\ / ? * : [ ]` or a control character, or starts or ends with an apostrophe.
+A sheet name is empty, longer than 31 characters, contains one of `\ / ? * : [ ]` or a control character (including U+0003, which Office excludes, [MS-OI29500] §2.1.578 a), or starts or ends with an apostrophe.
 **Fix:** choose another name.
 
 ### XLV_E_DUPLICATE_SHEET_NAME
@@ -170,7 +172,7 @@ The `xlvane` command line caught an error that is not an `XlvError`. This is a b
 The sheet's declared range (`dimension`) does not contain all of its cells. Programs that trust the declared range may miss data. A declared range that is larger than the cells is normal (formatting without values) and is not reported.
 
 ### XLV_W_SHARED_FORMULA_NOT_EXPANDED
-Some cells reuse a shared formula written in another cell, and xlvane could not translate it to them: the master cell is missing, the cell lies outside the master's range, a moved reference would leave the sheet, or the formula contains something the tokenizer does not recognise (docs/facts/formulas.md). Their `formula.text` is `null` and `formula.sharedIndex` names the group; their cached values are available. Other cells of shared formulas get their translated text and no warning.
+Some cells reuse a shared formula written in another cell, and xlvane could not translate it to them: the master cell is missing, the cell lies outside the master's range, a moved reference would leave the sheet, or the formula contains something the tokenizer does not recognise (docs/facts/formulas.md). Formulas that use the implicit-intersection operator `@` or a spill reference `#` (such as `A1#`) are never moved, because ECMA-376 Part 1 §18.17, [MS-OI29500] and [MS-XLSX] §2.2.2 do not define these operators (docs/decisions.md D-1102). Their `formula.text` is `null` and `formula.sharedIndex` names the group; their cached values are available. Other cells of shared formulas get their translated text and no warning.
 
 ### XLV_W_FORMULA_NO_CACHED_VALUE
 Some formula cells have no cached result, so their `value` is `null`. xlvane does not calculate formulas; open and save the file in a spreadsheet application to store the results.

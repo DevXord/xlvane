@@ -18,7 +18,7 @@ import { isDateFormat } from './sml/numfmt';
 import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
 import { attr, borderXml, DEFAULT_FONT, fillXml, fontXml, formatNumber, reusableBuiltinNumFmt, textElement } from './sml/write-parts';
-import { mergeStyles, normalizeStyle, stableKey, type CellStyle, type NormalizedStyle } from './style';
+import { checkStyleCount, mergeStyles, normalizeStyle, stableKey, type CellStyle, type NormalizedStyle, type StyleCountLimit } from './style';
 import { pickSheet, readTable } from './table';
 import { readOptions } from './util/options';
 import { suggest } from './util/suggest';
@@ -375,6 +375,7 @@ const CONTAINER_DEFAULTS: Readonly<Record<string, readonly string[]>> = {
   borders: ['<border><left/><right/><top/><bottom/><diagonal/></border>'],
   cellXfs: ['<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'],
 };
+const COUNT_LIMITS: Readonly<Record<string, StyleCountLimit>> = { numFmts: 'customNumFmts', fonts: 'fonts', fills: 'fills', borders: 'borders', cellXfs: 'cellXfs' };
 const ITEM_NAMES: Readonly<Record<string, string>> = { numFmts: 'numFmt', fonts: 'font', fills: 'fill', borders: 'border', cellXfs: 'xf' };
 
 class StylesEditor {
@@ -440,6 +441,9 @@ class StylesEditor {
     const existing = this.existingCount.get(container) ?? -1;
     const base = existing >= 0 ? existing : (CONTAINER_DEFAULTS[container]?.length ?? 0);
     const id = base + list.length;
+    // Only records added by this edit are checked, so files that already have more stay editable.
+    const limit = COUNT_LIMITS[container];
+    if (limit !== undefined) checkStyleCount(limit, id + 1);
     list.push(xml);
     ids.set(xml, id);
     return id;
@@ -467,7 +471,8 @@ class StylesEditor {
     const attrs = new Map<string, string>();
     for (const [k, v] of baseXf?.attrs ?? []) if (!k.startsWith('{')) attrs.set(k, v);
     for (const [k, v] of [['numFmtId', '0'], ['fontId', '0'], ['fillId', '0'], ['borderId', '0']] as const) if (!attrs.has(k)) attrs.set(k, v);
-    const current = normalizeStyle(this.styleOf(base));
+    // The style already in the file is kept even where it is outside the limits for new styles.
+    const current = normalizeStyle(this.styleOf(base), 'existing');
     const merged = mergeStyles(current, patch);
 
     if (patch.font) {

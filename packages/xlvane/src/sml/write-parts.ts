@@ -4,7 +4,7 @@
 // E-05. Every string from the caller goes through escapeText/escapeAttr, and text that the
 // schema types as ST_Xstring also through encodeXstring.
 import type { DateSystem, SheetState } from '../model';
-import type { NormalizedColor, NormalizedStyle } from '../style';
+import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
@@ -105,7 +105,12 @@ class Table {
   }
 }
 
-/** A `font` record: the font completed with `defaults` (name and size). */
+/**
+ * A `font` record: the font completed with `defaults` (name and size). Children are written in the
+ * order b, i, strike, u, sz, color, name: Office requires `i, strike, …, u, vertAlign, sz, color,
+ * name, family, charset, scheme` ([MS-OI29500] §2.1.706 a, which omits `b`) and puts `b` first in
+ * the run properties ([MS-OI29500] §2.1.674 a); CT_Font in sml.xsd allows any order (W2-11).
+ */
 export function fontXml(font: NonNullable<NormalizedStyle['font']>, defaults: { readonly name: string; readonly size: number } = DEFAULT_FONT): string {
   const f = { ...defaults, ...font };
   let xml = '<font>';
@@ -180,6 +185,9 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
     let borderId = 0;
     if (style.border) borderId = borders.add(borderXml(style.border));
     const nf = numFmtId(style.numFmt);
+    // Every cell xf has the Normal style xf (cellStyleXfs 0: numFmt, font, fill and border 0, no
+    // alignment) as parent; where it differs, the matching applyX shall be true ([MS-OI29500]
+    // §2.1.721 a–f), otherwise Office may replace the formatting when the Normal style changes.
     let xf = `<xf${attr('numFmtId', nf)}${attr('fontId', fontId)}${attr('fillId', fillId)}${attr('borderId', borderId)} xfId="0"`;
     if (nf !== 0) xf += ' applyNumberFormat="1"';
     if (fontId !== 0) xf += ' applyFont="1"';
@@ -204,6 +212,11 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
     return xfs.add(xf);
   });
 
+  checkStyleCount('customNumFmts', numFmts.size);
+  checkStyleCount('fonts', fonts.items.length);
+  checkStyleCount('fills', fills.items.length);
+  checkStyleCount('borders', borders.items.length);
+  checkStyleCount('cellXfs', xfs.items.length);
   let xml = `${XML_DECL}<styleSheet xmlns="${NS}">`;
   if (numFmts.size > 0) {
     xml += `<numFmts${attr('count', numFmts.size)}>`;
@@ -429,6 +442,8 @@ export function workbookXml(
   const active = sheets.findIndex((s) => s.state === 'visible');
   let workbook = `${XML_DECL}<workbook xmlns="${NS}" xmlns:r="${R_NS}">`;
   if (dateSystem === '1904') workbook += '<workbookPr date1904="1"/>';
+  // Always written, also by the streaming writer: Excel fails to print files without bookViews
+  // ([MS-OI29500] §2.1.584 a).
   workbook += `<bookViews><workbookView${active > 0 ? `${attr('firstSheet', active)}${attr('activeTab', active)}` : ''}/></bookViews>`;
   workbook += '<sheets>';
   sheets.forEach((sheet, i) => {

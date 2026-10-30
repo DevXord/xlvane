@@ -11,7 +11,7 @@ First release of `xlvane` and `@xlvane/exceljs`.
   - every error has an `XLV_E_*` code, location and hint (docs/errors.md);
   - damaged rows and cell references are skipped with a warning, as LibreOffice does.
 - **`inspect()`**: sheets, used ranges, header rows, column types and samples, merges, formulas, warnings (docs/inspect-json.md).
-- **Writing** with styles (fonts, fills, borders, alignment, number formats), column widths, row heights, merges, frozen panes, autofilter and hidden sheets; deterministic output.
+- **Writing** with styles (fonts, fills, borders, alignment, number formats), column widths, row heights, merges, frozen panes, autofilter and hidden sheets; deterministic output. Style values and counts are checked against the limits Office documents in [MS-OI29500].
 - **Task API**:
   - `readTable` with Standard Schema validation, `writeTable`;
   - `toCSV`/`fromCSV` with CSV-injection escaping, `toJSON`/`fromJSON`;
