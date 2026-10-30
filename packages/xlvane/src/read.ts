@@ -1,6 +1,8 @@
+import type { DefinedName } from './defined-names';
+import { isCorePropertiesRel, parseCoreProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { resolveLimits, type ReadLimits } from './limits';
-import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RowInfo, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
+import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
 import { parseCellRef } from './sml/cell-ref';
 import {
@@ -125,6 +127,8 @@ class ReadWorkbook implements Workbook {
     readonly hasMacros: boolean,
     readonly externalLinkCount: number,
     readonly warnings: readonly XlvWarning[],
+    readonly properties: WorkbookProperties,
+    readonly definedNames: readonly DefinedName[],
   ) {}
 
   getSheet(name: string): Sheet {
@@ -212,6 +216,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
         limits,
         warnings,
         sharedStrings: book.sharedStrings,
+        richStrings: book.richStrings,
         styles: book.styles,
         dateSystem: book.dateSystem,
         conformance: book.conformance,
@@ -221,7 +226,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     }
     return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data);
   });
-  return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list());
+  return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames);
 }
 
 /** A sheet as listed in the workbook part, before its cells are read. */
@@ -239,12 +244,21 @@ export interface WorkbookInfo {
   readonly workbookPart: string;
   readonly sheets: readonly SheetEntry[];
   readonly sharedStrings: readonly string[];
+  /** Runs of the shared strings that are rich text, by index. */
+  readonly richStrings: ReadonlyMap<number, readonly RichTextRun[]>;
   readonly styles: Styles;
   readonly dateSystem: DateSystem;
   readonly conformance: Conformance;
   readonly format: WorkbookFormat;
   readonly hasMacros: boolean;
   readonly externalLinkCount: number;
+  readonly properties: WorkbookProperties;
+  readonly definedNames: readonly DefinedName[];
+}
+
+/** The Core Properties relationship of the package, if any (D-A02). */
+function corePropertiesRel(pkg: OpcPackage): Relationship | undefined {
+  return pkg.relationships(null).find((r) => !r.external && isCorePropertiesRel(r.type));
 }
 
 /** The workbook part's relationships that the reader loads in full (workbook, styles, shared strings). */
@@ -257,6 +271,8 @@ export function workbookPartsToLoad(pkg: OpcPackage): string[] {
     const rel = findRelationship(rels, name);
     if (rel !== undefined) out.push(rel.target);
   }
+  const core = corePropertiesRel(pkg);
+  if (core !== undefined) out.push(core.target);
   return out;
 }
 
@@ -289,7 +305,8 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
     return { part: rel.target, xml };
   };
   const sst = readOptionalPart('sharedStrings', 'shared strings');
-  const sharedStrings = sst === undefined ? [] : parseSharedStrings(sst.xml, { part: sst.part, ...context });
+  const richStrings = new Map<number, readonly RichTextRun[]>();
+  const sharedStrings = sst === undefined ? [] : parseSharedStrings(sst.xml, { part: sst.part, ...context }, richStrings);
   const stylesPart = readOptionalPart('styles', 'styles');
   const styles: Styles = stylesPart === undefined ? EMPTY_STYLES : parseStyles(stylesPart.xml, { part: stylesPart.part, ...context });
 
@@ -330,7 +347,24 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
     }
     return { name: entry.name, index, kind, state: entry.state, part: rel.target };
   });
-  return { workbookPart, sheets, sharedStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount };
+  const definedNames = info.definedNames.map((n): DefinedName => {
+    let sheet: string | null = null;
+    if (n.localSheetId !== null) {
+      const entry = info.sheets[n.localSheetId];
+      if (entry === undefined) {
+        warnings.add('XLV_W_INVALID_VALUE', `The defined name "${n.name.slice(0, 100)}" belongs to sheet number ${String(n.localSheetId)}, which does not exist; it is read as a workbook-level name.`, { part: workbookPart });
+      } else sheet = entry.name;
+    }
+    return { name: n.name, refersTo: n.refersTo, sheet, hidden: n.hidden, comment: n.comment };
+  });
+  let properties: WorkbookProperties = {};
+  const core = corePropertiesRel(pkg);
+  if (core !== undefined) {
+    const xml = pkg.readXml(core.target);
+    if (xml === undefined) warnings.add('XLV_W_PART_MISSING', 'The package refers to a document properties part that does not exist; reading continues without it.', { part: core.target });
+    else properties = parseCoreProperties(xml, { part: core.target, ...context });
+  }
+  return { workbookPart, sheets, sharedStrings, richStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount, properties, definedNames };
 }
 
 

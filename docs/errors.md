@@ -103,11 +103,11 @@ A cell or row reference is not valid or lies outside the sheet grid (A1 to XFD10
 **Fix:** check the path and the file permissions.
 
 ### XLV_E_INVALID_VALUE
-A value given to the writer cannot be stored in a cell: `NaN` or an infinite number, text longer than 32 767 characters (the Excel limit) or with an unpaired UTF-16 surrogate, an invalid `Date` or a date outside the workbook's date system (the 1900 system covers 1899-12-31 to 9999-12-31, the 1904 system 1904-01-01 to 9999-12-31), an unknown error value, an empty formula, a column width outside 0–255 or a row height outside 0–409. `location` names the sheet and cell.
+A value given to the writer cannot be stored in a cell: `NaN` or an infinite number, text longer than 32 767 characters (the Excel limit) or with an unpaired UTF-16 surrogate, an invalid `Date` or a date outside the workbook's date system (the 1900 system covers 1899-12-31 to 9999-12-31, the 1904 system 1904-01-01 to 9999-12-31), an unknown error value, an empty formula, rich text that is not `{ richText: [{ text, font? }, …] }` with 1 to 32 767 runs and at most 32 767 characters in all ([MS-OI29500] §2.1.675), a column width outside 0–255 or a row height outside 0–409. `location` names the sheet and cell. An invalid font in a rich text run is `XLV_E_INVALID_STYLE`, with `details.run` giving the run's index.
 **Fix:** convert the value first, for example write it as text, or leave the cell empty.
 
 ### XLV_E_INVALID_STYLE
-A style object has an unknown property (including `__proto__`), a wrong type or a value outside the allowed set, for example a colour that is not 6 or 8 hex digits or a border style Excel does not know. The ranges are those Office accepts ([MS-OI29500] rev. 25.0): `font.size` 1 to 409.55 points (§2.1.677 c), `font.name` 1 to 31 characters (§2.1.711), `numFmt` 1 to 254 characters (shorter than 255, §2.1.712 b), `alignment.indent` 0 to 255 (§2.1.693 b), `alignment.textRotation` 0 to 180 or 255 (§2.1.693 a). Styles already in a file changed by `editCells` are kept even when they are outside these ranges; only the new style is checked. `details.property` is the path of the property, e.g. `font.color`; the hint names the allowed values or range with a valid example, and suggests the closest name.
+A style object has an unknown property (including `__proto__`), a wrong type or a value outside the allowed set, for example a colour that is not 6 or 8 hex digits or a border style Excel does not know. The ranges are those Office accepts ([MS-OI29500] rev. 25.0): `font.size` 1 to 409.55 points (§2.1.677 c), `font.name` 1 to 31 characters (§2.1.711), `numFmt` 1 to 254 characters (shorter than 255, §2.1.712 b) or a built-in format id of ECMA-376 Part 1 §18.8.30 that every language has (0–4, 9–22, 37–40, 45–49; docs/facts/sml-write.md W2-41), `alignment.indent` 0 to 255 (§2.1.693 b), `alignment.textRotation` 0 to 180 or 255 (§2.1.693 a). Styles already in a file changed by `editCells` are kept even when they are outside these ranges; only the new style is checked. `details.property` is the path of the property, e.g. `font.color`; the hint names the allowed values or range with a valid example, and suggests the closest name.
 **Fix:** correct the property; the allowed values are those of the `CellStyle` type.
 
 ### XLV_E_INVALID_SHEET_NAME
@@ -117,6 +117,10 @@ A sheet name is empty, longer than 31 characters, contains one of `\ / ? * : [ ]
 ### XLV_E_DUPLICATE_SHEET_NAME
 The workbook already has a sheet with this name. Names are compared ignoring upper and lower case. `details.existing` is the name of the existing sheet.
 **Fix:** choose another name, or get the existing sheet with `getSheet()`.
+
+### XLV_E_INVALID_DEFINED_NAME
+`defineName` (or `definedNames` of `writeWorkbookStream`) was given a name that spreadsheet applications do not accept, or a duplicate. Rules ([MS-OI29500] §2.1.568, ECMA-376 Part 1 §18.17.2.5): 1 to 255 characters; letters, digits, `_`, `.`, `\` and `?`, starting with a letter, `_` or `\`; not `TRUE`/`FALSE`, not a cell reference (`A1`, `R1C1`); not starting with `_xl` (reserved for built-in names); unique in its scope, ignoring case. The same code is used for an empty or too long formula (`refersTo`, at most 8192 characters) and a comment longer than 255 characters. `details.name` is the name.
+**Fix:** choose another name, for example `Sales_2026` instead of `Sales 2026` or `A1`, or make the name local to a sheet with `{ sheet: "Data" }`.
 
 ### XLV_E_OVERLAPPING_MERGE
 A range passed to `merge()` shares cells with a range merged before. `details.other` is that range.

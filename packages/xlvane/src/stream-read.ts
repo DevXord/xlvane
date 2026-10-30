@@ -1,6 +1,8 @@
 // Streaming reader: worksheets are decompressed and parsed incrementally, and each row is handed
 // on and then dropped, so memory does not grow with the number of rows (docs/decisions.md
 // D-401, D-402). The workbook part, shared strings and styles are read in full first.
+import type { DefinedName } from './defined-names';
+import type { WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
 import { resolveLimits, type ReadLimits } from './limits';
@@ -81,6 +83,10 @@ export interface WorkbookStream {
   readonly format: WorkbookFormat;
   readonly hasMacros: boolean;
   readonly externalLinkCount: number;
+  /** Document properties from `docProps/core.xml`; empty when the file has none. */
+  readonly properties: WorkbookProperties;
+  /** Defined names of the workbook part, in file order. */
+  readonly definedNames: readonly DefinedName[];
   /** Warnings so far; rows read later can add more. */
   readonly warnings: readonly XlvWarning[];
   /**
@@ -230,6 +236,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
         limits,
         warnings,
         sharedStrings: info.sharedStrings,
+        richStrings: info.richStrings,
         styles: info.styles,
         dateSystem: info.dateSystem,
         conformance: info.conformance,
@@ -264,6 +271,8 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     format: info.format,
     hasMacros: info.hasMacros,
     externalLinkCount: info.externalLinkCount,
+    properties: info.properties,
+    definedNames: info.definedNames,
     get warnings() {
       return warnings.list();
     },

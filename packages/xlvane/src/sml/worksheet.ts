@@ -3,15 +3,16 @@
 // §18.3.1.35 dimension; docs/facts/ecma-376.md E-20 … E-39).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RowInfo } from '../model';
+import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo } from '../model';
 import type { WarningCollector } from '../util/warnings';
 import { parseXml, type XmlHandler } from '../xml/parser';
+import type { XmlElement } from '../xml/tree';
 import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './cell-ref';
 import { compileFormula, type CompiledFormula } from './formula-shift';
 import { parseIsoDateTime, serialToDate } from './dates';
 import { SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS, isDateFormat, isDateFormatId } from './numfmt';
-import type { Styles } from './styles';
+import { parseRunFont, type Styles } from './styles';
 import { parseXsdBoolean } from './workbook';
 import { decodeXstring } from './xstring';
 
@@ -22,6 +23,8 @@ export interface WorksheetContext {
   readonly limits: ReadLimits;
   readonly warnings: WarningCollector;
   readonly sharedStrings: readonly string[];
+  /** Runs of the shared strings that are rich text, by index. */
+  readonly richStrings: ReadonlyMap<number, readonly RichTextRun[]>;
   readonly styles: Styles;
   readonly dateSystem: DateSystem;
   readonly conformance: Conformance;
@@ -73,6 +76,8 @@ interface PendingCell {
   styleIndex: number;
   v: string | null;
   inline: string | null;
+  /** Runs (`r`) of the inline string, if it has any. */
+  inlineRuns: RichTextRun[] | null;
   formulaAttrs: ReadonlyMap<string, string> | null;
   formulaText: string;
 }
@@ -166,6 +171,8 @@ export function createWorksheetParser(
   let phoneticDepth = 0;
   /** Raw text of the inline-string `t` element being read. */
   let inlineText = '';
+  /** The inline rich text run being read: its text, font and run properties (rPr children). */
+  let inlineRun: { text: string; font: RichTextRun['font']; properties: XmlElement[] | null } | null = null;
 
   const loc = (ref?: string) => (ref === undefined ? { part: ctx.part, sheet: ctx.sheet } : { part: ctx.part, sheet: ctx.sheet, cell: ref });
 
@@ -198,6 +205,7 @@ export function createWorksheetParser(
     let type: CellType = 'empty';
     let value: CellValue = null;
     const raw = p.v;
+    let richText: readonly RichTextRun[] | undefined;
     switch (p.t) {
       case 'n': {
         if (raw === null) break;
@@ -238,6 +246,7 @@ export function createWorksheetParser(
           }
           type = 'string';
           value = text;
+          richText = index === null ? undefined : ctx.richStrings.get(index);
         }
         break;
       }
@@ -292,6 +301,7 @@ export function createWorksheetParser(
     if (value === null && p.inline !== null) {
       type = 'string';
       value = p.inline;
+      if (p.inlineRuns !== null) richText = Object.freeze(p.inlineRuns.map((r) => Object.freeze(r)));
     }
 
     let formula: Formula | null = null;
@@ -354,6 +364,7 @@ export function createWorksheetParser(
       styleIndex: p.styleIndex,
       numFmt: format.code,
       style: ctx.styles.cellStyle(p.styleIndex, format.code),
+      ...(richText === undefined ? {} : { richText }),
     });
   };
 
@@ -407,6 +418,12 @@ export function createWorksheetParser(
             target = 'f';
             cell.formulaAttrs = attrs;
           } else if (depth === 5 && local === 'is') cell.inline ??= '';
+          else if (depth === 6 && local === 'r' && parent === 'is') {
+            // A leading t of the string is a run without properties.
+            cell.inlineRuns ??= cell.inline === null || cell.inline === '' ? [] : [{ text: cell.inline }];
+            inlineRun = { text: '', font: undefined, properties: null };
+          } else if (depth === 7 && local === 'rPr' && inlineRun !== null) inlineRun.properties = [];
+          else if (depth === 8 && parent === 'rPr' && inlineRun?.properties) inlineRun.properties.push({ ns: elementNs, local, attrs, children: [], text: '' });
           else if (local === 't' && cell.inline !== null && (parent === 'is' || parent === 'r')) target = 'is';
           return;
         }
@@ -433,7 +450,12 @@ export function createWorksheetParser(
         } else if (depth === 3 && local === 'col' && parent === 'cols') {
           const col = parseColumn(attrs);
           if (col === null) ctx.warnings.add('XLV_W_INVALID_VALUE', 'A column definition (col) has invalid min, max or width attributes; it is ignored.', loc());
-          else columns.push(col);
+          else {
+            const s = attrs.get('style');
+            const index = s === undefined ? null : parseUint(s, 10);
+            if (s !== undefined && index === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The column style index "${s.slice(0, 20)}" is not a number; it is ignored.`, loc());
+            columns.push(index === null ? col : { ...col, style: ctx.styles.cellStyle(index, numberFormat(index).code) });
+          }
         } else if (depth === 3 && local === 'row' && parent === 'sheetData') {
           const r = attrs.get('r');
           lastCol = 0;
@@ -492,6 +514,7 @@ export function createWorksheetParser(
             styleIndex,
             v: null,
             inline: null,
+            inlineRuns: null,
             formulaAttrs: null,
             formulaText: '',
           };
@@ -512,9 +535,22 @@ export function createWorksheetParser(
           finishCell(done);
         } else if (local === 't' && target === 'is') {
           // Each `t` is decoded as a whole: an _xHHHH_ escape cannot span two text events.
-          cell.inline = (cell.inline ?? '') + decodeXstring(inlineText);
+          const text = decodeXstring(inlineText);
+          cell.inline = (cell.inline ?? '') + text;
+          if (inlineRun !== null) inlineRun.text += text;
+          else cell.inlineRuns?.push({ text });
           inlineText = '';
           target = null;
+        } else if (local === 'rPr' && path.length === 6 && inlineRun?.properties) {
+          const done = cell;
+          const font = parseRunFont({ ns: elementNs, local, attrs: new Map(), children: inlineRun.properties, text: '' }, elementNs, (message) =>
+            ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc(done.ref)),
+          );
+          if (Object.keys(font).length > 0) inlineRun.font = font;
+          inlineRun.properties = null;
+        } else if (local === 'r' && path.length === 5 && inlineRun !== null) {
+          cell.inlineRuns?.push(inlineRun.font === undefined ? Object.freeze({ text: inlineRun.text }) : Object.freeze({ text: inlineRun.text, font: inlineRun.font }));
+          inlineRun = null;
         } else if ((local === 'v' || local === 'f') && path.length === 4) {
           target = null;
         }

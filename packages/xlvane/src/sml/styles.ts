@@ -247,10 +247,19 @@ function booleanProperty(el: XmlElement | undefined): boolean {
   return val === undefined ? true : parseBoolean(val) === true;
 }
 
+/**
+ * Parses the run properties of a rich text run (CT_RPrElt, F-SST-08): the font properties of
+ * CT_Font, with the font name in `rFont` instead of `name`. Unknown or invalid properties are left
+ * out and reported through `warn`.
+ */
+export function parseRunFont(el: XmlElement, ns: string, warn: (message: string) => void): FontStyle {
+  return parseFont(el, ns, (c, what) => (c === undefined ? undefined : parseColor(c, what, warn)), warn, 'rFont');
+}
+
 /** Parses CT_Font (W2-11). Unknown or invalid properties are left out. */
-function parseFont(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: string) => void): FontStyle {
+function parseFont(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: string) => void, nameElement = 'name'): FontStyle {
   const font: { -readonly [K in keyof FontStyle]: FontStyle[K] } = {};
-  const name = childNamed(el, ns, 'name')?.attrs.get('val');
+  const name = childNamed(el, ns, nameElement)?.attrs.get('val');
   if (name !== undefined) font.name = decodeXstring(name);
   const sz = childNamed(el, ns, 'sz')?.attrs.get('val');
   if (sz !== undefined) {

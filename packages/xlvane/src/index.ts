@@ -25,6 +25,8 @@ export {
   type XlvWarningCode,
 } from './errors';
 export { DEFAULT_READ_LIMITS, type ReadLimits } from './limits';
+export type { WorkbookProperties } from './doc-properties';
+export type { DefinedName, DefinedNameOptions } from './defined-names';
 export {
   createWorkbook,
   writeWorkbook,
@@ -64,6 +66,7 @@ export type {
   Formula,
   FormulaKind,
   FrozenPanes,
+  RichTextRun,
   RowInfo,
   Sheet,
   SheetKind,
@@ -106,6 +109,7 @@ export {
 export {
   writeWorkbookStream,
   writeTableStream,
+  type StreamDefinedName,
   type StreamRowInput,
   type StreamSheetSpec,
   type WriteTableStreamOptions,

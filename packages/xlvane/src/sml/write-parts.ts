@@ -3,6 +3,8 @@
 // types, relationship types and part names follow W2-30 … W2-33 and docs/facts/ecma-376.md E-03,
 // E-05. Every string from the caller goes through escapeText/escapeAttr, and text that the
 // schema types as ST_Xstring also through encodeXstring.
+import { definedNameXml, type NormalizedDefinedName } from '../defined-names';
+import { CORE_PROPERTIES_CONTENT_TYPE, CORE_PROPERTIES_PART, CORE_PROPERTIES_REL, corePropertiesXml, type WorkbookProperties } from '../doc-properties';
 import type { DateSystem, SheetState } from '../model';
 import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
@@ -10,14 +12,15 @@ import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
 import { CONTENT_TYPES_NS, PACKAGE_REL_NS, REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS } from './numfmt';
-import type { StoredCell, StoredValue } from '../write';
+import type { StoredCell, StoredRun, StoredValue } from '../write';
 
 /** One sheet, as handed over by `NewSheet`. */
 export interface WriteSheetData {
   readonly name: string;
   readonly state: SheetState;
   readonly cells: ReadonlyMap<number, ReadonlyMap<number, StoredCell>>;
-  readonly columns: ReadonlyMap<number, { readonly width: number | null; readonly hidden: boolean }>;
+  /** Width, visibility and interned style id (0 = none) by column number. */
+  readonly columns: ReadonlyMap<number, { readonly width: number | null; readonly hidden: boolean; readonly style: number }>;
   readonly rows: ReadonlyMap<number, { readonly height: number | null; readonly hidden: boolean }>;
   readonly merges: readonly CellRange[];
   readonly freeze: { readonly rows: number; readonly cols: number } | null;
@@ -30,6 +33,9 @@ export interface WritePackageInput {
   readonly sheets: readonly WriteSheetData[];
   /** Interned styles; index 0 is the default style. */
   readonly styles: readonly NormalizedStyle[];
+  /** Document properties; `docProps/core.xml` is written only when one is set. */
+  readonly properties?: WorkbookProperties;
+  readonly definedNames?: readonly NormalizedDefinedName[];
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -166,8 +172,10 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
   fills.add('<fill><patternFill patternType="gray125"/></fill>');
   borders.add('<border><left/><right/><top/><bottom/><diagonal/></border>');
 
-  const numFmtId = (code: string | undefined): number => {
+  const numFmtId = (code: string | number | undefined): number => {
     if (code === undefined) return 0;
+    // A built-in id (checked by normalizeStyle) is implied and needs no numFmt element (E-41).
+    if (typeof code === 'number') return code;
     const builtin = REUSABLE_BUILTINS.get(code);
     if (builtin !== undefined) return builtin;
     let id = numFmts.get(code);
@@ -236,30 +244,63 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
 // ---------------------------------------------------------------------------------------------
 // Shared strings
 
-/** Where string cell values go: the shared string table, or inline in the cell. */
+/**
+ * Where string cell values go: the shared string table. `add` takes the content of a string item
+ * (see {@link stringItemXml}), so equal items, plain or rich, share one entry.
+ */
 export interface StringSink {
-  add(s: string): number;
+  add(item: string): number;
 }
 
 class SharedStrings implements StringSink {
   private readonly index = new Map<string, number>();
   readonly list: string[] = [];
   total = 0;
-  add(s: string): number {
+  add(item: string): number {
     this.total++;
-    let i = this.index.get(s);
+    let i = this.index.get(item);
     if (i === undefined) {
       i = this.list.length;
-      this.list.push(s);
-      this.index.set(s, i);
+      this.list.push(item);
+      this.index.set(item, i);
     }
     return i;
   }
   xml(): string {
     let xml = `${XML_DECL}<sst xmlns="${NS}"${attr('count', this.total)}${attr('uniqueCount', this.list.length)}>`;
-    for (const s of this.list) xml += `<si>${textElement(s)}</si>`;
+    for (const item of this.list) xml += `<si>${item}</si>`;
     return `${xml}</sst>`;
   }
+}
+
+/**
+ * Run properties (`rPr`, CT_RPrElt, F-SST-08) of a rich text run, or '' for a run without font.
+ * Only the given properties are written, in the order Office requires: b, i, strike, condense,
+ * extend, outline, shadow, u, vertAlign, sz, color, rFont, family, charset, scheme
+ * ([MS-OI29500] §2.1.674 a).
+ */
+export function runPropertiesXml(font: StoredRun['font']): string {
+  if (font === undefined) return '';
+  let xml = '';
+  if (font.bold) xml += '<b/>';
+  if (font.italic) xml += '<i/>';
+  if (font.strike) xml += '<strike/>';
+  if (font.underline) xml += font.underline === 'single' ? '<u/>' : `<u${attr('val', font.underline)}/>`;
+  if (font.size !== undefined) xml += `<sz${attr('val', font.size)}/>`;
+  if (font.color !== undefined) xml += colorXml('color', font.color);
+  if (font.name !== undefined) xml += `<rFont${attr('val', encodeXstring(font.name))}/>`;
+  return xml === '' ? '' : `<rPr>${xml}</rPr>`;
+}
+
+/**
+ * The content of a string item (CT_Rst, F-SST-02): one `t` for plain text, or one `r` per rich
+ * text run (`rPr` then `t`). Used for `si` in the shared string table and `is` in a cell.
+ */
+export function stringItemXml(v: Extract<StoredValue, { kind: 'string' }>): string {
+  if (v.runs === undefined) return textElement(v.s);
+  let xml = '';
+  for (const run of v.runs) xml += `<r>${runPropertiesXml(run.font)}${textElement(run.text)}</r>`;
+  return xml;
 }
 
 /** Never used for strings: inline strings are handled before valueXml is called. */
@@ -284,7 +325,7 @@ function valueXml(v: Exclude<StoredValue, { kind: 'formula' }>, sst: StringSink,
       return { t: '', v: formatNumber(v.n) };
     case 'string':
       // A formula's text result is stored in the cell as t="str"; plain text goes to the SST.
-      return inFormula ? { t: 'str', v: escapeText(encodeXstring(v.s)) } : { t: 's', v: String(sst.add(v.s)) };
+      return inFormula ? { t: 'str', v: escapeText(encodeXstring(v.s)) } : { t: 's', v: String(sst.add(stringItemXml(v))) };
     case 'boolean':
       return { t: 'b', v: v.b ? '1' : '0' };
     case 'error':
@@ -301,7 +342,7 @@ export function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[] |
   const s = xf === 0 ? '' : attr('s', xf);
   const v = cell.value;
   if (v === null) return `<c r="${ref}"${s}/>`;
-  if (sst === null && v.kind === 'string') return `<c r="${ref}"${s} t="inlineStr"><is>${textElement(v.s)}</is></c>`;
+  if (sst === null && v.kind === 'string') return `<c r="${ref}"${s} t="inlineStr"><is>${stringItemXml(v)}</is></c>`;
   if (v.kind === 'formula') {
     const f = `<f>${escapeText(encodeXstring(v.text))}</f>`;
     if (v.result === null) return `<c r="${ref}"${s}>${f}</c>`;
@@ -312,11 +353,15 @@ export function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[] |
   return `<c r="${ref}"${s}${r.t === '' ? '' : attr('t', r.t)}><v>${r.v}</v></c>`;
 }
 
-/** The start of a worksheet part, up to and including `<sheetData>`; `dimension` is optional (W2-01). */
+/**
+ * The start of a worksheet part, up to and including `<sheetData>`; `dimension` is optional
+ * (W2-01). `xfOf` maps interned style ids to cell format indexes (identity when omitted).
+ */
 export function sheetHead(
   sheet: Pick<WriteSheetData, 'freeze' | 'columns'>,
   selected: boolean,
   dimension: string | null,
+  xfOf?: readonly number[],
 ): string {
   let xml = `${XML_DECL}<worksheet xmlns="${NS}" xmlns:r="${R_NS}">`;
   if (dimension !== null) xml += `<dimension${attr('ref', dimension)}/>`;
@@ -343,6 +388,9 @@ export function sheetHead(
       xml += `<col${attr('min', index)}${attr('max', index)}`;
       if (c.width !== null) xml += `${attr('width', c.width)} customWidth="1"`;
       if (c.hidden) xml += ' hidden="1"';
+      // CT_Col@style: index of a cell format, default 0 (sml.xsd L2238–2252, W2-03).
+      const xf = c.style === 0 ? 0 : (xfOf?.[c.style] ?? c.style);
+      if (xf !== 0) xml += attr('style', xf);
       xml += '/>';
     }
     xml += '</cols>';
@@ -388,7 +436,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
   }
   const dimension = maxRow === 0 ? 'A1' : rangeRef({ start: { row: minRow, col: minCol }, end: { row: maxRow, col: maxCol } });
 
-  let xml = sheetHead(sheet, selected, dimension);
+  let xml = sheetHead(sheet, selected, dimension, xfOf);
   for (const r of sortedRows) {
     const cells = sheet.cells.get(r);
     const start = rowStart(r, sheet.rows.get(r));
@@ -417,10 +465,11 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const sheetParts = input.sheets.map((sheet, i) => sheetXml(sheet, i === active, xfOf, sst));
 
   const n = input.sheets.length;
-  const workbook = workbookXml(input.sheets, input.dateSystem);
+  const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames);
   const workbookRels = workbookRelsXml(n, true);
-  const rootRels = rootRelsXml();
-  const types = contentTypesXml(n, true);
+  const core = corePropertiesXml(input.properties ?? {});
+  const rootRels = rootRelsXml(core !== null);
+  const types = contentTypesXml(n, true, core !== null);
 
   const entries: ZipWriteEntry[] = [
     { name: '[Content_Types].xml', data: encoder.encode(types) },
@@ -431,13 +480,15 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     { name: 'xl/styles.xml', data: encoder.encode(stylesXml) },
     { name: 'xl/sharedStrings.xml', data: encoder.encode(sst.xml()) },
   ];
+  if (core !== null) entries.push({ name: CORE_PROPERTIES_PART, data: encoder.encode(core) });
   return writeZip(entries);
 }
 
-/** The workbook part: date system, book view, sheets and the autofilter defined names. */
+/** The workbook part: date system, book view, sheets, and the autofilter and user defined names. */
 export function workbookXml(
   sheets: readonly { readonly name: string; readonly state: SheetState; readonly autoFilter: CellRange | null }[],
   dateSystem: DateSystem,
+  definedNames: readonly NormalizedDefinedName[] = [],
 ): string {
   const active = sheets.findIndex((s) => s.state === 'visible');
   let workbook = `${XML_DECL}<workbook xmlns="${NS}" xmlns:r="${R_NS}">`;
@@ -460,7 +511,13 @@ export function workbookXml(
           )}</definedName>`
         : '',
     )
-    .join('');
+    .join('') +
+    definedNames
+      .map((n) => {
+        const id = n.sheet === null ? null : sheets.findIndex((s) => s.name === n.sheet);
+        return definedNameXml(n, id === null || id < 0 ? null : id);
+      })
+      .join('');
   if (names !== '') workbook += `<definedNames>${names}</definedNames>`;
   return `${workbook}</workbook>`;
 }
@@ -476,16 +533,18 @@ export function workbookRelsXml(sheetCount: number, sharedStrings: boolean): str
   return `${xml}</Relationships>`;
 }
 
-/** The package relationships part. */
-export function rootRelsXml(): string {
+/** The package relationships part; with `coreProperties` also the Core Properties relationship. */
+export function rootRelsXml(coreProperties = false): string {
   return (
     `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">` +
-    `<Relationship Id="rId1" Type="${REL_BASE}officeDocument" Target="xl/workbook.xml"/></Relationships>`
+    `<Relationship Id="rId1" Type="${REL_BASE}officeDocument" Target="xl/workbook.xml"/>` +
+    (coreProperties ? `<Relationship Id="rId2" Type="${CORE_PROPERTIES_REL}" Target="${CORE_PROPERTIES_PART}"/>` : '') +
+    '</Relationships>'
   );
 }
 
 /** The Media Types stream (W2-30). */
-export function contentTypesXml(sheetCount: number, sharedStrings: boolean): string {
+export function contentTypesXml(sheetCount: number, sharedStrings: boolean, coreProperties = false): string {
   let types = `${XML_DECL}<Types xmlns="${CONTENT_TYPES_NS}">`;
   types += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>';
   types += '<Default Extension="xml" ContentType="application/xml"/>';
@@ -493,6 +552,7 @@ export function contentTypesXml(sheetCount: number, sharedStrings: boolean): str
   for (let i = 1; i <= sheetCount; i++) types += `<Override PartName="/xl/worksheets/sheet${String(i)}.xml" ContentType="${CT_BASE}worksheet+xml"/>`;
   types += `<Override PartName="/xl/styles.xml" ContentType="${CT_BASE}styles+xml"/>`;
   if (sharedStrings) types += `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_BASE}sharedStrings+xml"/>`;
+  if (coreProperties) types += `<Override PartName="/${CORE_PROPERTIES_PART}" ContentType="${CORE_PROPERTIES_CONTENT_TYPE}"/>`;
   return `${types}</Types>`;
 }
 

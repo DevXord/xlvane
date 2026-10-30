@@ -177,6 +177,33 @@ Quotes: verbatim prose quotes are kept to a minimum (one, in F-OPC-07, at most 1
 - **Why it matters:** Part 2 §7.3.4 and §7.3.5 percent-encode and un-percent-encode "every non-ASCII character" without naming an encoding. Part 2 bases non-ASCII part names on RFC 3987 (Introduction, L210–212).
 - **Code:** `percentAt()` decodes a sequence of `%HH` octets as one UTF-8 character. Invalid sequences stay encoded.
 
+## Core properties (`docProps/core.xml`, phase A, D-A02)
+
+Line numbers in this section refer to `spec/ECMA-376-2_5th_edition_december_2021/Ecma Office Open XML Part 2 - Open Packaging Conventions.txt` (the maintainer's copy, `pdftotext -layout`; not in the repository) and to `spec/ECMA-376-2_5th_edition_december_2021/xsd/opc-coreProperties.xsd` (from `OpenPackagingConventions-XMLSchema.zip`).
+
+### F-OPC-16: Core properties and their namespaces — VERIFIED
+- **Fact:** Table 3 (§8.1, L1966–2018) lists the core properties `category`, `contentStatus`, `created`, `creator`, `description`, `identifier`, `keywords`, `language`, `lastModifiedBy`, `lastPrinted`, `modified`, `revision`, `subject`, `title`, `version`. §8.3.4.2 (L2099–2110): `creator`, `description`, `identifier`, `language`, `subject`, `title` are ISO 15836-1 elements in `http://purl.org/dc/elements/1.1/`, without children, `xsi:type` or `xml:lang`. §8.3.4.3 (L2126–2142): `created` and `modified` are ISO 15836-2 elements in `http://purl.org/dc/terms/`. The others are in the Core Properties namespace `http://schemas.openxmlformats.org/package/2006/metadata/core-properties` (Table E.1, L3685–3691; §8.3.1 "unless specified otherwise").
+- **Schema:** `opc-coreProperties.xsd` L13–33: root `coreProperties` of CT_CoreProperties, an `xs:all` of the 15 elements, each `minOccurs="0" maxOccurs="1"`; `category`, `contentStatus`, `lastModifiedBy`, `revision`, `version` are `xs:string`, `lastPrinted` is `xs:dateTime`, `keywords` is CT_Keywords (mixed content with `value` children, L35–49). The `dc:` and `dcterms:` element declarations come from the Dublin Core schemas the file imports from dublincore.org; those are **not** in the container, so their content types are PROVISIONAL (xlvane reads and writes them as text).
+- **Code:** `doc-properties.ts` `ELEMENTS` (schema order), `normalizeProperties`, `parseCoreProperties`.
+
+### F-OPC-17: At most one Core Properties part, found through a package relationship — VERIFIED
+- **Fact:** §8.2 (L2021–2028): a package contains at most one Core Properties part, referenced by a core properties relationship from the package (at most one such relationship); its media type is the Core Properties part media type of Annex E. Table E.2 (L3699–3703): `application/vnd.openxmlformats-package.core-properties+xml`. Table E.3 (L3732–3737): relationship type `http://schemas.openxmlformats.org/package/2006/relationships/metadata/core-properties`, the same as Office uses ([MS-OI29500] §2.1.30, W2-33).
+- **Other spelling:** ECMA-376 Part 4 §13.2.10 (Part 4 text L1682–1684) lists `http://schemas.openxmlformats.org/officedocument/2006/relationships/metadata/core-properties` as the source relationship for Transitional documents. Observed in the corpus: 316 of the Apache POI files use the Part 2 type; two use misspellings (`meatadata`, `core-propertdes`), which xlvane does not accept.
+- **Code:** `CORE_PROPERTIES_REL`, `isCorePropertiesRel` (both spellings of the standards), `CORE_PROPERTIES_CONTENT_TYPE`. The part name `docProps/core.xml` is a convention (W2-32).
+
+### F-OPC-18: Markup rules of the part — VERIFIED
+- **Fact:** §8.3.1 (L2031–2036): the part shall be schema-valid against `opc-coreProperties.xsd`. §8.3.2 (L2075–2078): no Markup Compatibility elements or attributes. §8.3.3 (L2084–2093): the root `coreProperties` has no attributes; the standard's own example (L2042–2071) carries namespace declarations on it, and so does the writer. §8.3.4.1 (L2095–2097): core property elements are non-repeatable and can be empty or omitted. E-55/F-OPC-04 (UTF-8 or UTF-16, no DTD) apply to this part.
+- **Code:** the writer writes only the properties given, each once; the reader takes the first occurrence and ignores unknown elements.
+
+### F-OPC-19: Dates — VERIFIED (format), PROVISIONAL (W3CDTF profile)
+- **Fact:** §8.3.4.3 (L2131–2135): `created` and `modified` shall have `xsi:type="dcterms:W3CDTF"`, with `dcterms` declared as the prefix of `http://purl.org/dc/terms/`. §8.3.4.4.6 (L2232–2247): `lastPrinted` is `xsd:dateTime` and has no attributes; examples `2017-01-01` and `2017-04-17T14:20:10+09:00`. W3CDTF is defined by the W3C Note "Date and Time Formats" (Reference [2], L4033), which is not in the container; the accepted forms are therefore PROVISIONAL.
+- **Observed:** in the Apache POI corpus, 306 `dcterms:created` values have the form `YYYY-MM-DDThh:mm:ssZ`, others add a fraction, and two have a fraction and no zone.
+- **Code:** written as `YYYY-MM-DDThh:mm:ssZ` in UTC with whole seconds (`lastPrinted` without `xsi:type`). Read: `YYYY`, `YYYY-MM`, `YYYY-MM-DD`, or a date with `Thh:mm`, optional seconds and fraction, and `Z`, `±hh:mm` or no zone (read as UTC); anything else gives `XLV_W_INVALID_VALUE` and the property is left out.
+
+### F-OPC-20: `keywords` — VERIFIED
+- **Fact:** §8.3.4.4.3 (L2183–2200): `keywords` has an optional `xml:lang` and mixed content; each keyword can be wrapped in a `value` element with its own `xml:lang`.
+- **Code:** read as one string: the element's own text and the text of its `value` children, trimmed and joined with spaces; written as plain text.
+
 ## Decisions for review (D-OPC-*)
 
 - **D-OPC-01 — UTF-8 ZIP names.**

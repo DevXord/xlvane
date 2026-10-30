@@ -50,6 +50,16 @@ Fragment for `packages/xlvane/src/sml/xstring.ts`, `shared-strings.ts`, `styles.
 - **Source:** Part 1 §18.4.9 sst (Shared String Table), p.1724, L81486–81518.
 - **Decision D-SST-3:** both are informational only. They are never used to size or pre-allocate anything (untrusted input), and a mismatch with the real number of `si` elements is not reported (it would be noise; the number of `si` elements is authoritative for cell indexes).
 
+### F-SST-08 — `r` and `rPr` content model (rich text runs)
+- **Fact:** CT_RElt is the sequence `rPr` (CT_RPrElt, 0..1) then `t` (ST_Xstring, exactly 1). CT_RPrElt is an unbounded `xsd:choice` of `rFont` (CT_FontName), `charset`, `family` (CT_IntProperty), `b`, `i`, `strike`, `outline`, `shadow`, `condense`, `extend` (CT_BooleanProperty), `color` (CT_Color), `sz` (CT_FontSize), `u` (CT_UnderlineProperty), `vertAlign` (CT_VerticalAlignFontProperty), `scheme` (CT_FontScheme), each 0..1. CT_Rst is the sequence `t` 0..1, `r` 0..n, `rPh` 0..n, `phoneticPr` 0..1. The font name of a run is `rFont`, where a `font` record uses `name`.
+- **Source:** Transitional `spec/ECMA-376-4_5th_edition_december_2016/xsd/sml.xsd` CT_RElt L1820–1825, CT_RPrElt L1826–1844, CT_Rst L1845–1852; Strict `spec/ECMA-376-1_supporting/OfficeOpenXML-XMLSchema-Strict/sml.xsd` CT_RElt L1808, CT_RPrElt L1814, CT_Rst L1833 (same content). The schema allows the children of `rPr` in any order. [MS-OI29500] rev. 25.0 §2.1.674 a, p.289 (local review report, D-1104): Excel requires the order `b, i, strike, condense, extend, outline, shadow, u, vertAlign, sz, color, rFont, family, charset, scheme`.
+- **Code:** the reader reads `rPr` with the font parser of the styles part (`parseRunFont`, CT_BooleanProperty `val` default true as in W2-11); a leading `t` of an item with runs is returned as a run without font; the writer writes only the properties given, in the Office order. `vertAlign`, `family`, `charset`, `scheme`, `outline`, `shadow`, `condense` and `extend` are not modelled (left out on read, not writable).
+
+### F-SST-09 — Limits of a string item
+- **Fact:** Office limits `t` to 32767 characters and a string item to at most 32767 `r` and 32767 `rPh`.
+- **Source:** [MS-OI29500] rev. 25.0 §2.1.675 a–c (§18.4.8 si), p.289–290; §2.1.678 b (§18.4.12 t), p.290 (local review report, D-1104; E-30).
+- **Code:** the writer rejects rich text with more than 32767 runs or more than 32767 characters in all (`XLV_E_INVALID_VALUE`), the same limit as for plain text.
+
 ### Decision D-SST-1 — White space in `t`
 - **Fact (XML 1.0 §2.10 White Space Handling, `text/xml10.txt` L1029–1068):** an XML processor must pass all non-markup characters to the application; `xml:space="preserve"` signals the intent that white space be preserved, `xml:space="default"` signals that the application's default handling is acceptable.
 - **Decision:** white space in `t` is kept exactly as written regardless of `xml:space` (absent, `preserve` or `default`). Preserving is always within what the attribute allows, and it is the only choice that does not change cell values. (The XML parser already normalises line ends per XML 1.0 §2.11, so CR LF in a file becomes LF; a real CR is written as `_x000D_` or `&#13;`.)

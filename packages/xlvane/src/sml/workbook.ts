@@ -17,11 +17,21 @@ export interface WorkbookSheetEntry {
   readonly relId: string | null;
 }
 
+/** One `definedName` element; `localSheetId` is resolved to a sheet by the caller. */
+export interface WorkbookDefinedName {
+  readonly name: string;
+  readonly refersTo: string;
+  readonly localSheetId: number | null;
+  readonly hidden: boolean;
+  readonly comment: string | null;
+}
+
 /** What the reader needs from the workbook part. */
 export interface WorkbookInfo {
   readonly conformance: Conformance;
   readonly date1904: boolean;
   readonly sheets: readonly WorkbookSheetEntry[];
+  readonly definedNames: readonly WorkbookDefinedName[];
 }
 
 /** Context for parsing one part. */
@@ -93,5 +103,24 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
     const sheetId = rawId !== undefined && /^\d{1,10}$/.test(rawId) ? Number(rawId) : null;
     return { name, sheetId, state, relId: el.attrs.get(relIdKey) ?? null };
   });
-  return { conformance, date1904, sheets };
+  const namesElement = childNamed(root, ns, 'definedNames');
+  const definedNames = (namesElement === undefined ? [] : childrenNamed(namesElement, ns, 'definedName')).map((el): WorkbookDefinedName => {
+    const name = decodeXstring(el.attrs.get('name') ?? '');
+    const rawId = el.attrs.get('localSheetId');
+    let localSheetId: number | null = null;
+    if (rawId !== undefined) {
+      if (/^\d{1,10}$/.test(rawId.trim())) localSheetId = Number(rawId.trim());
+      else ctx.warnings.add('XLV_W_INVALID_VALUE', `The defined name "${name.slice(0, 100)}" has the invalid localSheetId "${rawId.slice(0, 20)}"; it is read as a workbook-level name.`, { part: ctx.part });
+    }
+    const rawHidden = el.attrs.get('hidden');
+    const comment = el.attrs.get('comment');
+    return {
+      name,
+      refersTo: decodeXstring(el.text),
+      localSheetId,
+      hidden: rawHidden !== undefined && parseXsdBoolean(rawHidden) === true,
+      comment: comment === undefined ? null : decodeXstring(comment),
+    };
+  });
+  return { conformance, date1904, sheets, definedNames };
 }

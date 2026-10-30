@@ -1,6 +1,8 @@
 // Public types of the read model. A workbook read by `readWorkbook` is immutable.
+import type { DefinedName } from './defined-names';
+import type { WorkbookProperties } from './doc-properties';
 import type { XlvWarning } from './errors';
-import type { CellStyle } from './style';
+import type { CellStyle, FontStyle } from './style';
 
 /**
  * The kind of value a cell holds after reading.
@@ -31,6 +33,24 @@ export type CellType = 'number' | 'string' | 'boolean' | 'error' | 'date' | 'emp
  * ```
  */
 export type CellValue = number | string | boolean | Date | null;
+
+/**
+ * One run of rich text: a piece of text with its own font (ECMA-376 Part 1 §18.4.4 `r`, F-SST-08).
+ * A run without `font` uses the cell's font. Cells read from a file carry their runs in
+ * `Cell.richText`; the writers accept them as `{ richText: [...] }`.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type RichTextRun } from 'xlvane';
+ *
+ * const runs: RichTextRun[] = [{ text: 'Total: ', font: { bold: true } }, { text: '1,250 EUR' }];
+ * createWorkbook().addSheet('Report').set('A1', { richText: runs });
+ * ```
+ */
+export interface RichTextRun {
+  readonly text: string;
+  readonly font?: FontStyle;
+}
 
 /**
  * How a formula is stored in the file (ECMA-376 Part 1, ST_CellFormulaType).
@@ -106,6 +126,11 @@ export interface Cell {
    * formatting.
    */
   readonly style: CellStyle;
+  /**
+   * For text stored as rich text (runs with their own fonts), the runs; `value` is then their
+   * text joined. Absent for plain text and other values.
+   */
+  readonly richText?: readonly RichTextRun[];
 }
 
 /**
@@ -126,6 +151,12 @@ export interface ColumnInfo {
   /** Width in characters, or `null` if the file does not set one. */
   readonly width: number | null;
   readonly hidden: boolean;
+  /**
+   * The column's default style (`col@style`), resolved like `Cell.style`; present only when the
+   * file gives the column a style. Applications use it for cells added to the column later;
+   * cells already in the file carry their own style.
+   */
+  readonly style?: CellStyle;
 }
 
 /**
@@ -298,6 +329,10 @@ export interface Workbook {
   readonly externalLinkCount: number;
   /** Warnings found while reading. */
   readonly warnings: readonly XlvWarning[];
+  /** Document properties from `docProps/core.xml`; empty when the file has none. */
+  readonly properties: WorkbookProperties;
+  /** Defined names of the workbook part, in file order (built-in `_xlnm.` names included). */
+  readonly definedNames: readonly DefinedName[];
   /** Returns the sheet with this name; throws `XLV_E_SHEET_NOT_FOUND` if there is none. */
   getSheet(name: string): Sheet;
 }

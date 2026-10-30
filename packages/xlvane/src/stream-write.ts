@@ -1,6 +1,8 @@
 // Streaming writer: rows are pulled from (async) iterables while the output stream is read, so
 // memory stays constant however many rows are written (docs/decisions.md D-403, D-404). Values
 // and styles are validated with the rules of the batch writer (write.ts).
+import { checkDefinedName, checkUniqueName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
+import { CORE_PROPERTIES_PART, corePropertiesXml, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
 import type { DateSystem, SheetState } from './model';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
@@ -104,6 +106,29 @@ export interface WriteWorkbookStreamOptions {
    * (smaller files when values repeat).
    */
   readonly sharedStrings?: boolean;
+  /** Document properties, written to `docProps/core.xml` (see `WorkbookProperties`). */
+  readonly properties?: WorkbookProperties;
+  /**
+   * Defined names, as for `NewWorkbook.defineName`. With sheets given as an iterable, a name's
+   * sheet is checked when all sheets are known, at the end of the stream.
+   */
+  readonly definedNames?: readonly StreamDefinedName[];
+}
+
+/**
+ * A defined name for {@link WriteWorkbookStreamOptions.definedNames}.
+ *
+ * @example
+ * ```ts
+ * import type { StreamDefinedName } from 'xlvane';
+ *
+ * const name: StreamDefinedName = { name: 'Items', refersTo: 'Data!$A$1:$A$1000' };
+ * ```
+ */
+export interface StreamDefinedName extends DefinedNameOptions {
+  readonly name: string;
+  /** Formula text with or without `=`. */
+  readonly refersTo: string;
 }
 
 const CHUNK_CHARS = 64 * 1024;
@@ -151,9 +176,29 @@ async function* iterate<T>(source: Iterable<T> | AsyncIterable<T>): AsyncGenerat
  * ```
  */
 export function writeWorkbookStream(options: WriteWorkbookStreamOptions): ReadableStream<Uint8Array> {
-  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings'], 'writeWorkbookStream options');
+  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames'], 'writeWorkbookStream options');
   const dateSystem = o.get('dateSystem');
-  const book = createWorkbook(dateSystem === undefined ? undefined : { dateSystem: dateSystem as DateSystem });
+  const book = createWorkbook({
+    ...(dateSystem === undefined ? {} : { dateSystem: dateSystem as DateSystem }),
+    ...(o.has('properties') ? { properties: o.get('properties') as WorkbookProperties } : {}),
+  });
+  const core = corePropertiesXml(book.properties);
+  const rawNames = o.get('definedNames') ?? [];
+  if (!Array.isArray(rawNames)) {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "definedNames" must be an array.', { hint: 'For example definedNames: [{ name: "Items", refersTo: "Data!$A$1:$A$10" }].', details: { option: 'definedNames' } });
+  }
+  // Names are checked now; the sheet of a local name once the sheets are known.
+  const names: NormalizedDefinedName[] = [];
+  rawNames.forEach((raw: unknown, i) => {
+    const r = readOptions(raw, ['name', 'refersTo', 'sheet', 'hidden', 'comment'], `definedNames[${String(i)}]`);
+    const { name, refersTo, ...rest } = Object.fromEntries(r) as Record<string, unknown>;
+    const n = checkDefinedName(name, refersTo, rest, null);
+    checkUniqueName(n, names);
+    names.push(n);
+  });
+  const addNames = (): void => {
+    for (const n of names) book.defineName(n.name, n.refersTo, { ...(n.sheet === null ? {} : { sheet: n.sheet }), hidden: n.hidden, ...(n.comment === null ? {} : { comment: n.comment }) });
+  };
   const sharedOption = o.get('sharedStrings') ?? false;
   if (typeof sharedOption !== 'boolean') {
     throw new XlvError('XLV_E_INVALID_OPTION', 'The option "sharedStrings" must be true or false.', { hint: 'Use sharedStrings: true or leave it out.', details: { option: 'sharedStrings' } });
@@ -199,6 +244,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     new XlvError('XLV_E_INVALID_INPUT', 'All sheets of the workbook are hidden.', { hint: 'A workbook needs at least one visible sheet.' });
   const prepared: PreparedSheet[] = dynamic ? [] : (specs as unknown[]).map(prepare);
   if (!dynamic && !prepared.some((p) => p.sheet.state === 'visible')) throw noVisibleSheet();
+  if (!dynamic) addNames();
 
   const strings = shared ? createSharedStrings() : null;
   const styleCache = new WeakMap<object, NormalizedStyle>();
@@ -295,17 +341,18 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   function* closingParts(): Generator<ZipStreamEntry> {
     yield {
       name: 'xl/workbook.xml',
-      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem)),
+      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, book.definedNames)),
     };
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
     yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true).xml) };
+    if (core !== null) yield { name: CORE_PROPERTIES_PART, data: encoder.encode(core) };
     if (strings) yield { name: 'xl/sharedStrings.xml', data: encoder.encode(strings.xml()) };
   }
   async function* entries(): AsyncGenerator<ZipStreamEntry> {
     if (!dynamic) {
       const active = prepared.findIndex((p) => p.sheet.state === 'visible');
-      yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared)) };
-      yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml()) };
+      yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null)) };
+      yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null)) };
       for (let i = 0; i < prepared.length; i++) {
         const p = prepared[i];
         if (p) yield { name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: sheetData(p, i === active) };
@@ -326,8 +373,9 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     }
     if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
     if (!selected) throw noVisibleSheet();
-    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared)) };
-    yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml()) };
+    addNames();
+    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null)) };
+    yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null)) };
     yield* closingParts();
   }
   return createZipStream(entries());

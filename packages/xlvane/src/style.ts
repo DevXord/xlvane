@@ -2,6 +2,7 @@
 // read from a file (`Cell.style`) and the style given to the writer (`NewSheet.set`). Allowed
 // values follow the SpreadsheetML schema (docs/facts/sml-write.md W2-10 … W2-19).
 import { XlvError } from './errors';
+import { BUILTIN_NUMBER_FORMATS } from './sml/numfmt';
 import { suggest } from './util/suggest';
 
 /**
@@ -238,8 +239,14 @@ export interface CellStyle {
   readonly fill?: FillStyle;
   readonly border?: BorderStyle;
   readonly alignment?: AlignmentStyle;
-  /** Number format code, for example `"#,##0.00"` or `"yyyy-mm-dd"`. */
-  readonly numFmt?: string;
+  /**
+   * Number format: a format code, for example `"#,##0.00"` or `"yyyy-mm-dd"`, or the id of a
+   * built-in format of ECMA-376 Part 1 §18.8.30 that every language has (0–4, 9–22, 37–40,
+   * 45–49), for example `14` for a date shown in the order of the reader's locale. An id is
+   * written without a format code, so applications use their own code for it; a code string is
+   * always stored as given. Reading gives the code (`14` reads back as `"mm-dd-yy"`).
+   */
+  readonly numFmt?: string | number;
 }
 
 export const UNDERLINES: readonly UnderlineStyle[] = ['single', 'double', 'singleAccounting', 'doubleAccounting'];
@@ -368,7 +375,8 @@ export interface NormalizedStyle {
     indent?: number;
     textRotation?: number;
   };
-  numFmt?: string;
+  /** A format code, or a built-in format id (never 0). */
+  numFmt?: string | number;
 }
 
 function invalid(path: string, message: string, hint: string): XlvError {
@@ -573,7 +581,13 @@ export function normalizeStyle(value: unknown, source: StyleSource = 'input'): N
     if (Object.keys(a).length > 0) out.alignment = a;
   }
   const numFmt = o.get('numFmt');
-  if (numFmt !== undefined) {
+  if (typeof numFmt === 'number') {
+    // Only the "All Languages" ids; the others are locale-dependent or need a formatCode (E-41).
+    if (!BUILTIN_NUMBER_FORMATS.has(numFmt)) {
+      throw invalid('numFmt', `has the value ${describe(numFmt)}, which is not a built-in number format id.`, `Use a built-in id (${[...BUILTIN_NUMBER_FORMATS.keys()].join(', ')}), such as 14 for a date, or a format code such as "yyyy-mm-dd".`);
+    }
+    if (numFmt !== 0) out.numFmt = numFmt;
+  } else if (numFmt !== undefined) {
     const max = source === 'input' ? MAX_NUMFMT_LENGTH : EXISTING_MAX_NUMFMT_LENGTH;
     if (typeof numFmt !== 'string' || numFmt.length === 0 || numFmt.length > max) {
       throw invalid('numFmt', `has the value ${describe(numFmt)}.`, `Use a number format code of 1 to ${String(max)} characters, such as "#,##0.00" or "yyyy-mm-dd".`);

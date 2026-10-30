@@ -63,6 +63,10 @@ export interface XlsxSpec {
   extraParts?: Record<string, string | Uint8Array>;
   /** Parts to leave out entirely (name without leading slash). */
   omit?: string[];
+  /** Raw XML placed in the workbook part after </sheets> (e.g. "<definedNames>…</definedNames>"). */
+  workbookAfterSheets?: string;
+  /** Extra package relationships ([type, target]), with ids rId2, rId3, … */
+  rootRels?: [string, string][];
 }
 
 export function escapeXml(text: string): string {
@@ -138,7 +142,7 @@ export function buildXlsx(spec: XlsxSpec = {}): Uint8Array {
   put(
     'xl/workbook.xml',
     `${DECL}<workbook xmlns="${ns.main}" xmlns:r="${ns.r}"${spec.strict ? ' conformance="strict"' : ''}>` +
-      `<workbookPr ${spec.workbookPr ?? ''}/><sheets>${sheetElements}</sheets></workbook>`,
+      `<workbookPr ${spec.workbookPr ?? ''}/><sheets>${sheetElements}</sheets>${spec.workbookAfterSheets ?? ''}</workbook>`,
   );
   put(
     'xl/_rels/workbook.xml.rels',
@@ -149,7 +153,9 @@ export function buildXlsx(spec: XlsxSpec = {}): Uint8Array {
   put(
     '_rels/.rels',
     `${DECL}<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">` +
-      `<Relationship Id="rId1" Type="${ns.rel}officeDocument" Target="xl/workbook.xml"/></Relationships>`,
+      `<Relationship Id="rId1" Type="${ns.rel}officeDocument" Target="xl/workbook.xml"/>` +
+      (spec.rootRels ?? []).map(([type, target], i) => `<Relationship Id="rId${i + 2}" Type="${type}" Target="${target}"/>`).join('') +
+      `</Relationships>`,
   );
   put(
     '[Content_Types].xml',

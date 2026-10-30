@@ -8,7 +8,7 @@
 // normalisation (XmlSpan).
 import { XlvError, type XlvWarning } from './errors';
 import { resolveLimits, type ReadLimits } from './limits';
-import type { Cell, Sheet, Workbook } from './model';
+import type { Cell, RichTextRun, Sheet, Workbook } from './model';
 import { openPackage, relationshipsPartName, type OpcPackage } from './opc/package';
 import { partKey, zipNameToPartName } from './opc/part-name';
 import { readWorkbook, toBytes } from './read';
@@ -17,7 +17,7 @@ import { classifyRelationship, relationshipTypes, SML_NS } from './sml/namespace
 import { isDateFormat } from './sml/numfmt';
 import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
-import { attr, borderXml, DEFAULT_FONT, fillXml, fontXml, formatNumber, reusableBuiltinNumFmt, textElement } from './sml/write-parts';
+import { attr, borderXml, DEFAULT_FONT, fillXml, fontXml, formatNumber, reusableBuiltinNumFmt, stringItemXml, textElement } from './sml/write-parts';
 import { checkStyleCount, mergeStyles, normalizeStyle, stableKey, type CellStyle, type NormalizedStyle, type StyleCountLimit } from './style';
 import { pickSheet, readTable } from './table';
 import { readOptions } from './util/options';
@@ -315,20 +315,25 @@ class SharedStringsEditor {
     warnings: WarningCollector,
   ) {
     const text = part === null ? undefined : edit.text(part);
-    const strings = text === undefined || part === null ? [] : parseSharedStrings(text, { part, limits: edit.limits, warnings });
+    const rich = new Map<number, readonly RichTextRun[]>();
+    const strings = text === undefined || part === null ? [] : parseSharedStrings(text, { part, limits: edit.limits, warnings }, rich);
+    // Items are keyed by the content xlvane would write for them (stringItemXml). Rich text items
+    // of the file are not indexed: their markup may hold properties xlvane does not model.
     strings.forEach((s, i) => {
-      if (!this.index.has(s)) this.index.set(s, i);
+      const key = textElement(s);
+      if (!rich.has(i) && !this.index.has(key)) this.index.set(key, i);
     });
     this.existing = strings.length;
   }
 
-  add(s: string): number {
+  /** Adds a string item given as its content (stringItemXml) and returns its index. */
+  add(item: string): number {
     this.references++;
-    let i = this.index.get(s);
+    let i = this.index.get(item);
     if (i === undefined) {
       i = this.existing + this.added.length;
-      this.added.push(s);
-      this.index.set(s, i);
+      this.added.push(item);
+      this.index.set(item, i);
     }
     return i;
   }
@@ -349,7 +354,7 @@ class SharedStringsEditor {
     const text = this.edit.text(part) ?? '';
     const { root } = scan(text, part, this.edit.limits, () => false);
     const prefix = prefixOf(root.start.qname);
-    const items = this.added.map((s) => withPrefix(`<si>${textElement(s)}</si>`, prefix)).join('');
+    const items = this.added.map((item) => withPrefix(`<si>${item}</si>`, prefix)).join('');
     const count = Number(root.attrs.get('count') ?? this.existing) + this.references;
     let tag = setAttr(text.slice(root.start.start, root.start.end), 'count', String(Number.isFinite(count) ? count : this.existing + this.references));
     tag = setAttr(tag, 'uniqueCount', String(this.existing + this.added.length));
@@ -449,7 +454,9 @@ class StylesEditor {
     return id;
   }
 
-  private numFmtId(code: string): number {
+  private numFmtId(code: string | number): number {
+    // A built-in id refers to the format the file gives that id, implied or declared (E-41).
+    if (typeof code === 'number') return code;
     const builtin = reusableBuiltinNumFmt(code);
     if (builtin !== undefined) return builtin;
     let id = this.numFmtIds.get(code);
@@ -575,7 +582,7 @@ function valueParts(v: Exclude<StoredValue, { kind: 'formula' }>, sst: SharedStr
     case 'number':
       return { t: '', v: formatNumber(v.n) };
     case 'string':
-      return inFormula ? { t: 'str', v: escapeText(encodeXstring(v.s)) } : { t: 's', v: String(sst.add(v.s)) };
+      return inFormula ? { t: 'str', v: escapeText(encodeXstring(v.s)) } : { t: 's', v: String(sst.add(stringItemXml(v))) };
     case 'boolean':
       return { t: 'b', v: v.b ? '1' : '0' };
     case 'error':
@@ -749,7 +756,7 @@ function requestFullCalculation(edit: PackageEditor, workbookPart: string): void
 
 interface EditPlan {
   readonly sheet: Sheet;
-  readonly cells: Map<string, { row: number; col: number; value: StoredValue | null; style: NormalizedStyle | null; date: string | null }>;
+  readonly cells: Map<string, { row: number; col: number; value: StoredValue | null; style: NormalizedStyle | null; date: string | number | null }>;
 }
 
 function inputBytes(input: unknown): Uint8Array {

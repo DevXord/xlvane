@@ -1,7 +1,9 @@
 // Building new workbooks in memory and writing them as XLSX (docs/decisions.md D-201 … D-210).
 // Runtime-neutral: the result is a Uint8Array; `xlvane/node` adds `writeWorkbookFile`.
+import { checkDefinedName, checkUniqueName, type DefinedName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
+import { normalizeProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
-import type { DateSystem, SheetState } from './model';
+import type { DateSystem, RichTextRun, SheetState } from './model';
 import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
@@ -38,7 +40,8 @@ export type FormulaResult = number | string | boolean | Date | { readonly error:
 /**
  * A value for {@link NewSheet.set}: a number, a string, a boolean, a `Date` (its UTC fields are
  * the spreadsheet's date and time), `null` for no value, `{ error: "#N/A" }` for an error
- * value, or `{ formula, result }` for a formula with an optional cached result.
+ * value, `{ formula, result }` for a formula with an optional cached result, or
+ * `{ richText: [{ text, font? }, …] }` for text whose parts have their own fonts.
  *
  * @example
  * ```ts
@@ -56,7 +59,8 @@ export type CellInput =
   | Date
   | null
   | { readonly error: ErrorValue }
-  | { readonly formula: string; readonly result?: FormulaResult };
+  | { readonly formula: string; readonly result?: FormulaResult }
+  | { readonly richText: readonly RichTextRun[] };
 
 /**
  * Options for {@link createWorkbook}.
@@ -73,6 +77,8 @@ export type CellInput =
 export interface CreateWorkbookOptions {
   /** Date system for serial dates. Default `"1900"`, the system Excel uses on Windows. */
   readonly dateSystem?: DateSystem;
+  /** Document properties (title, creator, dates …), written to `docProps/core.xml` when given. */
+  readonly properties?: WorkbookProperties;
 }
 
 /**
@@ -98,7 +104,7 @@ export interface AddSheetOptions {
  * ```ts
  * import { createWorkbook, type ColumnOptions } from 'xlvane';
  *
- * const wide: ColumnOptions = { width: 40 };
+ * const wide: ColumnOptions = { width: 40, style: { numFmt: '#,##0.00' } };
  * createWorkbook().addSheet('Data').column('A', wide);
  * ```
  */
@@ -112,6 +118,13 @@ export interface ColumnOptions {
    */
   readonly width?: number;
   readonly hidden?: boolean;
+  /**
+   * Default style of the column, written as `col@style` (the column's cell format; [MS-OI29500]
+   * §2.1.598 d). xlvane does not apply it to the column's cells: style cells with `set` or
+   * `style`. Applications such as Excel use it for cells added to the column later. `{}` removes
+   * it.
+   */
+  readonly style?: CellStyle;
 }
 
 /**
@@ -182,7 +195,7 @@ const DAY_MS = 86_400_000;
 /** A cell value after validation, as the writer stores it. */
 export type StoredValue =
   | { readonly kind: 'number'; readonly n: number }
-  | { readonly kind: 'string'; readonly s: string }
+  | { readonly kind: 'string'; readonly s: string; readonly runs?: readonly StoredRun[] }
   | { readonly kind: 'boolean'; readonly b: boolean }
   | { readonly kind: 'error'; readonly e: ErrorValue }
   | {
@@ -190,6 +203,15 @@ export type StoredValue =
       readonly text: string;
       readonly result: Exclude<StoredValue, { kind: 'formula' }> | null;
     };
+
+/** A rich text run after validation: its text and its font with only known keys. */
+export interface StoredRun {
+  readonly text: string;
+  readonly font?: NonNullable<NormalizedStyle['font']>;
+}
+
+/** Most runs in one rich text value ([MS-OI29500] §2.1.675, F-SST-09). */
+const MAX_RICH_TEXT_RUNS = 32_767;
 
 /** A stored cell: its value (or `null`) and the id of its interned style (0 = default). */
 export interface StoredCell {
@@ -278,7 +300,7 @@ export class NewSheet {
   /** @internal */
   readonly cellMap: Map<number, Map<number, StoredCell>> = new Map();
   /** @internal */
-  readonly columnMap: Map<number, { width: number | null; hidden: boolean }> = new Map();
+  readonly columnMap: Map<number, { width: number | null; hidden: boolean; style: number }> = new Map();
   /** @internal */
   readonly rowMap: Map<number, { height: number | null; hidden: boolean }> = new Map();
   /** @internal */
@@ -415,20 +437,21 @@ export class NewSheet {
   }
 
   /**
-   * Sets the width or visibility of a column, given by letters (`"C"`) or number (3).
+   * Sets the width, visibility or default style of a column, given by letters (`"C"`) or number
+   * (3). Options not given keep their current value.
    *
    * @example
    * ```ts
    * import { createWorkbook } from 'xlvane';
    *
-   * createWorkbook().addSheet('Data').column('A', { width: 30 }).column(2, { hidden: true });
+   * createWorkbook().addSheet('Data').column('A', { width: 30 }).column(2, { hidden: true, style: { font: { bold: true } } });
    * ```
    */
   column(col: string | number, options: ColumnOptions): this {
     const index = typeof col === 'number' ? col : typeof col === 'string' ? (columnNumber(col.toUpperCase()) ?? 0) : 0;
     if (!Number.isInteger(index) || index < 1 || index > MAX_COLUMNS) throw invalidRef(col, this.name, 'column', '"C" or 3');
-    const o = readOptions(options, ['width', 'hidden'], 'column options');
-    const current = this.columnMap.get(index) ?? { width: null, hidden: false };
+    const o = readOptions(options, ['width', 'hidden', 'style'], 'column options');
+    const current = this.columnMap.get(index) ?? { width: null, hidden: false, style: 0 };
     const width = o.get('width');
     if (width !== undefined) {
       if (typeof width !== 'number' || !(width >= 0 && width <= MAX_COLUMN_WIDTH)) {
@@ -441,6 +464,8 @@ export class NewSheet {
       if (typeof hidden !== 'boolean') throw invalidOption('Column option "hidden" must be true or false.', 'Use { hidden: true }.');
       current.hidden = hidden;
     }
+    const style = o.get('style');
+    if (style !== undefined) current.style = this.book.intern(normalizeStyle(style));
     this.columnMap.set(index, current);
     return this;
   }
@@ -580,6 +605,7 @@ export function convertCellInput(value: unknown, ctx: ConvertContext, cell: stri
   if (value === null || value === undefined) return { stored: null, isDate: false, hasTime: false };
   if (typeof value === 'object' && !(value instanceof Date)) {
     const keys = Object.keys(value);
+    if (keys.includes('richText')) return { stored: readRichText(value, ctx.sheet, cell), isDate: false, hasTime: false };
     if (keys.includes('formula')) {
       const o = readFormula(value, ctx.sheet, cell);
       if (o.result === undefined) return { stored: { kind: 'formula', text: o.text, result: null }, isDate: false, hasTime: false };
@@ -645,8 +671,58 @@ what: string,
     ctx.sheet,
     cell,
     `The ${what} for ${cell} has an unsupported type (${typeof value === 'object' ? 'object' : typeof value}).`,
-    'Use a number, string, boolean, Date, null, { error: "#N/A" } or { formula: "A1*2", result: 2 }.',
+    'Use a number, string, boolean, Date, null, { error: "#N/A" }, { formula: "A1*2", result: 2 } or { richText: [{ text: "a" }] }.',
   );
+}
+
+/**
+ * Validates `{ richText: [{ text, font? }, …] }` (F-SST-08, F-SST-09): at least one run, at most
+ * 32,767 runs and 32,767 characters in all, fonts as in cell styles. Runs with the same font next
+ * to each other are kept apart, as given.
+ */
+function readRichText(value: object, sheet: string, cell: string): Extract<StoredValue, { kind: 'string' }> {
+  const usage = 'Use { richText: [{ text: "Total: ", font: { bold: true } }, { text: "42" }] }.';
+  const keys = Object.keys(value);
+  const runsIn = (value as { richText: unknown }).richText;
+  if (keys.length !== 1 || !Array.isArray(runsIn) || runsIn.length === 0) {
+    throw invalidValue(sheet, cell, `The rich text for ${cell} must be an object with only "richText", a non-empty array of runs.`, usage);
+  }
+  if (runsIn.length > MAX_RICH_TEXT_RUNS) {
+    throw invalidValue(sheet, cell, `The rich text for ${cell} has ${String(runsIn.length)} runs.`, `A rich text value can have at most ${String(MAX_RICH_TEXT_RUNS)} runs. Join runs that have the same font.`);
+  }
+  const runs: StoredRun[] = [];
+  let text = '';
+  for (let i = 0; i < runsIn.length; i++) {
+    const run: unknown = runsIn[i];
+    const runKeys = typeof run === 'object' && run !== null && !Array.isArray(run) ? Object.keys(run) : null;
+    const t = runKeys === null ? undefined : (run as { text: unknown }).text;
+    if (runKeys === null || runKeys.some((k) => k !== 'text' && k !== 'font') || typeof t !== 'string') {
+      throw invalidValue(sheet, cell, `Run ${String(i)} of the rich text for ${cell} is not { text, font? } with a string text.`, usage);
+    }
+    if (firstLoneSurrogate(t) !== -1) {
+      throw invalidValue(sheet, cell, `Run ${String(i)} of the rich text for ${cell} contains an unpaired UTF-16 surrogate.`, 'The text is not valid Unicode; it may have been cut in the middle of a character such as an emoji. Fix the text before writing it.');
+    }
+    text += t;
+    const fontIn = runKeys.includes('font') ? (run as { font: unknown }).font : undefined;
+    let font: StoredRun['font'];
+    if (fontIn !== undefined) {
+      try {
+        font = normalizeStyle({ font: fontIn }).font;
+      } catch (error) {
+        if (!(error instanceof XlvError)) throw error;
+        throw new XlvError(error.code, `Run ${String(i)} of the rich text for ${cell}: ${error.message}`, {
+          location: { sheet, cell },
+          hint: error.hint,
+          details: { ...error.details, run: i },
+        });
+      }
+    }
+    runs.push(font === undefined ? { text: t } : { text: t, font });
+  }
+  if (text.length > MAX_CELL_TEXT) {
+    throw invalidValue(sheet, cell, `The rich text for ${cell} has ${String(text.length)} characters.`, `A cell can contain at most ${String(MAX_CELL_TEXT)} characters. Split the text over several cells.`);
+  }
+  return { kind: 'string', s: text, runs };
 }
 
 function readFormula(value: object, sheet: string, cell: string): { text: string; result: unknown } {
@@ -680,13 +756,17 @@ function readFormula(value: object, sheet: string, cell: string): { text: string
 export class NewWorkbook {
   /** Date system used to store dates. */
   readonly dateSystem: DateSystem;
+  /** Document properties given to {@link createWorkbook}. */
+  readonly properties: WorkbookProperties;
   private readonly list: NewSheet[] = [];
+  private readonly names: NormalizedDefinedName[] = [];
   private readonly styleIds = new Map<string, number>();
   private readonly styleList: NormalizedStyle[] = [{}];
 
   /** @internal Use {@link createWorkbook}. */
-  constructor(dateSystem: DateSystem) {
+  constructor(dateSystem: DateSystem, properties: WorkbookProperties = {}) {
     this.dateSystem = dateSystem;
+    this.properties = properties;
     this.styleIds.set(stableKey({}), 0);
   }
 
@@ -751,6 +831,35 @@ export class NewWorkbook {
     });
   }
 
+  /**
+   * Defines a name for a cell, range, constant or formula. `refersTo` is formula text with or
+   * without `=`, for example `"Data!$A$2:$A$100"`; it is stored as given. A name is local to a
+   * sheet when `options.sheet` is set. Throws `XLV_E_INVALID_DEFINED_NAME` for a name Excel does
+   * not accept or a duplicate in the same scope (names are not case-sensitive), and
+   * `XLV_E_SHEET_NOT_FOUND` for an unknown sheet.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const workbook = createWorkbook();
+   * workbook.addSheet('Data').set('A1', 0.19);
+   * workbook.defineName('VatRate', 'Data!$A$1');
+   * workbook.defineName('Rows', 'Data!$A$2:$A$100', { sheet: 'Data', hidden: true });
+   * ```
+   */
+  defineName(name: string, refersTo: string, options?: DefinedNameOptions): this {
+    const n = checkDefinedName(name, refersTo, options, this.list.map((s) => s.name));
+    checkUniqueName(n, this.names);
+    this.names.push(n);
+    return this;
+  }
+
+  /** Defined names in the order they were added. */
+  get definedNames(): readonly DefinedName[] {
+    return [...this.names];
+  }
+
   /** @internal Returns the id of a normalised style, adding it if new. */
   intern(style: NormalizedStyle): number {
     const key = stableKey(style);
@@ -790,12 +899,12 @@ export class NewWorkbook {
  * ```
  */
 export function createWorkbook(options?: CreateWorkbookOptions): NewWorkbook {
-  const o = readOptions(options, ['dateSystem'], 'workbook options');
+  const o = readOptions(options, ['dateSystem', 'properties'], 'workbook options');
   const dateSystem = o.get('dateSystem') ?? '1900';
   if (dateSystem !== '1900' && dateSystem !== '1904') {
     throw invalidOption(`Date system ${JSON.stringify(String(dateSystem).slice(0, 20))} is not valid.`, 'Use "1900" (the default) or "1904".');
   }
-  return new NewWorkbook(dateSystem);
+  return new NewWorkbook(dateSystem, normalizeProperties(o.get('properties')));
 }
 
 /**
@@ -834,5 +943,7 @@ export function writeWorkbook(workbook: NewWorkbook): Uint8Array {
     dateSystem: workbook.dateSystem,
     sheets: sheets.map((s) => s.data()),
     styles: workbook.styles(),
+    properties: workbook.properties,
+    definedNames: workbook.definedNames,
   });
 }
