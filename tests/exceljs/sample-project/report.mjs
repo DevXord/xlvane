@@ -61,6 +61,14 @@ export async function run(ExcelJS, Workbook, dir) {
       { type: 'expression', priority: 2, formulae: ['$C2<10'], style: { font: { italic: true } } },
     ],
   });
+  // An x14 data bar (solid fill, axis in the middle) and an x14 icon set.
+  sheet.addConditionalFormatting({
+    ref: 'C2:C4',
+    rules: [
+      { type: 'dataBar', priority: 3, gradient: false, axisPosition: 'middle', axisColor: { argb: 'FF000000' }, direction: 'leftToRight', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } },
+      { type: 'iconSet', priority: 4, iconSet: '3Stars', cfvo: [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] },
+    ],
+  });
   await sheet.protect('', { sort: true, autoFilter: true, selectLockedCells: true, selectUnlockedCells: true });
   sheet.pageSetup.orientation = 'landscape';
   sheet.pageSetup.paperSize = 9;
@@ -151,7 +159,16 @@ export async function run(ExcelJS, Workbook, dir) {
       c2validation: ws.getCell('C2').dataValidation ?? null,
       conditional: ws.conditionalFormattings.map((cf) => ({
         ref: cf.ref,
-        rules: cf.rules.map((r) => ({ type: r.type, operator: r.operator ?? null, priority: r.priority, formulae: r.formulae ?? null, bold: r.style?.font?.bold ?? null, italic: r.style?.font?.italic ?? null })),
+        rules: cf.rules.map((r) => ({
+          type: r.type,
+          operator: r.operator ?? null,
+          priority: r.priority,
+          formulae: r.formulae ?? null,
+          bold: r.style?.font?.bold ?? null,
+          italic: r.style?.font?.italic ?? null,
+          bar: r.type === 'dataBar' ? { gradient: r.gradient, minLength: r.minLength, maxLength: r.maxLength, axisPosition: r.axisPosition, axisColor: r.axisColor, direction: r.direction, color: r.color, cfvo: r.cfvo } : null,
+          icons: r.type === 'iconSet' ? { iconSet: r.iconSet, cfvo: r.cfvo } : null,
+        })),
       })),
       protection: ws.sheetProtection ?? null,
       page: {

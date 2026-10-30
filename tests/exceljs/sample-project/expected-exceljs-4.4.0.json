@@ -449,7 +449,9 @@
               "15"
             ],
             "bold": true,
-            "italic": null
+            "italic": null,
+            "bar": null,
+            "icons": null
           },
           {
             "type": "expression",
@@ -459,7 +461,70 @@
               "$C2<10"
             ],
             "bold": null,
-            "italic": true
+            "italic": true,
+            "bar": null,
+            "icons": null
+          }
+        ]
+      },
+      {
+        "ref": "C2:C4",
+        "rules": [
+          {
+            "type": "dataBar",
+            "operator": null,
+            "priority": 3,
+            "formulae": null,
+            "bold": null,
+            "italic": null,
+            "bar": {
+              "gradient": false,
+              "minLength": 0,
+              "maxLength": 100,
+              "axisPosition": "middle",
+              "axisColor": {
+                "argb": "FF000000"
+              },
+              "direction": "leftToRight",
+              "color": {
+                "argb": "FF638EC6"
+              },
+              "cfvo": [
+                {
+                  "type": "min"
+                },
+                {
+                  "type": "max"
+                }
+              ]
+            },
+            "icons": null
+          },
+          {
+            "type": "iconSet",
+            "operator": null,
+            "priority": 4,
+            "formulae": null,
+            "bold": null,
+            "italic": null,
+            "bar": null,
+            "icons": {
+              "iconSet": "3Stars",
+              "cfvo": [
+                {
+                  "type": "percent",
+                  "value": 0
+                },
+                {
+                  "type": "percent",
+                  "value": 33
+                },
+                {
+                  "type": "percent",
+                  "value": 67
+                }
+              ]
+            }
           }
         ]
       }

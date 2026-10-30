@@ -2,6 +2,13 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase C (without passwords): sheet rules and printing (2026-10-30)
+
+- **Sources:** third local review report (ECMA-376 Part 1 §18.3.1.x, §18.8 dxf, §18.18; [MS-OI29500] limits and CF/DV formula grammars; [MS-XLSX] x14). [MS-OFFCRYPTO] (password hashing) was not available.
+- **Core** (D-C01 … D-C05, D-C07): data validations, conditional formatting with deduplicated dxfs and unique priorities, x14 data bars and icon sets, protection flags, page setup, header/footer, page breaks, print area and titles; [MS-OI29500] limits enforced; inspect and CLI report them.
+- **@xlvane/exceljs** (D-C06 and addendum): dataValidations, conditional formatting incl. x14, protect without password, pageSetup, headerFooter, print area/titles, addPageBreak; nine exceljs bugs not reproduced (docs/exceljs-compat.md).
+- **Open:** sheet passwords (needs [MS-OFFCRYPTO] or a maintainer decision).
+
 ## Phase B: row and column operations (2026-10-30)
 
 - **Reference engine** (D-B01, D-B02): `adjustFormula`, `adjustRange` and `shiftFormula` are public; rules R-01 … R-17 observed in LibreOffice 24.2.7.2 (Microsoft's documentation was not reachable from the session).

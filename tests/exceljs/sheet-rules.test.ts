@@ -123,16 +123,86 @@ describe('conditional formatting', () => {
     expect(cf.rules[1]).toMatchObject({ type: 'iconSet', iconSet: '3Arrows', reverse: false, showValue: true });
   });
 
-  it('refuses the x14 data bar and icon sets until they are supported', async () => {
-    const make = (rule: any) => {
-      const wb = new ExcelJS.Workbook();
-      wb.addWorksheet('CF').addConditionalFormatting({ ref: 'A1:A9', rules: [rule] });
-      return wb;
+  const cfSheet = (rules: any[]) => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('CF');
+    for (let i = 1; i <= 9; i++) ws.getCell(`A${String(i)}`).value = i - 5;
+    ws.addConditionalFormatting({ ref: 'A1:A9', rules });
+    return wb;
+  };
+
+  it('writes a data bar without gradient: true as an x14 data bar (X4-20, D-C07)', async () => {
+    const wb = cfSheet([{ type: 'dataBar', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } }]);
+    const xml = await sheetXml(wb);
+    expect(xml).toContain('<x14:dataBar');
+    expect(xml).toMatch(/<x14:dataBar[^>]*minLength="0"[^>]*maxLength="100"/);
+    // exceljs writes no axis colour; [MS-XLSX] §2.6.30 requires one for an axis, so there is none.
+    expect(xml).toContain('axisPosition="none"');
+    const bar = readWorkbook(await bytesOf(wb)).getSheet('CF').conditionalFormats[0]!.rules[0]!.dataBar!;
+    expect(bar).toMatchObject({ extended: true, gradient: true, minLength: 0, maxLength: 100, axisPosition: 'none' });
+    const [cf] = (await roundTrip(wb)).getWorksheet('CF').conditionalFormattings;
+    expect(cf.rules[0]).toMatchObject({ type: 'dataBar', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' }, minLength: 0, maxLength: 100, gradient: true, border: false, axisPosition: 'none' });
+  });
+
+  it('maps the x14 data bar properties and reads them back in exceljs shape', async () => {
+    const rule = {
+      type: 'dataBar',
+      gradient: false,
+      minLength: 5,
+      maxLength: 80,
+      border: true,
+      borderColor: { argb: 'FF0000FF' },
+      negativeBarColorSameAsPositive: false,
+      negativeFillColor: { argb: 'FFFF0000' },
+      negativeBarBorderColorSameAsPositive: false,
+      negativeBorderColor: { argb: 'FF990000' },
+      axisPosition: 'middle',
+      axisColor: { argb: 'FF000000' },
+      direction: 'rightToLeft',
+      cfvo: [{ type: 'autoMin' }, { type: 'autoMax' }],
+      color: { argb: 'FF00FF00' },
     };
-    await expectNotSupported(() => bytesOf(make({ type: 'dataBar', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } })));
-    await expectNotSupported(() => bytesOf(make({ type: 'iconSet', iconSet: '3Stars', cfvo: [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] })));
-    const bar = await bytesOf(make({ type: 'dataBar', gradient: true, cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } }));
-    expect(readWorkbook(bar).getSheet('CF').conditionalFormats[0]!.rules[0]!.type).toBe('dataBar');
+    const [cf] = (await roundTrip(cfSheet([rule]))).getWorksheet('CF').conditionalFormattings;
+    expect(cf.rules[0]).toMatchObject({
+      ...rule,
+      priority: 1,
+    });
+  });
+
+  it('refuses border: true without a borderColor, which [MS-XLSX] requires', async () => {
+    let code = '';
+    try {
+      await bytesOf(cfSheet([{ type: 'dataBar', border: true, cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } }]));
+    } catch (error) {
+      code = (error as { code?: string }).code ?? '';
+    }
+    expect(code).toBe('XLV_E_INVALID_OPTION');
+  });
+
+  it('writes the x14 icon sets and custom icons, keeping the given icon ids (exceljs renumbers them)', async () => {
+    const cfvo3 = [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }];
+    const cfvo4 = [{ type: 'percent', value: 0 }, { type: 'percent', value: 25 }, { type: 'percent', value: 50 }, { type: 'percent', value: 75 }];
+    const icons = [{ iconSet: '3Stars', iconId: 2 }, { iconSet: '3Flags', iconId: 1 }, { iconSet: 'NoIcons', iconId: 0 }, { iconSet: '4Arrows', iconId: 3 }];
+    const wb = cfSheet([
+      { type: 'iconSet', iconSet: '3Stars', cfvo: cfvo3 },
+      { type: 'iconSet', iconSet: '5Boxes', cfvo: [...cfvo4, { type: 'percent', value: 90 }] },
+      { type: 'iconSet', iconSet: '4Arrows', custom: true, reverse: true, showValue: false, cfvo: cfvo4, icons },
+    ]);
+    const xml = await sheetXml(wb);
+    expect(xml).toContain('<x14:cfIcon iconSet="3Stars" iconId="2"/>');
+    const [cf] = (await roundTrip(wb)).getWorksheet('CF').conditionalFormattings;
+    expect(cf.rules[0]).toMatchObject({ type: 'iconSet', iconSet: '3Stars', cfvo: cfvo3 });
+    expect(cf.rules[1]).toMatchObject({ type: 'iconSet', iconSet: '5Boxes' });
+    // [MS-XLSX] §2.6.28: reverse is ignored with custom icons, so it is not written (exceljs writes it).
+    expect(cf.rules[2]).toMatchObject({ type: 'iconSet', iconSet: '4Arrows', custom: true, reverse: false, showValue: false, icons });
+  });
+
+  it('keeps custom icons through a read and a second write', async () => {
+    const cfvo3 = [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }];
+    const icons = [{ iconSet: '3Flags', iconId: 0 }, { iconSet: '3Flags', iconId: 1 }, { iconSet: '3Stars', iconId: 2 }];
+    const once = await roundTrip(cfSheet([{ type: 'iconSet', iconSet: '3Arrows', custom: true, cfvo: cfvo3, icons }]));
+    const twice = await roundTrip(once);
+    expect(twice.getWorksheet('CF').conditionalFormattings[0].rules[0]).toMatchObject({ custom: true, icons });
   });
 
   it('removeConditionalFormatting takes an index, a filter or nothing (lib/doc/worksheet.js L815)', () => {

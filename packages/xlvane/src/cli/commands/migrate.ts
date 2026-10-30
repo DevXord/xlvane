@@ -22,7 +22,6 @@ const PATTERNS: readonly { readonly api: string; readonly status: 'not supported
   { api: 'addImage', status: 'not supported', re: /\.addImage\s*\(/ },
   { api: 'addTable', status: 'not supported', re: /\.addTable\s*\(/ },
   { api: 'protect with a password', status: 'partly', re: /\.protect\s*\(\s*(?!\)|''|""|undefined\b|null\b)/ },
-  { api: 'conditional formatting data bars and x14 icon sets', status: 'partly', re: /type\s*:\s*['"]dataBar['"]|iconSet\s*:\s*['"](?:3Triangles|3Stars|5Boxes)['"]/ },
   { api: 'ModelContainer', status: 'not supported', re: /\bModelContainer\b/ },
   { api: 'deep import (exceljs/...)', status: 'not supported', re: /['"]exceljs\/[^'"]+['"]/ },
   { api: 'sharedFormula values', status: 'partly', re: /\bsharedFormula\s*:/ },

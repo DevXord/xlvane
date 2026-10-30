@@ -16,6 +16,7 @@ import type {
   SheetProtection as XlvSheetProtection,
   SheetProtectionFlags,
 } from 'xlvane';
+import { XlvError } from 'xlvane';
 import { colorInFor, colorOut, styleIn, styleOut } from './convert';
 import { columnLetter, notSupported } from './model';
 import type { ConditionalFormattingRule, ConditionalFormattingOptions, DataValidation, HeaderFooter, PageSetup, RowBreak, Style } from './types';
@@ -263,7 +264,6 @@ export function dataValidationsOut(list: readonly XlvDataValidation[], date1904:
 // Conditional formatting (X4-17; D-C02)
 
 const TEXT_OPERATORS = new Set(['containsText', 'containsBlanks', 'notContainsBlanks', 'containsErrors', 'notContainsErrors']);
-const EXT_ICON_SETS = new Set(['3Triangles', '3Stars', '5Boxes']);
 
 /** The top-left cell of the first range of `ref` (exceljs Range.tl, used in cf-rule-xform.js L23, L46). */
 function topLeft(ref: string): string {
@@ -340,8 +340,55 @@ function formulasIn(f: unknown): (string | number)[] | undefined {
   return f.map((x) => (typeof x === 'number' ? x : String(x)));
 }
 
-// TODO(phase C2, x14): data bars without `gradient: true`, custom icon sets and the icon sets
-// 3Triangles, 3Stars and 5Boxes need the x14 extensions of [MS-XLSX]; until then they throw.
+/**
+ * The core data bar of an exceljs dataBar rule (X4-20). exceljs writes a bar without
+ * `gradient: true` as an [MS-XLSX] x14 data bar (databar-ext-xform.js): lengths default to 0 and
+ * 100, `gradient` is written only when `false` (so the bar is a gradient one unless it is
+ * `false`), and the colours are written whatever the "same as positive" flags say. xlvane writes
+ * what the file means under [MS-XLSX] §2.6.30 (SR-41): a border colour only with `border`, a
+ * negative colour only when the flag says it differs, and an axis only with an `axisColor`, since
+ * the axis colour MUST exist for every axis and exceljs writes none by default.
+ */
+function dataBarIn(r: Record<string, unknown>): Record<string, unknown> {
+  const cfvo = Array.isArray(r['cfvo']) ? (r['cfvo'] as { type: string; value?: unknown }[]) : [];
+  const bar: Record<string, unknown> = { cfvo: cfvo.map(cfvoIn), color: colorInFor(r['color'], 'the data bar colour') };
+  const len = (k: string): void => {
+    if (typeof r[k] === 'number') bar[k] = r[k];
+  };
+  if (r['gradient'] === true) {
+    // A plain (main) data bar, as exceljs writes it; other properties are passed on rather than
+    // dropped, so they reach the file as the extension (exceljs ignores them).
+    len('minLength');
+    len('maxLength');
+  } else {
+    bar['gradient'] = r['gradient'] !== false;
+    bar['minLength'] = typeof r['minLength'] === 'number' ? r['minLength'] : 0;
+    bar['maxLength'] = typeof r['maxLength'] === 'number' ? r['maxLength'] : 100;
+  }
+  if (r['showValue'] === false) bar['showValue'] = false;
+  if (r['border'] === true) {
+    if (r['borderColor'] === undefined) {
+      throw new XlvError('XLV_E_INVALID_OPTION', 'A data bar with border: true needs a borderColor.', {
+        hint: "Add borderColor, for example borderColor: { argb: 'FF638EC6' }, or remove border: true.",
+        details: { option: 'borderColor' },
+      });
+    }
+    bar['borderColor'] = colorInFor(r['borderColor'], 'the data bar border colour');
+    if (r['negativeBarBorderColorSameAsPositive'] === false && r['negativeBorderColor'] !== undefined) {
+      bar['negativeBorderColor'] = colorInFor(r['negativeBorderColor'], 'the negative data bar border colour');
+    }
+  }
+  if (r['negativeBarColorSameAsPositive'] === false && r['negativeFillColor'] !== undefined) {
+    bar['negativeFillColor'] = colorInFor(r['negativeFillColor'], 'the negative data bar colour');
+  }
+  const position = r['axisPosition'] === 'auto' || r['axisPosition'] === undefined ? 'automatic' : r['axisPosition'];
+  if (r['axisColor'] !== undefined && position !== 'none') {
+    bar['axisPosition'] = position;
+    bar['axisColor'] = colorInFor(r['axisColor'], 'the data bar axis colour');
+  } else if (r['gradient'] !== true || position !== 'automatic') bar['axisPosition'] = 'none';
+  if (typeof r['direction'] === 'string') bar['direction'] = r['direction'];
+  return bar;
+}
 
 /** The core rule of an exceljs rule of the range `ref` (X4-17). */
 function cfRuleIn(rule: ConditionalFormattingRule, ref: string): ConditionalFormatRuleInput {
@@ -380,21 +427,23 @@ function cfRuleIn(rule: ConditionalFormattingRule, ref: string): ConditionalForm
       return out as unknown as ConditionalFormatRuleInput;
     }
     case 'dataBar': {
-      if (r['gradient'] !== true) notSupported('Data bars without gradient (the x14 data bar of conditional formatting)');
-      const cfvo = Array.isArray(r['cfvo']) ? (r['cfvo'] as { type: string; value?: unknown }[]) : [];
       out['type'] = 'dataBar';
-      out['dataBar'] = { cfvo: cfvo.map(cfvoIn), color: colorInFor(r['color'], 'the data bar colour') };
+      out['dataBar'] = dataBarIn(r);
       return out as unknown as ConditionalFormatRuleInput;
     }
     case 'iconSet': {
       const name = typeof r['iconSet'] === 'string' ? r['iconSet'] : '3TrafficLights';
-      if (r['custom'] || EXT_ICON_SETS.has(name)) notSupported(`The icon set ${r['custom'] ? 'with custom icons' : name} (an x14 icon set of conditional formatting)`);
       const cfvo = Array.isArray(r['cfvo']) ? (r['cfvo'] as { type: string; value?: unknown }[]) : [];
       // exceljs calls the default set "3TrafficLights" (icon-set-xform.js L20); its name in
       // ST_IconSetType is 3TrafficLights1.
       const iconSet: Record<string, unknown> = { iconSet: name === '3TrafficLights' ? '3TrafficLights1' : name, cfvo: cfvo.map(cfvoIn) };
       if (r['reverse']) iconSet['reverse'] = true;
       if (r['showValue'] === false) iconSet['showValue'] = false;
+      // Custom icons ([MS-XLSX] §2.6.28): exceljs writes them only with `custom: true` and replaces
+      // each iconId with the icon's position (icon-set-ext-xform.js); xlvane keeps the given ids.
+      if (r['custom'] && Array.isArray(r['icons'])) {
+        iconSet['custom'] = (r['icons'] as { iconSet?: unknown; iconId?: unknown }[]).map((icon) => ({ iconSet: icon.iconSet, iconId: icon.iconId }));
+      }
       out['type'] = 'iconSet';
       out['iconSet'] = iconSet;
       return out as unknown as ConditionalFormatRuleInput;
@@ -472,16 +521,41 @@ function cfRuleOut(r: XlvConditionalFormatRule): ConditionalFormattingRule {
       out['cfvo'] = r.colorScale!.cfvo.map(cfvoOut);
       out['color'] = r.colorScale!.colors.map((c) => colorOut(c));
       break;
-    case 'dataBar':
-      out['cfvo'] = r.dataBar!.cfvo.map(cfvoOut);
-      out['color'] = colorOut(r.dataBar!.color);
-      out['gradient'] = true;
+    case 'dataBar': {
+      const d = r.dataBar!;
+      out['cfvo'] = d.cfvo.map(cfvoOut);
+      out['color'] = colorOut(d.color);
+      if (!d.extended) {
+        out['gradient'] = true;
+        break;
+      }
+      // The fields exceljs reads from an x14 data bar (databar-ext-xform.js createNewModel).
+      out['minLength'] = d.minLength;
+      out['maxLength'] = d.maxLength;
+      out['border'] = d.border;
+      out['gradient'] = d.gradient;
+      out['negativeBarColorSameAsPositive'] = d.negativeFillColor === null;
+      out['negativeBarBorderColorSameAsPositive'] = d.negativeBorderColor === null;
+      out['axisPosition'] = d.axisPosition === 'automatic' ? 'auto' : d.axisPosition;
+      out['direction'] = d.direction;
+      if (!d.showValue) out['showValue'] = false;
+      if (d.borderColor) out['borderColor'] = colorOut(d.borderColor);
+      if (d.negativeFillColor) out['negativeFillColor'] = colorOut(d.negativeFillColor);
+      if (d.negativeBorderColor) out['negativeBorderColor'] = colorOut(d.negativeBorderColor);
+      if (d.axisColor) out['axisColor'] = colorOut(d.axisColor);
       break;
+    }
     case 'iconSet':
       out['iconSet'] = r.iconSet!.iconSet === '3TrafficLights1' ? '3TrafficLights' : r.iconSet!.iconSet;
       out['reverse'] = r.iconSet!.reverse;
       out['showValue'] = r.iconSet!.showValue;
       out['cfvo'] = r.iconSet!.cfvo.map(cfvoOut);
+      if (r.iconSet!.custom !== null) {
+        // exceljs reads the icons but not the custom flag, so a read rule loses its icons when
+        // written again; xlvane sets custom: true so that it keeps them.
+        out['custom'] = true;
+        out['icons'] = r.iconSet!.custom.map((icon) => ({ iconSet: icon.iconSet, iconId: icon.iconId }));
+      }
       break;
     default:
       break;
@@ -491,8 +565,30 @@ function cfRuleOut(r: XlvConditionalFormatRule): ConditionalFormattingRule {
 
 /** `worksheet.conditionalFormattings` from the conditional formats read by xlvane. */
 export function conditionalFormatsOut(list: readonly XlvConditionalFormat[]): ConditionalFormattingOptions[] {
-  return list.map((cf) => ({ ref: cf.sqref, rules: cf.rules.map(cfRuleOut) }));
+  // exceljs adds a rule that exists only in the x14 extension to the last range read with the
+  // same reference (worksheet-xform.js mergeConditionalFormattings), so x14-only icon sets join it.
+  const out: ConditionalFormattingOptions[] = [];
+  const byRef = new Map<string, ConditionalFormattingOptions>();
+  for (const cf of list) {
+    const rules = cf.rules.map(cfRuleOut);
+    const host = byRef.get(cf.sqref);
+    if (host && cf.rules.every(extensionOnly)) {
+      (host.rules as ConditionalFormattingRule[]).push(...rules);
+      continue;
+    }
+    const entry = { ref: cf.sqref, rules };
+    out.push(entry);
+    byRef.set(cf.sqref, entry);
+  }
+  return out;
 }
+
+/** A rule that [MS-XLSX] stores only in the x14 extension (D-C07): x14 icon sets and custom icons. */
+function extensionOnly(r: XlvConditionalFormatRule): boolean {
+  return r.iconSet !== null && (r.iconSet.custom !== null || X14_ICON_SETS.has(r.iconSet.iconSet));
+}
+
+const X14_ICON_SETS = new Set(['3Stars', '3Triangles', '5Boxes', 'NoIcons']);
 
 // ---------------------------------------------------------------------------------------------
 // Sheet protection (X4-18; D-C03)
