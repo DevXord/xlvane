@@ -2,7 +2,7 @@
 // workbookPr; docs/facts/ecma-376.md E-04, E-09 … E-11).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Conformance, SheetState } from '../model';
+import type { Conformance, SheetState, WorkbookView } from '../model';
 import type { WarningCollector } from '../util/warnings';
 import { childNamed, childrenNamed, parseXmlTree } from '../xml/tree';
 import { REL_NS, SML_NS } from './namespaces';
@@ -35,6 +35,10 @@ export interface WorkbookInfo {
   readonly definedNames: readonly WorkbookDefinedName[];
   /** `workbookProtection` (SR-22), or `null`. */
   readonly protection: WorkbookProtection | null;
+  /** `bookViews/workbookView` (W2-66). */
+  readonly views: readonly WorkbookView[];
+  /** `calcPr` (W2-67), or `null`. */
+  readonly calculation: { readonly fullCalcOnLoad: boolean } | null;
 }
 
 /** Context for parsing one part. */
@@ -128,5 +132,32 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
   const protectionElement = childNamed(root, ns, 'workbookProtection');
   const protection =
     protectionElement === undefined ? null : workbookProtectionOf(protectionElement.attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, { part: ctx.part }));
-  return { conformance, date1904, sheets, definedNames, protection };
+  const views: WorkbookView[] = [];
+  const bookViews = childNamed(root, ns, 'bookViews');
+  for (const v of bookViews?.children ?? []) {
+    if (v.local !== 'workbookView' || v.ns !== ns || views.length >= 1000) continue;
+    // CT_BookView (sml.xsd L4137; W2-66): numbers as stored, invalid ones read as absent/defaults.
+    const num = (name: string, signed: boolean): number | null => {
+      const raw = v.attrs.get(name)?.trim();
+      if (raw === undefined || !/^[+-]?\d{1,10}$/.test(raw)) return null;
+      const n = Number(raw);
+      return signed ? (n >= -2147483648 && n <= 2147483647 ? n : null) : n >= 0 && n <= 4294967295 ? n : null;
+    };
+    const visibility = v.attrs.get('visibility');
+    views.push(
+      Object.freeze({
+        x: num('xWindow', true),
+        y: num('yWindow', true),
+        width: num('windowWidth', false),
+        height: num('windowHeight', false),
+        firstSheet: num('firstSheet', false),
+        activeTab: num('activeTab', false),
+        visibility: visibility === 'hidden' || visibility === 'veryHidden' ? visibility : 'visible',
+      }),
+    );
+  }
+  const calc = childNamed(root, ns, 'calcPr');
+  const rawFull = calc?.attrs.get('fullCalcOnLoad');
+  const calculation = calc === undefined ? null : Object.freeze({ fullCalcOnLoad: rawFull !== undefined && parseXsdBoolean(rawFull) === true });
+  return { conformance, date1904, sheets, definedNames, protection, views, calculation };
 }

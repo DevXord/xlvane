@@ -1,11 +1,39 @@
 // exceljs streaming API: `stream.xlsx.WorkbookWriter` (lib/stream/xlsx/workbook-writer.js) and
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
-import { openWorkbookStream, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+import { openWorkbookStream, shiftFormula, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
+import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+
+/**
+ * A cell value for the streaming writer. Rows are written as they are committed, before later
+ * dependents of a shared formula exist: a master with a `ref` is written as a shared formula over
+ * that range, a `{ sharedFormula }` cell of such a master as its dependent, and any other
+ * `{ sharedFormula }` cell as its translated formula (X4-29).
+ */
+function streamValueIn(cell: ModelCell, masters: Map<string, { formula: string; row: number; col: number }>): CellInput {
+  const v = cell.value as unknown;
+  if (v !== null && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Date)) {
+    const r = v as Record<string, unknown>;
+    // A master with a `ref` (exceljs fillFormula, or { formula, ref }) is written as a shared
+    // formula over that range; its dependents come after it in row order (X4-29).
+    if (typeof r['formula'] === 'string' && r['shareType'] !== 'array' && typeof r['ref'] === 'string') {
+      masters.set(cell.address, { formula: r['formula'], row: cell.row, col: cell.col });
+      return { formula: r['formula'], ...resultIn(r['result']), shared: r['ref'] } as CellInput;
+    }
+    if (typeof r['sharedFormula'] === 'string') {
+      const address = r['sharedFormula'].replace(/\$/g, '').toUpperCase();
+      if (masters.has(address)) return { sharedFormula: address, ...resultIn(r['result']) } as CellInput;
+      // A dependent of a plain formula is written as its translated formula; the master's row
+      // must not be committed yet, because committed rows are dropped.
+      const formula = cell.formula;
+      if (formula !== undefined) return { formula, ...resultIn(r['result']) } as CellInput;
+    }
+  }
+  return valueIn(cell);
+}
 import type { DefinedNames } from './defined-names';
 import { imageAnchorIn, imageBytes, type ImageData } from './media';
-import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
+import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import { Workbook } from './workbook';
 
@@ -96,6 +124,7 @@ export interface WorkbookWriterOptions {
   creator?: string;
   lastModifiedBy?: string;
   lastPrinted?: Date;
+  /** archiver options; `zlib.level` (0–9) sets the Deflate level of the parts. */
   zip?: unknown;
 }
 
@@ -148,6 +177,7 @@ export class WorksheetWriter extends Worksheet {
       ...(layout.freeze ? { freeze: layout.freeze } : {}),
       ...(Object.keys(layout.view).length > 0 ? { view: layout.view } : {}),
       ...(layout.tabColor !== undefined ? { tabColor: layout.tabColor } : {}),
+      ...(Object.keys(sheetPropertiesIn(this.properties)).length > 0 ? { properties: sheetPropertiesIn(this.properties) } : {}),
       ...(filter ? { autoFilter: filter } : {}),
       merges: [...this._merges.values()].map((m) => `${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`),
       ...sheetRulesSpec(this),
@@ -194,6 +224,9 @@ export class WorksheetWriter extends Worksheet {
     notSupported('worksheet.spliceColumns() on a streamed worksheet');
   }
 
+  /** Formulas of written rows, by address, for later `{ sharedFormula }` dependents. */
+  private readonly formulaMasters = new Map<string, { formula: string; row: number; col: number }>();
+
   /** @internal Writes every row up to `row` and drops it from memory. */
   override _commitRow(row: Row): void {
     this.writer._start(this);
@@ -221,7 +254,7 @@ export class WorksheetWriter extends Worksheet {
       if (link) links[i] = link;
       const note = noteIn(cell);
       if (note) notes[i] = note;
-      values[i] = cell.type === ValueType.Merge ? null : (valueIn(cell) as CellValue);
+      values[i] = cell.type === ValueType.Merge ? null : (streamValueIn(cell, this.formulaMasters) as CellValue);
       // Without useStyles exceljs still gives dates format 14 (styles-xform.js Mock, L498; X4-02).
       if (this.writer._useStyles) styles[i] = cellStyleIn(cell, styleIn(cell.style));
       else if (isDateCell(cell)) styles[i] = { numFmt: DATE_NUMFMT };
@@ -235,6 +268,8 @@ export class WorksheetWriter extends Worksheet {
       ...(notes.length > 0 ? { notes } : {}),
       ...(row.height !== undefined ? { height: row.height } : {}),
       ...(row.hidden ? { hidden: true } : {}),
+      ...(row.outlineLevel ? { outlineLevel: row.outlineLevel } : {}),
+      ...(row.collapsed ? { collapsed: true } : {}),
     });
   }
 
@@ -335,7 +370,16 @@ export class WorkbookWriter {
     const meta = this.meta();
     this.written = JSON.stringify(meta);
     const images = this._book._media.map((m) => imageBytes(m));
-    const spec: WriteWorkbookStreamOptions = { sheets: this.sheets, sharedStrings: this.options.useSharedStrings === true, ...meta, ...(images.length > 0 ? { images } : {}) };
+    // archiver's zlib level (workbook-writer.js L33; X4-25) becomes the Deflate level of the parts.
+    const zip = (this.options.zip ?? {}) as { zlib?: { level?: unknown } };
+    const level = zip.zlib?.level;
+    const spec: WriteWorkbookStreamOptions = {
+      sheets: this.sheets,
+      sharedStrings: this.options.useSharedStrings === true,
+      ...meta,
+      ...(images.length > 0 ? { images } : {}),
+      ...(typeof level === 'number' && Number.isInteger(level) && level >= 0 && level <= 9 ? { compressionLevel: level } : {}),
+    };
     const options = this.options;
     if (options.filename !== undefined) {
       const filename = options.filename;

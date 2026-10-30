@@ -1,7 +1,7 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/column.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
 // changes: Mocha/Chai → Vitest; the internal sheet mock (`addColumn(n, defn)`) is replaced by a
-// real worksheet (`ws.columns = [...]`, `ws.getColumn(n)`); multi-row headers (`header` as an
-// array, `headers`) and the internal `Column.toModel` tests are skipped.
+// real worksheet (`ws.columns = [...]`, `ws.getColumn(n)`); the multi-row header assertions are
+// a separate test; the internal `Column.toModel` tests are skipped.
 import { describe, expect, it } from 'vitest';
 import { ExcelJS } from './helpers';
 
@@ -32,7 +32,22 @@ describe('Column', () => {
     expect(ws.getCell(3, 1).value).toBe('Hello, World!');
   });
 
-  it.skip('maintains properties: multi-row headers (`header` array, `headers`) — not supported', () => {});
+  it('maintains properties: multi-row headers', () => {
+    const ws = sheet();
+    const column = ws.getColumn(1);
+    column.key = 'id1';
+    column.header = 'Col 1';
+    expect(ws.getColumn(1).header).toBe('Col 1');
+    expect(ws.getColumn(1).headers).toEqual(['Col 1']);
+    expect(ws.getCell(1, 1).value).toBe('Col 1');
+    column.header = ['Col A1', 'Col A2'];
+    expect(ws.getColumn(1).header).toEqual(['Col A1', 'Col A2']);
+    expect(ws.getColumn(1).headers).toEqual(['Col A1', 'Col A2']);
+    expect(ws.getCell(1, 1).value).toBe('Col A1');
+    expect(ws.getCell(2, 1).value).toBe('Col A2');
+    ws.getRow(3).values = { id1: 'Hello, World!' };
+    expect(ws.getCell(3, 1).value).toBe('Hello, World!');
+  });
   it.skip('creates model — not supported: internal Column.toModel', () => {});
 
   it('gets column values', () => {

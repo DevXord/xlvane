@@ -34,6 +34,7 @@ export type {
   Font,
   HeaderFooter,
   PageSetup,
+  Protection,
   RowBreak,
   Style,
   WorksheetOptions,

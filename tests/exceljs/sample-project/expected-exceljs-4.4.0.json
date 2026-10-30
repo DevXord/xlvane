@@ -1,4 +1,124 @@
 {
+  "extra": {
+    "a1fill": {
+      "stops": [
+        {
+          "position": 0,
+          "color": {
+            "argb": "FFFFFFFF"
+          }
+        },
+        {
+          "position": 1,
+          "color": {
+            "argb": "FF4472C4"
+          }
+        }
+      ],
+      "gradient": "angle",
+      "degree": 90,
+      "type": "gradient"
+    },
+    "b1fill": {
+      "stops": [
+        {
+          "position": 0,
+          "color": {
+            "argb": "FFFF0000"
+          }
+        },
+        {
+          "position": 1,
+          "color": {
+            "argb": "FF00FF00"
+          }
+        }
+      ],
+      "gradient": "path",
+      "center": {
+        "left": 0.5,
+        "top": 0.5
+      },
+      "type": "gradient"
+    },
+    "c1border": {
+      "diagonal": {
+        "style": "thin",
+        "color": {
+          "argb": "FF000000"
+        },
+        "up": true,
+        "down": false
+      }
+    },
+    "d1alignment": {
+      "shrinkToFit": true,
+      "textRotation": -45,
+      "readingOrder": "rtl"
+    },
+    "d1protection": {
+      "locked": false,
+      "hidden": false
+    },
+    "formulas": [
+      [
+        "A3",
+        {
+          "formula": "ROW()*COLUMN()",
+          "result": 3,
+          "ref": "A3:B4",
+          "shareType": "shared"
+        },
+        "ROW()*COLUMN()",
+        1
+      ],
+      [
+        "B3",
+        {
+          "result": 6,
+          "sharedFormula": "A3"
+        },
+        "ROW()*COLUMN()",
+        2
+      ],
+      [
+        "A4",
+        {
+          "result": 4,
+          "sharedFormula": "A3"
+        },
+        "ROW()*COLUMN()",
+        2
+      ],
+      [
+        "B4",
+        {
+          "result": 8,
+          "sharedFormula": "A3"
+        },
+        "ROW()*COLUMN()",
+        2
+      ]
+    ],
+    "outline": {
+      "row3": 1,
+      "row4": 2,
+      "row4collapsed": true,
+      "colB": 1,
+      "outlineLevelRow": 2
+    },
+    "bookViews": [
+      {
+        "x": 10,
+        "y": 20,
+        "width": 15000,
+        "height": 9000,
+        "visibility": "visible",
+        "activeTab": 0,
+        "firstSheet": 0
+      }
+    ]
+  },
   "csv": {
     "default": "Name,Amount,Paid,When,Note\n\"Tea, green\",12.5,true,2024-01-31T08:15:00+00:00,\"said \"\"hi\"\"\"\nCoffee,-3,false,,#N/A\n\nhttps://example.com/a,25",
     "custom": "Name;Amount;Paid;When;Note\r\nTea, green;12.5;true;31/01/2024 08:15;\"said \"\"hi\"\"\"\r\nCoffee;-3;false;;#N/A\r\nhttps://example.com/a;25\r\n",
@@ -96,7 +216,8 @@
   "sheetNames": [
     "Sales",
     "Edits",
-    "Media"
+    "Media",
+    "Extra"
   ],
   "rowCount": 12,
   "rows": [

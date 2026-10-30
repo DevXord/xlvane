@@ -1,8 +1,8 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/cell.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
 // changes: Mocha/Chai → Vitest; the internal sheet mock and `new Cell(...)` are replaced by a
 // real worksheet; `cell.merge`/`unmerge` (internal) become `ws.mergeCells`/`ws.unMergeCells`;
-// tests of internals (`_mergeCount`, `_upgradeToHyperlink`, constructor validation, `html`,
-// shared-formula translation in memory) are skipped; the note tests
+// tests of internals (`_mergeCount`, `_upgradeToHyperlink`, constructor validation, `html`)
+// are skipped; the note tests
 // check `cell.note` instead of the internal `cell.model.comment`, and the box defaults that
 // exceljs merges into the model (margins, protection, editAs) are not added (D-A14).
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -125,7 +125,20 @@ describe('Cell', () => {
     expect(a1.type).toEqual(ExcelJS.ValueType.Hyperlink);
     expect(a1.effectiveType).toBe(ExcelJS.ValueType.Hyperlink);
   });
-  it.skip('shares formulas — not supported: in-memory shared formula translation (sharedFormula values are read as plain formulas)', () => {});
+  it('shares formulas', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('blort');
+    const a1 = ws.getCell('A1');
+    const b1 = ws.getCell('B1');
+    const c1 = ws.getCell('C1');
+    a1.value = 1;
+    b1.value = { formula: 'A1+1', result: 2 };
+    c1.value = { sharedFormula: 'B1', result: 3 };
+    expect(b1.type).toBe(ExcelJS.ValueType.Formula);
+    expect(b1.formulaType).toBe(ExcelJS.FormulaType.Master);
+    expect(c1.type).toBe(ExcelJS.ValueType.Formula);
+    expect(c1.formulaType).toBe(ExcelJS.FormulaType.Shared);
+    expect(c1.formula).toBe('B1+1');
+  });
   it.skip('escapes dangerous html — not supported: cell.html', () => {});
 
   it('can set comment', () => {

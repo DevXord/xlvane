@@ -47,9 +47,9 @@ function tooLarge(what: string): XlvError {
 /**
  * Writes a ZIP archive. Throws `XLV_E_INVALID_INPUT` for names that are not printable ASCII or
  * that repeat (ignoring case, as OPC requires, E-58), and `XLV_E_LIMIT_EXCEEDED` when the
- * archive would need ZIP64.
+ * archive would need ZIP64. `level` is the Deflate level 0–9 (0 stores every entry).
  */
-export function writeZip(entries: readonly ZipWriteEntry[]): Uint8Array {
+export function writeZip(entries: readonly ZipWriteEntry[], level = 6): Uint8Array {
   if (entries.length > MAX_ZIP_ENTRIES) throw tooLarge(`${String(entries.length)} parts`);
   const seen = new Set<string>();
   const chunks: Uint8Array[] = [];
@@ -75,7 +75,8 @@ export function writeZip(entries: readonly ZipWriteEntry[]): Uint8Array {
 
     const nameBytes = encoder.encode(name);
     const crc = crc32(entry.data);
-    const deflated = entry.data.length === 0 ? null : deflateSync(entry.data, { level: 6 });
+    // Level 0 stores every entry (method 0); other levels deflate when that makes the entry smaller.
+    const deflated = entry.data.length === 0 || level === 0 ? null : deflateSync(entry.data, { level: level as 1 });
     const useDeflate = deflated !== null && deflated.length < entry.data.length;
     const body = useDeflate ? deflated : entry.data;
     const method = useDeflate ? 8 : 0;

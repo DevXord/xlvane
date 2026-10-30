@@ -9,7 +9,7 @@ import { resolveLimits } from './limits';
 import { checkFile, describePath, fileError, readInput } from './util/node-files';
 import type { Workbook } from './model';
 import { readWorkbook, type ReadOptions } from './read';
-import { writeWorkbook, type NewWorkbook } from './write';
+import { writeWorkbook, type NewWorkbook, type WriteWorkbookOptions } from './write';
 import { openWorkbookStream, STREAM_LIMIT_DEFAULTS, type OpenWorkbookStreamOptions, type WorkbookStream } from './stream-read';
 import { writeWorkbookStream, type WriteWorkbookStreamOptions } from './stream-write';
 
@@ -64,7 +64,7 @@ export async function inspectFile(path: string | URL, options?: InspectOptions):
  * await writeWorkbookFile(workbook, 'out.xlsx', options);
  * ```
  */
-export interface WriteFileOptions {
+export interface WriteFileOptions extends WriteWorkbookOptions {
   /** Replace an existing file. Default `false`: an existing file is never overwritten. */
   readonly overwrite?: boolean;
 }
@@ -93,7 +93,10 @@ export async function writeWorkbookFile(workbook: NewWorkbook, path: string | UR
       details: { option: 'overwrite' },
     });
   }
-  const bytes = writeWorkbook(workbook);
+  const bytes = writeWorkbook(workbook, {
+    ...(options?.sharedStrings === undefined ? {} : { sharedStrings: options.sharedStrings }),
+    ...(options?.compressionLevel === undefined ? {} : { compressionLevel: options.compressionLevel }),
+  });
   const shown = describePath(path);
   try {
     // 'wx' fails if the path exists; 'w' creates or truncates (Node.js fs "File system flags", F-NODE-04).

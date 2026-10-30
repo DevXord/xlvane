@@ -76,13 +76,16 @@ export type FillPatterns =
   | 'gray0625';
 
 /**
- * A pattern fill. Gradient fills are not supported (`XLV_E_NOT_SUPPORTED`).
+ * A pattern fill (`pattern`, `fgColor`, `bgColor`) or a gradient fill, as in exceljs: `gradient:
+ * 'angle'` with `degree`, or `gradient: 'path'` with `center: { left, top }`, and `stops: [{
+ * position, color }]` (X4-27).
  *
  * @example
  * ```ts
  * import type { Fill } from '@xlvane/exceljs';
  *
  * const fill: Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+ * const gradient: Fill = { type: 'gradient', gradient: 'angle', degree: 90, stops: [{ position: 0, color: { argb: 'FFFFFFFF' } }, { position: 1, color: { argb: 'FF4472C4' } }] };
  * ```
  */
 export interface Fill {
@@ -134,7 +137,7 @@ export interface Border {
 }
 
 /**
- * Borders of a cell. `diagonal` is not supported (`XLV_E_NOT_SUPPORTED` when it has a style).
+ * Borders of a cell; `diagonal` has `up` and `down` flags, written only with a style (X4-27).
  *
  * @example
  * ```ts
@@ -152,7 +155,7 @@ export interface Borders {
 }
 
 /**
- * Alignment of a cell. `shrinkToFit` and `readingOrder` are not supported.
+ * Alignment of a cell. `textRotation` is −90…90 or `'vertical'`; `readingOrder` is `'ltr'` or `'rtl'` (X4-27).
  *
  * @example
  * ```ts
@@ -187,7 +190,22 @@ export interface Style {
   fill?: Fill | undefined;
   border?: Partial<Borders> | undefined;
   alignment?: Partial<Alignment> | undefined;
-  protection?: unknown;
+  protection?: Partial<Protection> | undefined;
+}
+
+/**
+ * Cell protection; it takes effect when the sheet is protected (X4-27).
+ *
+ * @example
+ * ```ts
+ * import type { Protection } from '@xlvane/exceljs';
+ *
+ * const unlocked: Partial<Protection> = { locked: false };
+ * ```
+ */
+export interface Protection {
+  locked: boolean;
+  hidden: boolean;
 }
 
 /**
@@ -256,13 +274,15 @@ export interface ColumnDefn {
   width?: number | undefined;
   style?: Style | undefined;
   hidden?: boolean | undefined;
+  outlineLevel?: number | undefined;
 }
 
 /**
  * A worksheet view. The first view of a worksheet is written: frozen panes (`xSplit`/`ySplit`
  * in columns and rows) or a split window (`state: "split"`, `xSplit`/`ySplit` in 1/20 point),
- * `zoomScale`, `showGridLines`, `showRowColHeaders`, `rightToLeft` and `style`. `topLeftCell`,
- * `activeCell`, `activePane`, `showRuler` and `zoomScaleNormal` are not written.
+ * `zoomScale`, `zoomScaleNormal`, `showGridLines`, `showRowColHeaders`, `showRuler`,
+ * `rightToLeft`, `style`, `topLeftCell` (not for frozen panes, whose top-left cell follows the
+ * split) and `activeCell`. `activePane` follows from the panes; further views are not written.
  *
  * @example
  * ```ts

@@ -29,7 +29,7 @@ import { formatCellRef, type CellRange } from './cell-ref';
 import { FormulaGroups } from './formula-groups';
 import { CONTENT_TYPES_NS, PACKAGE_REL_NS, REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS } from './numfmt';
-import type { StoredCell, StoredNote, StoredRun, StoredValue } from '../write';
+import type { StoredCell, StoredNote, StoredRun, StoredValue, WorkbookViewOptions } from '../write';
 
 /** One sheet, as handed over by `NewSheet`. */
 export interface WriteSheetData {
@@ -37,8 +37,10 @@ export interface WriteSheetData {
   readonly state: SheetState;
   readonly cells: ReadonlyMap<number, ReadonlyMap<number, StoredCell>>;
   /** Width, visibility and interned style id (0 = none) by column number. */
-  readonly columns: ReadonlyMap<number, { readonly width: number | null; readonly hidden: boolean; readonly style: number }>;
-  readonly rows: ReadonlyMap<number, { readonly height: number | null; readonly hidden: boolean }>;
+  readonly columns: ReadonlyMap<number, { readonly width: number | null; readonly hidden: boolean; readonly style: number; readonly outlineLevel?: number; readonly collapsed?: boolean }>;
+  readonly rows: ReadonlyMap<number, RowFormat>;
+  /** Sheet-wide formatting (W2-65); absent for the defaults. */
+  readonly properties?: { readonly defaultRowHeight: number | null; readonly summaryBelow: boolean; readonly summaryRight: boolean; readonly outlineLevelRow?: number; readonly outlineLevelCol?: number };
   readonly merges: readonly CellRange[];
   readonly freeze: { readonly rows: number; readonly cols: number } | null;
   readonly autoFilter: CellRange | null;
@@ -64,8 +66,24 @@ export interface WriteSheetData {
   readonly background?: number | null;
 }
 
+/** Height, visibility and outline of a row. */
+export interface RowFormat {
+  readonly height: number | null;
+  readonly hidden: boolean;
+  readonly outlineLevel?: number;
+  readonly collapsed?: boolean;
+}
+
 /** Everything needed to write a package. */
 export interface WritePackageInput {
+  /** `false` writes strings inline instead of in the shared string table. Default true. */
+  readonly sharedStrings?: boolean;
+  /** Deflate level 0–9 (0 = stored). Default 6. */
+  readonly compressionLevel?: number;
+  /** Workbook windows (W2-66); empty or absent for the default window. */
+  readonly bookViews?: readonly WorkbookViewOptions[];
+  /** `calcPr` (W2-67), or `null`/absent for none. */
+  readonly calculation?: { readonly fullCalcOnLoad: boolean } | null;
   readonly dateSystem: DateSystem;
   readonly sheets: readonly WriteSheetData[];
   /** Interned styles; index 0 is the default style. */
@@ -450,8 +468,12 @@ function viewAttributes(view: SheetView | undefined): string {
   if (!view.showGridLines) xml += ' showGridLines="0"';
   if (!view.showRowColHeaders) xml += ' showRowColHeaders="0"';
   if (view.rightToLeft) xml += ' rightToLeft="1"';
+  if (!view.showRuler) xml += ' showRuler="0"';
   if (view.layout !== 'normal') xml += attr('view', view.layout);
+  // CT_SheetView attribute order is not significant; topLeftCell before the zoom attributes as in sml.xsd L2332.
+  if (view.topLeftCell !== null && view.split === null) xml += attr('topLeftCell', view.topLeftCell);
   if (view.zoom !== 100) xml += attr('zoomScale', view.zoom);
+  if (view.zoomScaleNormal !== 0) xml += attr('zoomScaleNormal', view.zoomScaleNormal);
   return xml;
 }
 
@@ -460,7 +482,7 @@ function viewAttributes(view: SheetView | undefined): string {
  * (W2-01). `xfOf` maps interned style ids to cell format indexes (identity when omitted).
  */
 export function sheetHead(
-  sheet: Pick<WriteSheetData, 'freeze' | 'columns' | 'tabColor' | 'view' | 'print'>,
+  sheet: Pick<WriteSheetData, 'freeze' | 'columns' | 'tabColor' | 'view' | 'print' | 'properties'> & { readonly rows?: WriteSheetData['rows'] },
   selected: boolean,
   dimension: string | null,
   xfOf?: readonly number[],
@@ -469,9 +491,14 @@ export function sheetHead(
   // sheetPr comes first, and tabColor first in it (CT_Worksheet, CT_SheetPr; W2-01, W2-50).
   // CT_SheetPr: tabColor, outlinePr, pageSetUpPr (sml.xsd T2306; SR-26).
   const fitToPage = sheet.print?.pageSetup.fitToPage === true;
-  if (sheet.tabColor || fitToPage) xml += `<sheetPr>${sheet.tabColor ? colorXml('tabColor', sheet.tabColor) : ''}${fitToPage ? '<pageSetUpPr fitToPage="1"/>' : ''}</sheetPr>`;
+  const props = sheet.properties;
+  // CT_OutlinePr: summaryBelow/summaryRight default true (sml.xsd L2423; W2-65).
+  const outlinePr = props && (!props.summaryBelow || !props.summaryRight) ? `<outlinePr${props.summaryBelow ? '' : ' summaryBelow="0"'}${props.summaryRight ? '' : ' summaryRight="0"'}/>` : '';
+  if (sheet.tabColor || fitToPage || outlinePr) xml += `<sheetPr>${sheet.tabColor ? colorXml('tabColor', sheet.tabColor) : ''}${outlinePr}${fitToPage ? '<pageSetUpPr fitToPage="1"/>' : ''}</sheetPr>`;
   if (dimension !== null) xml += `<dimension${attr('ref', dimension)}/>`;
-  xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(sheet.view)} workbookViewId="0"`;
+  // A frozen view writes its top-left cell on the pane (W2-05); sheetView@topLeftCell is for other views.
+  const attrsView = sheet.freeze && sheet.view ? { ...sheet.view, topLeftCell: null } : sheet.view;
+  xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(attrsView)} workbookViewId="0"`;
   const split = sheet.view?.split ?? null;
   if (split !== null && !sheet.freeze) {
     // A split window: positions in 1/20 point, xSplit for the vertical bar; topLeftCell is
@@ -489,12 +516,21 @@ export function sheetHead(
     if (cols > 0) xml += attr('xSplit', cols);
     if (rows > 0) xml += attr('ySplit', rows);
     xml += `${attr('topLeftCell', topLeft)}${attr('activePane', pane)} state="frozen"/>`;
-    xml += `<selection${attr('pane', pane)}${attr('activeCell', topLeft)}${attr('sqref', topLeft)}/></sheetView>`;
+    const active = sheet.view?.activeCell ?? topLeft;
+    xml += `<selection${attr('pane', pane)}${attr('activeCell', active)}${attr('sqref', active)}/></sheetView>`;
+  } else if (sheet.view?.activeCell) {
+    xml += `><selection${attr('activeCell', sheet.view.activeCell)}${attr('sqref', sheet.view.activeCell)}/></sheetView>`;
   } else {
     xml += '/>';
   }
   xml += '</sheetViews>';
-  xml += '<sheetFormatPr defaultRowHeight="15"/>';
+  // CT_SheetFormatPr: defaultRowHeight is required; outlineLevelRow/Col give the highest level
+  // used (Part 1 §18.3.1.81; [MS-OI29500] §2.1.650 a: 0 to 7; W2-65).
+  let rowLevel = props?.outlineLevelRow ?? 0;
+  for (const r of sheet.rows?.values() ?? []) rowLevel = Math.max(rowLevel, r.outlineLevel ?? 0);
+  let colLevel = props?.outlineLevelCol ?? 0;
+  for (const c of sheet.columns.values()) colLevel = Math.max(colLevel, c.outlineLevel ?? 0);
+  xml += `<sheetFormatPr${attr('defaultRowHeight', props?.defaultRowHeight ?? 15)}${rowLevel > 0 ? attr('outlineLevelRow', rowLevel) : ''}${colLevel > 0 ? attr('outlineLevelCol', colLevel) : ''}/>`;
   if (sheet.columns.size > 0) {
     xml += '<cols>';
     for (const index of [...sheet.columns.keys()].sort((a, b) => a - b)) {
@@ -506,6 +542,8 @@ export function sheetHead(
       // CT_Col@style: index of a cell format, default 0 (sml.xsd L2238–2252, W2-03).
       const xf = c.style === 0 ? 0 : (xfOf?.[c.style] ?? c.style);
       if (xf !== 0) xml += attr('style', xf);
+      if (c.outlineLevel) xml += attr('outlineLevel', c.outlineLevel);
+      if (c.collapsed) xml += ' collapsed="1"';
       xml += '/>';
     }
     xml += '</cols>';
@@ -514,10 +552,13 @@ export function sheetHead(
 }
 
 /** The start tag of a row (without `>` for rows that have cells: callers add `>` or `/>`). */
-export function rowStart(r: number, info: { readonly height: number | null; readonly hidden: boolean } | undefined): string {
+export function rowStart(r: number, info: RowFormat | undefined): string {
   let xml = `<row${attr('r', r)}`;
   if (info?.height != null) xml += `${attr('ht', info.height)} customHeight="1"`;
   if (info?.hidden) xml += ' hidden="1"';
+  // CT_Row@outlineLevel (0–7, [MS-OI29500] §2.1.644 b) and @collapsed (sml.xsd L2256; W2-65).
+  if (info?.outlineLevel) xml += attr('outlineLevel', info.outlineLevel);
+  if (info?.collapsed) xml += ' collapsed="1"';
   return xml;
 }
 
@@ -886,7 +927,7 @@ function vmlXml(notes: readonly StoredNote[], block: number, blocks: number): st
   return `${xml}</xml>`;
 }
 
-function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings, rels: SheetRels, after = '', sheetNumber = 1): string {
+function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings | null, rels: SheetRels, after = '', sheetNumber = 1): string {
   const rowNumbers = new Set<number>([...sheet.cells.keys(), ...sheet.rows.keys()]);
   const sortedRows = [...rowNumbers].sort((a, b) => a - b);
 
@@ -934,7 +975,8 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
 /** Builds all parts and returns the zipped package. */
 export function writePackage(input: WritePackageInput): Uint8Array {
   const { xml: stylesXml, xfOf } = buildStyles(input.styles, false, input.dxfs);
-  const sst = new SharedStrings();
+  const shared = input.sharedStrings !== false;
+  const sst = shared ? new SharedStrings() : null;
   const active = input.sheets.findIndex((s) => s.state === 'visible');
   const sheetRels = input.sheets.map(() => new SheetRels());
   const notes: (NoteParts | null)[] = [];
@@ -958,14 +1000,14 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   });
 
   const n = input.sheets.length;
-  const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames, input.workbookProtection ?? null);
-  const workbookRels = workbookRelsXml(n, true);
+  const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames, input.workbookProtection ?? null, { bookViews: input.bookViews ?? [], calculation: input.calculation ?? null });
+  const workbookRels = workbookRelsXml(n, shared);
   const core = corePropertiesXml(input.properties ?? {});
   const app = appPropertiesXml(input.properties ?? {}, input.sheets.map((sheet) => sheet.name), nameTitles(input.definedNames ?? []));
   const rootRels = rootRelsXml(core !== null, app !== null);
   const noteSheets = notes.flatMap((p, i) => (p === null ? [] : [i + 1]));
   const mediaEntries = media.entries();
-  const types = contentTypesXml(n, true, core !== null, app !== null, noteSheets, [
+  const types = contentTypesXml(n, shared, core !== null, app !== null, noteSheets, [
     ...tables.map((t) => [t.name, TABLE_CONTENT_TYPE] as const),
     ...drawings.map((d) => [d.name, DRAWING_CONTENT_TYPE] as const),
     ...mediaEntries.map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as ImageFormat]] as const),
@@ -978,7 +1020,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRels) },
     ...sheetParts.map((xml, i) => ({ name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: encoder.encode(xml) })),
     { name: 'xl/styles.xml', data: encoder.encode(stylesXml) },
-    { name: 'xl/sharedStrings.xml', data: encoder.encode(sst.xml()) },
+    ...(sst ? [{ name: 'xl/sharedStrings.xml', data: encoder.encode(sst.xml()) }] : []),
   ];
   sheetRels.forEach((rels, i) => {
     const xml = rels.xml();
@@ -991,7 +1033,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   entries.push(...mediaEntries);
   if (core !== null) entries.push({ name: CORE_PROPERTIES_PART, data: encoder.encode(core) });
   if (app !== null) entries.push({ name: APP_PROPERTIES_PART, data: encoder.encode(app) });
-  return writeZip(entries);
+  return writeZip(entries, input.compressionLevel ?? 6);
 }
 
 /**
@@ -1015,6 +1057,7 @@ export function workbookXml(
   dateSystem: DateSystem,
   definedNames: readonly NormalizedDefinedName[] = [],
   protection: NormalizedWorkbookProtection | null = null,
+  extras: { readonly bookViews?: readonly WorkbookViewOptions[]; readonly calculation?: { readonly fullCalcOnLoad: boolean } | null } = {},
 ): string {
   const active = sheets.findIndex((s) => s.state === 'visible');
   let workbook = `${XML_DECL}<workbook xmlns="${NS}" xmlns:r="${R_NS}">`;
@@ -1022,7 +1065,24 @@ export function workbookXml(
   workbook += workbookProtectionXml(protection);
   // Always written, also by the streaming writer: Excel fails to print files without bookViews
   // ([MS-OI29500] §2.1.584 a).
-  workbook += `<bookViews><workbookView${active > 0 ? `${attr('firstSheet', active)}${attr('activeTab', active)}` : ''}/></bookViews>`;
+  const views = extras.bookViews ?? [];
+  if (views.length === 0) workbook += `<bookViews><workbookView${active > 0 ? `${attr('firstSheet', active)}${attr('activeTab', active)}` : ''}/></bookViews>`;
+  else {
+    // CT_BookView attributes (sml.xsd L4137; W2-66), written only when given.
+    workbook += '<bookViews>';
+    for (const v of views) {
+      workbook += '<workbookView';
+      if (v.visibility !== undefined && v.visibility !== 'visible') workbook += attr('visibility', v.visibility);
+      if (v.x !== undefined) workbook += attr('xWindow', v.x);
+      if (v.y !== undefined) workbook += attr('yWindow', v.y);
+      if (v.width !== undefined) workbook += attr('windowWidth', v.width);
+      if (v.height !== undefined) workbook += attr('windowHeight', v.height);
+      if (v.firstSheet !== undefined) workbook += attr('firstSheet', v.firstSheet);
+      if (v.activeTab !== undefined) workbook += attr('activeTab', v.activeTab);
+      workbook += '/>';
+    }
+    workbook += '</bookViews>';
+  }
   workbook += '<sheets>';
   sheets.forEach((sheet, i) => {
     workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', i + 1)}`;
@@ -1046,6 +1106,8 @@ export function workbookXml(
       })
       .join('');
   if (names !== '') workbook += `<definedNames>${names}</definedNames>`;
+  // calcPr follows definedNames (CT_Workbook, sml.xsd; W2-67).
+  if (extras.calculation) workbook += `<calcPr${extras.calculation.fullCalcOnLoad ? ' fullCalcOnLoad="1"' : ''}/>`;
   return `${workbook}</workbook>`;
 }
 

@@ -88,6 +88,10 @@ export {
   type FreezeOptions,
   type SheetViewOptions,
   type RowOptions,
+  type SheetPropertiesOptions,
+  type WorkbookViewOptions,
+  type CalculationOptions,
+  type WriteWorkbookOptions,
 } from './write';
 export type {
   AlignmentStyle,
@@ -125,6 +129,8 @@ export type {
   SheetLayout,
   SheetState,
   SheetView,
+  SheetProperties,
+  WorkbookView,
   SplitPanes,
   Workbook,
   WorkbookFormat,

@@ -21,7 +21,6 @@ const PATTERNS: readonly { readonly api: string; readonly status: 'not supported
   { api: 'addImage({ filename })', status: 'not supported', re: /\.addImage\s*\(\s*\{\s*filename\b/ },
   { api: 'ModelContainer', status: 'not supported', re: /\bModelContainer\b/ },
   { api: 'deep import (exceljs/lib/...)', status: 'not supported', re: /['"]exceljs\/lib\/[^'"]*['"]/ },
-  { api: 'sharedFormula values', status: 'partly', re: /\bsharedFormula\s*:/ },
 ];
 
 /** A place in the source code that uses exceljs API outside the supported subset. */

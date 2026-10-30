@@ -111,7 +111,7 @@ describe('worksheet tab colour and views', () => {
     const ws = wb.addWorksheet('V', { views: [{ zoomScale: 150, showGridLines: false, showRowColHeaders: false, rightToLeft: true, style: 'pageBreakPreview' }] });
     ws.getCell('A1').value = 1;
     const bytes = await bytesOf(wb);
-    expect(readWorkbook(bytes).getSheet('V').view).toEqual({ zoom: 150, showGridLines: false, showRowColHeaders: false, rightToLeft: true, layout: 'pageBreakPreview', split: null });
+    expect(readWorkbook(bytes).getSheet('V').view).toEqual({ zoom: 150, showGridLines: false, showRowColHeaders: false, rightToLeft: true, layout: 'pageBreakPreview', split: null, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
     const ws2 = (await roundTrip(wb)).getWorksheet('V');
     expect(ws2.views).toEqual([
       { workbookViewId: 0, state: 'normal', rightToLeft: true, showRuler: true, showRowColHeaders: false, showGridLines: false, zoomScale: 150, zoomScaleNormal: 100, style: 'pageBreakPreview' },

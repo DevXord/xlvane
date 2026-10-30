@@ -1,12 +1,14 @@
 // Ported from exceljs v4.4.0 spec/integration/workbook/workbook.spec.js (MIT, Copyright (c)
 // 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await; files go to a temporary
-// directory (`roundTrip`); the merge-styles test uses a pattern fill and a font without
-// `family`/`outline` (gradient fills and those font attributes are not written by xlvane);
+// directory (`roundTrip`);
 // the frozen-panes and split-panes tests write one view per worksheet (only the first sheet view
 // is written) and expect `topLeftCell` of a split view and `activeCell` to be absent (not
 // written by xlvane);
+// the zip-compression tests write an own sheet (createTestBook is not ported);
+// 'multiple book views' inlines spec/utils/data/views.json and expects the split view back with
+// workbookViewId 0 and without topLeftCell/activeCell;
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
-// unsupported features (createTestBook fixtures, workbook views, fillFormula) are skipped or
+// unsupported features (createTestBook fixtures) are skipped or
 // expect XLV_E_NOT_SUPPORTED; the two CSV tests build the CSV part of createTestBook themselves
 // (row 1 and the merged A2:B3 of spec/utils/test-values-sheet.js); the dataValidations test builds only its
 // own sheet (createTestBook with ['dataValidations'], tests/exceljs/sheet-rules-sheets.ts); the
@@ -21,11 +23,28 @@ import { splicedSheets } from './spliced-sheets';
 
 describe('Workbook', () => {
   describe('Serialise', () => {
-    it.skip('xlsx file — not supported: createTestBook fixture (needs data validation)', () => {});
+    it.skip('xlsx file — createTestBook fixture not ported', () => {});
 
     describe('Xlsx Zip Compression', () => {
-      for (const level of ['best', 'default', 'fast', 'no']) {
-        it.skip(`xlsx file with ${level} compression — not supported: createTestBook fixture`, () => {});
+      // createTestBook is not ported; each level writes an own sheet with the upstream zip option.
+      const zips = {
+        best: { compression: 'DEFLATE', compressionOptions: { level: 9 } },
+        default: { compression: 'DEFLATE' },
+        fast: { compression: 'DEFLATE', compressionOptions: { level: 1 } },
+        no: { compression: 'STORE' },
+      };
+      for (const [level, zip] of Object.entries(zips)) {
+        it(`xlsx file with ${level} compression (own sheet instead of createTestBook)`, async () => {
+          const wb = new ExcelJS.Workbook();
+          wb.addWorksheet('blort').addRow(['x'.repeat(200), 7]);
+          await withTempDir(async (dir) => {
+            const file = join(dir, 'wb.test.xlsx');
+            await wb.xlsx.writeFile(file, { zip });
+            const wb2 = new ExcelJS.Workbook();
+            await wb2.xlsx.readFile(file);
+            expect(wb2.getWorksheet('blort').getRow(1).values).toEqual([undefined, 'x'.repeat(200), 7]);
+          });
+        });
       }
     });
 
@@ -108,7 +127,19 @@ describe('Workbook', () => {
       expect(ws2.pageSetup.printTitlesRow).toBe('1:2');
       expect(ws2.pageSetup.printTitlesColumn).toBe('A:B');
     });
-    it.skip('shared formula — not supported: fillFormula', () => {});
+    it('shared formula', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hello');
+      ws.fillFormula('A1:B2', 'ROW()+COLUMN()', [
+        [2, 3],
+        [3, 4],
+      ]);
+      const ws2 = (await roundTrip(wb)).getWorksheet('Hello');
+      expect(ws2.getCell('A1').value).toEqual({ formula: 'ROW()+COLUMN()', shareType: 'shared', ref: 'A1:B2', result: 2 });
+      expect(ws2.getCell('B1').value).toEqual({ sharedFormula: 'A1', result: 3 });
+      expect(ws2.getCell('A2').value).toEqual({ sharedFormula: 'A1', result: 3 });
+      expect(ws2.getCell('B2').value).toEqual({ sharedFormula: 'A1', result: 4 });
+    });
 
     it('auto filter', async () => {
       const wb = new ExcelJS.Workbook();
@@ -197,7 +228,7 @@ describe('Workbook', () => {
       await withTempDir((dir) => wb.xlsx.writeFile(join(dir, 'wb.test.xlsx')));
     });
 
-    it.skip('a lot of sheets to xlsx file — not supported: createTestBook fixture', () => {});
+    it.skip('a lot of sheets to xlsx file — createTestBook fixture not ported', () => {});
 
     // exceljs spec/utils/data/sheet-values.json.
     const testValues = { str: 'Hello, World!', str2: '<a href="www.whatever.com">Talk to the H&</a>', date: new Date('2016-08-16T16:23:59.720Z') };
@@ -358,7 +389,7 @@ describe('Workbook', () => {
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet('duplicateTest');
         ws.getCell('A1').value = 'OneInfo';
-        ws.getCell('A1').font = styles.roundTripFonts.broadwayRed20;
+        ws.getCell('A1').font = styles.fonts.broadwayRedOutline20;
         ws.getCell('A2').value = 'TwoInfo';
         ws.duplicateRow(1, 2);
         const ws2 = (await roundTrip(wb)).getWorksheet('duplicateTest');
@@ -438,9 +469,9 @@ describe('Workbook', () => {
         const ws = wb.addWorksheet('blort');
         const B2 = ws.getCell('B2');
         B2.value = 5;
-        B2.style.font = styles.roundTripFonts.broadwayRed20;
+        B2.style.font = styles.fonts.broadwayRedOutline20;
         B2.style.border = styles.borders.doubleRed;
-        B2.style.fill = styles.fills.redDarkVertical;
+        B2.style.fill = styles.fills.blueWhiteHGrad;
         B2.style.alignment = styles.namedAlignments.middleCentre;
         B2.style.numFmt = styles.numFmts.numFmt1;
         // expecting styles to be copied (see worksheet spec)
@@ -449,9 +480,9 @@ describe('Workbook', () => {
         const ws2 = (await roundTrip(wb)).getWorksheet('blort');
         for (const ref of ['B2', 'B3', 'C2', 'C3']) {
           const cell = ws2.getCell(ref);
-          expect(cell.font, ref).toEqual(styles.roundTripFonts.broadwayRed20);
+          expect(cell.font, ref).toEqual(styles.fonts.broadwayRedOutline20);
           expect(cell.border, ref).toEqual(styles.borders.doubleRed);
-          expect(cell.fill, ref).toEqual(styles.fills.redDarkVertical);
+          expect(cell.fill, ref).toEqual(styles.fills.blueWhiteHGrad);
           expect(cell.alignment, ref).toEqual(styles.namedAlignments.middleCentre);
           expect(cell.numFmt, ref).toBe(styles.numFmts.numFmt1);
         }
@@ -545,6 +576,25 @@ describe('Workbook', () => {
         expect(ws2.views).toEqual([view]);
       });
     });
-    it.skip('multiple book views — not supported: workbook views', () => {});
+    it('multiple book views', async () => {
+      // spec/utils/data/views.json of exceljs v4.4.0 (MIT), inlined.
+      const book = {
+        visible: { x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: 1, visibility: 'visible' },
+        hidden: { x: 1, y: 2, width: 10001, height: 20002, firstSheet: 1, activeTab: 1, visibility: 'hidden' },
+      };
+      const common = { rightToLeft: false, showRuler: true, showGridLines: true, showRowColHeaders: true, zoomScale: 100, zoomScaleNormal: 100 };
+      const frozen = { workbookViewId: 0, ...common, state: 'frozen', xSplit: 2, ySplit: 3, topLeftCell: 'C4', activeCell: 'D5' };
+      const split = { workbookViewId: 1, ...common, state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: 'C4', activeCell: 'D5', activePane: 'bottomRight' };
+      const wb = new ExcelJS.Workbook();
+      wb.views = [book.visible, book.hidden];
+      wb.addWorksheet('one').views = [frozen];
+      wb.addWorksheet('two').views = [split];
+      const wb2 = await roundTrip(wb);
+      expect(wb2.views).toEqual(wb.views);
+      expect(wb2.getWorksheet('one').views).toEqual([frozen]);
+      // xlvane writes every sheet view with workbookViewId 0 and no topLeftCell or activeCell
+      // for a split view (docs/exceljs-compat.md).
+      expect(wb2.getWorksheet('two').views).toEqual([{ ...split, workbookViewId: 0, topLeftCell: undefined, activeCell: undefined }]);
+    });
   });
 });

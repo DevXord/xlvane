@@ -241,5 +241,17 @@ DEP0137 "Closing fs.FileHandle on garbage collection" reached End-of-Life in v25
 ### F-GH-01 — GitHub Actions pins
 `actions/checkout` tag v7.0.1 → commit 3d3c42e5aac5ba805825da76410c181273ba90b1; `actions/setup-node` tag v7.1.0 → commit 949feb2413d6458794dcd2491c4babbbce0c15c1 (`git ls-remote`, lightweight tags, 2026-10-30). Inputs used (`persist-credentials`, `node-version`) are declared in each action's `action.yml` at that tag.
 
+### W2-65 — Outline levels and sheet-wide formatting — VERIFIED (schema, Office limits) / PROVISIONAL (defaultRowHeight without customHeight)
+CT_Row has `outlineLevel` (unsignedByte, default 0) and `collapsed` (boolean, default false) (sml.xsd T L2256–2273); CT_Col has the same two attributes (L2238–2252); CT_SheetFormatPr has `defaultRowHeight` (double, required), `outlineLevelRow` and `outlineLevelCol` (unsignedByte, default 0) (L2222–2232); CT_SheetPr's second child is `outlinePr` (CT_OutlinePr: `summaryBelow`, `summaryRight`, default true; L2306–2311, L2423–2428). Office limits: row `outlineLevel` 0–7 ([MS-OI29500] §2.1.644 b, p.279), column `outlineLevel` ≤ 7 (§2.1.598 e, p.253), `outlineLevelRow`/`outlineLevelCol` 0–7 (§2.1.650 a, p.281) — from the first review report. Part 1 §18.3.1.81 (report 1, W2-09): `defaultRowHeight` is in points, an optimisation. xlvane writes `outlineLevelRow`/`outlineLevelCol` as the highest level of the rows/columns (or the value given, for streamed rows), writes a non-default `defaultRowHeight` without `customHeight` (whether `customHeight` must be set is not stated: PROVISIONAL).
+
+### W2-66 — Workbook windows — VERIFIED (schema)
+CT_BookView (sml.xsd T L4137–4153): `visibility` (ST_Visibility: visible, hidden, veryHidden; L4155), `xWindow`, `yWindow` (xsd:int), `windowWidth`, `windowHeight`, `firstSheet`, `activeTab` (xsd:unsignedInt; the last two default 0), plus flags not modelled. `bookViews` comes after `workbookProtection` and before `sheets` (CT_Workbook). xlvane writes the given attributes only; without windows it writes one default window (OI §2.1.584 a). The unit of the window position and size is Part 1 §18.2.30 prose, not checked (PROVISIONAL).
+
+### W2-67 — Calculation settings — VERIFIED (schema)
+CT_CalcPr (sml.xsd T L4284–4298): `fullCalcOnLoad` (boolean, default false) and further attributes not modelled; `calcPr` follows `definedNames` in CT_Workbook. OI §2.1.565 (report 1): `forceFullCalc` default false, `calcId` default 0. xlvane writes `<calcPr fullCalcOnLoad="1"/>` when asked and reads `fullCalcOnLoad`.
+
+### W2-68 — Sheet view: topLeftCell, activeCell, zoomScaleNormal, showRuler — VERIFIED (schema, Part 1 via report 2)
+CT_SheetView attributes `showRuler` (default true), `topLeftCell` (ST_CellRef), `zoomScaleNormal` (default 0) (sml.xsd T L2332–2356); the first `selection` (CT_Selection) carries `activeCell` and `sqref`. Report 2 Item 6: `zoomScaleNormal` is 10–400 with 0 = automatic (P1 §18.3.1.87); `topLeftCell` is the top-left visible cell; Office treats pane `topLeftCell` as required unless the pane is split (OI §2.1.640 a). For frozen panes xlvane keeps `topLeftCell` on the pane (W2-05) and puts `activeCell` in the pane's selection.
+
 ## Still to verify
 The open points of phase 2 were checked on 2026-10-30 against ECMA-376 Part 1, [MS-OI29500] and [MS-XLSX] (D-1104); each entry above carries the result. Still PROVISIONAL: the formula length (W2-21, in none of the three documents) and the part names (W2-32, a convention).

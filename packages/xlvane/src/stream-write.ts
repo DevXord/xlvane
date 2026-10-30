@@ -44,8 +44,12 @@ import {
   sortedNotes,
   type CellInput,
   type ColumnOptions,
+  type CalculationOptions,
   type FreezeOptions,
+  type RowOptions,
+  type SheetPropertiesOptions,
   type SheetViewOptions,
+  type WorkbookViewOptions,
   type NewSheet,
 } from './write';
 import { createZipStream, type ZipStreamEntry } from './zip/stream';
@@ -74,6 +78,9 @@ export type StreamRowInput =
       /** Row height in points. */
       readonly height?: number;
       readonly hidden?: boolean;
+      /** Outline level 0–7 (W2-65); give the highest level as `properties.outlineLevelRow` of the sheet. */
+      readonly outlineLevel?: number;
+      readonly collapsed?: boolean;
       /** Hyperlink per cell, by position, as for `NewSheet.link`. */
       readonly hyperlinks?: readonly (HyperlinkTarget | null | undefined)[];
       /**
@@ -103,6 +110,8 @@ export interface StreamSheetSpec {
   readonly tabColor?: Color;
   /** Display settings, as for `NewSheet.view`. */
   readonly view?: SheetViewOptions;
+  /** Sheet-wide formatting, as for `NewSheet.properties` (W2-65). */
+  readonly properties?: SheetPropertiesOptions;
   /** `true`: a filter over all written rows and columns; or a range such as `"A1:D100"`. */
   readonly autoFilter?: boolean | string;
   /** Ranges to merge, for example `["A1:C1"]`. */
@@ -177,6 +186,12 @@ export interface WriteWorkbookStreamOptions {
    * sheet is checked when all sheets are known, at the end of the stream.
    */
   readonly definedNames?: readonly StreamDefinedName[];
+  /** Workbook windows, as for `NewWorkbook.views` (W2-66). */
+  readonly views?: readonly WorkbookViewOptions[];
+  /** Calculation settings, as for `NewWorkbook.calculation` (W2-67). */
+  readonly calculation?: CalculationOptions;
+  /** Deflate level 0–9 of the parts (0 = stored). Default 6. */
+  readonly compressionLevel?: number;
   /** Workbook protection, as for `NewWorkbook.protect`. */
   readonly protection?: WorkbookProtectionOptions;
   /** Image files (PNG, JPEG or GIF bytes) used by the sheets' `images` and `background`, by position. */
@@ -252,13 +267,19 @@ async function* iterate<T>(source: Iterable<T> | AsyncIterable<T>): AsyncGenerat
  * ```
  */
 export function writeWorkbookStream(options: WriteWorkbookStreamOptions): ReadableStream<Uint8Array> {
-  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection', 'images'], 'writeWorkbookStream options');
+  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection', 'images', 'views', 'calculation', 'compressionLevel'], 'writeWorkbookStream options');
   const dateSystem = o.get('dateSystem');
   const book = createWorkbook({
     ...(dateSystem === undefined ? {} : { dateSystem: dateSystem as DateSystem }),
     ...(o.has('properties') ? { properties: o.get('properties') as WorkbookProperties } : {}),
   });
   if (o.has('protection')) book.protect(o.get('protection') as WorkbookProtectionOptions);
+  if (o.has('views')) book.views(o.get('views') as WorkbookViewOptions[]);
+  if (o.has('calculation')) book.calculation(o.get('calculation') as CalculationOptions);
+  const level = o.get('compressionLevel') ?? 6;
+  if (typeof level !== 'number' || !Number.isInteger(level) || level < 0 || level > 9) {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "compressionLevel" must be a whole number from 0 to 9.', { hint: 'Use 0 for no compression or 9 for the smallest file; the default is 6.', details: { option: 'compressionLevel' } });
+  }
   const imageInput = o.get('images') ?? [];
   if (!Array.isArray(imageInput)) throw new XlvError('XLV_E_INVALID_OPTION', 'The option "images" must be an array of image files.', { hint: 'For example images: [pngBytes], then images: [{ image: 0, anchor: "B2:D6" }] on a sheet.', details: { option: 'images' } });
   for (const bytes of imageInput) book.addImage(bytes as Uint8Array);
@@ -291,7 +312,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
   const prepare = (raw: unknown, i: number): PreparedSheet => {
-    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'rows'], `sheets[${String(i)}]`);
+    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'properties', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
     const sheet = book.addSheet(s.get('name') as string, state === undefined ? undefined : { state: state as SheetState });
     const columns = s.get('columns');
@@ -307,6 +328,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     if (tabColor !== undefined) sheet.tabColor(tabColor as Color);
     const view = s.get('view');
     if (view !== undefined) sheet.view(view as SheetViewOptions);
+    if (s.has('properties')) sheet.properties(s.get('properties') as SheetPropertiesOptions);
     if (s.has('protect')) sheet.protect(s.get('protect') as SheetProtectionOptions);
     if (s.has('pageSetup')) sheet.pageSetup(s.get('pageSetup') as PageSetupOptions);
     if (s.has('headerFooter')) sheet.headerFooter(s.get('headerFooter') as HeaderFooter);
@@ -398,7 +420,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
 
   async function* sheetData(p: PreparedSheet, selected: boolean, n: number): AsyncGenerator<Uint8Array> {
     const name = p.sheet.name;
-    let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings, print: p.sheet.print }, selected, null);
+    let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings, print: p.sheet.print, properties: p.sheet.sheetProps }, selected, null);
     let r = 0;
     let maxCol = 0;
     const groups = new FormulaGroups(name);
@@ -414,10 +436,10 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       let values: readonly unknown[];
       let rowStyle: CellStyle | undefined;
       let styles: readonly (CellStyle | undefined)[] | undefined;
-      let info: { height: number | null; hidden: boolean } | undefined;
+      let info: { height: number | null; hidden: boolean; outlineLevel: number; collapsed: boolean } | undefined;
       if (Array.isArray(raw)) values = raw;
       else {
-        const ro = readOptions(raw, ['values', 'style', 'styles', 'height', 'hidden', 'hyperlinks', 'notes'], `row ${String(r)} of sheet "${name}"`);
+        const ro = readOptions(raw, ['values', 'style', 'styles', 'height', 'hidden', 'outlineLevel', 'collapsed', 'hyperlinks', 'notes'], `row ${String(r)} of sheet "${name}"`);
         const v = ro.get('values');
         if (!Array.isArray(v)) {
           throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(r)} of sheet "${name}" is not an array of values.`, { location: { sheet: name }, hint: 'Yield arrays of values, or { values: [...] } objects.', details: { row: r } });
@@ -425,11 +447,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
         values = v;
         rowStyle = ro.get('style') as CellStyle | undefined;
         styles = ro.get('styles') as (CellStyle | undefined)[] | undefined;
-        const height = ro.get('height');
-        const hidden = ro.get('hidden');
-        if (height !== undefined || hidden !== undefined) {
+        const format: Record<string, unknown> = {};
+        for (const key of ['height', 'hidden', 'outlineLevel', 'collapsed'] as const) if (ro.get(key) !== undefined) format[key] = ro.get(key);
+        if (Object.keys(format).length > 0) {
           // Validated with the batch writer's rules, then dropped from the scratch sheet.
-          p.sheet.row(r, { ...(height === undefined ? {} : { height: height as number }), ...(hidden === undefined ? {} : { hidden: hidden as boolean }) });
+          p.sheet.row(r, format as RowOptions);
           info = p.sheet.rowMap.get(r);
           p.sheet.rowMap.delete(r);
         }
@@ -541,7 +563,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   function* closingParts(): Generator<ZipStreamEntry> {
     yield {
       name: 'xl/workbook.xml',
-      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection)),
+      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection, { bookViews: book.bookViews, calculation: book.calcProps })),
     };
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
     yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true, book.dxfStyles()).xml) };
@@ -596,7 +618,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     yield* media.entries();
     yield* closingParts();
   }
-  return createZipStream(entries());
+  return createZipStream(entries(), level);
 }
 
 /**

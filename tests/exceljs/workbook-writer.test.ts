@@ -2,12 +2,12 @@
 // (MIT, Copyright (c) 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await;
 // files go to a temporary directory; cells are added with `addRow` instead of
 // `worksheet.getCell` (the streaming worksheet subset is `addRow`, row style setters and
-// `commit`); fonts without `family`/`outline`; the row style read-back is removed (no row
+// `commit`); the row style read-back is removed (no row
 // default styles after reading, docs/decisions.md D-206); the data validation and conditional
 // formatting tests build only their own sheet (tests/exceljs/sheet-rules-sheets.ts) and #1814
-// expects the dxf number format as a code string; notes read back without the font
-// properties family/scheme and without the box settings margins, protection, editAs (D-A14);
-// tests that need createTestBook, shared formulas, images or zip options are skipped. One test added: names changed after the
+// expects the dxf number format as a code string; notes read back without the box
+// settings margins, protection, editAs (D-A14);
+// the zip-option test uses its own sheet; tests that need createTestBook or images are skipped. One test added: names changed after the
 // first committed row.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -37,8 +37,25 @@ describe('WorkbookWriter', () => {
   });
 
   describe('Serialise', () => {
-    it.skip('xlsx file — not supported: createTestBook fixture (needs data validation)', () => {});
-    it.skip('shared formula — not supported: fillFormula', () => {});
+    it.skip('xlsx file — createTestBook fixture not ported', () => {});
+    it('shared formula', async () => {
+      await withTempDir(async (dir) => {
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: false });
+        const ws = wb.addWorksheet('Hello');
+        ws.getCell('A1').value = { formula: 'ROW()+COLUMN()', ref: 'A1:B2', result: 2 };
+        ws.getCell('B1').value = { sharedFormula: 'A1', result: 3 };
+        ws.getCell('A2').value = { sharedFormula: 'A1', result: 3 };
+        ws.getCell('B2').value = { sharedFormula: 'A1', result: 4 };
+        ws.commit();
+        await wb.commit();
+        const ws2 = (await readBack(filename)).getWorksheet('Hello');
+        expect(ws2.getCell('A1').value).toEqual({ formula: 'ROW()+COLUMN()', shareType: 'shared', ref: 'A1:B2', result: 2 });
+        expect(ws2.getCell('B1').value).toEqual({ sharedFormula: 'A1', result: 3 });
+        expect(ws2.getCell('A2').value).toEqual({ sharedFormula: 'A1', result: 3 });
+        expect(ws2.getCell('B2').value).toEqual({ sharedFormula: 'A1', result: 4 });
+      });
+    });
 
     it('auto filter', async () => {
       await withTempDir(async (dir) => {
@@ -56,17 +73,17 @@ describe('WorkbookWriter', () => {
       });
     });
 
-    it.skip('Without styles — not supported: createTestBook fixture', () => {});
+    it.skip('Without styles — createTestBook fixture not ported', () => {});
 
     it('serializes row styles and columns properly', async () => {
       await withTempDir(async (dir) => {
         const filename = join(dir, 'wb.test.xlsx');
         const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true });
         const ws = wb.addWorksheet('blort');
-        const colStyle = { font: styles.roundTripFonts.comicSansUdB16, alignment: styles.namedAlignments.middleCentre };
+        const colStyle = { font: styles.fonts.comicSansUdB16, alignment: styles.namedAlignments.middleCentre };
         ws.columns = [{ header: 'A1', width: 10 }, { header: 'B1', style: colStyle }, { header: 'C1', width: 30 }, { header: 'D1' }];
         const row2 = ws.addRow(['A2', 'B2', 'C2']);
-        row2.font = styles.roundTripFonts.broadwayRed20;
+        row2.font = styles.fonts.broadwayRedOutline20;
         row2.commit();
         ws.addRow(['A3', 'B3', 'C3']).commit();
         ws.commit();
@@ -76,15 +93,15 @@ describe('WorkbookWriter', () => {
         for (const address of ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']) {
           expect(ws2.getCell(address).value).toBe(address);
         }
-        expect(ws2.getCell('B1').font).toEqual(styles.roundTripFonts.comicSansUdB16);
+        expect(ws2.getCell('B1').font).toEqual(styles.fonts.comicSansUdB16);
         expect(ws2.getCell('B1').alignment).toEqual(styles.namedAlignments.middleCentre);
-        expect(ws2.getCell('A2').font).toEqual(styles.roundTripFonts.broadwayRed20);
-        expect(ws2.getCell('B2').font).toEqual(styles.roundTripFonts.broadwayRed20);
-        expect(ws2.getCell('C2').font).toEqual(styles.roundTripFonts.broadwayRed20);
-        expect(ws2.getCell('B3').font).toEqual(styles.roundTripFonts.comicSansUdB16);
+        expect(ws2.getCell('A2').font).toEqual(styles.fonts.broadwayRedOutline20);
+        expect(ws2.getCell('B2').font).toEqual(styles.fonts.broadwayRedOutline20);
+        expect(ws2.getCell('C2').font).toEqual(styles.fonts.broadwayRedOutline20);
+        expect(ws2.getCell('B3').font).toEqual(styles.fonts.comicSansUdB16);
         expect(ws2.getCell('B3').alignment).toEqual(styles.namedAlignments.middleCentre);
 
-        expect(ws2.getColumn(2).font).toEqual(styles.roundTripFonts.comicSansUdB16);
+        expect(ws2.getColumn(2).font).toEqual(styles.fonts.comicSansUdB16);
         expect(ws2.getColumn(2).alignment).toEqual(styles.namedAlignments.middleCentre);
         expect(ws2.getColumn(2).width).toBe(9);
         expect(ws2.getColumn(4).width).toBe(undefined);
@@ -214,7 +231,18 @@ describe('WorkbookWriter', () => {
         dataValidationSheet.checkSheet(await readBack(filename));
       });
     });
-    it.skip('with zip compression option — not supported: zip compression options', () => {});
+    it('with zip compression option (own sheet instead of createTestBook)', async () => {
+      await withTempDir(async (dir) => {
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true, zip: { zlib: { level: 9 } } });
+        const ws = wb.addWorksheet('Hello');
+        ws.addRow(['a', 1, new Date(Date.UTC(2020, 0, 2))]).commit();
+        ws.commit();
+        await wb.commit();
+        const ws2 = (await readBack(filename)).getWorksheet('Hello');
+        expect(ws2.getRow(1).values).toEqual([undefined, 'a', 1, new Date(Date.UTC(2020, 0, 2))]);
+      });
+    });
 
     for (const [title, box] of [
       ['writes notes', { margins: { insetmode: 'auto', inset: [0.13, 0.13, 0.25, 0.25] }, protection: { locked: 'True', lockText: 'True' }, editAs: 'twoCells' }],
@@ -235,7 +263,7 @@ describe('WorkbookWriter', () => {
           expect(ws2.getCell('B1').value).toBe(5);
           expect(ws2.getCell('B1').note).toBe('five');
           expect(ws2.getCell('D1').value).toBe(7);
-          expect(ws2.getCell('D1').note.texts).toEqual([{ font: { size: 12, color: { argb: 'FFFF6600' }, name: 'Calibri' }, text: 'seven' }]);
+          expect(ws2.getCell('D1').note.texts).toEqual([{ font: { size: 12, color: { argb: 'FFFF6600' }, name: 'Calibri', scheme: 'minor' }, text: 'seven' }]);
           expect(ws2.getCell('D1').note.margins).toBeUndefined();
         });
       });
@@ -289,9 +317,11 @@ describe('WorkbookWriter defaults (added for xlvane)', () => {
     });
   });
 
-  it('a rich text run with vertAlign — not supported', async () => {
-    const ws = new ExcelJS.Workbook().addWorksheet('S');
-    ws.getCell('A1').value = { richText: [{ font: { vertAlign: 'superscript' }, text: '2' }] };
-    await expectNotSupported(() => ws.workbook.xlsx.writeBuffer());
+  it('writes and reads a rich text run with vertAlign (D-E04)', async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.addWorksheet('S').getCell('A1').value = { richText: [{ text: 'x' }, { font: { vertAlign: 'superscript' }, text: '2' }] };
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.load(await wb.xlsx.writeBuffer());
+    expect(wb2.getWorksheet('S')!.getCell('A1').value).toEqual({ richText: [{ text: 'x' }, { font: { vertAlign: 'superscript' }, text: '2' }] });
   });
 });

@@ -3,7 +3,7 @@
 // §18.3.1.35 dimension; docs/facts/ecma-376.md E-20 … E-39).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo, SheetLayout, SheetView, SplitPanes } from '../model';
+import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo, SheetLayout, SheetProperties, SheetView, SplitPanes } from '../model';
 import type { Color } from '../style';
 import { createPrintCollector, type ReadPrintData } from '../printing';
 import { createRuleCollector, type ConditionalFormat, type DataValidation } from '../sheet-rules';
@@ -71,6 +71,8 @@ export interface WorksheetData {
   readonly tabColor: Color | null;
   /** Settings of the first sheet view (W2-51). */
   readonly view: SheetView;
+  /** `sheetFormatPr` and `sheetPr/outlinePr` (W2-65). */
+  readonly properties: SheetProperties;
   /** `hyperlink` elements in file order, before their relationships are resolved (W2-42). */
   readonly hyperlinks: RawHyperlink[];
   /** Protection, page setup, headers and footers, page breaks (SR-20 … SR-28). */
@@ -85,7 +87,10 @@ export interface WorksheetData {
 }
 
 /** The view of a sheet without a `sheetView`, from the defaults of CT_SheetView (W2-51). */
-export const DEFAULT_SHEET_VIEW: SheetView = Object.freeze({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null });
+export const DEFAULT_SHEET_VIEW: SheetView = Object.freeze({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
+
+/** Sheet properties without `sheetFormatPr`/`outlinePr`: the CT_SheetFormatPr and CT_OutlinePr defaults, row height 15 (W2-09, W2-65). */
+export const DEFAULT_SHEET_PROPERTIES: SheetProperties = Object.freeze({ defaultRowHeight: 15, outlineLevelRow: 0, outlineLevelCol: 0, summaryBelow: true, summaryRight: true });
 
 /** A `hyperlink` element as read: `relId` is its `r:id`, resolved by the caller. */
 export interface RawHyperlink {
@@ -195,6 +200,8 @@ export function createWorksheetParser(
   let autoFilter: string | null = null;
   let tabColor: Color | null = null;
   let view: SheetView = DEFAULT_SHEET_VIEW;
+  let properties: SheetProperties = DEFAULT_SHEET_PROPERTIES;
+  let selections = 0;
   const hyperlinks: RawHyperlink[] = [];
   let drawingRelId: string | null = null;
   let pictureRelId: string | null = null;
@@ -522,6 +529,20 @@ export function createWorksheetParser(
           freeze = parsePane(attrs, warn);
           const split = parseSplit(attrs, warn);
           if (split !== null) view = Object.freeze({ ...view, split });
+        } else if (depth === 4 && local === 'selection' && parent === 'sheetView' && sheetViews === 1) {
+          // The active cell of the first selection of the first view (CT_Selection; W2-51).
+          if (selections++ === 0) {
+            const cell = parseCellRef((attrs.get('activeCell') ?? '').trim());
+            if (cell !== null) view = Object.freeze({ ...view, activeCell: formatCellRef(cell.row, cell.col) });
+          }
+        } else if (depth === 2 && local === 'sheetFormatPr') {
+          properties = parseSheetFormat(attrs, properties, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+        } else if (depth === 3 && local === 'outlinePr' && parent === 'sheetPr') {
+          const flag = (name: string): boolean => {
+            const raw = attrs.get(name);
+            return raw === undefined ? true : parseXsdBoolean(raw) !== false;
+          };
+          properties = Object.freeze({ ...properties, summaryBelow: flag('summaryBelow'), summaryRight: flag('summaryRight') });
         } else if (depth === 3 && local === 'tabColor' && parent === 'sheetPr') {
           tabColor = parseColor({ ns: elementNs, local, attrs, children: [], text: '' }, 'sheet tab', (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())) ?? null;
         } else if (depth === 3 && local === 'col' && parent === 'cols') {
@@ -553,7 +574,8 @@ export function createWorksheetParser(
             ctx.warnings.add('XLV_W_INVALID_VALUE', `The row height "${ht.slice(0, 20)}" is not a valid number; it is ignored.`, loc());
           }
           const validHeight = height !== null && height >= 0 ? height : null;
-          if (validHeight !== null || hidden) rowInfo.set(currentRow, { height: validHeight, hidden });
+          const outline = parseOutline(attrs);
+          if (validHeight !== null || hidden || outline.outlineLevel !== undefined || outline.collapsed !== undefined) rowInfo.set(currentRow, { height: validHeight, hidden, ...outline });
         } else if (depth === 4 && local === 'c' && parent === 'row' && path[1] === 'sheetData') {
           if (skipRow) return;
           const r = attrs.get('r');
@@ -646,7 +668,7 @@ export function createWorksheetParser(
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
     else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
-    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
+    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
   };
   return { handler, finish };
 }
@@ -732,7 +754,35 @@ function parseColumn(attrs: ReadonlyMap<string, string>): ColumnInfo | null {
   const width = rawWidth === undefined ? null : parseXsdDouble(rawWidth);
   if (rawWidth !== undefined && (width === null || width < 0)) return null;
   const hidden = attrs.get('hidden');
-  return { min, max, width, hidden: hidden !== undefined && parseXsdBoolean(hidden) === true };
+  return { min, max, width, hidden: hidden !== undefined && parseXsdBoolean(hidden) === true, ...parseOutline(attrs) };
+}
+
+/** `outlineLevel` (1–7 kept; 0 and invalid values omitted) and `collapsed` of a row or column (W2-65). */
+function parseOutline(attrs: ReadonlyMap<string, string>): { outlineLevel?: number; collapsed?: boolean } {
+  const out: { outlineLevel?: number; collapsed?: boolean } = {};
+  const raw = attrs.get('outlineLevel');
+  const level = raw === undefined ? null : parseUint(raw.trim(), 3);
+  if (level !== null && level >= 1 && level <= 7) out.outlineLevel = level;
+  const collapsed = attrs.get('collapsed');
+  if (collapsed !== undefined && parseXsdBoolean(collapsed) === true) out.collapsed = true;
+  return out;
+}
+
+/** Reads `sheetFormatPr` (CT_SheetFormatPr, sml.xsd L2222; W2-65); invalid values give a warning and keep the default. */
+function parseSheetFormat(attrs: ReadonlyMap<string, string>, base: SheetProperties, warn: (message: string) => void): SheetProperties {
+  let defaultRowHeight = base.defaultRowHeight;
+  const raw = attrs.get('defaultRowHeight');
+  if (raw !== undefined) {
+    const h = parseXsdDouble(raw);
+    if (h === null || h < 0) warn(`The default row height "${raw.slice(0, 20)}" is not a valid number; 15 is used.`);
+    else defaultRowHeight = h;
+  }
+  const level = (name: string): number => {
+    const v = attrs.get(name);
+    const n = v === undefined ? 0 : parseUint(v.trim(), 3);
+    return n !== null && n <= 7 ? n : 0;
+  };
+  return Object.freeze({ ...base, defaultRowHeight, outlineLevelRow: level('outlineLevelRow'), outlineLevelCol: level('outlineLevelCol') });
 }
 
 const LAYOUTS: readonly SheetLayout[] = ['normal', 'pageBreakPreview', 'pageLayout'];
@@ -757,6 +807,14 @@ function parseSheetView(attrs: ReadonlyMap<string, string>, warn: (message: stri
     if (n === null || n < 10 || n > 400) warn(`The sheet zoom "${rawZoom.slice(0, 20)}" is not a percentage from 10 to 400; 100 is used.`);
     else zoom = n;
   }
+  let zoomScaleNormal = 0;
+  const rawNormal = attrs.get('zoomScaleNormal');
+  if (rawNormal !== undefined) {
+    const n = parseUint(rawNormal.trim(), 10);
+    if (n === null || (n !== 0 && (n < 10 || n > 400))) warn(`The normal-view zoom "${rawNormal.slice(0, 20)}" is not 0 or a percentage from 10 to 400; 0 is used.`);
+    else zoomScaleNormal = n;
+  }
+  const topLeft = parseCellRef((attrs.get('topLeftCell') ?? '').trim());
   const rawLayout = (attrs.get('view') ?? 'normal').trim();
   const layout = LAYOUTS.find((l) => l === rawLayout);
   if (layout === undefined) warn(`The sheet view type "${rawLayout.slice(0, 30)}" is not known; "normal" is used.`);
@@ -767,6 +825,10 @@ function parseSheetView(attrs: ReadonlyMap<string, string>, warn: (message: stri
     rightToLeft: flag('rightToLeft', false),
     layout: layout ?? 'normal',
     split: null,
+    topLeftCell: topLeft === null ? null : formatCellRef(topLeft.row, topLeft.col),
+    activeCell: null,
+    zoomScaleNormal,
+    showRuler: flag('showRuler', true),
   });
 }
 

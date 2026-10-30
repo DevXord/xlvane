@@ -8,7 +8,7 @@ import { resolveLimits, type ReadLimits } from './limits';
 import { parseComments, THREADED_COMMENTS_REL, type Note } from './notes';
 import { MAX_TABLES_PER_SHEET, parseTable, type TableDefinition } from './tables';
 import type { ConditionalFormat, DataValidation } from './sheet-rules';
-import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, SheetView, Workbook, WorkbookFormat } from './model';
+import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetProperties, SheetState, SheetView, Workbook, WorkbookFormat, WorkbookView } from './model';
 import type { Color } from './style';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
 import { parseCellRef, parseRange } from './sml/cell-ref';
@@ -23,7 +23,7 @@ import {
 import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
 import { parseWorkbookPart } from './sml/workbook';
-import { DEFAULT_SHEET_VIEW, parseWorksheet, type NumberFormat, type WorksheetData } from './sml/worksheet';
+import { DEFAULT_SHEET_PROPERTIES, DEFAULT_SHEET_VIEW, parseWorksheet, type NumberFormat, type WorksheetData } from './sml/worksheet';
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 import { openZip } from './zip/reader';
@@ -137,6 +137,10 @@ class ReadSheet implements Sheet {
     return this.data?.conditionalFormats ?? [];
   }
 
+  get properties(): SheetProperties {
+    return this.data?.properties ?? DEFAULT_SHEET_PROPERTIES;
+  }
+
   get view(): SheetView {
     return this.data?.view ?? DEFAULT_SHEET_VIEW;
   }
@@ -190,6 +194,8 @@ class ReadWorkbook implements Workbook {
     readonly properties: WorkbookProperties,
     readonly definedNames: readonly DefinedName[],
     readonly protection: WorkbookProtection | null = null,
+    readonly views: readonly WorkbookView[] = [],
+    readonly calculation: { readonly fullCalcOnLoad: boolean } | null = null,
   ) {}
 
   getSheet(name: string): Sheet {
@@ -298,7 +304,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     }
     return sheet;
   });
-  const workbook = new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection);
+  const workbook = new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection, book.views, book.calculation);
   workbook.images = [...media.values()].filter((m): m is WorkbookImage => m !== null);
   return workbook;
 }
@@ -438,6 +444,8 @@ export interface WorkbookInfo {
   readonly properties: WorkbookProperties;
   readonly definedNames: readonly DefinedName[];
   readonly protection: WorkbookProtection | null;
+  readonly views: readonly WorkbookView[];
+  readonly calculation: { readonly fullCalcOnLoad: boolean } | null;
 }
 
 /** The Core Properties relationship of the package, if any (D-A02). */
@@ -561,7 +569,7 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
     if (xml === undefined) warnings.add('XLV_W_PART_MISSING', 'The package refers to an extended document properties part that does not exist; reading continues without it.', { part: app.target });
     else properties = { ...properties, ...parseAppProperties(xml, { part: app.target, ...context }) };
   }
-  return { workbookPart, sheets, sharedStrings, richStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount, properties, definedNames, protection: info.protection };
+  return { workbookPart, sheets, sharedStrings, richStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount, properties, definedNames, protection: info.protection, views: info.views, calculation: info.calculation };
 }
 
 function detectMacros(pkg: OpcPackage, workbookRels: readonly Relationship[]): boolean {

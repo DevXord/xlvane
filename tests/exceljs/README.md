@@ -46,18 +46,19 @@ Phase D copied `spec/integration/data/image.png` unchanged to `tests/exceljs/dat
 |---|---|---|---|
 | `workbook.test.ts` | `spec/unit/doc/workbook.spec.js` | 10 (2 added) | 1 |
 | `row.test.ts` | `spec/unit/doc/row.spec.js` | 13 (2 added) | 3 |
-| `cell.test.ts` | `spec/unit/doc/cell.spec.js` | 7 | 5 |
-| `column.test.ts` | `spec/unit/doc/column.spec.js` | 6 | 3 |
+| `cell.test.ts` | `spec/unit/doc/cell.spec.js` | 8 | 4 |
+| `column.test.ts` | `spec/unit/doc/column.spec.js` | 7 | 2 |
 | `worksheet-merge.test.ts` | `spec/unit/doc/worksheet.merge.spec.js` | 7 (2 added) | 0 |
 | `worksheet-values.test.ts` | `spec/unit/doc/worksheet.values.spec.js` and `spec/utils/test-spliced-sheet.js` (as `spliced-sheets.ts`) | 40 | 0 |
 | `defined-names.test.ts` | `spec/unit/doc/defined-names.spec.js` | 8 (2 added) | 0 |
-| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` and `spec/utils/test-data-validation-sheet.js` (as `sheet-rules-sheets.ts`) | 28 (1 added) | 8 |
+| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` and `spec/utils/test-data-validation-sheet.js` (as `sheet-rules-sheets.ts`) | 34 (1 added; 4 compression tests with an own sheet) | 2 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 20 | 3 |
 | `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
-| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/utils/test-data-validation-sheet.js` and `spec/utils/test-conditional-formatting-sheet.js` (as `sheet-rules-sheets.ts`) | 16 (3 added) | 4 |
+| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/utils/test-data-validation-sheet.js` and `spec/utils/test-conditional-formatting-sheet.js` (as `sheet-rules-sheets.ts`) | 18 (3 added; the zip-option test with an own sheet) | 2 |
 | `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 2 (added, not upstream) | 29 |
 | `tables-images.test.ts` | `spec/integration/workbook/images.spec.js` and the two background-image tests of `workbook-xlsx-writer.spec.js` | 16 (8 ported, 8 added) | 0 |
 | `csv.test.ts` | added for xlvane (exceljs `lib/csv/csv.js` behaviour, X4-23, X4-24) | 16 | 0 |
+| `phase-e-api.test.ts` | added for xlvane (phase E members, styles, formulas, views; X4-27 … X4-30) | 17 | 0 |
 | `options-reader.test.ts` | added for xlvane (xlsx options, WorkbookReader options and events, enums; X4-25, X4-26) | 12 | 0 |
 
 "Passing" includes tests that expect `XLV_E_NOT_SUPPORTED` for an unsupported feature.
@@ -66,8 +67,11 @@ Phase D copied `spec/integration/data/image.png` unchanged to `tests/exceljs/dat
 
 Each skipped test names its reason in the title. The reasons are:
 
-- **Unsupported features** (they throw `XLV_E_NOT_SUPPORTED`; where cheap, one test checks that):
-  shared-formula filling and workbook views. The two CSV tests of `workbook.spec.js` run: they
+- **Phase E**: shared formulas (`fillFormula`, streamed `{ formula, ref }` masters), workbook views,
+  zip options and multi-row column headers are ported. `multiple book views` expects the split
+  view back with `workbookViewId` 0 and without `topLeftCell`/`activeCell` (xlvane writes one
+  sheet view, docs/exceljs-compat.md). The zip-compression tests write their own sheet instead
+  of `createTestBook`. The two CSV tests of `workbook.spec.js` run: they
   build the CSV part of `createTestBook` (row 1 and the merged A2:B3 of
   `spec/utils/test-values-sheet.js`, downloaded once at tag v4.4.0) themselves.
 - **Images** (phase D): the ported image tests pass the image as `buffer`, because @xlvane/exceljs
@@ -92,14 +96,12 @@ Each skipped test names its reason in the title. The reasons are:
 - **Internal API**: tests of internal classes and fields (`new Cell`, `Column.toModel`,
   `row.model`, `_upgradeToHyperlink`, sheet mocks) are skipped or rewritten
   with the public API.
-- **Fixtures**: `createTestBook`/`checkTestBook` from `spec/utils/index.js` build workbooks with
-  unsupported features; tests based on them, and tests reading `spec/integration/data/*`, are
-  skipped.
-- **What xlvane does not keep after writing and reading a file**: font `family` and `outline`,
-  gradient fills, cells that have a style but no value, row default styles
-  (docs/decisions.md D-206), sheet views other than the first, `topLeftCell` of a split view and
-  `activeCell`, rich-text run `family`/`scheme`, and 6-digit `argb` colours (read back with alpha
-  `FF`). Round-trip tests use the values xlvane keeps (`styles.roundTripFonts`, a pattern fill,
-  one view per worksheet) and do not read back row styles.
+- **Fixtures**: `createTestBook`/`checkTestBook` from `spec/utils/index.js` and the sheets they
+  combine are not ported; tests based on them (except the compression tests, which write their
+  own sheet), and tests reading `spec/integration/data/*` files that were not copied, are skipped.
+- **What xlvane does not keep after writing and reading a file**: cells that have a style but
+  no value, row default styles (docs/decisions.md D-206), sheet views other than the first,
+  `topLeftCell` and `activeCell` of a split view, and 6-digit `argb` colours (read back with
+  alpha `FF`). Round-trip tests use one view per worksheet and do not read back row styles.
 - **Messages**: worksheet-name errors are checked with `toThrow()`, without the exceljs message
   text.

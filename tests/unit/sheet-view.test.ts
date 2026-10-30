@@ -82,7 +82,7 @@ describe('writing', () => {
     const bytes = new Uint8Array(await new Response(stream).arrayBuffer());
     const sheet = readWorkbook(bytes).getSheet('S');
     expect(sheet.tabColor).toBe('FFFF0000');
-    expect(sheet.view).toEqual({ zoom: 150, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: { x: 50, y: 0 } });
+    expect(sheet.view).toEqual({ zoom: 150, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: { x: 50, y: 0 }, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
   });
 });
 
@@ -92,14 +92,14 @@ describe('reading', () => {
     wb.addSheet('S').tabColor({ indexed: 10 }).view({ zoom: 75, showGridLines: false, rightToLeft: true, layout: 'pageBreakPreview', split: { x: 20, y: 40 } });
     const sheet = readWorkbook(writeWorkbook(wb)).getSheet('S');
     expect(sheet.tabColor).toEqual({ indexed: 10 });
-    expect(sheet.view).toEqual({ zoom: 75, showGridLines: false, showRowColHeaders: true, rightToLeft: true, layout: 'pageBreakPreview', split: { x: 20, y: 40 } });
+    expect(sheet.view).toEqual({ zoom: 75, showGridLines: false, showRowColHeaders: true, rightToLeft: true, layout: 'pageBreakPreview', split: { x: 20, y: 40 }, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
     expect(sheet.freeze).toBeNull();
   });
 
   it('gives the defaults when the file sets nothing', () => {
     const sheet = readWorkbook(withSheet('')).getSheet('S');
     expect(sheet.tabColor).toBeNull();
-    expect(sheet.view).toEqual({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null });
+    expect(sheet.view).toEqual({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
   });
 
   it('reads a pane without state as a split, and frozen panes not as one', () => {
@@ -120,7 +120,7 @@ describe('reading', () => {
     const wb = readWorkbook(withSheet('<sheetPr><tabColor rgb="red"/></sheetPr><sheetViews><sheetView zoomScale="5" showGridLines="maybe" view="print" workbookViewId="0"><pane xSplit="-3" state="split"/></sheetView></sheetViews>'));
     const sheet = wb.getSheet('S');
     expect(sheet.tabColor).toBeNull();
-    expect(sheet.view).toEqual({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null });
+    expect(sheet.view).toEqual({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
     expect(wb.warnings.filter((w) => w.code === 'XLV_W_INVALID_VALUE').reduce((n, w) => n + w.count, 0)).toBeGreaterThanOrEqual(4);
   });
 

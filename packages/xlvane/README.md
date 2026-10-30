@@ -75,13 +75,15 @@ const bytes = writeWorkbook(workbook); // Uint8Array
 
 In Node.js, `writeWorkbookFile(workbook, 'sales.xlsx')` from `xlvane/node` writes the file; it never replaces an existing file unless you pass `{ overwrite: true }`.
 
-- Values: numbers, strings, booleans, `Date`s (stored as serial numbers with a `yyyy-mm-dd` or `yyyy-mm-dd hh:mm:ss` format unless the style sets one), `{ error: '#N/A' }`, and `{ formula, result }`. xlvane writes the formula text and the cached result you give; it does not calculate formulas.
-- Styles: font (name, size, bold, italic, underline, strike, colour), fill (solid colour or pattern), borders (top, right, bottom, left), alignment (horizontal, vertical, wrap, indent, rotation) and number format. Identical styles are stored once. `sheet.style(range, style)` merges a style into every cell of a range.
-- Layout: column widths and hidden columns, row heights and hidden rows, merged ranges, frozen rows and columns, autofilter, hidden and very hidden sheets.
+- Values: numbers, strings, booleans, `Date`s (stored as serial numbers with a `yyyy-mm-dd` or `yyyy-mm-dd hh:mm:ss` format unless the style sets one), `{ error: '#N/A' }`, and `{ formula, result }`, also as an array formula (`{ formula, array: 'A1:A3' }`) or a shared formula (`{ formula, shared: 'B1:B9' }` on the first cell, `{ sharedFormula: 'B1' }` on the others). xlvane writes the formula text and the cached result you give; it does not calculate formulas.
+- Styles: font (name, size, bold, italic, underline, strike, colour, superscript and subscript, family, scheme, charset, outline, shadow), fill (solid colour, pattern, or linear and path gradient), borders (top, right, bottom, left, diagonal), alignment (horizontal, vertical, wrap, shrink to fit, indent, rotation, reading order), cell protection (`locked`, `hidden`) and number format. Identical styles are stored once. `sheet.style(range, style)` merges a style into every cell of a range.
+- Layout: column widths and hidden columns, row heights and hidden rows, outline levels of rows and columns (`row(n, { outlineLevel: 1, collapsed })`, `column('B', { outlineLevel: 1 })`), merged ranges, frozen rows and columns, autofilter, hidden and very hidden sheets. `sheet.properties({ defaultRowHeight, outlineLevelRow, outlineLevelCol, summaryBelow, summaryRight })` sets the sheet's format properties.
+- Workbook: `workbook.views([{ x, y, width, height, firstSheet, activeTab, visibility }])` sets the workbook windows and `workbook.calculation({ fullCalcOnLoad: true })` asks applications to recalculate when the file is opened.
+- Writer options: `writeWorkbook(workbook, { sharedStrings: false })` writes text inline instead of in a shared string table; `{ compressionLevel: 0 }` (0–9, default 6) stores or compresses the parts. The same options work for `writeWorkbookFile` and, with `compressionLevel`, `writeWorkbookStream`.
 - Invalid input is rejected when it is set, with an `XlvError` saying what and where, for example `XLV_E_INVALID_SHEET_NAME` or `XLV_E_INVALID_STYLE` with the allowed values.
 - The output is deterministic: the same workbook always gives the same bytes. The test suite opens written files that use all of these features in LibreOffice and checks the values, styles and layout it sees.
 
-Reading returns the same information: `cell.style`, `sheet.columns`, `sheet.rowInfo(row)`, `sheet.freeze` and `sheet.autoFilter`.
+Reading returns the same information: `cell.style`, `cell.formula`, `sheet.columns`, `sheet.rowInfo(row)`, `sheet.properties`, `sheet.freeze` and `sheet.autoFilter`.
 
 ### Rich text, document properties, defined names, column styles
 
@@ -122,7 +124,7 @@ console.log(read.hyperlinks, read.notes, read.cell('B2')?.note?.text, read.tabCo
 
 - **Hyperlinks:** `link(range, { url | location, tooltip?, display? })`. A `url` (web page, `mailto:`, file) is stored as an external relationship of the sheet; a `location` (a place in the workbook) is stored without one. The cell text is set with `set`. Reading gives `sheet.hyperlinks` and `cell.hyperlink`; xlvane never opens a target, and `XLV_W_UNUSUAL_HYPERLINK` reports targets other than http(s) or mailto.
 - **Notes (comments):** `note(cell, text | { text | runs, author? })`. The cell needs no value. Notes are written hidden, as spreadsheet applications show them when the pointer rests on the cell. Reading gives `sheet.notes` and `cell.note` (`text`, `author`, and `runs` for rich text). Threaded comments of current Excel versions are not read; their placeholder notes are, with `XLV_W_THREADED_COMMENTS`.
-- **Tab colour and view:** `tabColor(color)`, and `view({ zoom, showGridLines, showRowColHeaders, rightToLeft, layout, split })`. Reading gives `sheet.tabColor` and `sheet.view`.
+- **Tab colour and view:** `tabColor(color)`, and `view({ zoom, zoomScaleNormal, showGridLines, showRowColHeaders, showRuler, rightToLeft, layout, split, topLeftCell, activeCell })`. Reading gives `sheet.tabColor`, `sheet.view`, `sheet.properties`, `workbook.views` and `workbook.calculation`.
 - **Streaming:** `writeWorkbookStream` takes `hyperlinks` and `notes` per row (`{ values, hyperlinks: [...], notes: [...] }`, by column position) and `tabColor`/`view` per sheet. `openWorkbookStream` sets `cell.note` on the rows it returns and lists a sheet's notes with `notes(sheet)`; it does not set `cell.hyperlink`.
 - `editCells` and `appendRows` keep existing links and notes but cannot add new ones yet.
 

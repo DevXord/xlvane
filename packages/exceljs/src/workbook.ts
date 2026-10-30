@@ -1,7 +1,7 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
-import { colorOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
+import { colorOut, formulaOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges } from './defined-names';
 import { imageBytes, imageOut, mediaOut, tableOut, type ImageData } from './media';
@@ -43,9 +43,9 @@ export interface XlsxReadOptions {
 
 /**
  * Options of `xlsx.writeBuffer`, `write` and `writeFile`, as exceljs `XlsxWriteOptions`
- * (index.d.ts L1447–1472; lib/xlsx/xlsx.js L602–603). `useSharedStrings` and `zip` are accepted
- * and change nothing in the content: xlvane always writes a shared string table and compresses
- * with its own settings.
+ * (index.d.ts L1447–1472; lib/xlsx/xlsx.js L602–603). `useSharedStrings: false` writes inline
+ * strings; `zip: { compression: 'STORE' }` or `zip: { compressionOptions: { level } }` sets the
+ * Deflate level (0–9).
  *
  * @example
  * ```ts
@@ -59,6 +59,17 @@ export interface XlsxWriteOptions {
   useStyles?: boolean;
   useSharedStrings?: boolean;
   zip?: Record<string, unknown>;
+}
+
+/**
+ * The core writer options for exceljs `useSharedStrings` (default true) and
+ * `zip.compressionOptions.level` (xlsx.js L602–603, JSZip options; X4-25).
+ */
+export function writeOptions(options: XlsxWriteOptions | undefined): { sharedStrings: boolean; compressionLevel?: number } {
+  const zip = (options?.zip ?? {}) as { compression?: unknown; compressionOptions?: { level?: unknown } };
+  const level = zip.compressionOptions?.level;
+  const compressionLevel = zip.compression === 'STORE' ? 0 : typeof level === 'number' && Number.isInteger(level) && level >= 0 && level <= 9 ? level : undefined;
+  return { sharedStrings: options?.useSharedStrings !== false, ...(compressionLevel === undefined ? {} : { compressionLevel }) };
 }
 
 function readOptions(options: unknown): XlsxReadOptions {
@@ -169,7 +180,7 @@ export class XlsxIO {
   /** Writes the workbook to a file, replacing an existing file as exceljs does (Node.js). */
   async writeFile(path: string, options?: XlsxWriteOptions): Promise<void> {
     const { writeWorkbookFile } = await import('xlvane/node');
-    await writeWorkbookFile(this.book(options), path, { overwrite: true });
+    await writeWorkbookFile(this.book(options), path, { overwrite: true, ...writeOptions(options) });
   }
 
   /** Writes the workbook to a writable stream and ends it. */
@@ -194,7 +205,7 @@ export class XlsxIO {
   }
 
   private bytes(options: XlsxWriteOptions | undefined): Uint8Array {
-    return writeWorkbook(this.book(options));
+    return writeWorkbook(this.book(options), writeOptions(options));
   }
 }
 
@@ -284,7 +295,7 @@ export class Workbook {
       ['manager', text(this.manager)],
     ];
     const properties = Object.fromEntries(entries.filter(([, v]) => v !== undefined));
-    return { properties, definedNames: this._definedNames.model, media: this._media };
+    return { properties, definedNames: this._definedNames.model, media: this._media, views: this.views, calcProperties: this.calcProperties };
   }
 
   /** @internal */
@@ -295,7 +306,8 @@ export class Workbook {
   /** @internal Names of the other sheets, for the duplicate check of Worksheet.name. */
   readonly _names = (exclude: Worksheet): string[] => this.worksheets.filter((w) => w !== exclude).map((w) => w.name);
 
-  private get nextId(): number {
+  /** The id the next worksheet gets (lib/doc/workbook.js `nextId`). */
+  get nextId(): number {
     for (let i = 1; i < this._sheets.length; i++) if (!this._sheets[i]) return i;
     return this._sheets.length || 1;
   }
@@ -315,6 +327,64 @@ export class Workbook {
       this._sheets[sheet.id] = undefined;
       this.orders.delete(sheet);
     }
+  }
+
+  /** Removes a worksheet by id or name, as `removeWorksheet` (lib/doc/workbook.js L77). */
+  removeWorksheetEx(worksheet: Worksheet): void {
+    this.removeWorksheet(worksheet.id);
+  }
+
+  /**
+   * exceljs keeps the theme of a loaded file and `clearThemes()` drops it (lib/doc/workbook.js
+   * L137). xlvane never keeps or writes a theme part, so there is nothing to clear.
+   */
+  clearThemes(): void {}
+
+  /**
+   * A plain-data snapshot of the workbook, as exceljs `workbook.model` (lib/doc/workbook.js L153):
+   * the document properties, `views`, `calcProperties`, the defined names, the media and the
+   * worksheets' `model`. The setter rebuilds the workbook from such a snapshot (X4-30).
+   */
+  get model(): Record<string, unknown> {
+    return {
+      creator: this.creator || 'Unknown',
+      lastModifiedBy: this.lastModifiedBy || 'Unknown',
+      lastPrinted: this.lastPrinted,
+      created: this.created,
+      modified: this.modified,
+      properties: { ...this.properties },
+      worksheets: this.worksheets.map((ws) => ws.model),
+      definedNames: this._definedNames.model,
+      views: this.views,
+      company: this.company,
+      manager: this.manager,
+      title: this.title,
+      subject: this.subject,
+      keywords: this.keywords,
+      category: this.category,
+      description: this.description,
+      language: this.language,
+      revision: this.revision,
+      contentStatus: this.contentStatus,
+      calcProperties: { ...this.calcProperties },
+      media: [...this._media],
+    };
+  }
+
+  set model(value: Record<string, unknown>) {
+    for (const key of ['creator', 'lastModifiedBy', 'lastPrinted', 'created', 'modified', 'company', 'manager', 'title', 'subject', 'keywords', 'category', 'description', 'language', 'revision', 'contentStatus'] as const) {
+      (this as Record<string, unknown>)[key] = value[key];
+    }
+    this.properties = { ...((value['properties'] as Record<string, unknown> | undefined) ?? {}) };
+    this.calcProperties = { ...((value['calcProperties'] as Record<string, unknown> | undefined) ?? {}) };
+    this.views = Array.isArray(value['views']) ? [...(value['views'] as Record<string, unknown>[])] : [];
+    this._media = Array.isArray(value['media']) ? [...(value['media'] as ImageData[])] : [];
+    for (const ws of this.worksheets) this.removeWorksheet(ws.id);
+    for (const m of Array.isArray(value['worksheets']) ? (value['worksheets'] as Record<string, unknown>[]) : []) {
+      const ws = this.addWorksheet(String(m['name'] ?? ''), { state: (m['state'] as 'visible') ?? 'visible' });
+      ws.model = m;
+    }
+    this._definedNames.model = Array.isArray(value['definedNames']) ? (value['definedNames'] as { name: string; ranges: string[] }[]) : [];
   }
 
   /** A worksheet by id or name; the first worksheet without an argument; `undefined` if none. */
@@ -404,6 +474,14 @@ export class Workbook {
     // (autofilter). The scope (localSheetId) is dropped, as in exceljs.
     // Images: the media list as exceljs reads it, one entry per image part (X4-22).
     this._media = mediaOut(read.images);
+    // bookViews and calcPr as exceljs reads them (workbook-view-xform.js L19–43; calcPr gives {}; X4-28).
+    this.views = read.views.map((v) => {
+      const view: Record<string, unknown> = { x: v.x ?? 0, y: v.y ?? 0, width: v.width ?? 25000, height: v.height ?? 10000, visibility: v.visibility };
+      if (v.activeTab !== null) view['activeTab'] = v.activeTab;
+      if (v.firstSheet !== null) view['firstSheet'] = v.firstSheet;
+      return view;
+    });
+    this.calcProperties = read.calculation?.fullCalcOnLoad ? { fullCalcOnLoad: true } : {};
     const mediaIds = new Map<WorkbookImage, number>(read.images.map((img, i) => [img, i]));
     this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
     for (const s of read.sheets) {
@@ -415,16 +493,30 @@ export class Workbook {
           const column = ws.getColumn(n);
           if (c.width !== null) column.width = c.width;
           if (c.hidden) column.hidden = true;
+          if (c.outlineLevel) column.outlineLevel = c.outlineLevel;
           if (c.style) column.style = styleOut(c.style, typeof c.style.numFmt === 'string' ? c.style.numFmt : null);
         }
+      }
+      // sheetFormatPr and outlinePr as exceljs reads them (sheet-format-properties-xform.js; X4-28).
+      if (use('sheetFormatPr') || use('sheetPr')) {
+        const props = s.properties;
+        ws.properties['defaultRowHeight'] = props.defaultRowHeight;
+        ws.properties['outlineLevelRow'] = props.outlineLevelRow;
+        ws.properties['outlineLevelCol'] = props.outlineLevelCol;
+        if (!props.summaryBelow || !props.summaryRight) ws.properties['outlineProperties'] = { summaryBelow: props.summaryBelow, summaryRight: props.summaryRight };
+      }
+      // Masters of shared formulas by group index, so dependents name their master (X4-29).
+      const masters = new Map<number, string>();
+      for (const cell of use('sheetData') ? s.cells() : []) {
+        const f = cell.formula;
+        if (f && f.kind === 'shared' && f.ref !== null && f.sharedIndex !== null) masters.set(f.sharedIndex, cell.ref);
       }
       for (const cell of use('sheetData') ? s.cells() : []) {
         const target = ws.getCell(cell.row, cell.col);
         let value: CellValue;
         const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
-        if (cell.formula && cell.formula.text !== null) {
-          value = plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number };
-        } else value = cell.richText ? richTextOut(cell.richText) : plain;
+        if (cell.formula && cell.formula.text !== null) value = formulaOut(cell.formula, plain, cell.ref, masters);
+        else value = cell.richText ? richTextOut(cell.richText) : plain;
         if (cell.hyperlink && use('hyperlinks')) {
           // cell-xform.js L477–489: a linked cell becomes { text, hyperlink }, its text being the
           // value or the formula result (X4-10). xlvane also reads links stored only as a
@@ -441,6 +533,7 @@ export class Workbook {
           const row = ws.getRow(cell.row);
           if (info.height !== null) row.height = info.height;
           if (info.hidden) row.hidden = true;
+          if (info.outlineLevel) row.outlineLevel = info.outlineLevel;
         }
       }
       // Notes are read for every cell, also one without a value; exceljs loses those (X4-14).

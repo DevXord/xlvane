@@ -156,6 +156,10 @@ export interface ColumnOptions {
    * it.
    */
   readonly style?: CellStyle;
+  /** Outline (grouping) level, 0 to 7 (`col@outlineLevel`; [MS-OI29500] §2.1.598 e). Default 0. */
+  readonly outlineLevel?: number;
+  /** Whether the outline group ending at this column is collapsed (`col@collapsed`). Default false. */
+  readonly collapsed?: boolean;
 }
 
 /**
@@ -173,6 +177,106 @@ export interface RowOptions {
   /** Height in points, 0 to 409. */
   readonly height?: number;
   readonly hidden?: boolean;
+  /** Outline (grouping) level, 0 to 7 (`row@outlineLevel`; [MS-OI29500] §2.1.644 b). Default 0. */
+  readonly outlineLevel?: number;
+  /** Whether the outline group ending at this row is collapsed (`row@collapsed`). Default false. */
+  readonly collapsed?: boolean;
+}
+
+/**
+ * A workbook window (`bookViews/workbookView`; sml.xsd CT_BookView L4137; W2-66) for
+ * {@link NewWorkbook.views}. Positions and sizes are stored as given, in the unit Part 1 §18.2.30
+ * defines (PROVISIONAL: twips are used by Excel files in the corpus).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type WorkbookViewOptions } from 'xlvane';
+ *
+ * const view: WorkbookViewOptions = { x: 0, y: 0, width: 12000, height: 24000, activeTab: 1 };
+ * const workbook = createWorkbook().views([view]);
+ * workbook.addSheet('A');
+ * workbook.addSheet('B');
+ * ```
+ */
+export interface WorkbookViewOptions {
+  /** `xWindow`. */
+  readonly x?: number;
+  /** `yWindow`. */
+  readonly y?: number;
+  /** `windowWidth`. */
+  readonly width?: number;
+  /** `windowHeight`. */
+  readonly height?: number;
+  /** Index (0-based) of the first sheet tab shown. */
+  readonly firstSheet?: number;
+  /** Index (0-based) of the active sheet. */
+  readonly activeTab?: number;
+  /** Default `"visible"`. */
+  readonly visibility?: 'visible' | 'hidden' | 'veryHidden';
+}
+
+/**
+ * Calculation settings for {@link NewWorkbook.calculation} (`calcPr`; sml.xsd CT_CalcPr L4284; W2-67).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type CalculationOptions } from 'xlvane';
+ *
+ * const options: CalculationOptions = { fullCalcOnLoad: true };
+ * createWorkbook().calculation(options).addSheet('Data').set('A1', { formula: 'SUM(1,2)' });
+ * ```
+ */
+export interface CalculationOptions {
+  /** Ask the application to recalculate every formula when the file is opened. Default false. */
+  readonly fullCalcOnLoad?: boolean;
+}
+
+/**
+ * Options for {@link writeWorkbook}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, writeWorkbook, type WriteWorkbookOptions } from 'xlvane';
+ *
+ * const options: WriteWorkbookOptions = { sharedStrings: false, compressionLevel: 9 };
+ * const workbook = createWorkbook();
+ * workbook.addSheet('Data').set('A1', 'x');
+ * const bytes = writeWorkbook(workbook, options);
+ * ```
+ */
+export interface WriteWorkbookOptions {
+  /** `true` (default): strings go to the shared string table; `false`: they are stored in their cells (inline strings). */
+  readonly sharedStrings?: boolean;
+  /** Deflate level 0 (stored, no compression) to 9 (smallest). Default 6. The output stays deterministic. */
+  readonly compressionLevel?: number;
+}
+
+/**
+ * Options for {@link NewSheet.properties}: sheet-wide formatting (`sheetFormatPr`, `sheetPr/outlinePr`;
+ * sml.xsd CT_SheetFormatPr L2222, CT_OutlinePr L2423; W2-65).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type SheetPropertiesOptions } from 'xlvane';
+ *
+ * const options: SheetPropertiesOptions = { defaultRowHeight: 18, summaryBelow: false };
+ * createWorkbook().addSheet('Data').properties(options);
+ * ```
+ */
+export interface SheetPropertiesOptions {
+  /** Default row height in points (`sheetFormatPr@defaultRowHeight`; ECMA-376 Part 1 §18.3.1.81). Default 15. */
+  readonly defaultRowHeight?: number;
+  /** Summary rows of outline groups are below the detail rows (`outlinePr@summaryBelow`). Default true. */
+  readonly summaryBelow?: boolean;
+  /** Summary columns of outline groups are right of the detail columns (`outlinePr@summaryRight`). Default true. */
+  readonly summaryRight?: boolean;
+  /**
+   * Highest outline level of the rows (`sheetFormatPr@outlineLevelRow`, 0–7). The batch writer
+   * also computes it from the rows; give it for streamed sheets, whose rows come after the header.
+   */
+  readonly outlineLevelRow?: number;
+  /** Highest outline level of the columns (`sheetFormatPr@outlineLevelCol`, 0–7); also computed from the columns. */
+  readonly outlineLevelCol?: number;
 }
 
 /**
@@ -222,6 +326,14 @@ export interface SheetViewOptions {
    * panes, and {@link NewSheet.freeze} replaces a split.
    */
   readonly split?: Partial<SplitPanes> | null;
+  /** The top-left visible cell (`sheetView@topLeftCell`), e.g. `"C10"`; `null` for the default. */
+  readonly topLeftCell?: string | null;
+  /** The active cell (`selection@activeCell`), e.g. `"B2"`; `null` for the default. */
+  readonly activeCell?: string | null;
+  /** Zoom of the normal view in percent, 10 to 400, or 0 for automatic (`sheetView@zoomScaleNormal`). Default 0. */
+  readonly zoomScaleNormal?: number;
+  /** Show the ruler in page layout view (`sheetView@showRuler`). Default true. */
+  readonly showRuler?: boolean;
 }
 
 /**
@@ -236,7 +348,22 @@ export interface SheetViewOptions {
  */
 export const ERROR_VALUES: readonly ErrorValue[] = ['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA'];
 /** The view of a new sheet: the defaults of CT_SheetView (W2-51). */
-const DEFAULT_VIEW: SheetView = { zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null };
+const DEFAULT_VIEW: SheetView = { zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true };
+/** Reads `outlineLevel` (0–7, [MS-OI29500] §2.1.598 e, §2.1.644 b) and `collapsed` of a row or column. */
+function readOutline(o: ReadonlyMap<string, unknown>, current: { outlineLevel: number; collapsed: boolean }, what: 'Row' | 'Column'): void {
+  const level = o.get('outlineLevel');
+  if (level !== undefined) {
+    if (typeof level !== 'number' || !Number.isInteger(level) || level < 0 || level > 7) {
+      throw invalidOption(`${what} option "outlineLevel" must be a whole number from 0 to 7.`, 'For example { outlineLevel: 1 }.');
+    }
+    current.outlineLevel = level;
+  }
+  const collapsed = o.get('collapsed');
+  if (collapsed !== undefined) {
+    if (typeof collapsed !== 'boolean') throw invalidOption(`${what} option "collapsed" must be true or false.`, 'Use { collapsed: true }.');
+    current.collapsed = collapsed;
+  }
+}
 /** Largest split position accepted, in points: an implementation bound, not a documented limit. */
 const MAX_SPLIT_POINTS = 1_000_000;
 /** Most characters a cell can contain (Excel specifications and limits, W-04). */
@@ -371,9 +498,17 @@ export class NewSheet {
   /** @internal */
   readonly cellMap: Map<number, Map<number, StoredCell>> = new Map();
   /** @internal */
-  readonly columnMap: Map<number, { width: number | null; hidden: boolean; style: number }> = new Map();
+  readonly columnMap: Map<number, { width: number | null; hidden: boolean; style: number; outlineLevel: number; collapsed: boolean }> = new Map();
   /** @internal */
-  readonly rowMap: Map<number, { height: number | null; hidden: boolean }> = new Map();
+  readonly rowMap: Map<number, { height: number | null; hidden: boolean; outlineLevel: number; collapsed: boolean }> = new Map();
+  /** @internal Sheet-wide formatting (W2-65). */
+  sheetProps: { defaultRowHeight: number | null; summaryBelow: boolean; summaryRight: boolean; outlineLevelRow: number; outlineLevelCol: number } = {
+    defaultRowHeight: null,
+    summaryBelow: true,
+    summaryRight: true,
+    outlineLevelRow: 0,
+    outlineLevelCol: 0,
+  };
   /** @internal */
   readonly mergeList: CellRange[] = [];
   /** @internal */
@@ -543,8 +678,8 @@ export class NewSheet {
   column(col: string | number, options: ColumnOptions): this {
     const index = typeof col === 'number' ? col : typeof col === 'string' ? (columnNumber(col.toUpperCase()) ?? 0) : 0;
     if (!Number.isInteger(index) || index < 1 || index > MAX_COLUMNS) throw invalidRef(col, this.name, 'column', '"C" or 3');
-    const o = readOptions(options, ['width', 'hidden', 'style'], 'column options');
-    const current = this.columnMap.get(index) ?? { width: null, hidden: false, style: 0 };
+    const o = readOptions(options, ['width', 'hidden', 'style', 'outlineLevel', 'collapsed'], 'column options');
+    const current = this.columnMap.get(index) ?? { width: null, hidden: false, style: 0, outlineLevel: 0, collapsed: false };
     const width = o.get('width');
     if (width !== undefined) {
       if (typeof width !== 'number' || !(width >= 0 && width <= MAX_COLUMN_WIDTH)) {
@@ -559,6 +694,7 @@ export class NewSheet {
     }
     const style = o.get('style');
     if (style !== undefined) current.style = this.book.intern(normalizeStyle(style));
+    readOutline(o, current, 'Column');
     this.columnMap.set(index, current);
     return this;
   }
@@ -575,8 +711,8 @@ export class NewSheet {
    */
   row(row: number, options: RowOptions): this {
     if (typeof row !== 'number' || !Number.isInteger(row) || row < 1 || row > MAX_ROWS) throw invalidRef(row, this.name, 'row number', '1');
-    const o = readOptions(options, ['height', 'hidden'], 'row options');
-    const current = this.rowMap.get(row) ?? { height: null, hidden: false };
+    const o = readOptions(options, ['height', 'hidden', 'outlineLevel', 'collapsed'], 'row options');
+    const current = this.rowMap.get(row) ?? { height: null, hidden: false, outlineLevel: 0, collapsed: false };
     const height = o.get('height');
     if (height !== undefined) {
       if (typeof height !== 'number' || !(height >= 0 && height <= MAX_ROW_HEIGHT)) {
@@ -589,7 +725,45 @@ export class NewSheet {
       if (typeof hidden !== 'boolean') throw invalidOption('Row option "hidden" must be true or false.', 'Use { hidden: true }.');
       current.hidden = hidden;
     }
+    readOutline(o, current, 'Row');
     this.rowMap.set(row, current);
+    return this;
+  }
+
+  /**
+   * Sets sheet-wide formatting: the default row height and where outline groups put their
+   * summary rows and columns (W2-65).
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Data').properties({ defaultRowHeight: 18, summaryBelow: false });
+   * ```
+   */
+  properties(options: SheetPropertiesOptions): this {
+    const o = readOptions(options, ['defaultRowHeight', 'summaryBelow', 'summaryRight', 'outlineLevelRow', 'outlineLevelCol'], 'sheet properties');
+    const next = { ...this.sheetProps };
+    const h = o.get('defaultRowHeight');
+    if (h !== undefined) {
+      if (typeof h !== 'number' || !(h >= 0 && h <= MAX_ROW_HEIGHT)) {
+        throw invalidOption(`The default row height ${String(h)} is not valid.`, `Use a height from 0 to ${String(MAX_ROW_HEIGHT)} points, for example { defaultRowHeight: 18 }.`);
+      }
+      next.defaultRowHeight = h;
+    }
+    for (const key of ['summaryBelow', 'summaryRight'] as const) {
+      const v = o.get(key);
+      if (v === undefined) continue;
+      if (typeof v !== 'boolean') throw invalidOption(`The sheet property "${key}" must be true or false.`, `For example { ${key}: false }.`);
+      next[key] = v;
+    }
+    for (const key of ['outlineLevelRow', 'outlineLevelCol'] as const) {
+      const v = o.get(key);
+      if (v === undefined) continue;
+      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 7) throw invalidOption(`The sheet property "${key}" must be a whole number from 0 to 7.`, `For example { ${key}: 2 }.`);
+      next[key] = v;
+    }
+    this.sheetProps = next;
     return this;
   }
 
@@ -681,7 +855,7 @@ export class NewSheet {
    * ```
    */
   view(options: SheetViewOptions): this {
-    const o = readOptions(options, ['zoom', 'showGridLines', 'showRowColHeaders', 'rightToLeft', 'layout', 'split'], 'view options');
+    const o = readOptions(options, ['zoom', 'showGridLines', 'showRowColHeaders', 'rightToLeft', 'layout', 'split', 'topLeftCell', 'activeCell', 'zoomScaleNormal', 'showRuler'], 'view options');
     const next: { -readonly [K in keyof SheetView]: SheetView[K] } = { ...this.viewSettings };
     const zoom = o.get('zoom');
     if (zoom !== undefined) {
@@ -690,7 +864,26 @@ export class NewSheet {
       }
       next.zoom = zoom;
     }
-    for (const key of ['showGridLines', 'showRowColHeaders', 'rightToLeft'] as const) {
+    const zoomNormal = o.get('zoomScaleNormal');
+    if (zoomNormal !== undefined) {
+      // 10 to 400, or 0 for the automatic setting (Part 1 §18.3.1.87; W2-51).
+      if (typeof zoomNormal !== 'number' || !Number.isInteger(zoomNormal) || (zoomNormal !== 0 && (zoomNormal < 10 || zoomNormal > 400))) {
+        throw invalidOption('The view option "zoomScaleNormal" must be 0 (automatic) or a whole number from 10 to 400.', 'For example { zoomScaleNormal: 100 }.');
+      }
+      next.zoomScaleNormal = zoomNormal;
+    }
+    for (const key of ['topLeftCell', 'activeCell'] as const) {
+      if (!o.has(key)) continue;
+      const v = o.get(key);
+      if (v === null) {
+        next[key] = null;
+        continue;
+      }
+      const cell = typeof v === 'string' ? parseCellRef(v.toUpperCase()) : null;
+      if (cell === null) throw invalidOption(`The view option "${key}" must be a cell reference such as "B2".`, `For example { ${key}: "B2" }.`);
+      next[key] = formatCellRef(cell.row, cell.col);
+    }
+    for (const key of ['showGridLines', 'showRowColHeaders', 'rightToLeft', 'showRuler'] as const) {
       const v = o.get(key);
       if (v === undefined) continue;
       if (typeof v !== 'boolean') throw invalidOption(`The view option "${key}" must be true or false.`, `For example { ${key}: false }.`);
@@ -1073,6 +1266,7 @@ export class NewSheet {
       autoFilter: this.filter,
       tabColor: this.tab,
       view: this.viewSettings,
+      properties: this.sheetProps,
       hyperlinks: [...this.linkMap.values()],
       notes: sortedNotes(this.noteMap),
       conditionalFormats: this.conditionalList,
@@ -1356,6 +1550,10 @@ export class NewWorkbook {
   private readonly styleList: NormalizedStyle[] = [{}];
   /** @internal `workbookProtection`, set by {@link NewWorkbook.protect}. */
   workbookProtection: NormalizedWorkbookProtection | null = null;
+  /** @internal Workbook windows set by {@link NewWorkbook.views}; empty for the default window. */
+  bookViews: WorkbookViewOptions[] = [];
+  /** @internal `calcPr`, set by {@link NewWorkbook.calculation}. */
+  calcProps: { fullCalcOnLoad: boolean } | null = null;
 
   /** @internal Use {@link createWorkbook}. */
   constructor(dateSystem: DateSystem, properties: WorkbookProperties = {}) {
@@ -1380,6 +1578,70 @@ export class NewWorkbook {
    */
   protect(options: WorkbookProtectionOptions | null = {}): this {
     this.workbookProtection = options === null ? null : normalizeWorkbookProtection(options);
+    return this;
+  }
+
+  /**
+   * Sets the workbook windows (`bookViews`, W2-66). Without a call one default window is written,
+   * showing the first visible sheet.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const workbook = createWorkbook().views([{ activeTab: 1, firstSheet: 0 }]);
+   * workbook.addSheet('A');
+   * workbook.addSheet('B');
+   * ```
+   */
+  views(views: readonly WorkbookViewOptions[]): this {
+    if (!Array.isArray(views)) throw new XlvError('XLV_E_INVALID_OPTION', 'views() expects an array of window settings.', { hint: 'For example views([{ activeTab: 0 }]).', details: { option: 'views' } });
+    const out: WorkbookViewOptions[] = [];
+    views.forEach((v: unknown, i) => {
+      const o = readOptions(v, ['x', 'y', 'width', 'height', 'firstSheet', 'activeTab', 'visibility'], `views[${String(i)}]`);
+      const view: { -readonly [K in keyof WorkbookViewOptions]: WorkbookViewOptions[K] } = {};
+      for (const key of ['x', 'y', 'width', 'height', 'firstSheet', 'activeTab'] as const) {
+        const n = o.get(key);
+        if (n === undefined) continue;
+        // xWindow/yWindow are xsd:int, the others xsd:unsignedInt (CT_BookView).
+        const signed = key === 'x' || key === 'y';
+        if (typeof n !== 'number' || !Number.isInteger(n) || (signed ? n < -2147483648 || n > 2147483647 : n < 0 || n > 4294967295)) {
+          throw new XlvError('XLV_E_INVALID_OPTION', `views[${String(i)}].${key} must be a whole number${signed ? '' : ' of 0 or more'}.`, { hint: `For example { ${key}: 0 }.`, details: { option: key } });
+        }
+        view[key] = n;
+      }
+      const visibility = o.get('visibility');
+      if (visibility !== undefined) {
+        if (visibility !== 'visible' && visibility !== 'hidden' && visibility !== 'veryHidden') {
+          throw new XlvError('XLV_E_INVALID_OPTION', `views[${String(i)}].visibility must be "visible", "hidden" or "veryHidden".`, { hint: 'For example { visibility: "visible" }.', details: { option: 'visibility' } });
+        }
+        view.visibility = visibility;
+      }
+      out.push(view);
+    });
+    this.bookViews = out;
+    return this;
+  }
+
+  /**
+   * Sets calculation settings (`calcPr`, W2-67).
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().calculation({ fullCalcOnLoad: true });
+   * ```
+   */
+  calculation(options: CalculationOptions | null): this {
+    if (options === null) {
+      this.calcProps = null;
+      return this;
+    }
+    const o = readOptions(options, ['fullCalcOnLoad'], 'calculation options');
+    const full = o.get('fullCalcOnLoad') ?? false;
+    if (typeof full !== 'boolean') throw invalidOption('The calculation option "fullCalcOnLoad" must be true or false.', 'Use { fullCalcOnLoad: true }.');
+    this.calcProps = { fullCalcOnLoad: full };
     return this;
   }
 
@@ -1624,7 +1886,7 @@ export function createWorkbook(options?: CreateWorkbookOptions): NewWorkbook {
  * console.log(readWorkbook(bytes).getSheet('Data').cell('A1')?.value); // 42
  * ```
  */
-export function writeWorkbook(workbook: NewWorkbook): Uint8Array {
+export function writeWorkbook(workbook: NewWorkbook, options: WriteWorkbookOptions = {}): Uint8Array {
   if (!(workbook instanceof NewWorkbook)) {
     throw new XlvError('XLV_E_INVALID_INPUT', 'writeWorkbook expects a workbook created with createWorkbook().', {
       hint: 'Create the workbook with createWorkbook(), add sheets with addSheet() and pass it to writeWorkbook().',
@@ -1641,7 +1903,18 @@ export function writeWorkbook(workbook: NewWorkbook): Uint8Array {
       hint: 'A workbook needs at least one visible sheet. Add one or create a sheet with { state: "visible" }.',
     });
   }
+  const o = readOptions(options, ['sharedStrings', 'compressionLevel'], 'write options');
+  const shared = o.get('sharedStrings') ?? true;
+  if (typeof shared !== 'boolean') throw invalidOption('The write option "sharedStrings" must be true or false.', 'Use { sharedStrings: false } for inline strings.');
+  const level = o.get('compressionLevel') ?? 6;
+  if (typeof level !== 'number' || !Number.isInteger(level) || level < 0 || level > 9) {
+    throw invalidOption('The write option "compressionLevel" must be a whole number from 0 to 9.', 'Use 0 for no compression or 9 for the smallest file; the default is 6.');
+  }
   return writePackage({
+    sharedStrings: shared,
+    compressionLevel: level,
+    bookViews: workbook.bookViews,
+    calculation: workbook.calcProps,
     dateSystem: workbook.dateSystem,
     sheets: sheets.map((s) => s.data()),
     styles: workbook.styles(),

@@ -173,6 +173,10 @@ export interface ColumnInfo {
    * cells already in the file carry their own style.
    */
   readonly style?: CellStyle;
+  /** Outline level 1 to 7; absent for 0. */
+  readonly outlineLevel?: number;
+  /** Present and `true` when the column's outline group is collapsed. */
+  readonly collapsed?: boolean;
 }
 
 /**
@@ -191,6 +195,10 @@ export interface RowInfo {
   /** Height in points, or `null` if the file does not set one. */
   readonly height: number | null;
   readonly hidden: boolean;
+  /** Outline level 1 to 7; absent for 0. */
+  readonly outlineLevel?: number;
+  /** Present and `true` when the row's outline group is collapsed. */
+  readonly collapsed?: boolean;
 }
 
 /**
@@ -266,6 +274,61 @@ export interface SheetView {
   readonly layout: SheetLayout;
   /** A split window, or `null`. */
   readonly split: SplitPanes | null;
+  /** The top-left visible cell (`sheetView@topLeftCell`), or `null` when the file does not set one. */
+  readonly topLeftCell: string | null;
+  /** The active cell of the first selection, or `null`. */
+  readonly activeCell: string | null;
+  /** Zoom of the normal view in percent, or 0 for automatic (the default). */
+  readonly zoomScaleNormal: number;
+  /** Whether the ruler is shown in page layout view (default true). */
+  readonly showRuler: boolean;
+}
+
+/**
+ * A workbook window read from `bookViews/workbookView` (sml.xsd CT_BookView L4137; W2-66).
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type WorkbookView } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const view: WorkbookView | undefined = readWorkbook(bytes).views[0];
+ * console.log(view?.activeTab);
+ * ```
+ */
+export interface WorkbookView {
+  readonly x: number | null;
+  readonly y: number | null;
+  readonly width: number | null;
+  readonly height: number | null;
+  /** `firstSheet`, or `null` when the file does not set it (default 0). */
+  readonly firstSheet: number | null;
+  /** `activeTab`, or `null` when the file does not set it (default 0). */
+  readonly activeTab: number | null;
+  readonly visibility: 'visible' | 'hidden' | 'veryHidden';
+}
+
+/**
+ * Sheet-wide formatting read from `sheetFormatPr` and `sheetPr/outlinePr` (W2-65).
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type SheetProperties } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const props: SheetProperties | undefined = readWorkbook(bytes).sheets[0]?.properties;
+ * console.log(props?.defaultRowHeight, props?.outlineLevelRow);
+ * ```
+ */
+export interface SheetProperties {
+  /** Default row height in points (15 when the file has no `sheetFormatPr`). */
+  readonly defaultRowHeight: number;
+  /** Highest outline level of the rows (`outlineLevelRow`). */
+  readonly outlineLevelRow: number;
+  /** Highest outline level of the columns (`outlineLevelCol`). */
+  readonly outlineLevelCol: number;
+  readonly summaryBelow: boolean;
+  readonly summaryRight: boolean;
 }
 
 /**
@@ -382,6 +445,8 @@ export interface Sheet {
   readonly tabColor: Color | null;
   /** Display settings of the sheet's first view. */
   readonly view: SheetView;
+  /** Sheet-wide formatting: default row height, outline levels and summary positions (W2-65). */
+  readonly properties: SheetProperties;
   /** Data validations in file order (see `DataValidation`). */
   readonly dataValidations: readonly DataValidation[];
   /** Conditional formatting in file order (see `ConditionalFormat`); x14 extensions are not read. */
@@ -442,6 +507,10 @@ export interface Workbook {
   readonly definedNames: readonly DefinedName[];
   /** `workbookProtection` of the workbook, or `null` (see `WorkbookProtection`). */
   readonly protection: WorkbookProtection | null;
+  /** Workbook windows (`bookViews/workbookView`, W2-66), in file order. */
+  readonly views: readonly WorkbookView[];
+  /** Calculation settings (`calcPr`, W2-67), or `null` when the file has none. */
+  readonly calculation: { readonly fullCalcOnLoad: boolean } | null;
   /** The images used by pictures and sheet backgrounds, each once (see `WorkbookImage`). */
   readonly images: readonly WorkbookImage[];
   /** Returns the sheet with this name; throws `XLV_E_SHEET_NOT_FOUND` if there is none. */

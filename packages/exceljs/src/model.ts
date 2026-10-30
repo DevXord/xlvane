@@ -1,12 +1,12 @@
 // The exceljs-compatible document model: Workbook, Worksheet, Row, Column and Cell, following
 // the behaviour of exceljs 4.4.0 (lib/doc/*.js; docs/decisions.md D-501 … D-506). Reading and
 // writing go through xlvane (convert.ts).
-import { hashPassword, XlvError } from 'xlvane';
+import { hashPassword, shiftFormula, XlvError } from 'xlvane';
 import type { DefinedNames } from './defined-names';
 import { imageRange, Table, type ImageRangeInput, type SheetMedia, type TableProperties } from './media';
 import { DataValidations, defaultHeaderFooter, defaultPageSetup } from './sheet-rules';
 import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, moveSqref, movePosition, type SpliceChange } from './splice';
-import type { Alignment, Borders, CellValue, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
+import type { Alignment, Borders, CellValue, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, Protection, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
 
 /**
  * Value types, as in exceljs `lib/doc/enums.js` (ValueType).
@@ -295,9 +295,30 @@ export class Cell {
     return this._master ?? this;
   }
 
+  /**
+   * The formula text. For a `{ sharedFormula: master }` value it is the master's formula moved to
+   * this cell, as exceljs translates it (lib/doc/cell.js `_getTranslatedFormula`; X4-29).
+   */
   get formula(): string | undefined {
     const v = this.value;
-    return isRecord(v) && typeof v['formula'] === 'string' ? v['formula'] : undefined;
+    if (!isRecord(v)) return undefined;
+    if (typeof v['formula'] === 'string') return v['formula'];
+    if (typeof v['sharedFormula'] === 'string') {
+      const masterRef = v['sharedFormula'].replace(/\$/g, '');
+      const master = this.worksheet.findCell(masterRef);
+      const text = master?.formula;
+      if (!master || text === undefined || master === this) return undefined;
+      return shiftFormula(text, this.row - master.row, this.col - master.col) ?? undefined;
+    }
+    return undefined;
+  }
+
+  /** `FormulaType.Shared` for a `{ sharedFormula }` value, `Master` for other formulas, otherwise `None` (lib/doc/cell.js L807). */
+  get formulaType(): number {
+    const v = this.value;
+    if (!isRecord(v)) return FormulaType.None;
+    if (typeof v['sharedFormula'] === 'string') return FormulaType.Shared;
+    return typeof v['formula'] === 'string' ? FormulaType.Master : FormulaType.None;
   }
 
   get result(): unknown {
@@ -335,11 +356,12 @@ export class Cell {
   set alignment(v: Partial<Alignment> | undefined) {
     this.style.alignment = v;
   }
-  get protection(): unknown {
+  /** `{ locked, hidden }`, as exceljs `cell.protection` (lib/doc/cell.js); it takes effect on a protected sheet. */
+  get protection(): Partial<Protection> | undefined {
     return this.style.protection;
   }
-  set protection(v: unknown) {
-    if (v !== undefined && v !== null) notSupported('Cell protection');
+  set protection(v: Partial<Protection> | undefined) {
+    this.style.protection = v;
   }
   /**
    * The cell's note: a string or `{ texts: [{ text, font? }] }`, as in exceljs (lib/doc/cell.js
@@ -375,6 +397,49 @@ export class Cell {
   /** Whether the value is a `{ text, hyperlink }` value (lib/doc/cell.js L197). */
   get isHyperlink(): boolean {
     return this.type === ValueType.Hyperlink;
+  }
+
+  get workbook(): Worksheet['workbook'] {
+    return this.worksheet.workbook;
+  }
+
+  /** Whether this cell is merged into `master` (lib/doc/cell.js L185). */
+  isMergedTo(master: Cell): boolean {
+    return this._master !== null && this._master === master;
+  }
+
+  /**
+   * The value as a CSV field, as exceljs `cell.toCsvString` (lib/doc/cell.js L395–1049): text and
+   * rich text in double quotes with `"` doubled, dates in ISO form, booleans 1/0, a link's
+   * target, a formula's result (empty for none), an error's text (X4-30).
+   */
+  toCsvString(): string {
+    const v = this.value;
+    if (v === null || v === undefined || this._master) return '';
+    if (typeof v === 'string') return `"${v.replace(/"/g, '""')}"`;
+    if (typeof v === 'number') return v.toString();
+    if (typeof v === 'boolean') return v ? '1' : '0';
+    if (v instanceof Date) return v.toISOString();
+    if (isRecord(v)) {
+      if ('formula' in v || 'sharedFormula' in v) {
+        const r = v['result'];
+        return r ? (isRecord(r) && typeof r['error'] === 'string' ? r['error'] : r instanceof Date ? r.toISOString() : String(r)) : '';
+      }
+      if (typeof v['error'] === 'string') return v['error'];
+      if (typeOf(v) === ValueType.Hyperlink) return String(v['hyperlink']);
+      if (Array.isArray(v['richText'])) return `"${this.text.replace(/"/g, '""')}"`;
+    }
+    return String(v);
+  }
+
+  /** A plain-data snapshot `{ address, value, style, note? }` (X4-30); the setter takes the same shape. */
+  get model(): { address: string; value: CellValue; style: Style; note?: string | Comment } {
+    return { address: this.address, value: this.value, style: this.style, ...(this._note === undefined ? {} : { note: this._note }) };
+  }
+  set model(m: { value?: CellValue; style?: Style; note?: string | Comment }) {
+    this.value = m.value ?? null;
+    this.style = m.style ?? {};
+    this.note = m.note;
   }
 
   /** The cell's location for defined names: `{ sheetName, address, row, col }` (lib/doc/cell.js L270). */
@@ -480,15 +545,29 @@ export class Row {
     this._hidden = !!v;
   }
 
+  private _outlineLevel = 0;
+
+  /** Outline (grouping) level 0–7 (lib/doc/row.js L318). */
   get outlineLevel(): number {
-    return 0;
+    return this._outlineLevel;
   }
   set outlineLevel(v: number) {
-    if (v) notSupported('Row outline levels');
+    this._outlineLevel = v || 0;
+  }
+
+  /** As exceljs: the level is at least the sheet's `properties.outlineLevelRow` (lib/doc/row.js L326). */
+  get collapsed(): boolean {
+    const max = Number(this.worksheet.properties['outlineLevelRow'] ?? 0);
+    return !!(this._outlineLevel && this._outlineLevel >= max);
   }
 
   findCell(col: number): Cell | undefined {
     return this._cells[col - 1];
+  }
+
+  /** The cell at `address.col`, created if missing (lib/doc/row.js L45). */
+  getCellEx(address: { col: number }): Cell {
+    return this.getCell(address.col);
   }
 
   /** The cell at a column number, letters or column key; created if missing. */
@@ -615,6 +694,12 @@ export class Row {
   }
   set alignment(v: Partial<Alignment> | undefined) {
     this.applyStyle('alignment', v);
+  }
+  get protection(): Partial<Protection> | undefined {
+    return this.style.protection;
+  }
+  set protection(v: Partial<Protection> | undefined) {
+    this.applyStyle('protection', v);
   }
 
   /** Streaming writers write committed rows; in a normal workbook this does nothing (as in exceljs). */
@@ -754,8 +839,46 @@ export class Column {
     return this.width !== undefined && this.width !== DEFAULT_COLUMN_WIDTH;
   }
 
+  private _outlineLevel = 0;
+
+  /** Outline (grouping) level 0–7 (lib/doc/column.js L116). */
+  get outlineLevel(): number {
+    return this._outlineLevel;
+  }
+  set outlineLevel(v: number) {
+    this._outlineLevel = v || 0;
+  }
+
+  /** As exceljs: the level is at least the sheet's `properties.outlineLevelCol` (lib/doc/column.js L124). */
+  get collapsed(): boolean {
+    const max = Number(this.worksheet.properties['outlineLevelCol'] ?? 0);
+    return !!(this._outlineLevel && this._outlineLevel >= max);
+  }
+
+  /** A column that is written to the file only when it differs from the default (lib/doc/column.js L147). */
+  get isDefault(): boolean {
+    if (this.isCustomWidth || this.hidden || this._outlineLevel) return false;
+    const s = this.style;
+    return !(s.font || s.numFmt || s.alignment || s.border || s.fill || s.protection);
+  }
+
+  /** Number of header rows (lib/doc/column.js L164). */
+  get headerCount(): number {
+    return this.headers.length;
+  }
+
+  /** `{ key, width, headers }` as JSON (lib/doc/column.js L130). */
+  toString(): string {
+    return JSON.stringify({ key: this.key, width: this.width, headers: this.headers.length ? this.headers : undefined });
+  }
+
+  /** Same width, visibility, outline level and style (lib/doc/column.js L138). */
+  equivalentTo(other: Column): boolean {
+    return this.width === other.width && this.hidden === other.hidden && this.outlineLevel === other.outlineLevel && JSON.stringify(this.style) === JSON.stringify(other.style);
+  }
+
   get defn(): ColumnDefn {
-    return { header: this._header, key: this._key, width: this.width, style: this.style, hidden: this._hidden };
+    return { header: this._header, key: this._key, width: this.width, style: this.style, hidden: this._hidden, outlineLevel: this._outlineLevel };
   }
 
   set defn(value: ColumnDefn | undefined) {
@@ -764,6 +887,7 @@ export class Column {
       this.key = undefined;
       this.width = undefined;
       this.style = {};
+      this._outlineLevel = 0;
       return;
     }
     this.key = value.key;
@@ -771,6 +895,7 @@ export class Column {
     this.style = value.style ? { ...value.style } : {};
     this.header = value.header;
     this._hidden = !!value.hidden;
+    this._outlineLevel = value.outlineLevel ?? 0;
   }
 
   /** Cell values of this column by row number (index 0 unused). */
@@ -835,6 +960,12 @@ export class Column {
   }
   set alignment(v: Partial<Alignment> | undefined) {
     this.applyStyle('alignment', v);
+  }
+  get protection(): Partial<Protection> | undefined {
+    return this.style.protection;
+  }
+  set protection(v: Partial<Protection> | undefined) {
+    this.applyStyle('protection', v);
   }
 }
 
@@ -1497,7 +1628,112 @@ export class Worksheet {
     return { top, left, bottom, right, tl: `${columnLetter(left)}${String(top)}`, br: `${columnLetter(right)}${String(bottom)}` };
   }
 
+  /** Rows from `start`, `length` of them, without creating missing rows (lib/doc/worksheet.js `findRows`). */
+  findRows(start: number, length: number): (Row | undefined)[] {
+    return Array.from({ length: Math.max(0, length) }, (_, i) => this.findRow(start + i));
+  }
+
+  /** The last column with a definition (lib/doc/worksheet.js `lastColumn`). */
+  get lastColumn(): Column {
+    return this.getColumn(Math.max(1, this._columns.length));
+  }
+
+  /** Releases the worksheet's data (exceljs frees memory here); the sheet is empty afterwards. */
+  destroy(): void {
+    this._rows = [];
+  }
+
+  /**
+   * Sets a shared formula (or an array formula with `shareType: 'array'`) over `range`, as exceljs
+   * `fillFormula` (lib/doc/worksheet.js L678–721; X4-29): the top-left cell gets `{ shareType,
+   * formula, ref, result }`, the others `{ sharedFormula: topLeft, result }` (shared) or their
+   * result (array). `results` is a function `(row, col) => result`, a flat array or a 2-D array.
+   */
+  fillFormula(range: string, formula: string, results?: unknown, shareType: 'shared' | 'array' = 'shared'): void {
+    const { top, left, bottom, right } = parseRangeArgs([range]);
+    const width = right - left + 1;
+    const master = `${columnLetter(left)}${String(top)}`;
+    const resultAt = (r: number, c: number): unknown => {
+      if (typeof results === 'function') return (results as (r: number, c: number) => unknown)(r, c);
+      if (Array.isArray(results)) return Array.isArray(results[0]) ? (results as unknown[][])[r - top]?.[c - left] : results[(r - top) * width + (c - left)];
+      return undefined;
+    };
+    for (let r = top; r <= bottom; r++) {
+      for (let c = left; c <= right; c++) {
+        const result = resultAt(r, c);
+        const cell = this.getCell(r, c);
+        if (r === top && c === left) cell.value = { shareType, formula, ref: range, result } as CellValue;
+        else cell.value = shareType === 'shared' ? ({ sharedFormula: master, result } as CellValue) : ((result ?? null) as CellValue);
+      }
+    }
+  }
+
+  /**
+   * A plain-data snapshot of the worksheet, as exceljs `worksheet.model` (X4-30): id, name, state,
+   * properties, views, autoFilter, page setup, header and footer, breaks, protection, validations,
+   * conditional formats, merges, column definitions and rows with their cells. The setter takes
+   * the same shape. Tables and pictures are not part of it.
+   */
+  get model(): Record<string, unknown> {
+    return {
+      id: this.id,
+      name: this.name,
+      state: this.state,
+      properties: { ...this.properties },
+      views: this.views.map((v) => ({ ...v })),
+      autoFilter: this.autoFilter,
+      pageSetup: { ...this.pageSetup },
+      headerFooter: { ...this.headerFooter },
+      rowBreaks: [...this.rowBreaks],
+      sheetProtection: this.sheetProtection,
+      dataValidations: this.dataValidations.model,
+      conditionalFormattings: [...this.conditionalFormattings],
+      merges: [...this._merges.values()].map((m) => `${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`),
+      cols: this._columns.map((c) => c.defn),
+      rows: this._rows
+        .filter((r): r is Row => r !== undefined)
+        .map((r) => ({ number: r.number, height: r.height, hidden: r.hidden, outlineLevel: r.outlineLevel, style: r.style, cells: r._cells.filter((c): c is Cell => c !== undefined && !c._master).map((c) => c.model) })),
+    };
+  }
+
+  set model(m: Record<string, unknown>) {
+    this._rows = [];
+    this._merges.clear();
+    if (typeof m['state'] === 'string') this.state = m['state'] as 'visible';
+    if (m['properties'] && typeof m['properties'] === 'object') this.properties = { ...(m['properties'] as Record<string, unknown>) };
+    if (Array.isArray(m['views'])) this.views = (m['views'] as WorksheetView[]).map((v) => ({ ...v }));
+    this.autoFilter = (m['autoFilter'] as Worksheet['autoFilter']) ?? null;
+    if (m['pageSetup']) this.pageSetup = { ...(m['pageSetup'] as PageSetup) };
+    if (m['headerFooter']) this.headerFooter = { ...(m['headerFooter'] as HeaderFooter) };
+    this.rowBreaks = Array.isArray(m['rowBreaks']) ? [...(m['rowBreaks'] as RowBreak[])] : [];
+    this.sheetProtection = (m['sheetProtection'] as Worksheet['sheetProtection']) ?? null;
+    if (m['dataValidations']) this.dataValidations.model = m['dataValidations'] as DataValidations['model'];
+    this.conditionalFormattings = Array.isArray(m['conditionalFormattings']) ? [...(m['conditionalFormattings'] as ConditionalFormattingOptions[])] : [];
+    if (Array.isArray(m['cols'])) this.columns = m['cols'] as ColumnDefn[];
+    for (const r of Array.isArray(m['rows']) ? (m['rows'] as Record<string, unknown>[]) : []) {
+      const row = this.getRow(Number(r['number']));
+      if (typeof r['height'] === 'number') row.height = r['height'];
+      if (r['hidden']) row.hidden = true;
+      if (typeof r['outlineLevel'] === 'number') row.outlineLevel = r['outlineLevel'];
+      if (r['style'] && typeof r['style'] === 'object') row.style = { ...(r['style'] as Style) };
+      for (const c of Array.isArray(r['cells']) ? (r['cells'] as { address: string; value?: CellValue; style?: Style; note?: string | Comment }[]) : []) this.getCell(c.address).model = c;
+    }
+    for (const range of Array.isArray(m['merges']) ? (m['merges'] as string[]) : []) this.mergeCells(range);
+  }
+
   // ---- merges -------------------------------------------------------------------------------
+
+  /** As `mergeCells`, but the other cells keep their own style (lib/doc/worksheet.js L606). */
+  mergeCellsWithoutStyle(...args: unknown[]): void {
+    this._mergeKeepStyle = true;
+    try {
+      this.mergeCells(...args);
+    } finally {
+      this._mergeKeepStyle = false;
+    }
+  }
+
+  private _mergeKeepStyle = false;
 
   mergeCells(...args: unknown[]): void {
     const range = parseRangeArgs(args);
@@ -1512,7 +1748,7 @@ export class Worksheet {
         if (r === range.top && c === range.left) continue;
         const cell = this.getCell(r, c);
         cell._merge(master);
-        cell.style = { ...master.style };
+        if (!this._mergeKeepStyle) cell.style = { ...master.style };
       }
     }
     master._mergeCount++;

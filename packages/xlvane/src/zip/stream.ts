@@ -394,7 +394,7 @@ interface OpenEntry {
  * reads; memory therefore stays bounded by the chunk sizes. Problems (invalid or duplicate names,
  * archives that would need ZIP64) are reported as an `XlvError` through the stream.
  */
-export function createZipStream(entries: Iterable<ZipStreamEntry> | AsyncIterable<ZipStreamEntry>): ReadableStream<Uint8Array> {
+export function createZipStream(entries: Iterable<ZipStreamEntry> | AsyncIterable<ZipStreamEntry>, level = 6): ReadableStream<Uint8Array> {
   let iterator: Iterator<ZipStreamEntry> | AsyncIterator<ZipStreamEntry> | null = null;
   let current: OpenEntry | null = null;
   const central: Uint8Array[] = [];
@@ -431,7 +431,8 @@ export function createZipStream(entries: Iterable<ZipStreamEntry> | AsyncIterabl
     emit(local);
     const data = entry.data;
     const dataIterator = data instanceof Uint8Array ? [data][Symbol.iterator]() : iteratorOf(data);
-    const deflater = new Deflate({ level: 6 });
+    // Level 0 gives Deflate stored blocks (the entry method stays 8, Deflate).
+    const deflater = new Deflate({ level: level as 6 });
     const open: OpenEntry = { nameBytes, offset: headerOffset, data: dataIterator, deflater, crc: 0, size: 0, compressed: 0 };
     deflater.ondata = (chunk: Uint8Array) => {
       open.compressed += chunk.length;

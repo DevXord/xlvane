@@ -105,6 +105,18 @@ export async function run(ExcelJS, Workbook, dir) {
   media.addImage(logo, 'E2:G8');
   media.addImage(logo, { tl: { col: 8, row: 1 }, ext: { width: 120, height: 60 } });
   media.addBackgroundImage(logo);
+  const extra = workbook.addWorksheet('Extra', { properties: { outlineLevelRow: 2 } });
+  extra.getRow(1).values = ['angle', 'path', 'diagonal', 'rotated'];
+  extra.getCell('A1').fill = { type: 'gradient', gradient: 'angle', degree: 90, stops: [{ position: 0, color: { argb: 'FFFFFFFF' } }, { position: 1, color: { argb: 'FF4472C4' } }] };
+  extra.getCell('B1').fill = { type: 'gradient', gradient: 'path', center: { left: 0.5, top: 0.5 }, stops: [{ position: 0, color: { argb: 'FFFF0000' } }, { position: 1, color: { argb: 'FF00FF00' } }] };
+  extra.getCell('C1').border = { diagonal: { up: true, down: false, style: 'thin', color: { argb: 'FF000000' } } };
+  extra.getCell('D1').alignment = { textRotation: -45, shrinkToFit: true, readingOrder: 'rtl' };
+  extra.getCell('D1').protection = { locked: false };
+  extra.fillFormula('A3:B4', 'ROW()*COLUMN()', [[3, 6], [4, 8]]);
+  extra.getRow(3).outlineLevel = 1;
+  extra.getRow(4).outlineLevel = 2;
+  extra.getColumn(2).outlineLevel = 1;
+  workbook.views = [{ x: 10, y: 20, width: 15000, height: 9000, firstSheet: 0, activeTab: 0, visibility: 'visible' }];
   await workbook.xlsx.writeFile(path);
 
   // --- read it back ---
@@ -165,7 +177,19 @@ export async function run(ExcelJS, Workbook, dir) {
   const readMedia = read.getWorksheet('Media');
   const table = readMedia.getTables()[0];
   const tableModel = table.model ?? table.table;
+  const readExtra = read.getWorksheet('Extra');
+  const extraOut = {
+    a1fill: readExtra.getCell('A1').fill,
+    b1fill: readExtra.getCell('B1').fill,
+    c1border: readExtra.getCell('C1').border,
+    d1alignment: readExtra.getCell('D1').alignment,
+    d1protection: readExtra.getCell('D1').protection ?? null,
+    formulas: ['A3', 'B3', 'A4', 'B4'].map((a) => [a, readExtra.getCell(a).value, readExtra.getCell(a).formula ?? null, readExtra.getCell(a).formulaType]),
+    outline: { row3: readExtra.getRow(3).outlineLevel, row4: readExtra.getRow(4).outlineLevel, row4collapsed: readExtra.getRow(4).collapsed, colB: readExtra.getColumn(2).outlineLevel, outlineLevelRow: readExtra.properties.outlineLevelRow ?? null },
+    bookViews: read.views,
+  };
   return {
+    extra: extraOut,
     csv: { default: csvDefault, custom: csvCustom, sheet: csvWs.name, rows: csvRows },
     media: {
       table: { name: tableModel.name, tableRef: tableModel.tableRef, headerRow: tableModel.headerRow, totalsRow: tableModel.totalsRow, columns: tableModel.columns.map((c) => c.name), b4: readMedia.getCell('B4').value, c5: readMedia.getCell('C5').value, b5: readMedia.getCell('B5').value },

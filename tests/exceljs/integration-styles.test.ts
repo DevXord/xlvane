@@ -1,6 +1,5 @@
 // Ported from exceljs v4.4.0 spec/integration/workbook/styles.spec.js (MIT, Copyright (c)
-// 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await; fonts without
-// `family`/`outline` (not written by xlvane); the row style read-back (`ws2.getRow(2).font`)
+// 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await; the row style read-back (`ws2.getRow(2).font`)
 // is removed because xlvane keeps no row default styles after reading (docs/decisions.md
 // D-206); the rich-text fixture (spec/integration/data/rich-text-sample.js, decoded to
 // tests/corpus/excel/exceljs-rich-text-sample.xlsx, and rich-text-sample-a1.json) is read
@@ -22,11 +21,11 @@ describe('Workbook', () => {
         {
           header: 'B1',
           width: 20,
-          style: { font: styles.roundTripFonts.comicSansUdB16, alignment: styles.alignments[1].alignment },
+          style: { font: styles.fonts.comicSansUdB16, alignment: styles.alignments[1].alignment },
         },
         { header: 'C1', width: 30 },
       ];
-      ws.getRow(2).font = styles.roundTripFonts.broadwayRed20;
+      ws.getRow(2).font = styles.fonts.broadwayRedOutline20;
       ws.getCell('A2').value = 'A2';
       ws.getCell('B2').value = 'B2';
       ws.getCell('C2').value = 'C2';
@@ -38,15 +37,15 @@ describe('Workbook', () => {
       for (const address of ['A1', 'B1', 'C1', 'A2', 'B2', 'C2', 'A3', 'B3', 'C3']) {
         expect(ws2.getCell(address).value).toBe(address);
       }
-      expect(ws2.getCell('B1').font).toEqual(styles.roundTripFonts.comicSansUdB16);
+      expect(ws2.getCell('B1').font).toEqual(styles.fonts.comicSansUdB16);
       expect(ws2.getCell('B1').alignment).toEqual(styles.alignments[1].alignment);
-      expect(ws2.getCell('A2').font).toEqual(styles.roundTripFonts.broadwayRed20);
-      expect(ws2.getCell('B2').font).toEqual(styles.roundTripFonts.broadwayRed20);
-      expect(ws2.getCell('C2').font).toEqual(styles.roundTripFonts.broadwayRed20);
-      expect(ws2.getCell('B3').font).toEqual(styles.roundTripFonts.comicSansUdB16);
+      expect(ws2.getCell('A2').font).toEqual(styles.fonts.broadwayRedOutline20);
+      expect(ws2.getCell('B2').font).toEqual(styles.fonts.broadwayRedOutline20);
+      expect(ws2.getCell('C2').font).toEqual(styles.fonts.broadwayRedOutline20);
+      expect(ws2.getCell('B3').font).toEqual(styles.fonts.comicSansUdB16);
       expect(ws2.getCell('B3').alignment).toEqual(styles.alignments[1].alignment);
 
-      expect(ws2.getColumn(2).font).toEqual(styles.roundTripFonts.comicSansUdB16);
+      expect(ws2.getColumn(2).font).toEqual(styles.fonts.comicSansUdB16);
       expect(ws2.getColumn(2).alignment).toEqual(styles.alignments[1].alignment);
     });
 
@@ -55,14 +54,8 @@ describe('Workbook', () => {
       const wb = new ExcelJS.Workbook();
       await wb.xlsx.load(bytes);
       const ws = wb.worksheets[0];
-      // Change for xlvane: run fonts carry no `family` or `scheme` (not modelled, D-A01).
-      const expected = {
-        richText: richTextSampleA1.richText.map((r: { font: Record<string, unknown>; text: string }) => {
-          const { family: _family, scheme: _scheme, ...font } = r.font;
-          return { font, text: r.text };
-        }),
-      };
-      expect(ws.getCell('A1').value).toEqual(expected);
+      // Run fonts keep `family`, `scheme` and the other font properties (D-E04), as in exceljs.
+      expect(ws.getCell('A1').value).toEqual(richTextSampleA1);
       expect(ws.getCell('A1').text).toBe(ws.getCell('A2').value);
     });
     it.skip('null cells retain style — not supported: the reader drops cells without a value', () => {});

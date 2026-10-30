@@ -1,7 +1,7 @@
 // Shared helpers for the ported exceljs specs.
 // Style fixtures ported from exceljs v4.4.0 spec/utils/data/styles.json
 // (MIT, Copyright (c) 2014-2019 Guyon Roche), changes: typed as TypeScript; only the entries the
-// ported specs use; `roundTrip` variants added (see below).
+// ported specs use.
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -20,16 +20,6 @@ export const styles = {
     arialBlackUI14: { name: 'Arial Black', family: 2, size: 14, underline: true, italic: true },
     comicSansUdB16: { name: 'Comic Sans MS', family: 4, size: 16, underline: 'double', bold: true },
     broadwayRedOutline20: { name: 'Broadway', family: 5, size: 20, outline: true, color: { argb: 'FFFF0000' } },
-  },
-  /**
-   * Change for xlvane: fonts as they come back from a written and re-read file. xlvane models
-   * name, size, bold, italic, underline, strike and colour; `family` and `outline` are not
-   * written (docs/exceljs-compat.md).
-   */
-  roundTripFonts: {
-    arialBlackUI14: { name: 'Arial Black', size: 14, underline: true, italic: true },
-    comicSansUdB16: { name: 'Comic Sans MS', size: 16, underline: 'double', bold: true },
-    broadwayRed20: { name: 'Broadway', size: 20, color: { argb: 'FFFF0000' } },
   },
   alignments: [
     { text: 'Top Left', alignment: { horizontal: 'left', vertical: 'top' } },
