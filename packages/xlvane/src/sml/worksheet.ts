@@ -5,7 +5,7 @@ import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
 import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RowInfo } from '../model';
 import type { WarningCollector } from '../util/warnings';
-import { parseXml } from '../xml/parser';
+import { parseXml, type XmlHandler } from '../xml/parser';
 import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './cell-ref';
 import { compileFormula, type CompiledFormula } from './formula-shift';
 import { parseIsoDateTime, serialToDate } from './dates';
@@ -124,6 +124,21 @@ export function parseXsdDouble(text: string): number | null {
 
 /** Parses a worksheet part. */
 export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetData {
+  const { handler, finish } = createWorksheetParser(ctx);
+  parseXml(xml, handler, { part: ctx.part, limits: ctx.limits });
+  return finish();
+}
+
+/**
+ * The worksheet parser as an XML handler, for whole-text and streaming parsing. With `onRow`
+ * (streaming, docs/decisions.md D-402), each row's cells are passed on when its `</row>` is
+ * read and then dropped, so memory does not grow with the sheet; rows come in file order, and
+ * shared formulas whose master comes later in the file cannot be expanded.
+ */
+export function createWorksheetParser(
+  ctx: WorksheetContext,
+  onRow?: (row: number, cells: readonly Cell[], info: RowInfo | undefined) => void,
+): { handler: XmlHandler; finish(): WorksheetData } {
   const rows = new Map<number, Map<number, Cell>>();
   const merges: string[] = [];
   const formats = ctx.formatCache;
@@ -337,9 +352,31 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
     });
   };
 
-  parseXml(
-    xml,
-    {
+  const warnNotExpanded = (ref: string): void =>
+    ctx.warnings.add(
+      'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
+      'Some cells reuse a shared formula that could not be moved to them (missing master, cell outside the master range, or formula text xlvane cannot translate safely); their formula.text is null and their cached values are available.',
+      loc(ref),
+    );
+  /** Streaming: expands the pending shared formulas and hands the buffered cells on. */
+  const flushRows = (): void => {
+    if (!onRow) return;
+    // Row heights are handed on with the row instead of being collected (constant memory).
+    const info = rowInfo.get(currentRow);
+    rowInfo.delete(currentRow);
+    if (rows.size === 0) return;
+    expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    dependents.length = 0;
+    const out: Cell[] = [];
+    for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+      const cells = rows.get(r);
+      if (cells) for (const c of [...cells.keys()].sort((a, b) => a - b)) out.push(cells.get(c) as Cell);
+    }
+    rows.clear();
+    if (out.length > 0) onRow(currentRow, out, info);
+  };
+
+  const handler: XmlHandler = {
       start(elementNs, local, attrs) {
         if (ns === null) {
           if (local !== 'worksheet' || (elementNs !== SML_NS.strict && elementNs !== SML_NS.transitional)) {
@@ -447,6 +484,7 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       },
       end(elementNs, local) {
         path.pop();
+        if (onRow && local === 'row' && elementNs === ns && path.length === 2) flushRows();
         if (elementNs !== ns || cell === null) return;
         if (phoneticDepth > 0) {
           phoneticDepth--;
@@ -472,17 +510,13 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
         else if (target === 'f') cell.formulaText += value;
         else inlineText += value;
       },
-    },
-    { part: ctx.part, limits: ctx.limits },
-  );
-  expandSharedFormulas(rows, masters, dependents, (ref) =>
-    ctx.warnings.add(
-      'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
-      'Some cells reuse a shared formula that could not be moved to them (missing master, cell outside the master range, or formula text xlvane cannot translate safely); their formula.text is null and their cached values are available.',
-      loc(ref),
-    ),
-  );
-  return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter };
+    };
+  const finish = (): WorksheetData => {
+    if (onRow) flushRows();
+    else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter };
+  };
+  return { handler, finish };
 }
 
 /** The master cell of a shared formula group (E-28). */

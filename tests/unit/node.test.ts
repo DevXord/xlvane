@@ -83,3 +83,23 @@ describe('writeWorkbookFile', () => {
     await expectXlvErrorAsync(() => writeWorkbookFile(book(), join(dir, 'x.xlsx'), { overwrite: 'yes' as never }), 'XLV_E_INVALID_OPTION');
   });
 });
+
+describe('streaming files', () => {
+  it('writes and reads a streamed workbook through files', async () => {
+    const { openWorkbookStreamFile, writeWorkbookStreamFile } = await import('../../packages/xlvane/src/node');
+    const out = join(dir, 'streamed.xlsx');
+    await writeWorkbookStreamFile(out, { sheets: [{ name: 'S', rows: [['a', 1], ['b', 2]] }] });
+    const book = await openWorkbookStreamFile(out);
+    const values: unknown[] = [];
+    for await (const r of book.rows('S')) values.push(...r.cells.map((c) => c.value));
+    expect(values).toEqual(['a', 1, 'b', 2]);
+    await expectXlvErrorAsync(() => writeWorkbookStreamFile(out, { sheets: [{ name: 'S', rows: [] }] }), 'XLV_E_FILE_EXISTS');
+  });
+
+  it('removes a partly written file when a row is invalid', async () => {
+    const { writeWorkbookStreamFile } = await import('../../packages/xlvane/src/node');
+    const out = join(dir, 'broken.xlsx');
+    await expectXlvErrorAsync(() => writeWorkbookStreamFile(out, { sheets: [{ name: 'S', rows: [[1], [Number.NaN]] }] }), 'XLV_E_INVALID_VALUE');
+    await expectXlvErrorAsync(() => readWorkbookFile(out), 'XLV_E_FILE_READ');
+  });
+});

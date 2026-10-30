@@ -18,7 +18,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const packages = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];
 const failures = [];
 /** Size budget of packages/xlvane/dist/*.js, gzip level 9, in bytes. Same number as in the README. */
-const SIZE_BUDGET_BYTES = 100_000;
+const SIZE_BUDGET_BYTES = 125_000;
 
 function run(label, command) {
   console.log(`\n> ${label}`);

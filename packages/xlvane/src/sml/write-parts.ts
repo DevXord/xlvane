@@ -143,7 +143,12 @@ export function reusableBuiltinNumFmt(code: string): number | undefined {
   return REUSABLE_BUILTINS.get(code);
 }
 
-function buildStyles(styles: readonly NormalizedStyle[]): StyleTables {
+/**
+ * Builds the styles part. With `identity`, cell format `i` is interned style `i` (no merging of
+ * styles that give the same record), so a streaming writer can use style ids as `s` values
+ * before the part is built.
+ */
+export function buildStyles(styles: readonly NormalizedStyle[], identity = false): StyleTables {
   const fonts = new Table();
   const fills = new Table();
   const borders = new Table();
@@ -192,6 +197,10 @@ function buildStyles(styles: readonly NormalizedStyle[]): StyleTables {
     } else {
       xf += '/>';
     }
+    if (identity) {
+      xfs.items.push(xf);
+      return xfs.items.length - 1;
+    }
     return xfs.add(xf);
   });
 
@@ -214,7 +223,12 @@ function buildStyles(styles: readonly NormalizedStyle[]): StyleTables {
 // ---------------------------------------------------------------------------------------------
 // Shared strings
 
-class SharedStrings {
+/** Where string cell values go: the shared string table, or inline in the cell. */
+export interface StringSink {
+  add(s: string): number;
+}
+
+class SharedStrings implements StringSink {
   private readonly index = new Map<string, number>();
   readonly list: string[] = [];
   total = 0;
@@ -235,6 +249,13 @@ class SharedStrings {
   }
 }
 
+/** Never used for strings: inline strings are handled before valueXml is called. */
+const INLINE_ONLY: StringSink = {
+  add(): number {
+    throw new Error('internal: inline strings are written by cellXml');
+  },
+};
+
 /** A `t` element; `xml:space="preserve"` when white space at the ends or inside could be lost (W2-07). */
 export function textElement(s: string): string {
   const preserve = /^[\s]|[\s]$|[\t\n\r]/.test(s) ? ' xml:space="preserve"' : '';
@@ -244,7 +265,7 @@ export function textElement(s: string): string {
 // ---------------------------------------------------------------------------------------------
 // Worksheets
 
-function valueXml(v: Exclude<StoredValue, { kind: 'formula' }>, sst: SharedStrings, inFormula: boolean): { t: string; v: string } {
+function valueXml(v: Exclude<StoredValue, { kind: 'formula' }>, sst: StringSink, inFormula: boolean): { t: string; v: string } {
   switch (v.kind) {
     case 'number':
       return { t: '', v: formatNumber(v.n) };
@@ -258,19 +279,82 @@ function valueXml(v: Exclude<StoredValue, { kind: 'formula' }>, sst: SharedStrin
   }
 }
 
-function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[], sst: SharedStrings): string {
-  const xf = xfOf[cell.style] ?? 0;
+/**
+ * One `c` element. With `sst === null`, plain strings are written inline (`t="inlineStr"`,
+ * E-22, E-29) instead of into the shared string table.
+ */
+export function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[] | null, sst: StringSink | null): string {
+  const xf = xfOf === null ? cell.style : (xfOf[cell.style] ?? 0);
   const s = xf === 0 ? '' : attr('s', xf);
   const v = cell.value;
   if (v === null) return `<c r="${ref}"${s}/>`;
+  if (sst === null && v.kind === 'string') return `<c r="${ref}"${s} t="inlineStr"><is>${textElement(v.s)}</is></c>`;
   if (v.kind === 'formula') {
     const f = `<f>${escapeText(encodeXstring(v.text))}</f>`;
     if (v.result === null) return `<c r="${ref}"${s}>${f}</c>`;
-    const r = valueXml(v.result, sst, true);
+    const r = valueXml(v.result, sst ?? INLINE_ONLY, true);
     return `<c r="${ref}"${s}${r.t === '' ? '' : attr('t', r.t)}>${f}<v>${r.v}</v></c>`;
   }
-  const r = valueXml(v, sst, false);
+  const r = valueXml(v, sst ?? INLINE_ONLY, false);
   return `<c r="${ref}"${s}${r.t === '' ? '' : attr('t', r.t)}><v>${r.v}</v></c>`;
+}
+
+/** The start of a worksheet part, up to and including `<sheetData>`; `dimension` is optional (W2-01). */
+export function sheetHead(
+  sheet: Pick<WriteSheetData, 'freeze' | 'columns'>,
+  selected: boolean,
+  dimension: string | null,
+): string {
+  let xml = `${XML_DECL}<worksheet xmlns="${NS}" xmlns:r="${R_NS}">`;
+  if (dimension !== null) xml += `<dimension${attr('ref', dimension)}/>`;
+  xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''} workbookViewId="0"`;
+  if (sheet.freeze) {
+    const { rows, cols } = sheet.freeze;
+    const pane = rows > 0 && cols > 0 ? 'bottomRight' : rows > 0 ? 'bottomLeft' : 'topRight';
+    const topLeft = formatCellRef(rows + 1, cols + 1);
+    xml += '><pane';
+    if (cols > 0) xml += attr('xSplit', cols);
+    if (rows > 0) xml += attr('ySplit', rows);
+    xml += `${attr('topLeftCell', topLeft)}${attr('activePane', pane)} state="frozen"/>`;
+    xml += `<selection${attr('pane', pane)}${attr('activeCell', topLeft)}${attr('sqref', topLeft)}/></sheetView>`;
+  } else {
+    xml += '/>';
+  }
+  xml += '</sheetViews>';
+  xml += '<sheetFormatPr defaultRowHeight="15"/>';
+  if (sheet.columns.size > 0) {
+    xml += '<cols>';
+    for (const index of [...sheet.columns.keys()].sort((a, b) => a - b)) {
+      const c = sheet.columns.get(index);
+      if (!c) continue;
+      xml += `<col${attr('min', index)}${attr('max', index)}`;
+      if (c.width !== null) xml += `${attr('width', c.width)} customWidth="1"`;
+      if (c.hidden) xml += ' hidden="1"';
+      xml += '/>';
+    }
+    xml += '</cols>';
+  }
+  return `${xml}<sheetData>`;
+}
+
+/** The start tag of a row (without `>` for rows that have cells: callers add `>` or `/>`). */
+export function rowStart(r: number, info: { readonly height: number | null; readonly hidden: boolean } | undefined): string {
+  let xml = `<row${attr('r', r)}`;
+  if (info?.height != null) xml += `${attr('ht', info.height)} customHeight="1"`;
+  if (info?.hidden) xml += ' hidden="1"';
+  return xml;
+}
+
+/** The end of a worksheet part, from `</sheetData>` (W2-01 order: autoFilter, mergeCells). */
+export function sheetTail(autoFilter: CellRange | null, merges: readonly CellRange[]): string {
+  let xml = '</sheetData>';
+  if (autoFilter) xml += `<autoFilter${attr('ref', rangeRef(autoFilter))}/>`;
+  if (merges.length > 0) {
+    xml += `<mergeCells${attr('count', merges.length)}>`;
+    for (const m of merges) xml += `<mergeCell${attr('ref', rangeRef(m))}/>`;
+    xml += '</mergeCells>';
+  }
+  return `${xml}</worksheet>`;
 }
 
 function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings): string {
@@ -291,64 +375,22 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
   }
   const dimension = maxRow === 0 ? 'A1' : rangeRef({ start: { row: minRow, col: minCol }, end: { row: maxRow, col: maxCol } });
 
-  let xml = `${XML_DECL}<worksheet xmlns="${NS}" xmlns:r="${R_NS}">`;
-  xml += `<dimension${attr('ref', dimension)}/>`;
-  xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''} workbookViewId="0"`;
-  if (sheet.freeze) {
-    const { rows, cols } = sheet.freeze;
-    const pane = rows > 0 && cols > 0 ? 'bottomRight' : rows > 0 ? 'bottomLeft' : 'topRight';
-    const topLeft = formatCellRef(rows + 1, cols + 1);
-    xml += '><pane';
-    if (cols > 0) xml += attr('xSplit', cols);
-    if (rows > 0) xml += attr('ySplit', rows);
-    xml += `${attr('topLeftCell', topLeft)}${attr('activePane', pane)} state="frozen"/>`;
-    xml += `<selection${attr('pane', pane)}${attr('activeCell', topLeft)}${attr('sqref', topLeft)}/></sheetView>`;
-  } else {
-    xml += '/>';
-  }
-  xml += '</sheetViews>';
-  xml += '<sheetFormatPr defaultRowHeight="15"/>';
-
-  if (sheet.columns.size > 0) {
-    xml += '<cols>';
-    for (const index of [...sheet.columns.keys()].sort((a, b) => a - b)) {
-      const c = sheet.columns.get(index);
-      if (!c) continue;
-      xml += `<col${attr('min', index)}${attr('max', index)}`;
-      if (c.width !== null) xml += `${attr('width', c.width)} customWidth="1"`;
-      if (c.hidden) xml += ' hidden="1"';
-      xml += '/>';
-    }
-    xml += '</cols>';
-  }
-
-  xml += '<sheetData>';
+  let xml = sheetHead(sheet, selected, dimension);
   for (const r of sortedRows) {
-    const info = sheet.rows.get(r);
-    let rowXml = `<row${attr('r', r)}`;
-    if (info?.height != null) rowXml += `${attr('ht', info.height)} customHeight="1"`;
-    if (info?.hidden) rowXml += ' hidden="1"';
     const cells = sheet.cells.get(r);
+    const start = rowStart(r, sheet.rows.get(r));
     if (!cells || cells.size === 0) {
-      xml += `${rowXml}/>`;
+      xml += `${start}/>`;
       continue;
     }
-    xml += `${rowXml}>`;
+    xml += `${start}>`;
     for (const c of [...cells.keys()].sort((a, b) => a - b)) {
       const cell = cells.get(c);
       if (cell) xml += cellXml(formatCellRef(r, c), cell, xfOf, sst);
     }
     xml += '</row>';
   }
-  xml += '</sheetData>';
-
-  if (sheet.autoFilter) xml += `<autoFilter${attr('ref', rangeRef(sheet.autoFilter))}/>`;
-  if (sheet.merges.length > 0) {
-    xml += `<mergeCells${attr('count', sheet.merges.length)}>`;
-    for (const m of sheet.merges) xml += `<mergeCell${attr('ref', rangeRef(m))}/>`;
-    xml += '</mergeCells>';
-  }
-  return `${xml}</worksheet>`;
+  return xml + sheetTail(sheet.autoFilter, sheet.merges);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -361,49 +403,11 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const active = input.sheets.findIndex((s) => s.state === 'visible');
   const sheetParts = input.sheets.map((sheet, i) => sheetXml(sheet, i === active, xfOf, sst));
 
-  let workbook = `${XML_DECL}<workbook xmlns="${NS}" xmlns:r="${R_NS}">`;
-  if (input.dateSystem === '1904') workbook += '<workbookPr date1904="1"/>';
-  workbook += `<bookViews><workbookView${active > 0 ? `${attr('firstSheet', active)}${attr('activeTab', active)}` : ''}/></bookViews>`;
-  workbook += '<sheets>';
-  input.sheets.forEach((sheet, i) => {
-    workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', i + 1)}`;
-    if (sheet.state !== 'visible') workbook += attr('state', sheet.state);
-    workbook += `${attr('r:id', `rId${String(i + 1)}`)}/>`;
-  });
-  workbook += '</sheets>';
-  const names = input.sheets
-    .map((sheet, i) =>
-      sheet.autoFilter
-        ? `<definedName name="_xlnm._FilterDatabase"${attr('localSheetId', i)} hidden="1">${escapeText(
-            encodeXstring(`${quoteSheetName(sheet.name)}!${absoluteRangeRef(sheet.autoFilter)}`),
-          )}</definedName>`
-        : '',
-    )
-    .join('');
-  if (names !== '') workbook += `<definedNames>${names}</definedNames>`;
-  workbook += '</workbook>';
-
   const n = input.sheets.length;
-  let workbookRels = `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">`;
-  for (let i = 1; i <= n; i++) {
-    workbookRels += `<Relationship Id="rId${String(i)}" Type="${REL_BASE}worksheet" Target="worksheets/sheet${String(i)}.xml"/>`;
-  }
-  workbookRels += `<Relationship Id="rId${String(n + 1)}" Type="${REL_BASE}styles" Target="styles.xml"/>`;
-  workbookRels += `<Relationship Id="rId${String(n + 2)}" Type="${REL_BASE}sharedStrings" Target="sharedStrings.xml"/>`;
-  workbookRels += '</Relationships>';
-
-  const rootRels =
-    `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">` +
-    `<Relationship Id="rId1" Type="${REL_BASE}officeDocument" Target="xl/workbook.xml"/></Relationships>`;
-
-  let types = `${XML_DECL}<Types xmlns="${CONTENT_TYPES_NS}">`;
-  types += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>';
-  types += '<Default Extension="xml" ContentType="application/xml"/>';
-  types += `<Override PartName="/xl/workbook.xml" ContentType="${CT_BASE}sheet.main+xml"/>`;
-  for (let i = 1; i <= n; i++) types += `<Override PartName="/xl/worksheets/sheet${String(i)}.xml" ContentType="${CT_BASE}worksheet+xml"/>`;
-  types += `<Override PartName="/xl/styles.xml" ContentType="${CT_BASE}styles+xml"/>`;
-  types += `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_BASE}sharedStrings+xml"/>`;
-  types += '</Types>';
+  const workbook = workbookXml(input.sheets, input.dateSystem);
+  const workbookRels = workbookRelsXml(n, true);
+  const rootRels = rootRelsXml();
+  const types = contentTypesXml(n, true);
 
   const entries: ZipWriteEntry[] = [
     { name: '[Content_Types].xml', data: encoder.encode(types) },
@@ -415,4 +419,69 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     { name: 'xl/sharedStrings.xml', data: encoder.encode(sst.xml()) },
   ];
   return writeZip(entries);
+}
+
+/** The workbook part: date system, book view, sheets and the autofilter defined names. */
+export function workbookXml(
+  sheets: readonly { readonly name: string; readonly state: SheetState; readonly autoFilter: CellRange | null }[],
+  dateSystem: DateSystem,
+): string {
+  const active = sheets.findIndex((s) => s.state === 'visible');
+  let workbook = `${XML_DECL}<workbook xmlns="${NS}" xmlns:r="${R_NS}">`;
+  if (dateSystem === '1904') workbook += '<workbookPr date1904="1"/>';
+  workbook += `<bookViews><workbookView${active > 0 ? `${attr('firstSheet', active)}${attr('activeTab', active)}` : ''}/></bookViews>`;
+  workbook += '<sheets>';
+  sheets.forEach((sheet, i) => {
+    workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', i + 1)}`;
+    if (sheet.state !== 'visible') workbook += attr('state', sheet.state);
+    workbook += `${attr('r:id', `rId${String(i + 1)}`)}/>`;
+  });
+  workbook += '</sheets>';
+  const names = sheets
+    .map((sheet, i) =>
+      sheet.autoFilter
+        ? `<definedName name="_xlnm._FilterDatabase"${attr('localSheetId', i)} hidden="1">${escapeText(
+            encodeXstring(`${quoteSheetName(sheet.name)}!${absoluteRangeRef(sheet.autoFilter)}`),
+          )}</definedName>`
+        : '',
+    )
+    .join('');
+  if (names !== '') workbook += `<definedNames>${names}</definedNames>`;
+  return `${workbook}</workbook>`;
+}
+
+/** Relationships of the workbook part: sheets rId1…rIdN, then styles and (optionally) shared strings. */
+export function workbookRelsXml(sheetCount: number, sharedStrings: boolean): string {
+  let xml = `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">`;
+  for (let i = 1; i <= sheetCount; i++) {
+    xml += `<Relationship Id="rId${String(i)}" Type="${REL_BASE}worksheet" Target="worksheets/sheet${String(i)}.xml"/>`;
+  }
+  xml += `<Relationship Id="rId${String(sheetCount + 1)}" Type="${REL_BASE}styles" Target="styles.xml"/>`;
+  if (sharedStrings) xml += `<Relationship Id="rId${String(sheetCount + 2)}" Type="${REL_BASE}sharedStrings" Target="sharedStrings.xml"/>`;
+  return `${xml}</Relationships>`;
+}
+
+/** The package relationships part. */
+export function rootRelsXml(): string {
+  return (
+    `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">` +
+    `<Relationship Id="rId1" Type="${REL_BASE}officeDocument" Target="xl/workbook.xml"/></Relationships>`
+  );
+}
+
+/** The Media Types stream (W2-30). */
+export function contentTypesXml(sheetCount: number, sharedStrings: boolean): string {
+  let types = `${XML_DECL}<Types xmlns="${CONTENT_TYPES_NS}">`;
+  types += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>';
+  types += '<Default Extension="xml" ContentType="application/xml"/>';
+  types += `<Override PartName="/xl/workbook.xml" ContentType="${CT_BASE}sheet.main+xml"/>`;
+  for (let i = 1; i <= sheetCount; i++) types += `<Override PartName="/xl/worksheets/sheet${String(i)}.xml" ContentType="${CT_BASE}worksheet+xml"/>`;
+  types += `<Override PartName="/xl/styles.xml" ContentType="${CT_BASE}styles+xml"/>`;
+  if (sharedStrings) types += `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_BASE}sharedStrings+xml"/>`;
+  return `${types}</Types>`;
+}
+
+/** A shared string table that grows as strings are added; `xml()` writes the part. */
+export function createSharedStrings(): StringSink & { xml(): string } {
+  return new SharedStrings();
 }

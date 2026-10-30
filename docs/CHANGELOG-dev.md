@@ -2,6 +2,34 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 4: streaming (2026-10-30)
+
+- **Public API** (`xlvane`):
+  - `openWorkbookStream` reads `Uint8Array`, `ArrayBuffer` or `Blob` input. It returns sheets and metadata, rows through `rows(sheet)` (async iterator) or `rowStream(sheet)`, and the warnings.
+  - `readTableStream` yields validated row objects.
+  - `writeWorkbookStream` returns a `ReadableStream<Uint8Array>` and pulls rows from iterables.
+  - `writeTableStream` writes the report preset.
+  - `STREAM_LIMIT_DEFAULTS`.
+- **Public API** (`xlvane/node`): `openWorkbookStreamFile` (via `fs.openAsBlob`) and `writeWorkbookStreamFile` (exclusive create; removes a partial file if writing fails).
+- **Internals:**
+  - an incremental XML parser (text and bytes, including UTF-16) with the same events, spans and errors as whole-text parsing (D-402);
+  - streaming ZIP reading and writing, with data descriptors, limits checked on produced bytes, CRC at the end, and Blob slices (D-405);
+  - the batch and streaming readers share `analyzeWorkbook` and `createWorksheetParser`;
+  - the writer's value conversion is shared (`convertCellInput`).
+- **Memory** (acceptance criterion): retained heap while reading and writing 400 000 rows × 5 columns is about the same as for 50 000 rows, under 1 MB in both cases (D-406, `tests/stream/memory.test.ts`).
+- **Tests:**
+  - chunked XML parsing compared with whole-text parsing, including security inputs, in unit and property tests;
+  - streaming ZIP: unit, security (bombs, limits) and property tests;
+  - streaming read and write compared with batch read and write (property);
+  - Node file helpers;
+  - LibreOffice opens streamed output with inline strings.
+- **Benchmark:** `bench/` (separate package: exceljs 4.4.0, xlsx 0.18.5), `npm run bench`, results in bench/perf/RESULTS.md and the README (D-407).
+- **Package:** size budget raised to 125 kB gzip at the maintainer's decision (101.4 kB measured, D-408).
+- **Not done in this phase:**
+  - ZIP64 writing (streamed archives over 4 GiB are refused);
+  - streaming edits;
+  - reading rows of a sheet in sorted order when the file stores them unsorted.
+
 ## Phase 3: task-oriented API (2026-10-30)
 
 - **Public API** (`xlvane`):

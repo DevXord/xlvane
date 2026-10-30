@@ -92,3 +92,22 @@ export {
 export { toCSV, fromCSV, type ToCSVOptions, type FromCSVOptions } from './csv';
 export { diff, type CellChange, type DiffCell, type DiffOptions, type SheetDiff, type WorkbookDiff } from './diff';
 export { editCells, appendRows, type AppendRowsOptions, type CellEdit, type EditOptions, type EditResult } from './edit';
+export {
+  openWorkbookStream,
+  readTableStream,
+  STREAM_LIMIT_DEFAULTS,
+  type OpenWorkbookStreamOptions,
+  type ReadTableStreamOptions,
+  type StreamRow,
+  type StreamSheetInfo,
+  type TableStreamItem,
+  type WorkbookStream,
+} from './stream-read';
+export {
+  writeWorkbookStream,
+  writeTableStream,
+  type StreamRowInput,
+  type StreamSheetSpec,
+  type WriteTableStreamOptions,
+  type WriteWorkbookStreamOptions,
+} from './stream-write';

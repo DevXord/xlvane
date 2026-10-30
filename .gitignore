@@ -8,3 +8,7 @@ Thumbs.db
 
 # ECMA-376 and other reference documents supplied for fact checking (not redistributed)
 spec/
+
+# Benchmark (bench/ is installed separately, see bench/README.md)
+bench/node_modules/
+bench/perf/tmp/

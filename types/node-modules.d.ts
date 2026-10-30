@@ -11,7 +11,12 @@ declare module 'node:fs/promises' {
   }
   export function readFile(path: string | URL): Promise<Uint8Array>;
   export function readFile(path: string | URL, encoding: 'utf8'): Promise<string>;
-  export function writeFile(path: string | URL, data: Uint8Array | string, options?: { flag?: string }): Promise<void>;
+  export function writeFile(
+    path: string | URL,
+    data: Uint8Array | string | AsyncIterable<Uint8Array>,
+    options?: { flag?: string },
+  ): Promise<void>;
+  export function unlink(path: string | URL): Promise<void>;
   export function stat(path: string | URL): Promise<Stats>;
   export function readdir(path: string | URL): Promise<string[]>;
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;
@@ -20,6 +25,8 @@ declare module 'node:fs/promises' {
 }
 
 declare module 'node:fs' {
+  /** Added in v19.8.0, stable in v22.17.0 (docs/decisions.md F-NODE-06). */
+  export function openAsBlob(path: string | URL, options?: { type?: string }): Promise<Blob>;
   export function existsSync(path: string | URL): boolean;
   export function readdirSync(path: string | URL): string[];
   export function readFileSync(path: string | URL): Uint8Array;

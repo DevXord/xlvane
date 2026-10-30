@@ -195,7 +195,7 @@ New workbooks use Calibri 11 as font 0, fills 0 and 1 are `none` and `gray125`, 
 Text up to 32 767 characters, column width up to 255 and row height up to 409 points (W-04, checked in phase 1). Sheet names (W2-20), formula length 8 192 (W2-21) and font size 409 (W2-19) are provisional. Font names are capped at 255 characters as an implementation limit. Strings with unpaired UTF-16 surrogates are rejected, because XML cannot hold them and the `_xHHHH_` escape of a lone surrogate is not decoded by readers that follow D-XS-3.
 
 ### D-208 Package size budget (2026-10-30)
-70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done. **Phase 3:** the task API brought the size to 84.5 kB; the maintainer chose to raise the budget to 100 kB and keep the build unminified (a minified build measured about 51 kB).
+70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done. **Phase 3:** the task API brought the size to 84.5 kB; the maintainer chose to raise the budget to 100 kB and keep the build unminified (a minified build measured about 51 kB). **Phase 4:** raised to 125 kB (D-408).
 
 ### D-209 LibreOffice check of written files (2026-10-30)
 `tests/libreoffice/libreoffice.test.ts` writes workbooks covering every feature of the phase, converts them with `soffice --headless` to CSV (all sheets, contents as shown; F-LO-01) and back to XLSX, and checks values in the CSV and merges, frozen panes, filter, widths, heights, states and styles in LibreOffice's own XLSX. The test is skipped when `soffice` is missing and fails instead when `XLV_REQUIRE_LIBREOFFICE=1` (set in CI). Each run uses its own LibreOffice profile directory.
@@ -260,6 +260,32 @@ Closes D-107. A conservative linear tokenizer (`sml/formula-shift.ts`) translate
 ### D-314 TSDoc example check (2026-10-30)
 `tests/policy/tsdoc-examples.test.ts` extracts every ```ts block from TSDoc in `packages/xlvane/src`, type-checks them in one `tsc` run (TypeScript 7 CLI; its JavaScript compiler API is not stable) with the project's strict options and `xlvane`/`xlvane/node` mapped to the sources, and checks that every symbol exported from `index.ts` and `node.ts` has an `@example`. The temporary project lives under `node_modules/.cache` so that examples can import zod.
 
+## Decisions: phase 4 (streaming)
+
+### D-401 Streaming read: structure first, worksheets row by row (2026-10-30)
+`openWorkbookStream(source)` accepts a `Uint8Array`, `ArrayBuffer` or `Blob`. It reads the ZIP central directory, `[Content_Types].xml`, the relationship parts, the workbook part, the shared strings and the styles in full (all bounded by the limits). Worksheets are decompressed and parsed only while their rows are iterated. The batch and streaming readers share `analyzeWorkbook` (read.ts) and `createWorksheetParser` (sml/worksheet.ts). Streaming limits (`STREAM_LIMIT_DEFAULTS`): `maxCells` does not apply, because memory does not grow with cells; `maxEntryBytes` is 4 GiB and `maxTotalBytes` 8 GiB; the ratio, XML and other limits are unchanged. In Node.js, `openWorkbookStreamFile` reads through `fs.openAsBlob` (F-NODE-06), so the file is not held in memory either.
+
+### D-402 Rows in file order; shared formulas only after their master (2026-10-30)
+In streaming mode each row's cells are handed on at `</row>` and dropped. Rows therefore come in file order, which is ascending in every file we know of. Row heights travel with the row instead of being collected. A shared-formula dependent that comes before its master cannot be expanded (the stream cannot look ahead); it keeps `text: null` with `XLV_W_SHARED_FORMULA_NOT_EXPANDED`. Incremental XML parsing (`createXmlStreamParser`, `createXmlByteStreamParser`) gives the same events, spans and errors as whole-text parsing. Two differences: events from earlier chunks are already delivered when an error is found later, and in a document with several errors the one reported can differ (an invalid character is reported where it is met, not before everything else).
+
+### D-403 Streaming write: pull-based, layout up front (2026-10-30)
+`writeWorkbookStream({ sheets: [{ name, columns, freeze, merges, autoFilter, rows }] })` returns a `ReadableStream<Uint8Array>`. Rows are pulled from each sheet's (async) iterable only when the consumer reads, which gives backpressure and constant memory. Layout must be given before the rows. The autofilter range (`autoFilter: true`) and the styles part are computed after the rows, and the ZIP entries are produced lazily in this order: content types, package relationships, sheets, workbook, workbook relationships, styles, shared strings. No `dimension` element is written (it is optional, W2-01). Values and styles follow the batch writer's rules (`convertCellInput`), with errors naming sheet and cell. `writeWorkbookStreamFile` writes with the exclusive-create flag unless `overwrite`, and removes the file if the stream fails part-way.
+
+### D-404 Inline strings by default when streaming (2026-10-30)
+A shared string table needs every distinct string in memory until the end, so streamed text is written inline (`t="inlineStr"`, E-22/E-29) by default. `sharedStrings: true` writes a shared string table instead (smaller files when values repeat). Excel and LibreOffice read inline strings; the LibreOffice test covers them.
+
+### D-405 Streaming ZIP (2026-10-30)
+`zip/stream.ts`. Reading shares the central-directory and local-header validation of `openZip` (reader.ts was refactored into `checkSource`, `locateCentralDirectory`, `readCentralDirectory` and `validateLocalHeaders`). Entries are inflated incrementally, with the size, total and ratio limits checked on every output chunk and the CRC at the end. Writing deflates incrementally (level 6) and writes entries with flag bit 3 and a data descriptor carrying the 0x08074b50 signature (Z-15), with fixed timestamps. Entries are always deflated (storing would need the size in advance), and archives that would need ZIP64 are refused.
+
+### D-406 Memory test (2026-10-30)
+`tests/stream/memory.test.ts` measures heap retained after forced GC (Vitest `execArgv: ['--expose-gc']`) every 25 000 rows while writing and reading 50 000 and 400 000 rows × 5 columns. Measured in the cloud session: about 0.4 to 0.9 MB for every case. The test requires the difference between the two sizes to stay under 16 MB and the large read under 48 MB.
+
+### D-407 Benchmark setup (2026-10-30)
+At the maintainer's decision the benchmark libraries live in `bench/package.json` (exceljs 4.4.0, xlsx 0.18.5 from npm), installed only by `npm run bench`. Every variant runs in a fresh process; median time, peak RSS (`process.resourceUsage().maxRSS`, KiB per the Node.js docs) and peak heap are reported. The library APIs used are listed with file and line in bench/README.md. Results depend on the machine and are not a guarantee.
+
+### D-408 Size budget raised to 125 kB (2026-10-30)
+Streaming brought the bundle to 101.4 kB gzip. The maintainer chose to raise the budget to 125 kB and keep the build unminified.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -285,3 +311,15 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-GH-01 | writer facts; partly PROVISIONAL (D-203): python-docx copy of sml.xsd, Open XML SDK, LibreOffice help, Node.js docs |
 | docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; mostly PROVISIONAL (no ECMA-376 §18.17 available) |
 | docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |
+
+### F-NODE-04 … F-NODE-05
+See docs/facts/sml-write.md.
+
+### F-NODE-06 fs.openAsBlob
+`fs.openAsBlob(path[, options])` returns a Promise of a Blob backed by the file; it was added in v19.8.0 and marked stable in v22.17.0; the file must not be modified after the Blob is created. Source: https://github.com/nodejs/node/blob/v22.x/doc/api/fs.md, checked 2026-10-30.
+
+### F-NODE-07 process.memoryUsage and resourceUsage
+`process.memoryUsage()` returns `rss`, `heapTotal`, `heapUsed`, `external`, `arrayBuffers` (bytes); `process.resourceUsage().maxRSS` is in kibibytes. Source: https://github.com/nodejs/node/blob/v22.x/doc/api/process.md, checked 2026-10-30. Used by tests and the benchmark only.
+
+### F-TOOL-11 Vitest execArgv
+Vitest 5 option `test.execArgv`: "Pass additional arguments to `node` process when spawning the worker" (default `[]`). Source: `node_modules/vitest/dist/chunks/plugin.d.C8mmycim.d.ts` (Vitest 5.0.5), checked 2026-10-30.

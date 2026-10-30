@@ -1,6 +1,6 @@
 import { XlvError, type XlvWarning } from './errors';
 import { resolveLimits, type ReadLimits } from './limits';
-import type { Cell, ColumnInfo, Conformance, FrozenPanes, RowInfo, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
+import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RowInfo, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
 import { parseCellRef } from './sml/cell-ref';
 import {
@@ -200,7 +200,68 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   const zip = openZip(bytes, limits);
   const pkg = openPackage(zip, limits);
   const warnings = new WarningCollector();
+  const book = analyzeWorkbook(pkg, limits, warnings);
+  const budget = { remaining: limits.maxCells };
+  const formatCache = new Map<number, NumberFormat>();
+  const sheets = book.sheets.map((entry): Sheet => {
+    let data: WorksheetData | null = null;
+    if (entry.kind === 'worksheet' && entry.part !== null) {
+      data = parseWorksheet(pkg.readXml(entry.part) ?? '', {
+        part: entry.part,
+        sheet: entry.name,
+        limits,
+        warnings,
+        sharedStrings: book.sharedStrings,
+        styles: book.styles,
+        dateSystem: book.dateSystem,
+        conformance: book.conformance,
+        budget,
+        formatCache,
+      });
+    }
+    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data);
+  });
+  return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list());
+}
 
+/** A sheet as listed in the workbook part, before its cells are read. */
+export interface SheetEntry {
+  readonly name: string;
+  readonly index: number;
+  readonly kind: SheetKind;
+  readonly state: SheetState;
+  /** Part name, or `null` when the part is missing (reported as XLV_W_SHEET_PART_MISSING). */
+  readonly part: string | null;
+}
+
+/** Everything about a workbook except the cells; shared by the batch and streaming readers. */
+export interface WorkbookInfo {
+  readonly workbookPart: string;
+  readonly sheets: readonly SheetEntry[];
+  readonly sharedStrings: readonly string[];
+  readonly styles: Styles;
+  readonly dateSystem: DateSystem;
+  readonly conformance: Conformance;
+  readonly format: WorkbookFormat;
+  readonly hasMacros: boolean;
+  readonly externalLinkCount: number;
+}
+
+/** The workbook part's relationships that the reader loads in full (workbook, styles, shared strings). */
+export function workbookPartsToLoad(pkg: OpcPackage): string[] {
+  const officeDocument = findRelationship(pkg.relationships(null), 'officeDocument');
+  if (officeDocument === undefined) return [];
+  const rels = pkg.relationships(officeDocument.target);
+  const out = [officeDocument.target];
+  for (const name of ['sharedStrings', 'styles']) {
+    const rel = findRelationship(rels, name);
+    if (rel !== undefined) out.push(rel.target);
+  }
+  return out;
+}
+
+/** Reads the workbook structure, shared strings and styles (D-401). */
+export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: WarningCollector): WorkbookInfo {
   const officeDocument = findRelationship(pkg.relationships(null), 'officeDocument');
   if (officeDocument === undefined || !pkg.hasPart(officeDocument.target)) {
     throw new XlvError('XLV_E_PART_MISSING', 'The package has no workbook part.', {
@@ -246,9 +307,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   }
 
   const dateSystem = info.date1904 ? '1904' : '1900';
-  const budget = { remaining: limits.maxCells };
-  const formatCache = new Map<number, NumberFormat>();
-  const sheets = info.sheets.map((entry, index): Sheet => {
+  const sheets = info.sheets.map((entry, index): SheetEntry => {
     if (entry.state === 'veryHidden') {
       warnings.add('XLV_W_VERY_HIDDEN_SHEET', `Sheet "${entry.name}" is very hidden: spreadsheet applications do not offer a way to unhide it.`, {
         sheet: entry.name,
@@ -267,28 +326,13 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
         sheet: entry.name,
         part: workbookPart,
       });
-      return new ReadSheet(entry.name, index, kind, entry.state, null, null);
+      return { name: entry.name, index, kind, state: entry.state, part: null };
     }
-    let data: WorksheetData | null = null;
-    if (kind === 'worksheet') {
-      data = parseWorksheet(pkg.readXml(rel.target) ?? '', {
-        part: rel.target,
-        sheet: entry.name,
-        limits,
-        warnings,
-        sharedStrings,
-        styles,
-        dateSystem,
-        conformance: info.conformance,
-        budget,
-        formatCache,
-      });
-    }
-    return new ReadSheet(entry.name, index, kind, entry.state, rel.target, data);
+    return { name: entry.name, index, kind, state: entry.state, part: rel.target };
   });
-
-  return new ReadWorkbook(sheets, dateSystem, info.conformance, format, hasMacros, externalLinkCount, warnings.list());
+  return { workbookPart, sheets, sharedStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount };
 }
+
 
 function detectMacros(pkg: OpcPackage, workbookRels: readonly Relationship[]): boolean {
   if (workbookRels.some((r) => r.type === VBA_PROJECT_REL || r.type === MACROSHEET_REL || r.type === INTL_MACROSHEET_REL)) {

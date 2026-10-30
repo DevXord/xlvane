@@ -17,7 +17,8 @@
     "fuzz": "vitest run --config vitest.fuzz.config.ts",
     "build": "npm run build --workspaces",
     "typecheck": "tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json && tsc -p packages/mcp/tsconfig.json",
-    "check:pkg": "node scripts/check-pkg.mjs"
+    "check:pkg": "node scripts/check-pkg.mjs",
+    "bench": "npm run build && npm ci --prefix bench && node bench/perf/run.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",

@@ -2,7 +2,7 @@
 
 Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 
-Not published to npm yet. Streaming is planned (see [docs/PLAN.md](../../docs/PLAN.md)).
+Not published to npm yet. Planned next: exceljs compatibility, CLI, MCP server (see [docs/PLAN.md](../../docs/PLAN.md)).
 
 ## Reading a workbook
 
@@ -84,6 +84,34 @@ const fromData = fromJSON([{ sku: 'A-1', stock: 12 }]);
 - `fromCSV` never creates formulas. It converts plain numbers, booleans and ISO dates (`types: "infer"`); numbers with leading zeros or more than 15 digits stay text.
 - Shared formulas are translated to each cell when reading. If a formula cannot be translated safely, its `formula.text` is `null` and the reader reports `XLV_W_SHARED_FORMULA_NOT_EXPANDED`.
 
+## Large files: streaming
+
+```ts
+import { openWorkbookStream, writeWorkbookStream, readTableStream } from 'xlvane';
+import { openWorkbookStreamFile, writeWorkbookStreamFile } from 'xlvane/node';
+
+// Read row by row: worksheet cells are never all in memory. A Blob (File, fs.openAsBlob) also
+// keeps the file itself out of memory.
+const book = await openWorkbookStreamFile('large.xlsx');
+for await (const row of book.rows('Data')) console.log(row.number, row.cells.map((c) => c.value));
+
+// Rows as validated objects, one at a time.
+for await (const { value, issues } of readTableStream(file, { schema })) { /* … */ }
+
+// Write: rows are pulled from a (async) iterable only as fast as the output is consumed.
+function* rows() {
+  yield { values: ['id', 'value'], style: { font: { bold: true } } };
+  for (let i = 1; i <= 1_000_000; i++) yield [i, Math.sqrt(i)];
+}
+await writeWorkbookStreamFile('out.xlsx', { sheets: [{ name: 'Data', freeze: { rows: 1 }, autoFilter: true, rows: rows() }] });
+const stream = writeWorkbookStream({ sheets: [{ name: 'Data', rows: rows() }] }); // ReadableStream<Uint8Array>
+```
+
+- Memory stays constant: the test suite reads and writes 50 000 and 400 000 rows and checks that the retained heap does not grow. It measured under 1 MB in both cases.
+- Streamed text is stored in the cells (inline strings) by default. Pass `sharedStrings: true` for a shared string table, which is smaller when values repeat but kept in memory until the end.
+- Rows come in file order. A shared formula whose master cell comes later in the file cannot be translated while streaming.
+- `maxCells` does not apply when streaming; single parts may decompress to 4 GiB (`STREAM_LIMIT_DEFAULTS`). All other limits apply.
+
 ## Inspecting a workbook
 
 `inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas and warnings. The schema is documented in [docs/inspect-json.md](../../docs/inspect-json.md).
@@ -127,7 +155,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 ## Package size
 
-**Size budget:** 100 kB of gzip-compressed JavaScript for `dist/*.js` (level 9, unminified as published; measured 84.5 kB on 2026-10-30, after the task API was added). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
+**Size budget:** 125 kB of gzip-compressed JavaScript for `dist/*.js` (level 9, unminified as published; measured 101.4 kB on 2026-10-30, after streaming was added). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
 Not supported: password-protected workbooks and legacy `.xls` files (both rejected with `XLV_E_UNSUPPORTED_CONTAINER`).
 

@@ -14,6 +14,7 @@ import { createWorkbook, writeWorkbook, type NewWorkbook } from '../../packages/
 import { fromCSV } from '../../packages/xlvane/src/csv';
 import { editCells } from '../../packages/xlvane/src/edit';
 import { writeTable } from '../../packages/xlvane/src/table';
+import { writeTableStream, writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
 
 const SOFFICE = process.env['XLV_SOFFICE'] ?? 'soffice';
 const available = spawnSync(SOFFICE, ['--version'], { encoding: 'utf8', timeout: 60_000 }).status === 0;
@@ -90,6 +91,16 @@ const EXPECTED_CSV: Record<string, string[][]> = {
     ['Alice', '10.5', '2024-01-31'],
     ['Bob', '3', '2024-02-01'],
   ],
+  'streamed-Stream': [
+    ['id', 'text', 'when'],
+    ['1', 'zażółć <&>', '2024-01-31'],
+    ['2', 'line\nbreak', '2024-02-01 12:30:00'],
+  ],
+  'streamed-Table': [
+    ['id', 'name'],
+    ['1', 'a'],
+    ['2', 'b'],
+  ],
   'imported-Imported': [
     ['id', 'label'],
     ['1', 'a, b'],
@@ -164,6 +175,25 @@ describe.skipIf(!available && !required)('LibreOffice opens files written by xlv
       await writeFile(file, writeWorkbook(wb));
       files.push(file);
     }
+    const streamed = writeWorkbookStream({
+      sheets: [
+        {
+          name: 'Stream',
+          freeze: { rows: 1 },
+          autoFilter: true,
+          rows: [
+            { values: ['id', 'text', 'when'], style: { font: { bold: true } } },
+            [1, 'zażółć <&>', new Date(Date.UTC(2024, 0, 31))],
+            [2, 'line\nbreak', new Date(Date.UTC(2024, 1, 1, 12, 30))],
+          ],
+        },
+        { name: 'Table', rows: [['id', 'name'], [1, 'a'], [2, 'b']] },
+      ],
+    });
+    await writeFile(join(dir, 'streamed.xlsx'), new Uint8Array(await new Response(streamed).arrayBuffer()));
+    files.push(join(dir, 'streamed.xlsx'));
+    const table = writeTableStream([{ id: 1 }], { columns: ['id'] });
+    expect((await new Response(table).arrayBuffer()).byteLength).toBeGreaterThan(0);
     for (const [name, bytes] of Object.entries(taskFixtures())) {
       const file = join(dir, `${name}.xlsx`);
       await writeFile(file, bytes);

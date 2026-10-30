@@ -1,19 +1,21 @@
 // Node.js-only entry point (`xlvane/node`): file-system helpers around the core API. Uses
 // fs.promises.stat, readFile and writeFile (Node.js fs documentation; F-NODE-03, F-NODE-04).
-import { readFile, stat, writeFile } from 'node:fs/promises';
+import { openAsBlob } from 'node:fs';
+import { readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { XlvError } from './errors';
 import { inspect, type InspectOptions, type InspectReport } from './inspect';
 import { resolveLimits } from './limits';
 import type { Workbook } from './model';
 import { readWorkbook, type ReadOptions } from './read';
 import { writeWorkbook, type NewWorkbook } from './write';
+import { openWorkbookStream, STREAM_LIMIT_DEFAULTS, type OpenWorkbookStreamOptions, type WorkbookStream } from './stream-read';
+import { writeWorkbookStream, type WriteWorkbookStreamOptions } from './stream-write';
 
 function describePath(path: string | URL): string {
   return typeof path === 'string' ? path : path.href;
 }
 
-async function readInput(path: string | URL, limitsOption: unknown): Promise<Uint8Array> {
-  const limits = resolveLimits(limitsOption);
+async function checkFile(path: string | URL, limits: { readonly maxInputBytes: number }): Promise<void> {
   const shown = describePath(path);
   let size: number;
   try {
@@ -36,10 +38,14 @@ async function readInput(path: string | URL, limitsOption: unknown): Promise<Uin
       details: { limit: 'maxInputBytes', value: limits.maxInputBytes },
     });
   }
+}
+
+async function readInput(path: string | URL, limitsOption: unknown): Promise<Uint8Array> {
+  await checkFile(path, resolveLimits(limitsOption));
   try {
     return await readFile(path);
   } catch (error) {
-    throw fileError(shown, error);
+    throw fileError(describePath(path), error);
   }
 }
 
@@ -152,6 +158,93 @@ export async function writeWorkbookFile(workbook: NewWorkbook, path: string | UR
           : code === 'EACCES' || code === 'EPERM'
             ? 'The process is not allowed to write there. Check the permissions.'
             : 'Check that the directory exists and is writable.',
+      details: { path: shown, code },
+      cause: error,
+    });
+  }
+}
+
+/**
+ * Opens an XLSX file for streaming. The file is read through `fs.openAsBlob`, so neither the
+ * file nor its cells are held in memory; see `openWorkbookStream`. The file must not change
+ * while it is being read.
+ *
+ * @example
+ * ```ts
+ * import { openWorkbookStreamFile } from 'xlvane/node';
+ *
+ * const book = await openWorkbookStreamFile('large.xlsx');
+ * let rows = 0;
+ * for await (const _row of book.rows(book.sheets[0]!.name)) rows++;
+ * console.log(rows);
+ * ```
+ */
+export async function openWorkbookStreamFile(path: string | URL, options?: OpenWorkbookStreamOptions): Promise<WorkbookStream> {
+  await checkFile(path, resolveLimits({ ...STREAM_LIMIT_DEFAULTS, ...options?.limits }));
+  let blob: Blob;
+  try {
+    blob = await openAsBlob(path);
+  } catch (error) {
+    throw fileError(describePath(path), error);
+  }
+  return openWorkbookStream(blob, options);
+}
+
+/**
+ * Writes a streamed workbook (see `writeWorkbookStream`) to a file with constant memory. An
+ * existing file is not replaced unless `overwrite` is `true` (`XLV_E_FILE_EXISTS`). If writing
+ * fails part-way, for example because a row holds an invalid value, the incomplete file is
+ * removed and the error is thrown.
+ *
+ * @example
+ * ```ts
+ * import { writeWorkbookStreamFile } from 'xlvane/node';
+ *
+ * function* rows() {
+ *   for (let i = 1; i <= 1_000_000; i++) yield [i, `item ${i}`];
+ * }
+ * await writeWorkbookStreamFile('items.xlsx', { sheets: [{ name: 'Items', rows: rows() }] });
+ * ```
+ */
+export async function writeWorkbookStreamFile(path: string | URL, spec: WriteWorkbookStreamOptions, options?: WriteFileOptions): Promise<void> {
+  const overwrite = options?.overwrite ?? false;
+  if (typeof overwrite !== 'boolean') {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "overwrite" must be true or false.', {
+      hint: 'Pass { overwrite: true } to replace an existing file.',
+      details: { option: 'overwrite' },
+    });
+  }
+  const stream = writeWorkbookStream(spec);
+  const shown = describePath(path);
+  let created = false;
+  async function* chunks(): AsyncGenerator<Uint8Array> {
+    created = true;
+    const reader = stream.getReader();
+    try {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) return;
+        yield value;
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
+  try {
+    await writeFile(path, chunks(), { flag: overwrite ? 'w' : 'wx' });
+  } catch (error) {
+    if (created) await unlink(path).catch(() => undefined);
+    if (error instanceof XlvError) throw error;
+    const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code: unknown }).code) : 'UNKNOWN';
+    if (code === 'EEXIST') {
+      throw new XlvError('XLV_E_FILE_EXISTS', `"${shown}" already exists.`, {
+        hint: 'Choose another path, or pass { overwrite: true } to replace the file.',
+        details: { path: shown },
+        cause: error,
+      });
+    }
+    throw new XlvError('XLV_E_FILE_WRITE', `Cannot write "${shown}" (${code}).`, {
+      hint: code === 'ENOENT' ? 'The directory does not exist. Create it first.' : 'Check that the directory exists and is writable.',
       details: { path: shown, code },
       cause: error,
     });

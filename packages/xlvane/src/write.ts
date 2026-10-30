@@ -168,8 +168,8 @@ const MAX_SHEET_NAME = 31;
 const SHEET_NAME_FORBIDDEN = /[\\/?*:[\]]/;
 /** Formula text limit (Excel specifications and limits: 8,192 characters; to be verified, W2-21). */
 const MAX_FORMULA_LENGTH = 8192;
-const DATE_FORMAT = 'yyyy-mm-dd';
-const DATE_TIME_FORMAT = 'yyyy-mm-dd hh:mm:ss';
+export const DATE_FORMAT = 'yyyy-mm-dd';
+export const DATE_TIME_FORMAT = 'yyyy-mm-dd hh:mm:ss';
 const DAY_MS = 86_400_000;
 
 /** A cell value after validation, as the writer stores it. */
@@ -359,76 +359,8 @@ export class NewSheet {
     return this;
   }
 
-  private convert(value: unknown, cell: string): { stored: StoredValue | null; isDate: boolean; hasTime: boolean } {
-    if (value === null || value === undefined) return { stored: null, isDate: false, hasTime: false };
-    if (typeof value === 'object' && !(value instanceof Date)) {
-      const keys = Object.keys(value);
-      if (keys.includes('formula')) {
-        const o = readFormula(value, this.name, cell);
-        if (o.result === undefined) return { stored: { kind: 'formula', text: o.text, result: null }, isDate: false, hasTime: false };
-        const r = this.scalar(o.result, cell, 'formula result');
-        return { stored: { kind: 'formula', text: o.text, result: r.stored }, isDate: r.isDate, hasTime: r.hasTime };
-      }
-    }
-    return this.scalar(value, cell, 'value');
-  }
-
-  private scalar(
-    value: unknown,
-    cell: string,
-    what: string,
-  ): { stored: Exclude<StoredValue, { kind: 'formula' }>; isDate: boolean; hasTime: boolean } {
-    const plain = (stored: Exclude<StoredValue, { kind: 'formula' }>) => ({ stored, isDate: false, hasTime: false });
-    if (typeof value === 'number') {
-      if (!Number.isFinite(value)) {
-        throw invalidValue(this.name, cell, `The ${what} for ${cell} is ${String(value)}.`, 'Spreadsheet cells hold finite numbers only. Write the value as text or leave the cell empty.');
-      }
-      return plain({ kind: 'number', n: Object.is(value, -0) ? 0 : value });
-    }
-    if (typeof value === 'string') {
-      if (value.length > MAX_CELL_TEXT) {
-        throw invalidValue(this.name, cell, `The ${what} for ${cell} has ${String(value.length)} characters.`, `A cell can contain at most ${String(MAX_CELL_TEXT)} characters. Split the text over several cells.`);
-      }
-      if (firstLoneSurrogate(value) !== -1) {
-        throw invalidValue(this.name, cell, `The ${what} for ${cell} contains an unpaired UTF-16 surrogate.`, 'The text is not valid Unicode; it may have been cut in the middle of a character such as an emoji. Fix the text before writing it.');
-      }
-      return plain({ kind: 'string', s: value });
-    }
-    if (typeof value === 'boolean') return plain({ kind: 'boolean', b: value });
-    if (value instanceof Date) {
-      const time = value.getTime();
-      let serial: number;
-      try {
-        serial = dateToSerial(value, this.book.dateSystem);
-      } catch {
-        serial = Number.NaN;
-      }
-      if (!(serial >= 0)) {
-        throw invalidValue(
-          this.name,
-          cell,
-          Number.isNaN(time) ? `The ${what} for ${cell} is an invalid Date.` : `The date ${value.toISOString()} for ${cell} is outside the ${this.book.dateSystem} date system.`,
-          this.book.dateSystem === '1904'
-            ? 'The 1904 date system covers 1904-01-01 to 9999-12-31. Write earlier dates as text.'
-            : 'The 1900 date system covers 1899-12-31 (time-only values) to 9999-12-31. Write earlier dates as text.',
-        );
-      }
-      return { stored: { kind: 'number', n: serial }, isDate: true, hasTime: time % DAY_MS !== 0 };
-    }
-    if (typeof value === 'object' && value !== null && Object.keys(value).includes('error')) {
-      const keys = Object.keys(value);
-      const e = (value as { error: unknown }).error;
-      if (keys.length === 1 && typeof e === 'string' && (ERROR_VALUES as readonly string[]).includes(e)) {
-        return plain({ kind: 'error', e: e as ErrorValue });
-      }
-      throw invalidValue(this.name, cell, `The error value for ${cell} is not valid.`, `Use { error: code } with one of: ${ERROR_VALUES.join(', ')}.`);
-    }
-    throw invalidValue(
-      this.name,
-      cell,
-      `The ${what} for ${cell} has an unsupported type (${typeof value === 'object' ? 'object' : typeof value}).`,
-      'Use a number, string, boolean, Date, null, { error: "#N/A" } or { formula: "A1*2", result: 2 }.',
-    );
+  private convert(value: unknown, cell: string): ConvertedValue {
+    return convertCellInput(value, { sheet: this.name, dateSystem: this.book.dateSystem }, cell);
   }
 
   /**
@@ -616,6 +548,96 @@ export class NewSheet {
       autoFilter: this.filter,
     };
   }
+}
+
+/** Where a value is converted: names the sheet in errors and gives the date system. */
+export interface ConvertContext {
+  readonly sheet: string;
+  readonly dateSystem: DateSystem;
+}
+
+/** A converted cell value; `isDate`/`hasTime` choose the default date format. */
+export interface ConvertedValue {
+  readonly stored: StoredValue | null;
+  readonly isDate: boolean;
+  readonly hasTime: boolean;
+}
+
+/**
+ * Validates and converts a {@link CellInput} as `NewSheet.set` does (shared with the streaming
+ * writer). Throws `XLV_E_INVALID_VALUE` with the sheet and cell.
+ */
+export function convertCellInput(value: unknown, ctx: ConvertContext, cell: string): ConvertedValue {
+  if (value === null || value === undefined) return { stored: null, isDate: false, hasTime: false };
+  if (typeof value === 'object' && !(value instanceof Date)) {
+    const keys = Object.keys(value);
+    if (keys.includes('formula')) {
+      const o = readFormula(value, ctx.sheet, cell);
+      if (o.result === undefined) return { stored: { kind: 'formula', text: o.text, result: null }, isDate: false, hasTime: false };
+      const r = scalarValue(ctx, o.result, cell, 'formula result');
+      return { stored: { kind: 'formula', text: o.text, result: r.stored }, isDate: r.isDate, hasTime: r.hasTime };
+    }
+  }
+  return scalarValue(ctx, value, cell, 'value');
+}
+
+function scalarValue(
+ctx: ConvertContext,
+value: unknown,
+cell: string,
+what: string,
+): { stored: Exclude<StoredValue, { kind: 'formula' }>; isDate: boolean; hasTime: boolean } {
+  const plain = (stored: Exclude<StoredValue, { kind: 'formula' }>) => ({ stored, isDate: false, hasTime: false });
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) {
+      throw invalidValue(ctx.sheet, cell, `The ${what} for ${cell} is ${String(value)}.`, 'Spreadsheet cells hold finite numbers only. Write the value as text or leave the cell empty.');
+    }
+    return plain({ kind: 'number', n: Object.is(value, -0) ? 0 : value });
+  }
+  if (typeof value === 'string') {
+    if (value.length > MAX_CELL_TEXT) {
+      throw invalidValue(ctx.sheet, cell, `The ${what} for ${cell} has ${String(value.length)} characters.`, `A cell can contain at most ${String(MAX_CELL_TEXT)} characters. Split the text over several cells.`);
+    }
+    if (firstLoneSurrogate(value) !== -1) {
+      throw invalidValue(ctx.sheet, cell, `The ${what} for ${cell} contains an unpaired UTF-16 surrogate.`, 'The text is not valid Unicode; it may have been cut in the middle of a character such as an emoji. Fix the text before writing it.');
+    }
+    return plain({ kind: 'string', s: value });
+  }
+  if (typeof value === 'boolean') return plain({ kind: 'boolean', b: value });
+  if (value instanceof Date) {
+    const time = value.getTime();
+    let serial: number;
+    try {
+      serial = dateToSerial(value, ctx.dateSystem);
+    } catch {
+      serial = Number.NaN;
+    }
+    if (!(serial >= 0)) {
+      throw invalidValue(
+        ctx.sheet,
+        cell,
+        Number.isNaN(time) ? `The ${what} for ${cell} is an invalid Date.` : `The date ${value.toISOString()} for ${cell} is outside the ${ctx.dateSystem} date system.`,
+        ctx.dateSystem === '1904'
+          ? 'The 1904 date system covers 1904-01-01 to 9999-12-31. Write earlier dates as text.'
+          : 'The 1900 date system covers 1899-12-31 (time-only values) to 9999-12-31. Write earlier dates as text.',
+      );
+    }
+    return { stored: { kind: 'number', n: serial }, isDate: true, hasTime: time % DAY_MS !== 0 };
+  }
+  if (typeof value === 'object' && value !== null && Object.keys(value).includes('error')) {
+    const keys = Object.keys(value);
+    const e = (value as { error: unknown }).error;
+    if (keys.length === 1 && typeof e === 'string' && (ERROR_VALUES as readonly string[]).includes(e)) {
+      return plain({ kind: 'error', e: e as ErrorValue });
+    }
+    throw invalidValue(ctx.sheet, cell, `The error value for ${cell} is not valid.`, `Use { error: code } with one of: ${ERROR_VALUES.join(', ')}.`);
+  }
+  throw invalidValue(
+    ctx.sheet,
+    cell,
+    `The ${what} for ${cell} has an unsupported type (${typeof value === 'object' ? 'object' : typeof value}).`,
+    'Use a number, string, boolean, Date, null, { error: "#N/A" } or { formula: "A1*2", result: 2 }.',
+  );
 }
 
 function readFormula(value: object, sheet: string, cell: string): { text: string; result: unknown } {

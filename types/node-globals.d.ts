@@ -5,4 +5,6 @@ declare const process: {
   readonly env: Record<string, string | undefined>;
   readonly platform: string;
   readonly versions: Readonly<Record<string, string | undefined>>;
+  /** https://nodejs.org/api/process.html#processmemoryusage (tests only). */
+  memoryUsage(): { readonly rss: number; readonly heapTotal: number; readonly heapUsed: number; readonly external: number; readonly arrayBuffers: number };
 };

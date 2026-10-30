@@ -1,0 +1,11 @@
+{
+  "name": "xlvane-bench",
+  "private": true,
+  "type": "module",
+  "description": "Performance benchmark of xlvane against exceljs and SheetJS. Not a workspace; installed only by `npm run bench`.",
+  "license": "MIT",
+  "devDependencies": {
+    "exceljs": "4.4.0",
+    "xlsx": "0.18.5"
+  }
+}
