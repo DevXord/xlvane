@@ -16,7 +16,7 @@
 import { columnLetters, MAX_COLUMNS, MAX_ROWS } from './cell-ref';
 
 /** A cell reference: column and row, each relative or absolute. */
-interface CellPart {
+export interface CellPart {
   readonly kind: 'cell';
   readonly col: number;
   readonly colAbs: boolean;
@@ -25,7 +25,7 @@ interface CellPart {
 }
 
 /** A whole-column range such as `A:C` or `$A:C`. */
-interface ColumnsPart {
+export interface ColumnsPart {
   readonly kind: 'cols';
   readonly c1: number;
   readonly c1Abs: boolean;
@@ -34,7 +34,7 @@ interface ColumnsPart {
 }
 
 /** A whole-row range such as `1:3` or `$1:3`. */
-interface RowsPart {
+export interface RowsPart {
   readonly kind: 'rows';
   readonly r1: number;
   readonly r1Abs: boolean;
@@ -42,7 +42,20 @@ interface RowsPart {
   readonly r2Abs: boolean;
 }
 
-type Part = string | CellPart | ColumnsPart | RowsPart;
+/**
+ * A sheet prefix before a reference: `Sheet1!`, `'My Sheet'!`, the 3-D `Jan:Mar!` or
+ * `'Sheet 1:Sheet 3'!`, or a sheet of another workbook (`[1]Sheet1!`, `'[1]Sheet 1'!`). `text` is
+ * the source text including the "!"; `sheets` holds the unquoted names (two for a 3-D prefix).
+ */
+export interface PrefixPart {
+  readonly kind: 'prefix';
+  readonly text: string;
+  readonly sheets: readonly string[];
+  readonly external: boolean;
+}
+
+/** A piece of a tokenized formula: literal text, a sheet prefix or a reference. */
+export type Part = string | PrefixPart | CellPart | ColumnsPart | RowsPart;
 
 /** A formula split into literal text and references, ready to be moved to other cells. */
 export interface CompiledFormula {
@@ -158,14 +171,17 @@ function looksR1C1(id: string): boolean {
  * Splits a formula into literal text and references. Returns `null` when the text contains
  * anything that cannot be classified with confidence.
  */
-function tokenize(s: string): Part[] | null {
+export function tokenize(s: string): Part[] | null {
   const parts: Part[] = [];
   let literal = '';
+  // The last name copied into `literal` and where it ends, to recognise unquoted 3-D prefixes.
+  let lastName: { id: string; end: number } | null = null;
   const flush = (): void => {
     if (literal !== '') {
       parts.push(literal);
       literal = '';
     }
+    lastName = null;
   };
   const n = s.length;
   let i = 0;
@@ -196,7 +212,11 @@ function tokenize(s: string): Part[] | null {
         } else j++;
       }
       if (s.charCodeAt(j + 1) !== 0x21) return null;
-      literal += s.slice(i, j + 2);
+      const inner = s.slice(i + 1, j).replace(/''/g, "'");
+      const external = inner.startsWith('[') || literal.endsWith(']');
+      flush();
+      // Sheet names cannot contain ":" (W2-20), so a ":" separates the two sheets of a 3-D prefix.
+      parts.push({ kind: 'prefix', text: s.slice(i, j + 2), sheets: inner.replace(/^\[[^\]]*\]/, '').split(':'), external });
       i = j + 2;
       continue;
     }
@@ -290,8 +310,23 @@ function tokenize(s: string): Part[] | null {
       if (next === 0x21 || next === 0x5b) {
         // A sheet name before "!" or a table name before "[": must not look like a reference.
         if (refLike) return null;
-        literal += id;
-        i = j;
+        if (next === 0x5b) {
+          literal += id;
+          i = j;
+          continue;
+        }
+        // An unquoted 3-D prefix (Jan2024:Mar2024!) arrives as "name:" already in the literal.
+        const external = literal.endsWith(']');
+        let text = id + '!';
+        let sheets = [id];
+        if (lastName !== null && literal.length === lastName.end + 1 && literal.endsWith(':')) {
+          literal = literal.slice(0, lastName.end - lastName.id.length);
+          text = `${lastName.id}:${text}`;
+          sheets = [lastName.id, id];
+        }
+        flush();
+        parts.push({ kind: 'prefix', text, sheets, external });
+        i = j + 1;
         continue;
       }
       // A reference shape beyond XFD or row 1048576 (XFE1, A1048577) is neither a valid
@@ -320,6 +355,7 @@ function tokenize(s: string): Part[] | null {
       if (id.includes('$') || looksR1C1(id)) return null;
       // A defined name, TRUE/FALSE or another identifier: copied unchanged (F2-05).
       literal += id;
+      lastName = { id, end: literal.length };
       i = j;
       continue;
     }
@@ -371,7 +407,7 @@ class Compiled implements CompiledFormula {
       if (c > this.maxCol) this.maxCol = c;
     };
     for (const p of parts) {
-      if (typeof p === 'string') continue;
+      if (typeof p === 'string' || p.kind === 'prefix') continue;
       if (p.kind === 'cell') {
         row(p.row, p.rowAbs);
         col(p.col, p.colAbs);
@@ -398,6 +434,7 @@ class Compiled implements CompiledFormula {
     const row = (r: number, abs: boolean): string => (abs ? '$' : '') + String(abs ? r : r + dRow);
     for (const p of this.parts) {
       if (typeof p === 'string') out += p;
+      else if (p.kind === 'prefix') out += p.text;
       else if (p.kind === 'cell') out += col(p.col, p.colAbs) + row(p.row, p.rowAbs);
       else if (p.kind === 'cols') out += `${col(p.c1, p.c1Abs)}:${col(p.c2, p.c2Abs)}`;
       else out += `${row(p.r1, p.r1Abs)}:${row(p.r2, p.r2Abs)}`;

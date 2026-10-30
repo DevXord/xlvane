@@ -479,6 +479,14 @@ xlvane reads the notes (ECMA-376 "comments") of each worksheet from its Comments
 ### D-A14 The exceljs layer: notes and streamed links (2026-10-30)
 @xlvane/exceljs supports `cell.note` as a string or `{ texts }`, following exceljs 4.4.0 (X4-14). Every note is written with the author "Author", as exceljs writes it, and a one-run note without a font reads back as a string. The streaming `WorkbookWriter` writes notes and hyperlinks with the row they are in (D-A12). `margins`, `protection` and `editAs` are kept on the object but not written, because xlvane writes every note box in the form of the ECMA-376 examples; they are absent after reading. Run fonts drop `family`, `scheme` and `charset`, as for rich text (D-A06). A note on a cell without a value is kept (exceljs loses it). The streaming `WorkbookReader` ignores notes, as exceljs does. With this, no exceljs API that belongs to phase A throws `XLV_E_NOT_SUPPORTED`; the remaining "partly" rows of docs/exceljs-compat.md are documented differences, and note box settings and the remaining run-font properties are candidates for phase E.
 
+## Decisions: phase B (row and column operations)
+
+### D-B01 Reference adjustment rules (2026-10-30)
+When rows or columns are inserted or deleted, xlvane rewrites references by the rules observed in LibreOffice Calc 24.2.7.2 (docs/facts/ref-adjust.md R-01 … R-14); Microsoft's documentation could not be read in the session (support.microsoft.com is not in the allowed network domains). Absolute references move too; a range grows with an insertion inside it and shrinks when part of it is deleted; a fully deleted reference becomes `#REF!` without its sheet prefix; at the end of the grid a pushed-out start gives `#REF!` and a pushed-out end stops at the last row or column, and on deletion a multi-row range keeps an end that is the last row; references to other sheets and other workbooks, names, strings and structured references are left alone. Two deliberate exceptions: a 3-D reference that may cover the changed sheet makes the formula not adjustable (LibreOffice leaves it unchanged), and text the shared-formula tokenizer does not classify is never rewritten. The rules must be re-checked against Excel when its documentation or Excel-saved files are available.
+
+### D-B02 Public reference-adjusting API (2026-10-30)
+`adjustFormula`, `adjustRange` and `ReferenceChange` are public exports of `xlvane`, because @xlvane/exceljs may use only xlvane's public API and the same rules serve the core's row operations and callers editing formulas. They return `null` instead of guessing and throw `XLV_E_INVALID_OPTION` for an invalid change. Merges follow R-14, not `adjustRange`, on deletion.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -503,6 +511,7 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/sst-styles.md | see file | shared strings, ST_Xstring, styles |
 | docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-NODE-11 … F-NODE-13, F-GH-01 | writer facts, checked against ECMA-376 Part 1, [MS-OI29500] and [MS-XLSX] (D-1104); W2-21 and W2-32 PROVISIONAL |
 | docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; checked against ECMA-376 Part 1 §18.17, [MS-OI29500] and [MS-XLSX] §2.2.2 (D-1102, D-1104) |
+| docs/facts/ref-adjust.md | R-* | reference adjustment on insert/delete, observed in LibreOffice 24.2.7.2 (D-B01) |
 | docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |
 
 ### F-NODE-04 … F-NODE-05
