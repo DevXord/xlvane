@@ -51,6 +51,8 @@
 | `styledColumns` | string[] | columns with a default style (`col@style`, `ColumnInfo.style`), e.g. `["B", "D:F"]`; at most `maxColumns` entries |
 | `hyperlinkCount` | number | hyperlinks of the sheet (`Sheet.hyperlinks`) |
 | `hyperlinks` | object[] | up to ten of them: `ref`, `target` (external URL or path as stored, or `null`), `location` (place in the workbook, or `null`); targets are never opened |
+| `noteCount` | number | notes (comments) of the sheet (`Sheet.notes`) |
+| `notes` | string[] | up to ten cells that have a note |
 
 **Header detection.** Among the first `headerScanRows` non-empty rows, the header row is the first one whose cells are all distinct, non-blank strings and cover at least half of the used width. The confidence is `"high"` when the next non-empty row contains a value that is not a string (number, date, boolean or error), otherwise `"low"`. This is a heuristic; check `confidence` before relying on it.
 
@@ -108,6 +110,8 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
       "styledColumns": [],
       "hyperlinkCount": 0,
       "hyperlinks": [],
+      "noteCount": 0,
+      "notes": [],
       "rowCount": 3,
       "columnCount": 3,
       "headerRow": { "row": 1, "confidence": "high" },

@@ -669,7 +669,9 @@
   },
   "64759.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_THREADED_COMMENTS"
+    ]
   },
   "66365.xlsx": {
     "ok": true,
@@ -1282,7 +1284,9 @@
   },
   "right-to-left.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_THREADED_COMMENTS"
+    ]
   },
   "sample-beta.xlsx": {
     "ok": false,

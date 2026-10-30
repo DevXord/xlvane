@@ -206,6 +206,9 @@ A value does not match its declared type and is returned in a safe form, for exa
 ### XLV_W_UNUSUAL_HYPERLINK
 A sheet has hyperlinks whose external target uses a scheme other than `http`, `https` or `mailto`, for example `file:`, `javascript:` or a relative file path. xlvane never opens or follows link targets; the warning is there so that an application which shows or opens links can decide what to do. The message names one such target; `Sheet.hyperlinks` lists all of them.
 
+### XLV_W_THREADED_COMMENTS
+A sheet has threaded comments, the conversations of current Excel versions ([MS-XLSX] §2.3.7). xlvane reads only the notes (legacy comments, ECMA-376 Part 1 §18.7). Excel stores a placeholder note next to each conversation; its author is `tc={id}` and its text may not contain the replies. `Sheet.notes` lists these placeholders as they are stored.
+
 ### XLV_W_SHEET_PART_MISSING
 A sheet listed in the workbook has no part (the relationship or the part itself is missing). The sheet is returned with `part: null` and no cells.
 

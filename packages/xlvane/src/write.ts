@@ -5,6 +5,7 @@ import { normalizeProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
+import { MAX_AUTHOR_LENGTH, type NoteInput } from './notes';
 import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
@@ -351,6 +352,8 @@ export class NewSheet {
   viewSettings: SheetView = DEFAULT_VIEW;
   /** @internal Hyperlinks by normalised range, in the order they were added. */
   readonly linkMap: Map<string, NormalizedHyperlink> = new Map();
+  /** @internal Notes by cell reference. */
+  readonly noteMap: Map<string, StoredNote> = new Map();
   private count = 0;
 
   /** @internal Use {@link NewWorkbook.addSheet}. */
@@ -712,6 +715,28 @@ export class NewSheet {
     return this;
   }
 
+  /**
+   * Attaches a note (comment) to a cell, or removes it with `null`. The note is plain text or
+   * `{ text | runs, author? }` (see `NoteInput` for the limits); the cell does not need a value.
+   * Notes are hidden until the pointer rests on the cell, as in spreadsheet applications. Throws
+   * `XLV_E_INVALID_CELL_REF` or `XLV_E_INVALID_VALUE`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const sheet = createWorkbook().addSheet('Budget');
+   * sheet.set('B2', 1250).note('B2', 'Estimate from March');
+   * sheet.note('C2', { runs: [{ text: 'Ann: ', font: { bold: true } }, { text: 'check the total' }], author: 'Ann' });
+   * ```
+   */
+  note(ref: string, note: NoteInput | null): this {
+    const at = this.address(ref);
+    this.noteMap.delete(at.ref);
+    if (note !== null) this.noteMap.set(at.ref, { row: at.row, col: at.col, ...normalizeNote(note, { sheet: this.name, dateSystem: this.book.dateSystem }, at.ref) });
+    return this;
+  }
+
   /** @internal */
   data(): WriteSheetData {
     return {
@@ -726,8 +751,57 @@ export class NewSheet {
       tabColor: this.tab,
       view: this.viewSettings,
       hyperlinks: [...this.linkMap.values()],
+      notes: sortedNotes(this.noteMap),
     };
   }
+}
+
+/** A validated note: its cell, its text (plain or rich) and its author (`""` when not given). */
+export interface StoredNote {
+  readonly row: number;
+  readonly col: number;
+  readonly value: Extract<StoredValue, { kind: 'string' }>;
+  readonly author: string;
+}
+
+/** The notes of a sheet in row, then column order (deterministic output). */
+export function sortedNotes(notes: ReadonlyMap<string, StoredNote>): StoredNote[] {
+  return [...notes.values()].sort((a, b) => a.row - b.row || a.col - b.col);
+}
+
+/**
+ * Validates a {@link NoteInput}: text as a cell string, runs as `{ richText }`, the author up to
+ * 65 535 characters ([MS-OI29500] §2.1.689 a). Throws `XLV_E_INVALID_VALUE` naming the cell.
+ */
+function normalizeNote(note: unknown, ctx: ConvertContext, cell: string): Omit<StoredNote, 'row' | 'col'> {
+  const usage = 'Pass the text, or { text: "…", author: "Ann" }, or { runs: [{ text: "…", font: { bold: true } }] }.';
+  let input: unknown = note;
+  let author = '';
+  if (typeof note === 'object' && note !== null && !Array.isArray(note)) {
+    const keys = Object.keys(note);
+    const o = note as { text?: unknown; runs?: unknown; author?: unknown };
+    if (keys.some((k) => k !== 'text' && k !== 'runs' && k !== 'author') || (o.text === undefined) === (o.runs === undefined)) {
+      throw invalidValue(ctx.sheet, cell, `The note for ${cell} must have exactly one of "text" and "runs", and optionally "author".`, usage);
+    }
+    if (o.author !== undefined) {
+      if (typeof o.author !== 'string' || o.author.length > MAX_AUTHOR_LENGTH || firstLoneSurrogate(o.author) !== -1) {
+        throw invalidValue(ctx.sheet, cell, `The author of the note for ${cell} must be text of at most ${String(MAX_AUTHOR_LENGTH)} characters.`, 'Pass the author as a string, for example author: "Ann".');
+      }
+      author = o.author;
+    }
+    input = o.text !== undefined ? o.text : { richText: o.runs };
+    if (o.text !== undefined && typeof o.text !== 'string') throw invalidValue(ctx.sheet, cell, `The text of the note for ${cell} must be a string.`, usage);
+  } else if (typeof note !== 'string') {
+    throw invalidValue(ctx.sheet, cell, `The note for ${cell} must be text or an object.`, usage);
+  }
+  let stored: StoredValue | null;
+  try {
+    stored = convertCellInput(input, ctx, cell).stored;
+  } catch (error) {
+    if (!(error instanceof XlvError)) throw error;
+    throw new XlvError(error.code, `The note for ${cell}: ${error.message}`, { location: { sheet: ctx.sheet, cell }, hint: error.hint, details: error.details });
+  }
+  return { value: stored?.kind === 'string' ? stored : { kind: 'string', s: '' }, author };
 }
 
 /** Where a value is converted: names the sheet in errors and gives the date system. */

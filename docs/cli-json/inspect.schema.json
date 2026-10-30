@@ -306,6 +306,16 @@
                     "type": "integer",
                     "minimum": 0
                   },
+                  "noteCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "notes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
                   "hyperlinks": {
                     "type": "array",
                     "items": {
@@ -356,7 +366,9 @@
                   "richTextCells",
                   "styledColumns",
                   "hyperlinkCount",
-                  "hyperlinks"
+                  "hyperlinks",
+                  "noteCount",
+                  "notes"
                 ],
                 "additionalProperties": false
               }

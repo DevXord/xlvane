@@ -8,7 +8,9 @@ import { detectHeader } from './inspect';
 import { resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Conformance, DateSystem, SheetKind, SheetState, WorkbookFormat } from './model';
 import { openPackage } from './opc/package';
-import { analyzeWorkbook, workbookPartsToLoad, type WorkbookInfo } from './read';
+import type { Note } from './notes';
+import { analyzeWorkbook, readNotes, workbookPartsToLoad, type WorkbookInfo } from './read';
+import { classifyRelationship } from './sml/namespaces';
 import { columnLetters, formatCellRef } from './sml/cell-ref';
 import type { NumberFormat } from './sml/worksheet';
 import { createWorksheetParser } from './sml/worksheet';
@@ -89,6 +91,12 @@ export interface WorkbookStream {
   readonly definedNames: readonly DefinedName[];
   /** Warnings so far; rows read later can add more. */
   readonly warnings: readonly XlvWarning[];
+  /**
+   * The notes (comments) of a worksheet, read from its Comments part, which is separate from the
+   * rows. `rows` also sets `note` on the cells it returns. Throws `XLV_E_SHEET_NOT_FOUND` for an
+   * unknown name.
+   */
+  notes(sheet: string): Promise<readonly Note[]>;
   /**
    * The rows of a worksheet in file order, read lazily. Can be called again to read the sheet
    * again. Throws `XLV_E_SHEET_NOT_FOUND` for an unknown name (exact match).
@@ -224,11 +232,33 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     });
   };
 
+  const noteCache = new Map<string, readonly Note[]>();
+  async function notesOf(name: string): Promise<readonly Note[]> {
+    const entry = sheetEntry(name);
+    if (entry.kind !== 'worksheet' || entry.part === null) return [];
+    const cached = noteCache.get(entry.part);
+    if (cached !== undefined) return cached;
+    const rel = pkg.relationships(entry.part).find((r) => !r.external && classifyRelationship(r.type)?.name === 'comments');
+    if (rel !== undefined) await preloaded.load([zipName(rel.target)]);
+    const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings));
+    noteCache.set(entry.part, notes);
+    return notes;
+  }
+
   async function* rows(name: string): AsyncGenerator<StreamRow> {
     const entry = sheetEntry(name);
     if (entry.kind !== 'worksheet' || entry.part === null) return;
     const part = entry.part;
     const ready: StreamRow[] = [];
+    const notes = new Map<string, Note>();
+    for (const note of await notesOf(name)) if (!notes.has(note.ref)) notes.set(note.ref, note);
+    const withNotes = (cells: readonly Cell[]): readonly Cell[] => {
+      if (notes.size === 0) return cells;
+      return cells.map((cell) => {
+        const note = notes.get(cell.ref);
+        return note === undefined ? cell : { ...cell, note };
+      });
+    };
     const { handler, finish } = createWorksheetParser(
       {
         part,
@@ -244,7 +274,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
         budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars },
         formatCache,
       },
-      (number, cells, rowInfo) => ready.push({ number, cells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
+      (number, cells, rowInfo) => ready.push({ number, cells: withNotes(cells), height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
     );
     const parser = createXmlByteStreamParser(handler, { part, limits });
     const reader = zip.stream(zipName(part)).getReader();
@@ -276,6 +306,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     get warnings() {
       return warnings.list();
     },
+    notes: notesOf,
     rows(name: string): AsyncIterableIterator<StreamRow> {
       sheetEntry(name);
       return rows(name);

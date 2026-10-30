@@ -136,6 +136,10 @@ export interface InspectSheet {
   readonly hyperlinkCount: number;
   /** Up to ten hyperlinks: range, external target and place in the workbook. Targets are never opened. */
   readonly hyperlinks: readonly { readonly ref: string; readonly target: string | null; readonly location: string | null }[];
+  /** Number of notes (`Sheet.notes`). */
+  readonly noteCount: number;
+  /** Up to ten cells that have a note. */
+  readonly notes: readonly string[];
 }
 
 /**
@@ -373,6 +377,8 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     styledColumns: styledColumns(sheet, options.maxColumns),
     hyperlinkCount: sheet.hyperlinks.length,
     hyperlinks: sheet.hyperlinks.slice(0, MAX_HYPERLINK_SAMPLES).map((l) => ({ ref: l.ref, target: l.target, location: l.location })),
+    noteCount: sheet.notes.length,
+    notes: sheet.notes.slice(0, MAX_HYPERLINK_SAMPLES).map((n) => n.ref),
   };
   if (empty) {
     return { ...base, rowCount: 0, columnCount: 0, headerRow: null, columns: [], columnsTruncated: false };

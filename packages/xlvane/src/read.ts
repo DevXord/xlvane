@@ -3,6 +3,7 @@ import { isAppPropertiesRel, isCorePropertiesRel, parseAppProperties, parseCoreP
 import { XlvError, type XlvWarning } from './errors';
 import { isUnusualTarget, type Hyperlink } from './hyperlinks';
 import { resolveLimits, type ReadLimits } from './limits';
+import { parseComments, THREADED_COMMENTS_REL, type Note } from './notes';
 import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, SheetView, Workbook, WorkbookFormat } from './model';
 import type { Color } from './style';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
@@ -61,6 +62,7 @@ class ReadSheet implements Sheet {
     readonly part: string | null,
     private readonly data: WorksheetData | null,
     readonly hyperlinks: readonly Hyperlink[] = [],
+    readonly notes: readonly Note[] = [],
   ) {}
 
   get dimension(): string | null {
@@ -236,7 +238,9 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
       });
     }
     const links = data === null || entry.part === null ? [] : resolveHyperlinks(pkg, entry.part, entry.name, data, warnings);
-    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links);
+    const notes = data === null || entry.part === null ? [] : readNotes(pkg, entry.part, entry.name, limits, warnings);
+    if (data !== null) attachNotes(data.rows, notes);
+    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links, notes);
   });
   return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames);
 }
@@ -292,6 +296,38 @@ function resolveHyperlinks(pkg: OpcPackage, part: string, sheet: string, data: W
     } else for (const [r, cells] of data.rows) if (r >= range.start.row && r <= range.end.row) visit(cells);
   }
   return links;
+}
+
+/**
+ * The notes of a worksheet: the Comments part named by an internal relationship of the sheet
+ * (W2-46), read as text; the VML part that draws them is not read. Threaded comments
+ * ([MS-XLSX] §2.3.7) are reported with `XLV_W_THREADED_COMMENTS`; their legacy placeholders are
+ * ordinary notes.
+ */
+export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: ReadLimits, warnings: WarningCollector): Note[] {
+  const rels = pkg.relationships(part);
+  if (rels.some((r) => r.type === THREADED_COMMENTS_REL)) {
+    warnings.add('XLV_W_THREADED_COMMENTS', 'The sheet has threaded comments (conversations); xlvane reads only the notes stored with them, whose author is "tc={id}" and whose text may not include the replies.', { part, sheet });
+  }
+  const rel = rels.find((r) => !r.external && classifyRelationship(r.type)?.name === 'comments');
+  if (rel === undefined) return [];
+  const xml = pkg.readXml(rel.target);
+  if (xml === undefined) {
+    warnings.add('XLV_W_PART_MISSING', 'The sheet refers to a comments part that does not exist; its notes are not read.', { part: rel.target, sheet });
+    return [];
+  }
+  return parseComments(xml, { part: rel.target, sheet, limits, warnings });
+}
+
+/** Sets `note` on the existing cells that have one (the first note of a cell wins). */
+export function attachNotes(rows: Map<number, Map<number, Cell>>, notes: readonly Note[]): void {
+  for (const note of notes) {
+    const address = parseCellRef(note.ref);
+    if (address === null) continue;
+    const cells = rows.get(address.row);
+    const cell = cells?.get(address.col);
+    if (cells && cell && cell.note === undefined) cells.set(address.col, { ...cell, note });
+  }
 }
 
 /** A sheet as listed in the workbook part, before its cells are read. */

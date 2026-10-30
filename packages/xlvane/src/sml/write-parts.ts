@@ -5,6 +5,7 @@
 // schema types as ST_Xstring also through encodeXstring.
 import { definedNameXml, type NormalizedDefinedName } from '../defined-names';
 import type { NormalizedHyperlink } from '../hyperlinks';
+import { COMMENTS_CONTENT_TYPE, VML_CONTENT_TYPE } from '../notes';
 import {
   APP_PROPERTIES_CONTENT_TYPE,
   APP_PROPERTIES_PART,
@@ -23,7 +24,7 @@ import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
 import { CONTENT_TYPES_NS, PACKAGE_REL_NS, REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS } from './numfmt';
-import type { StoredCell, StoredRun, StoredValue } from '../write';
+import type { StoredCell, StoredNote, StoredRun, StoredValue } from '../write';
 
 /** One sheet, as handed over by `NewSheet`. */
 export interface WriteSheetData {
@@ -42,6 +43,8 @@ export interface WriteSheetData {
   readonly view?: SheetView;
   /** Hyperlinks in the order they were added (W2-42). */
   readonly hyperlinks?: readonly NormalizedHyperlink[];
+  /** Notes in row, then column order (W2-45). */
+  readonly notes?: readonly StoredNote[];
 }
 
 /** Everything needed to write a package. */
@@ -509,7 +512,89 @@ export function hyperlinksXml(links: readonly NormalizedHyperlink[], rels: Sheet
   return `${xml}</hyperlinks>`;
 }
 
-function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings, rels: SheetRels): string {
+// ---------------------------------------------------------------------------------------------
+// Notes (comments): a Comments part with the text and a VML Drawing part with the boxes
+
+/** The parts that hold the notes of one worksheet, and the `legacyDrawing` element for it. */
+export interface NoteParts {
+  /** `<legacyDrawing r:id="…"/>`, to be written after `hyperlinks` (CT_Worksheet, W2-48). */
+  readonly legacyDrawing: string;
+  readonly comments: { readonly name: string; readonly xml: string };
+  readonly vml: { readonly name: string; readonly xml: string };
+  /** Number of 1024-id blocks of shape ids the VML part uses. */
+  readonly blocks: number;
+}
+
+/** Part name of the Comments part of worksheet `n` (1-based). */
+export function commentsPartName(n: number): string {
+  return `xl/comments${String(n)}.xml`;
+}
+
+/**
+ * Builds the Comments part (W2-45, W2-46) and the VML Drawing part (W2-47) of worksheet `n` and
+ * adds their relationships to `rels`; `null` when the sheet has no notes. Shape ids use the
+ * 1024-id blocks from `block` on, written in `o:idmap`, as in the examples of Part 1 Annex
+ * L.5.5.2 and Part 4 §19.4 (`data="1"` with ids from 1025).
+ */
+export function noteParts(notes: readonly StoredNote[], n: number, rels: SheetRels, block: number): NoteParts | null {
+  if (notes.length === 0) return null;
+  const commentsName = commentsPartName(n);
+  const vmlName = `xl/drawings/vmlDrawing${String(n)}.vml`;
+  rels.add('comments', `../comments${String(n)}.xml`);
+  const vmlId = rels.add('vmlDrawing', `../drawings/vmlDrawing${String(n)}.vml`);
+  const authors = new Map<string, number>();
+  let list = '';
+  for (const note of notes) {
+    let id = authors.get(note.author);
+    if (id === undefined) {
+      id = authors.size;
+      authors.set(note.author, id);
+    }
+    list += `<comment${attr('ref', formatCellRef(note.row, note.col))}${attr('authorId', id)}><text>${stringItemXml(note.value)}</text></comment>`;
+  }
+  let comments = `${XML_DECL}<comments xmlns="${NS}"><authors>`;
+  for (const author of authors.keys()) comments += `<author>${escapeText(encodeXstring(author))}</author>`;
+  comments += `</authors><commentList>${list}</commentList></comments>`;
+  const blocks = Math.ceil(notes.length / 1024);
+  return { legacyDrawing: `<legacyDrawing${attr('r:id', vmlId)}/>`, comments: { name: commentsName, xml: comments }, vml: { name: vmlName, xml: vmlXml(notes, block, blocks) }, blocks };
+}
+
+/** Points per default column (64 px) and row (20 px) and per pixel, for the box position. */
+const COLUMN_PT = 48;
+const ROW_PT = 15;
+const PX_PT = 0.75;
+
+/**
+ * The VML Drawing part (Part 4 §8.2, §19.1.2.19, §19.4; W2-47): one hidden text box shape per
+ * note, with the `x:ClientData` of the Part 4 §19.4 example minus `x:Visible` (so the note is
+ * hidden, §19.4.2.65). The box lies right of the cell; its anchor follows the Part 1 Annex
+ * L.5.5.2 example, and the CSS position is computed for default column widths and row heights.
+ */
+function vmlXml(notes: readonly StoredNote[], block: number, blocks: number): string {
+  const ids = Array.from({ length: blocks }, (_, i) => String(block + i)).join(',');
+  let xml =
+    '<xml xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel">' +
+    `<o:shapelayout v:ext="edit"><o:idmap v:ext="edit"${attr('data', ids)}/></o:shapelayout>` +
+    '<v:shapetype id="_x0000_t202" coordsize="21600,21600" o:spt="202" path="m,l,21600r21600,l21600,xe"><v:stroke joinstyle="miter"/><v:path gradientshapeok="t" o:connecttype="rect"/></v:shapetype>';
+  notes.forEach((note, k) => {
+    const row = note.row - 1;
+    const col = note.col - 1;
+    const top = Math.max(row - 1, 0);
+    const style =
+      `position:absolute;margin-left:${String((col + 1) * COLUMN_PT + 15 * PX_PT)}pt;margin-top:${String(top * ROW_PT + 10 * PX_PT)}pt;` +
+      `width:${String(2 * COLUMN_PT)}pt;height:${String(4 * ROW_PT - 6 * PX_PT)}pt;z-index:${String(k + 1)};visibility:hidden`;
+    xml +=
+      `<v:shape${attr('id', `_x0000_s${String(block * 1024 + k + 1)}`)} type="#_x0000_t202"${attr('style', style)} fillcolor="#ffffe1" o:insetmode="auto">` +
+      '<v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/><v:path o:connecttype="none"/>' +
+      '<v:textbox style="mso-direction-alt:auto"><div style="text-align:left"></div></v:textbox>' +
+      '<x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/>' +
+      `<x:Anchor>${[col + 1, 15, top, 10, col + 3, 15, top + 4, 4].join(', ')}</x:Anchor>` +
+      `<x:AutoFill>False</x:AutoFill><x:Row>${String(row)}</x:Row><x:Column>${String(col)}</x:Column></x:ClientData></v:shape>`;
+  });
+  return `${xml}</xml>`;
+}
+
+function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings, rels: SheetRels, after = ''): string {
   const rowNumbers = new Set<number>([...sheet.cells.keys(), ...sheet.rows.keys()]);
   const sortedRows = [...rowNumbers].sort((a, b) => a - b);
 
@@ -542,7 +627,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
     }
     xml += '</row>';
   }
-  return xml + sheetTail(sheet.autoFilter, sheet.merges, hyperlinksXml(sheet.hyperlinks ?? [], rels));
+  return xml + sheetTail(sheet.autoFilter, sheet.merges, hyperlinksXml(sheet.hyperlinks ?? [], rels) + after);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -554,7 +639,15 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const sst = new SharedStrings();
   const active = input.sheets.findIndex((s) => s.state === 'visible');
   const sheetRels = input.sheets.map(() => new SheetRels());
-  const sheetParts = input.sheets.map((sheet, i) => sheetXml(sheet, i === active, xfOf, sst, sheetRels[i]!));
+  const notes: (NoteParts | null)[] = [];
+  let block = 1;
+  const sheetParts = input.sheets.map((sheet, i) => {
+    const rels = sheetRels[i]!;
+    const parts = noteParts(sheet.notes ?? [], i + 1, rels, block);
+    notes.push(parts);
+    if (parts !== null) block += parts.blocks;
+    return sheetXml(sheet, i === active, xfOf, sst, rels, parts?.legacyDrawing);
+  });
 
   const n = input.sheets.length;
   const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames);
@@ -562,7 +655,8 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const core = corePropertiesXml(input.properties ?? {});
   const app = appPropertiesXml(input.properties ?? {}, input.sheets.map((sheet) => sheet.name), nameTitles(input.definedNames ?? []));
   const rootRels = rootRelsXml(core !== null, app !== null);
-  const types = contentTypesXml(n, true, core !== null, app !== null);
+  const noteSheets = notes.flatMap((p, i) => (p === null ? [] : [i + 1]));
+  const types = contentTypesXml(n, true, core !== null, app !== null, noteSheets);
 
   const entries: ZipWriteEntry[] = [
     { name: '[Content_Types].xml', data: encoder.encode(types) },
@@ -576,6 +670,8 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   sheetRels.forEach((rels, i) => {
     const xml = rels.xml();
     if (xml !== null) entries.push({ name: sheetRelsPartName(i + 1), data: encoder.encode(xml) });
+    const parts = notes[i];
+    if (parts) entries.push({ name: parts.comments.name, data: encoder.encode(parts.comments.xml) }, { name: parts.vml.name, data: encoder.encode(parts.vml.xml) });
   });
   if (core !== null) entries.push({ name: CORE_PROPERTIES_PART, data: encoder.encode(core) });
   if (app !== null) entries.push({ name: APP_PROPERTIES_PART, data: encoder.encode(app) });
@@ -651,11 +747,16 @@ export function rootRelsXml(coreProperties = false, appProperties = false): stri
   );
 }
 
-/** The Media Types stream (W2-30). */
-export function contentTypesXml(sheetCount: number, sharedStrings: boolean, coreProperties = false, appProperties = false): string {
+/**
+ * The Media Types stream (W2-30). `noteSheets` lists the worksheets (1-based) that have notes:
+ * each gets an Override for its Comments part, and the VML parts are covered by a `vml` Default.
+ */
+export function contentTypesXml(sheetCount: number, sharedStrings: boolean, coreProperties = false, appProperties = false, noteSheets: readonly number[] = []): string {
   let types = `${XML_DECL}<Types xmlns="${CONTENT_TYPES_NS}">`;
   types += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>';
   types += '<Default Extension="xml" ContentType="application/xml"/>';
+  if (noteSheets.length > 0) types += `<Default Extension="vml"${attr('ContentType', VML_CONTENT_TYPE)}/>`;
+  for (const i of noteSheets) types += `<Override${attr('PartName', `/${commentsPartName(i)}`)}${attr('ContentType', COMMENTS_CONTENT_TYPE)}/>`;
   types += `<Override PartName="/xl/workbook.xml" ContentType="${CT_BASE}sheet.main+xml"/>`;
   for (let i = 1; i <= sheetCount; i++) types += `<Override PartName="/xl/worksheets/sheet${String(i)}.xml" ContentType="${CT_BASE}worksheet+xml"/>`;
   types += `<Override PartName="/xl/styles.xml" ContentType="${CT_BASE}styles+xml"/>`;

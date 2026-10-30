@@ -100,10 +100,31 @@ console.log(read.properties.title, read.definedNames, read.getSheet('Sales').cel
 ```
 
 - **Rich text:** `{ richText: [{ text, font? }] }` writes text whose parts have their own fonts. Reading keeps `cell.value` as the plain text and adds `cell.richText` with the runs. Run fonts take the same properties as cell fonts.
-- **Document properties:** `properties` (`title`, `subject`, `creator`, `keywords`, `description`, `lastModifiedBy`, `category`, `created`, `modified`, `lastPrinted`, and a few more) are stored in `docProps/core.xml`, only when at least one is set. Read them from `workbook.properties`. `company` and `manager` are not supported yet.
+- **Document properties:** `properties` (`title`, `subject`, `creator`, `keywords`, `description`, `lastModifiedBy`, `category`, `created`, `modified`, `lastPrinted`, and a few more) are stored in `docProps/core.xml`, only when at least one is set. Read them from `workbook.properties`. `company`, `manager`, `application` and `appVersion` go to `docProps/app.xml`.
 - **Defined names:** `workbook.defineName(name, refersTo, { sheet?, hidden?, comment? })`; `workbook.definedNames` lists the names of a file that was read, built-in names such as `_xlnm._FilterDatabase` included. Invalid names throw `XLV_E_INVALID_DEFINED_NAME`.
 - **Column styles:** `column(c, { style })` stores a default style for the column. Applications use it for cells added later; xlvane does not apply it to the cells you set. Reading gives `sheet.columns[i].style`.
 - **Built-in number formats:** `numFmt` may be a built-in format number such as `14` (a date shown in the reader's local date order). A format code string such as `'yyyy-mm-dd'` is shown the same everywhere.
+
+### Hyperlinks, notes, tab colour and view
+
+```ts
+import { createWorkbook, readWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook({ properties: { company: 'Example Ltd' } });
+const sheet = workbook.addSheet('Links').tabColor('FF0070C0').view({ zoom: 120, showGridLines: false });
+sheet.set('A1', 'Docs').link('A1', { url: 'https://example.com/docs', tooltip: 'Open the docs' });
+sheet.set('A2', 'Back to top').link('A2', { location: 'Links!A1' });
+sheet.set('B2', 1250).note('B2', { text: 'Estimate from March', author: 'Ann' });
+
+const read = readWorkbook(writeWorkbook(workbook)).getSheet('Links');
+console.log(read.hyperlinks, read.notes, read.cell('B2')?.note?.text, read.tabColor, read.view.zoom);
+```
+
+- **Hyperlinks:** `link(range, { url | location, tooltip?, display? })`. A `url` (web page, `mailto:`, file) is stored as an external relationship of the sheet; a `location` (a place in the workbook) is stored without one. The cell text is set with `set`. Reading gives `sheet.hyperlinks` and `cell.hyperlink`; xlvane never opens a target, and `XLV_W_UNUSUAL_HYPERLINK` reports targets other than http(s) or mailto.
+- **Notes (comments):** `note(cell, text | { text | runs, author? })`. The cell needs no value. Notes are written hidden, as spreadsheet applications show them when the pointer rests on the cell. Reading gives `sheet.notes` and `cell.note` (`text`, `author`, and `runs` for rich text). Threaded comments of current Excel versions are not read; their placeholder notes are, with `XLV_W_THREADED_COMMENTS`.
+- **Tab colour and view:** `tabColor(color)`, and `view({ zoom, showGridLines, showRowColHeaders, rightToLeft, layout, split })`. Reading gives `sheet.tabColor` and `sheet.view`.
+- **Streaming:** `writeWorkbookStream` takes `hyperlinks` and `notes` per row (`{ values, hyperlinks: [...], notes: [...] }`, by column position) and `tabColor`/`view` per sheet. `openWorkbookStream` sets `cell.note` on the rows it returns and lists a sheet's notes with `notes(sheet)`; it does not set `cell.hyperlink`.
+- `editCells` and `appendRows` keep existing links and notes but cannot add new ones yet.
 
 ## Tasks in one call
 

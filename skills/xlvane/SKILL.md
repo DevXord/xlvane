@@ -81,7 +81,22 @@ out.addSheet('Data').set('A1', { richText: [{ text: 'Net ', font: { bold: true }
 out.defineName('Net', 'Data!$B$2');
 ```
 
-`inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount` and `styledColumns`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
+Hyperlinks, notes (comments), tab colour and view:
+
+```ts
+import { createWorkbook, readWorkbook } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const sheet = readWorkbook(bytes).getSheet('Sales');
+console.log(sheet.hyperlinks.map((l) => `${l.ref} → ${l.target ?? l.location ?? ''}`), sheet.notes.map((n) => `${n.ref}: ${n.text}`));
+
+const out = createWorkbook({ properties: { company: 'Example Ltd' } });
+out.addSheet('Data').tabColor('FF0070C0').set('A1', 'Docs').link('A1', { url: 'https://example.com' }).note('B2', { text: 'Check', author: 'Ann' });
+```
+
+Link targets are never opened. Notes are written hidden and need no cell value. `editCells` keeps existing links and notes but cannot add new ones.
+
+`inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount`, `styledColumns`, `hyperlinkCount` and `noteCount`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
 
 In Node.js, `xlvane/node` adds `readWorkbookFile`, `inspectFile` and `writeWorkbookFile` (which never replaces an existing file unless `{ overwrite: true }` is passed). `toCSV`, `fromCSV`, `toJSON` and `fromJSON` convert tables. For very large files use `openWorkbookStream` and `writeWorkbookStream`.
 

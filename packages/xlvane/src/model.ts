@@ -3,6 +3,7 @@ import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import type { XlvWarning } from './errors';
 import type { Hyperlink } from './hyperlinks';
+import type { Note } from './notes';
 import type { CellStyle, Color, FontStyle } from './style';
 
 /**
@@ -137,6 +138,11 @@ export interface Cell {
    * by the streaming reader, because the links follow the rows in the file (D-A08).
    */
   readonly hyperlink?: Hyperlink;
+  /**
+   * The note (comment) of this cell, if any. Notes of cells without a value are listed only in
+   * `Sheet.notes`. The streaming reader sets it on the cells it returns.
+   */
+  readonly note?: Note;
 }
 
 /**
@@ -362,6 +368,8 @@ export interface Sheet {
   readonly autoFilter: string | null;
   /** Hyperlinks of the sheet in file order (see `Hyperlink`); their targets are never opened. */
   readonly hyperlinks: readonly Hyperlink[];
+  /** Notes (comments) of the sheet, in file order (see `Note`). */
+  readonly notes: readonly Note[];
   /** Colour of the sheet tab (`sheetPr/tabColor`), or `null`. */
   readonly tabColor: Color | null;
   /** Display settings of the sheet's first view. */

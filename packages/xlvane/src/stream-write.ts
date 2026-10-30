@@ -6,6 +6,7 @@ import { APP_PROPERTIES_PART, appPropertiesXml, CORE_PROPERTIES_PART, coreProper
 import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
 import type { DateSystem, SheetState } from './model';
+import type { NoteInput } from './notes';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
 import {
   buildStyles,
@@ -18,6 +19,8 @@ import {
   sheetHead,
   sheetTail,
   hyperlinksXml,
+  noteParts,
+  type NoteParts,
   SheetRels,
   sheetRelsPartName,
   workbookRelsXml,
@@ -31,6 +34,7 @@ import {
   createWorkbook,
   DATE_FORMAT,
   DATE_TIME_FORMAT,
+  sortedNotes,
   type CellInput,
   type ColumnOptions,
   type FreezeOptions,
@@ -49,6 +53,7 @@ import { createZipStream, type ZipStreamEntry } from './zip/stream';
  *
  * const plain: StreamRowInput = ['Alice', 42, new Date(Date.UTC(2024, 0, 31))];
  * const header: StreamRowInput = { values: ['Name', 'Total', 'Date'], style: { font: { bold: true } }, height: 20 };
+ * const linked: StreamRowInput = { values: ['Docs', 7], hyperlinks: [{ url: 'https://example.com' }], notes: [undefined, 'Estimate'] };
  * ```
  */
 export type StreamRowInput =
@@ -62,6 +67,13 @@ export type StreamRowInput =
       /** Row height in points. */
       readonly height?: number;
       readonly hidden?: boolean;
+      /** Hyperlink per cell, by position, as for `NewSheet.link`. */
+      readonly hyperlinks?: readonly (HyperlinkTarget | null | undefined)[];
+      /**
+       * Note per cell, by position, as for `NewSheet.note`. Notes are kept in memory until the
+       * sheet ends, because they are written to their own parts after the rows.
+       */
+      readonly notes?: readonly (NoteInput | null | undefined)[];
     };
 
 /**
@@ -156,8 +168,10 @@ interface PreparedSheet {
   readonly rows: Iterable<StreamRowInput> | AsyncIterable<StreamRowInput>;
   /** Filled in while the sheet is written. */
   filterRange: CellRange | null;
-  /** Relationships of the sheet part (hyperlinks), written after the sheet. */
+  /** Relationships of the sheet part (hyperlinks, notes), written after the sheet. */
   readonly rels: SheetRels;
+  /** The note parts, known when the sheet has been written. */
+  notes: NoteParts | null;
 }
 
 function isIterable(value: unknown): value is Iterable<unknown> | AsyncIterable<unknown> {
@@ -268,7 +282,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
         sheet.link(ref as string, target);
       }
     }
-    return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null, rels: new SheetRels() };
+    return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null, rels: new SheetRels(), notes: null };
   };
   const noVisibleSheet = (): XlvError =>
     new XlvError('XLV_E_INVALID_INPUT', 'All sheets of the workbook are hidden.', { hint: 'A workbook needs at least one visible sheet.' });
@@ -288,7 +302,10 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     return n;
   };
 
-  async function* sheetData(p: PreparedSheet, selected: boolean): AsyncGenerator<Uint8Array> {
+  /** First 1024-id block of VML shape ids for the next sheet with notes. */
+  let shapeBlock = 1;
+
+  async function* sheetData(p: PreparedSheet, selected: boolean, n: number): AsyncGenerator<Uint8Array> {
     const name = p.sheet.name;
     let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings }, selected, null);
     let r = 0;
@@ -308,7 +325,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       let info: { height: number | null; hidden: boolean } | undefined;
       if (Array.isArray(raw)) values = raw;
       else {
-        const ro = readOptions(raw, ['values', 'style', 'styles', 'height', 'hidden'], `row ${String(r)} of sheet "${name}"`);
+        const ro = readOptions(raw, ['values', 'style', 'styles', 'height', 'hidden', 'hyperlinks', 'notes'], `row ${String(r)} of sheet "${name}"`);
         const v = ro.get('values');
         if (!Array.isArray(v)) {
           throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(r)} of sheet "${name}" is not an array of values.`, { location: { sheet: name }, hint: 'Yield arrays of values, or { values: [...] } objects.', details: { row: r } });
@@ -323,6 +340,23 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
           p.sheet.row(r, { ...(height === undefined ? {} : { height: height as number }), ...(hidden === undefined ? {} : { hidden: hidden as boolean }) });
           info = p.sheet.rowMap.get(r);
           p.sheet.rowMap.delete(r);
+        }
+        for (const key of ['hyperlinks', 'notes'] as const) {
+          const list = ro.get(key);
+          if (list === undefined) continue;
+          if (!Array.isArray(list)) {
+            throw new XlvError('XLV_E_INVALID_OPTION', `${key} of row ${String(r)} of sheet "${name}" must be an array, by column position.`, {
+              location: { sheet: name },
+              hint: key === 'notes' ? 'For example notes: [undefined, "Checked"] for a note on column B.' : 'For example hyperlinks: [{ url: "https://example.com" }] for a link on column A.',
+              details: { option: key },
+            });
+          }
+          list.forEach((item: unknown, c) => {
+            if (item === undefined || item === null) return;
+            const ref = formatCellRef(r, c + 1);
+            if (key === 'notes') p.sheet.note(ref, item as NoteInput);
+            else p.sheet.link(ref, item as HyperlinkTarget);
+          });
         }
       }
       if (values.length > MAX_COLUMNS) {
@@ -363,9 +397,21 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     }
     if (p.autoFilter === true) p.filterRange = r > 0 && maxCol > 0 ? { start: { row: 1, col: 1 }, end: { row: r, col: maxCol } } : null;
     else if (p.autoFilter !== false) p.filterRange = p.autoFilter;
-    buffer += sheetTail(p.filterRange, p.sheet.mergeList, hyperlinksXml([...p.sheet.linkMap.values()], p.rels));
+    p.notes = noteParts(sortedNotes(p.sheet.noteMap), n, p.rels, shapeBlock);
+    p.sheet.noteMap.clear();
+    if (p.notes !== null) shapeBlock += p.notes.blocks;
+    buffer += sheetTail(p.filterRange, p.sheet.mergeList, hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + (p.notes?.legacyDrawing ?? ''));
     yield encoder.encode(buffer);
   }
+
+  /** The Comments and VML parts of a sheet with notes, after the sheet has been written. */
+  function* noteEntries(p: PreparedSheet): Generator<ZipStreamEntry> {
+    const parts = p.notes;
+    if (parts === null) return;
+    yield { name: parts.comments.name, data: encoder.encode(parts.comments.xml) };
+    yield { name: parts.vml.name, data: encoder.encode(parts.vml.xml) };
+  }
+  const noteSheets = (): number[] => prepared.flatMap((p, i) => (p.notes === null ? [] : [i + 1]));
 
   /**
    * The sheet's relationships part, if it has relationships. The ZIP stream reads an entry's data
@@ -392,38 +438,33 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   /** `docProps/app.xml` (W2-52); known once the sheets and names are. */
   const appXml = (): string | null => appPropertiesXml(book.properties, prepared.map((p) => p.sheet.name), nameTitles(book.definedNames));
   async function* entries(): AsyncGenerator<ZipStreamEntry> {
-    if (!dynamic) {
-      const active = prepared.findIndex((p) => p.sheet.state === 'visible');
-      const app = appXml() !== null;
-      yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app)) };
-      yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null, app)) };
-      for (let i = 0; i < prepared.length; i++) {
-        const p = prepared[i];
-        if (p) {
-          yield { name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: sheetData(p, i === active) };
-          yield* sheetRelsEntry(p, i + 1);
-        }
-      }
-      yield* closingParts();
-      return;
-    }
-    // Sheets given as an iterable are prepared when they are reached, so they can be added while
-    // earlier sheets are written; the package-level parts follow the sheets (D-409). ZIP entries
-    // may be stored in any order (APPNOTE §4.3.3, Z-19).
+    // The package-level parts follow the sheets: which sheets have notes, and so which parts the
+    // content types must name, is known only after the rows (D-A12); sheets given as an iterable
+    // can be added while earlier ones are written (D-409). ZIP entries may be stored in any order
+    // (APPNOTE §4.3.3, Z-19).
     let selected = false;
-    for await (const raw of iterate(specs as Iterable<unknown>)) {
-      const p = prepare(raw, prepared.length);
-      prepared.push(p);
+    const sheets: AsyncIterable<unknown> | Iterable<unknown> = dynamic ? iterate(specs as Iterable<unknown>) : prepared;
+    let n = 0;
+    for await (const raw of sheets) {
+      let p: PreparedSheet;
+      if (dynamic) {
+        p = prepare(raw, prepared.length);
+        prepared.push(p);
+      } else p = raw as PreparedSheet;
+      n++;
       const select = !selected && p.sheet.state === 'visible';
       if (select) selected = true;
-      yield { name: `xl/worksheets/sheet${String(prepared.length)}.xml`, data: sheetData(p, select) };
-      yield* sheetRelsEntry(p, prepared.length);
+      yield { name: `xl/worksheets/sheet${String(n)}.xml`, data: sheetData(p, select, n) };
+      // The ZIP stream reads an entry's data completely before it asks for the next entry, so the
+      // sheet has been written (and its notes and relationships are known) by now.
+      yield* noteEntries(p);
+      yield* sheetRelsEntry(p, n);
     }
     if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
     if (!selected) throw noVisibleSheet();
-    addNames();
+    if (dynamic) addNames();
     const app = appXml() !== null;
-    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app)) };
+    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app, noteSheets())) };
     yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null, app)) };
     yield* closingParts();
   }

@@ -17,7 +17,7 @@ export const inspectCommand: CommandSpec = {
   name: 'inspect',
   summary: 'See sheets, columns and problems in a workbook',
   description:
-    'Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected header rows, column types with sample values, merged cells, formulas, rich-text cells, column styles, document properties, defined names, and warnings such as macros or external links. Macros are never run and links are never followed. With --json the result is the inspect() report described in docs/inspect-json.md.',
+    'Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected header rows, column types with sample values, merged cells, formulas, rich-text cells, column styles, hyperlinks, notes, document properties, defined names, and warnings such as macros or external links. Macros are never run and links are never followed. With --json the result is the inspect() report described in docs/inspect-json.md.',
   usage: '<file> [options]',
   positionals: { min: 1, max: 1, names: ['file'] },
   options: {
@@ -93,6 +93,7 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
       const shown = s.hyperlinks.slice(0, 3).map((l) => `${l.ref} → ${l.target ?? ''}${l.location === null ? '' : `${l.target === null ? '' : '#'}${l.location}`}`);
       lines.push(`  Hyperlinks: ${plural(s.hyperlinkCount, 'link')} (${shown.join(', ')}${s.hyperlinkCount > 3 ? ', …' : ''})`);
     }
+    if (s.noteCount > 0) lines.push(`  Notes: ${plural(s.noteCount, 'note')} (${s.notes.slice(0, 5).join(', ')}${s.noteCount > 5 ? ', …' : ''})`);
   }
   if (r.warnings.length > 0) {
     lines.push('', 'Warnings:', ...warningLines(out, r.warnings));
