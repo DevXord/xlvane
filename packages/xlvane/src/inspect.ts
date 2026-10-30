@@ -140,6 +140,16 @@ export interface InspectSheet {
   readonly noteCount: number;
   /** Up to ten cells that have a note. */
   readonly notes: readonly string[];
+  /** `true` when the sheet is protected (`Sheet.protection.sheet`). */
+  readonly protected: boolean;
+  /** The print area (`Sheet.printArea`), or `null`. */
+  readonly printArea: readonly string[] | null;
+  /** Number of manual page breaks, rows and columns together (`Sheet.pageBreaks`). */
+  readonly pageBreakCount: number;
+  /** Number of data validation rules (`Sheet.dataValidations`). */
+  readonly dataValidationCount: number;
+  /** Number of conditional formatting rules, over all ranges (`Sheet.conditionalFormats`). */
+  readonly conditionalFormatCount: number;
 }
 
 /**
@@ -379,6 +389,11 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     hyperlinks: sheet.hyperlinks.slice(0, MAX_HYPERLINK_SAMPLES).map((l) => ({ ref: l.ref, target: l.target, location: l.location })),
     noteCount: sheet.notes.length,
     notes: sheet.notes.slice(0, MAX_HYPERLINK_SAMPLES).map((n) => n.ref),
+    protected: sheet.protection?.sheet === true,
+    printArea: sheet.printArea === null ? null : sheet.printArea.slice(0, MAX_HYPERLINK_SAMPLES),
+    pageBreakCount: sheet.pageBreaks.rows.length + sheet.pageBreaks.columns.length,
+    dataValidationCount: sheet.dataValidations.length,
+    conditionalFormatCount: sheet.conditionalFormats.reduce((n, f) => n + f.rules.length, 0),
   };
   if (empty) {
     return { ...base, rowCount: 0, columnCount: 0, headerRow: null, columns: [], columnsTruncated: false };

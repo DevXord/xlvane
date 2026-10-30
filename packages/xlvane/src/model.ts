@@ -3,7 +3,9 @@ import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import type { XlvWarning } from './errors';
 import type { Hyperlink } from './hyperlinks';
+import type { HeaderFooter, PageSetup, SheetProtection, WorkbookProtection } from './printing';
 import type { Note } from './notes';
+import type { ConditionalFormat, DataValidation } from './sheet-rules';
 import type { CellStyle, Color, FontStyle } from './style';
 
 /**
@@ -374,6 +376,25 @@ export interface Sheet {
   readonly tabColor: Color | null;
   /** Display settings of the sheet's first view. */
   readonly view: SheetView;
+  /** Data validations in file order (see `DataValidation`). */
+  readonly dataValidations: readonly DataValidation[];
+  /** Conditional formatting in file order (see `ConditionalFormat`); x14 extensions are not read. */
+  readonly conditionalFormats: readonly ConditionalFormat[];
+  /** `sheetProtection` of the sheet, or `null` when it has none (see `SheetProtection`). */
+  readonly protection: SheetProtection | null;
+  /** Page setup for printing, with the schema defaults where the file sets nothing. */
+  readonly pageSetup: PageSetup;
+  /** Printed headers and footers, or `null` when the sheet has none. */
+  readonly headerFooter: Required<HeaderFooter> | null;
+  /** Manual page breaks: rows and columns (numbers) that start a new printed page. */
+  readonly pageBreaks: { readonly rows: readonly number[]; readonly columns: readonly number[] };
+  /**
+   * The print area as ranges such as `["A1:H40"]` (from `_xlnm.Print_Area`), or `null` when the
+   * sheet has none or its text has another form; the raw text is in `Workbook.definedNames`.
+   */
+  readonly printArea: readonly string[] | null;
+  /** Rows (`"1:2"`) and columns (`"A:B"`) repeated on each printed page, or `null`. */
+  readonly printTitles: { readonly rows: string | null; readonly columns: string | null } | null;
   /** Height and visibility of a row (1-based), or `undefined` if the file sets neither. */
   rowInfo(row: number): RowInfo | undefined;
   /** Returns the cell at an A1-style reference, or `undefined` if the file has none there. */
@@ -411,6 +432,8 @@ export interface Workbook {
   readonly properties: WorkbookProperties;
   /** Defined names of the workbook part, in file order (built-in `_xlnm.` names included). */
   readonly definedNames: readonly DefinedName[];
+  /** `workbookProtection` of the workbook, or `null` (see `WorkbookProtection`). */
+  readonly protection: WorkbookProtection | null;
   /** Returns the sheet with this name; throws `XLV_E_SHEET_NOT_FOUND` if there is none. */
   getSheet(name: string): Sheet;
 }

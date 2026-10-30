@@ -1,0 +1,99 @@
+# Facts for sheet rules and printing (phase C)
+
+Ids `SR-*` are cited from code comments (`packages/xlvane/src/printing.ts` and the data validation and conditional formatting code). Sources:
+- **P1:** ECMA-376 Part 1, 5th edition (2016); **P4:** Part 4, 5th edition (2016);
+- **OI:** [MS-OI29500] rev. 25.0 (2026-08-18); **XLSX:** [MS-XLSX] rev. 30.0 (2026-10-16);
+- **T / S:** the Transitional `sml.xsd` (`spec/ECMA-376-4_5th_edition_december_2016/xsd/`) and the Strict `sml.xsd` (`spec/ECMA-376-1_supporting/OfficeOpenXML-XMLSchema-Strict/`), by line;
+- **R3:** the third local review report (2026-10-30, D-1104 conventions; the documents themselves are not in the repository), by item.
+
+The data validation and conditional formatting entries are in their own section (other ids).
+
+## Data validation (SR-01 … SR-06)
+
+### SR-01 — Elements, position and enumerations — VERIFIED
+CT_DataValidations T L2571, S L2550 (`dataValidation` 1..n; `count`, `disablePrompts`, `xWindow`, `yWindow`); CT_DataValidation T L2581, S L2560 (`formula1`, `formula2` 0..1, ST_Formula; attributes `type` default `none`, `errorStyle` default `stop`, `imeMode` default `noControl`, `operator` default `between`, the four booleans default false, `errorTitle`, `error`, `promptTitle`, `prompt` ST_Xstring, `sqref` required). ST_DataValidationType T L2601, ST_DataValidationOperator T L2613, ST_DataValidationErrorStyle T L2625, ST_DataValidationImeMode T L2632. Strict and Transitional are identical (R3 item 1, checked with `diff`). Position in CT_Worksheet: after `conditionalFormatting*`, before `hyperlinks` (T L2188–2191, S L2172–2175). Meanings: P1 §18.3.1.32 p.1619–1620 (L76301), §18.3.1.33 p.1620–1621 (L76392), §18.18.18–§18.18.21 p.2446–2449 (R3 item 1).
+
+### SR-02 — sqref — VERIFIED
+ST_Sqref: "A sequence of cell references, space delimited" (P1 §18.18.76 p.2487, L118381), a list of ST_Ref (T L213). Office limits `dataValidation@sqref` to 1–32767 references (OI §2.1.613 b) and any other ST_Sqref to 8192 (OI §2.1.1092 a). Implementation: the writer and reader keep each range in canonical A1 form (`$` removed), and refuse or skip lists over these limits.
+
+### SR-03 — formula1, formula2 and operator — VERIFIED (main element), Excel rules from [MS-XLSX]
+P1 §18.3.1.44 p.1635–1636 (L77108): `formula1` is the bound for `between`/`notBetween` and the only formula for the other operators and for `custom` and `list`; its content can be a formula, a constant or a "comma separated values" list. P1 §18.3.1.45 p.1636 (L77133): `formula2` is used only for `between` and `notBetween`. [MS-XLSX] §2.6.5 p.151–152 (x14 element; cross-check, R3 item 1): `formula1` MUST exist unless the type is `none`, `formula2` MUST exist exactly for `between`/`notBetween` on types other than `custom`, `list`, `none`, and for `custom`, `list`, `none` the operator "is undefined and MUST be ignored". Excel requires the content to follow the data validation formula grammar (OI §2.1.624 a, §2.1.625 a, §3.2.3.1.3, R3 item 7); ST_Formula at most 8192 characters (OI §2.1.1085 a). Implementation: the writer applies the [MS-XLSX] rules to the main element (`XLV_E_INVALID_OPTION`); the reader reports `operator` only for `whole`, `decimal`, `date`, `time`, `textLength` and `formula2` only for `between`/`notBetween` (LibreOffice 24.2.7.2 writes `operator="between"` and `<formula2>0</formula2>` on list validations, observed 2026-10-30).
+
+### SR-04 — Literal lists, dates and showDropDown — PARTLY
+**NOT FOUND** (R3 item 1): the written form of a literal list in `formula1` (no example in any document), and of date or time bounds. (Inference in R3 from the OI grammar: a literal list can only be a double-quoted string constant.) Observed: LibreOffice 24.2.7.2 keeps `"Yes,No"` as written (tests/libreoffice/sheet-rules.test.ts); exceljs 4.4.0 writes the same form (exploration of `data-validations-xform.js`). A date is written as its serial number: P1 §18.17.4 (p.2062–2063) says a number where a date is expected is read as a serial date-time. `showDropDown`: P1 only "whether to display" the drop-down; [MS-XLSX] §2.6.5 gives `true` = displays for the x14 element; no document says the main element differs (R3 item 1). Implementation: stored and read as given, meaning PROVISIONAL.
+
+### SR-05 — Message limits — VERIFIED
+OI §2.1.613 a, c, d, e (p.256, L15908; R3 item 6 A): `prompt` at most 255 characters, `error` 224, `errorTitle` 32, `promptTitle` 32. Implementation: enforced by the writer (`XLV_E_INVALID_OPTION`).
+
+### SR-06 — Number of validations — VERIFIED
+OI §2.1.614 b, g (p.256–257): `count` and the number of `dataValidation` elements at most 65534. Implementation: `XLV_E_LIMIT_EXCEEDED` on write; further elements are skipped with a warning on read.
+
+## Conditional formatting and differential formats (SR-07 … SR-16)
+
+### SR-07 — Elements, position and enumerations — VERIFIED
+CT_ConditionalFormatting T L2709, S L2688 (`cfRule` 1..n, `extLst`; `pivot`, `sqref`); CT_CfRule T L2717, S L2696 (`formula` 0..3, `colorScale`, `dataBar`, `iconSet`, `extLst`; `type`, `dxfId`, `priority` required, `stopIfTrue`, `aboveAverage` default true, `percent`, `bottom`, `operator`, `text` xsd:string, `timePeriod`, `rank`, `stdDev`, `equalAverage`). ST_CfType T L2647, ST_TimePeriod T L2669, ST_ConditionalFormattingOperator T L2683, ST_CfvoType T L2699, ST_IconSetType T L130 (S L127). Strict and Transitional identical (R3 item 2). Position: `conditionalFormatting*` after `phoneticPr`, before `dataValidations` (T L2188). Meanings: P1 §18.3.1.10 p.1597 (L75211), §18.3.1.18 p.1605 (L75625), §18.18.12/13/15/42/82 (R3 item 2.14).
+
+### SR-08 — sqref of a conditional format — VERIFIED
+`sqref` is optional in the schema; Office requires it to be non-empty (OI §2.1.602 a) and limits it to 8192 references (§2.1.1092 a). Implementation: required, at most 8192 ranges.
+
+### SR-09 — Attributes per rule type — VERIFIED
+P1 §18.3.1.10 (R3 2.4): `operator` is ignored unless `type` is `cellIs`; `rank`, `percent`, `bottom` unless `top10`; `aboveAverage`, `equalAverage`, `stdDev` unless `aboveAverage`; `text` unless `containsText`; `timePeriod` unless `timePeriod`. [MS-XLSX] §2.6.27 (x14, R3 2.5) allows `text` for `beginsWith`, `containsText`, `endsWith`, `notContainsText`. Office requires `type` (OI §2.1.595 a), `operator` exactly for cell value rules (§2.1.595 b; the note says "equals cells" [sic], read as `cellIs`), `timePeriod` exactly for `timePeriod` rules (c). Implementation: the writer refuses properties for other types; the reader reports them only for their types (LibreOffice 24.2.7.2 writes `aboveAverage="0" … rank="0" text=""` on a cellIs rule, observed 2026-10-30). `operator` is also accepted for the four text rule types, with the text operators only.
+
+### SR-10 — Priority — PARTLY
+P1 §18.3.1.10: lower values are higher priority, 1 the highest; `stopIfTrue` stops lower-priority rules. Uniqueness and range are **NOT FOUND** in P1 and OI (R3 2.6); [MS-XLSX] §2.6.27 (x14) says priority MUST be greater than 0 and MUST NOT duplicate any cfRule priority of the worksheet, main elements included. Implementation: the writer requires 1 ≤ priority ≤ 2147483647 (xsd:int), unique per sheet, and assigns the next free number when none is given; the reader keeps what the file has.
+
+### SR-11 — Formulas — PARTLY
+§18.3.1.43 (P1 p.1635): the content is a formula whose value is the criterion; Excel requires the conditional formatting formula grammar (OI §2.1.623 a, §3.2.3.1.2, R3 item 7) and at most 8192 characters (§2.1.1085 a); `formula` is required unless the type is `colorScale`, `dataBar` or `iconSet` (§2.1.595 e; the P1 example of a `top10` rule has none). **NOT FOUND** (R3 2.7): the cell that relative references in a rule's formula are relative to, and the formulas spreadsheet applications generate for text, blank, error and timePeriod rules. Implementation: 1 to 3 formulas; required for `expression`, `cellIs`, the text, blank and error types and `timePeriod` (caller-supplied in this phase; generation is phase C2); optional for `top10`, `aboveAverage`, `uniqueValues`, `duplicateValues`, refused for the graphic types.
+
+### SR-12 — Value objects (cfvo) — VERIFIED
+CT_Cfvo T L2793 (`type` required, `val` ST_Xstring, `gte` default true). P1 §18.3.1.11 p.1599 (L75319): `gte` applies to icon sets. Office: `val` is a conditional formatting formula (OI §2.1.596 a); under `iconSet` the type cannot be `min` or `max` (§2.1.596 b). **NOT FOUND:** whether `val` is used for `min`/`max` (the examples write `val="0"`). Implementation: the writer requires `value` for `num`, `percent`, `percentile` and `formula`, refuses `gte` outside icon sets and `min`/`max` in icon sets; the reader reports no value for `min`/`max`.
+
+### SR-13 — Colour scale — VERIFIED
+CT_ColorScale T L2769 (`cfvo` 2..n, `color` 2..n), P1 §18.3.1.16; the first cfvo goes with the first colour (§18.3.1.11). Office: at most 3 of each, and as many colours as cfvo (OI §2.1.601 a–c). Implementation: 2 or 3, equal counts.
+
+### SR-14 — Data bar — VERIFIED
+CT_DataBar T L2775 (exactly 2 cfvo, 1 color; `minLength` 10, `maxLength` 90, `showValue` true), P1 §18.3.1.28 p.1616 (L76166). Office: both lengths at most 100 (OI §2.1.611 a, b). Implementation: 0–100. The x14 extension (negative values, axis) is phase C2.
+
+### SR-15 — Icon set — VERIFIED
+CT_IconSet T L2784 (`cfvo` 2..n; `iconSet` default `3TrafficLights1`, `showValue` true, `percent` true, `reverse` false), P1 §18.3.1.49 p.1642 (L77445). No OI entry (R3 6 B). Implementation: 2 to 5 cfvo, the 17 icon sets of ST_IconSetType; custom icons (x14) are phase C2.
+
+### SR-16 — Differential formats (dxf) — PARTLY
+CT_Dxfs T L3635, CT_Dxf T L3641 (`font`, `numFmt`, `fill`, `alignment`, `border`, `protection`, `extLst`, each 0..1, in this order); `dxfs` is the 8th child of `styleSheet`, after `cellStyles` (T L3396). ST_DxfId is a zero-based index into `dxfs` (P1 §18.18.25 p.2450); Office ≤ 4294967294 (OI §2.1.1082). CT_NumFmt T L3582 requires `numFmtId` and `formatCode`; Office ignores `numFmtId` outside `numFmts` (OI §2.1.712 c). **NOT FOUND** (R3 item 3): which dxf children applications honour, and how `fgColor`/`bgColor` of a solid fill are read in a dxf; every schema-conforming dxf example of P1 (Annex L.2.7.3.8, L.2.7.4.3) sets both colours equal. Observed: LibreOffice 24.2.7.2 writes a solid conditional fill as `<patternFill><bgColor rgb="…"/></patternFill>` without `patternType` (2026-10-30). Implementation: the writer writes font, numFmt, fill and border only, deduplicated; a solid fill with one colour is written with both colours equal (as the P1 examples); the font carries only what the rule changes. The reader reads a `patternFill` without `patternType` that has a colour as solid, and drops `bgColor` when it equals `fgColor`.
+
+## Protection and printing (SR-20 … SR-31)
+
+### SR-20 — Sheet protection — VERIFIED
+CT_SheetProtection: T L2887, S L2866 (identical except the Transitional-only legacy `password`, ST_UnsignedShortHex, P4 §15.4.1.6 p.218); position in CT_Worksheet after `sheetCalcPr` and before `protectedRanges`, `autoFilter` (T L2179, S L2163; R3 4.2). Meaning (P1 §18.3.1.85 p.1691–1697, L79845; R3 4.3): `sheet` = 1 protects the sheet and makes the other flags apply; for every other flag 1/true means the action is **locked** ("should not be allowed") while the sheet is protected, 0/false that it is allowed. Schema defaults: `sheet`, `objects`, `scenarios`, `selectLockedCells`, `selectUnlockedCells` false; `formatCells`, `formatColumns`, `formatRows`, `insertColumns`, `insertRows`, `insertHyperlinks`, `deleteColumns`, `deleteRows`, `sort`, `autoFilter`, `pivotTables` true. The example caption of §18.3.1.85 contradicts the attribute rows for `objects`/`scenarios` (R3 4.3); the attribute rows are followed. Corpus: Excel writes `objects="1" scenarios="1"` with a password (POI `CVLKRA-KYC_Download_File_Structure_V3.1.xlsx`). Implementation: xlvane writes `sheet="1"` and the flags that differ from the schema defaults.
+
+### SR-21 — Password verifier — PARTLY (writing is phase C2)
+`algorithmName`, `hashValue` (base64Binary), `saltValue` (base64Binary, prepended to the password), `spinCount` (iterations, each over the previous result plus a 4-byte 0-based little-endian counter): P1 §18.3.1.85 (R3 4.3). The SpreadsheetML hash procedure is delegated to [MS-OFFCRYPTO] §2.4.2.4, which is not available (R3 4.8, status "PARTLY"). Implementation: read and kept as stored, never interpreted; a `password` option of `protect` throws `XLV_E_NOT_SUPPORTED`.
+
+### SR-22 — Workbook protection — VERIFIED (read only)
+CT_WorkbookProtection T L4371, S L4341; position in CT_Workbook after `workbookPr`, before `bookViews` (T L4102–4103; R3 4.2). P1 §18.2.29 p.1580–1587 (L74348): `lockStructure` (structure locked), `lockWindows`, `lockRevision`, the `workbook*` and `revisions*` verifier attributes; Transitional-only legacy `workbookPassword`, `revisionsPassword` and their character sets (P4 §15.3.3). OI §2.1.586 c: Office uses `workbookPassword` for the structure and windows. Implementation: `Workbook.protection`, read only.
+
+### SR-23 — Print elements and their order — VERIFIED
+CT_Worksheet (T L2192–2197, S L2176–2181; R3 5.2): … `dataValidations`, `hyperlinks`, `printOptions`, `pageMargins`, `pageSetup`, `headerFooter`, `rowBreaks`, `colBreaks`, … `drawing`, `legacyDrawing`, …, each 0..1. CT_PageSetup T L2816 with its schema defaults (paperSize 1, scale 100, firstPageNumber 1, fitToWidth/fitToHeight 1, pageOrder downThenOver, orientation default, usePrinterDefaults true, blackAndWhite/draft false, cellComments none, useFirstPageNumber false, errors displayed, dpi 600, copies 1). Meanings: P1 §18.3.1.63 p.1655–1661 (L78085; R3 5.3); enumerations ST_CellComments §18.18.5, ST_Orientation §18.18.50, ST_PageOrder §18.18.51, ST_PrintError §18.18.60 (R3 5.12). OI §2.1.638: scale also 0 = automatic (a); dpi ≥ 1 (b, c); copies 1–32767 (d); firstPageNumber ≤ 32767 (e); fitToWidth/fitToHeight ≤ 32767 (f, g); paperSize ≤ 2147483647 (§2.1.1514 b); Office ignores paperHeight/paperWidth (i, j). Paper size codes: P1 §18.3.1.63 table (1–47, 50–118), OI §2.1.638 h (1–118) (R3 5.4). Implementation: only attributes that differ from the defaults are written; `firstPageNumber` is written with `useFirstPageNumber="1"`; dpi only when given; paperHeight/paperWidth and `r:id` (printer settings part) are not written.
+
+### SR-24 — Page margins — VERIFIED
+CT_PageMargins T L2801: all six attributes required, xsd:double. P1 §18.3.1.62 p.1655: inches; example `left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"` (L78045). OI §2.1.637 a–f: each 0 ≤ value < 49. Implementation: margins not given take the example values.
+
+### SR-25 — Print options — VERIFIED
+CT_PrintOptions T L2809. P1 §18.3.1.70 (R3 5.8): `gridLines` prints grid lines only together with `gridLinesSet` (default true); `headings`, `horizontalCentered`, `verticalCentered`. No OI entry. Implementation: the reader combines `gridLines` and `gridLinesSet`.
+
+### SR-26 — Fit to page — PARTLY
+CT_SheetPr T L2306 (`tabColor`, `outlinePr`, `pageSetUpPr`); CT_PageSetUpPr T L2429 (`fitToPage` default false). P1 §18.3.1.65 p.1664–1665: whether the Fit to Page print option is enabled; §18.3.1.63: `scale` "is overridden when fitToWidth and/or fitToHeight are in use". **NOT FOUND** (R3 5.6): any link between `fitToPage` and `fitToWidth`/`fitToHeight`, and the meaning of 0. Implementation: `fitToPage` is written in `sheetPr`; 0 is accepted for fitToWidth/fitToHeight as the schema allows, its meaning left to the application (exceljs and Excel files use `fitToHeight="0"` for "as many pages as needed"; not documented).
+
+### SR-27 — Headers and footers — VERIFIED
+CT_HeaderFooter T L2857: `oddHeader`, `oddFooter`, `evenHeader`, `evenFooter`, `firstHeader`, `firstFooter` (ST_Xstring, in this order), attributes `differentOddEven` (false), `differentFirst` (false), `scaleWithDoc` (true), `alignWithMargins` (true). P1 §18.3.1.46 p.1636–1641 with the formatting-code table p.1638–1640 (`&L &C &R &P &N &D &T &A &F &Z &G &B &I &U &E &S &X &Y &K &H &O &"font,type" &nn &&`; R3 5.9); even and first texts apply only with their flags. OI §2.1.618 b, §2.1.619 c, §2.1.621 a, §2.1.622 a, §2.1.633 a, §2.1.634 a: at most 255 characters each (counted after escapes are replaced). Implementation: texts stored as given (ST_Xstring escaping), not interpreted; length checked.
+
+### SR-28 — Page breaks — VERIFIED (count rule PARTLY)
+CT_PageBreak T L2402 (`count`, `manualBreakCount`), CT_Break T L2409 (`id`, `min`, `max`, `man`, `pt`). P1 §18.3.1.3 p.1592–1593: `id` is the zero-based row or column, the break is above the row and left of the column; `max`/`min` span the other axis; examples `<brk id="24" max="16383" man="1"/>` for a break at B25 (§18.3.1.74 L79307) and `<brk id="2" max="1048575" man="1"/>` (§18.3.1.14 L75488). OI §2.1.589: `id` and `max` 1–1048576, Office ignores min/max; §2.1.599 a: colBreaks count ≤ 1023; §2.1.645 a: rowBreaks count < 1023. **NOT FOUND:** what applies when `count`/`manualBreakCount` disagree with the children. Implementation: API in row and column numbers that start a new page (`id` = number − 1, so ≥ 1); max as in the examples; at most 1022 row and 1023 column breaks; on read the children are used, counts ignored.
+
+### SR-29 — Printer settings part — VERIFIED (not written)
+`pageSetup@r:id` names a devMode Printer Settings part (P1 §15.2.15 p.158–159; P4 §13.2.15). Not written by xlvane; kept by `editCells` as an unknown part.
+
+### SR-30 — Print area and print titles — PARTLY (format from the corpus)
+P1 §18.2.5 p.1556 (L73086–73090): `_xlnm.Print_Area` is the print area, `_xlnm.Print_Titles` the rows/columns repeated on each page; names starting `_xlnm.` are reserved. **NOT FOUND** in any document (R3 5.14): the format of their text. Observed in the Apache POI corpus (19 print areas, 10 print titles, all with `localSheetId`): `'1'!$A$1:$J$78`, `samplelist!$A$1:$J$32`, `Request!$1:$6`, `Sheet3!$A:$A`, `Sheet4!$A:$B,Sheet4!$2:$3` (columns before rows). Implementation: written as a local name with the quoted sheet name and absolute references, several areas comma-separated, titles columns first; read back as ranges when the text has this form, otherwise `null` with the raw text in `Workbook.definedNames`.
+
+### SR-31 — Built-in names in app.xml — corpus observation
+P1 §18.17.6.5 (W2-25) asks for each defined name in `TitlesOfParts`. Files from Excel in the POI corpus list built-in names without the prefix: `'1'!Print_Area`, `Request!Print_Titles`, `'Sheet 2'!Print_Titles`. Implementation: the same, with the sheet name always quoted.

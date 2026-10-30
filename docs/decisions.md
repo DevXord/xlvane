@@ -502,6 +502,23 @@ An independent review confirmed 8 bugs in the first version; all are fixed with 
 ### D-B05 CLI row options (2026-10-30)
 `xlvane edit` gains `--insert-rows <row>` with `--count` and `--insert-style above|below|none`, and `--delete-rows <row>[:<row>]`, both requiring `--sheet`. They run before `--set` and `--append`, so cell addresses in `--set` refer to the rows after the change. The edit JSON result adds `rowsInserted`, `rowsDeleted` and `rowSheet`. Warnings are reported once per code and message. The help keeps four examples, now including the row options.
 
+## Decisions: phase C (sheet rules and printing)
+
+### D-C01 Data validations (2026-10-30)
+`NewSheet.validate` and `dataValidations` of the streaming writer write one `dataValidation` per call, after conditional formatting and before `hyperlinks`. Enumerations are those of sml.xsd; the formula rules of [MS-XLSX] §2.6.5 apply (`formula1` unless the type is `none`, `formula2` exactly with `between`/`notBetween`, no operator for `list`/`custom`/`none`); the Office limits of [MS-OI29500] §2.1.613, §2.1.614 and §2.1.1085 are enforced. Formulas are stored as given without a leading `=`; numbers in xsd form, dates as serial numbers. A literal list is written by the caller as one quoted string (`"Yes,No"`): no document defines the form; LibreOffice and exceljs use it. The reader returns `Sheet.dataValidations` with schema defaults resolved and ignores `operator`/`formula2` where they do not apply. `showDropDown` is kept as stored; its meaning is PROVISIONAL (SR-04). Facts SR-01 … SR-08.
+
+### D-C02 Conditional formatting and differential formats (2026-10-30)
+`NewSheet.conditionalFormat` and `conditionalFormats` of the streaming writer write one `conditionalFormatting` per call, following the per-type attribute rules of P1 §18.3.1.10 and the Office requirements of [MS-OI29500] §2.1.595, §2.1.596, §2.1.601, §2.1.602, §2.1.611, §2.1.1085 and §2.1.1092. Priorities are unique on a sheet and at least 1 ([MS-XLSX] §2.6.27); missing ones are assigned in order (exceljs creates duplicates). Formulas of text, blank, error and timePeriod rules are the caller's in C1; their generation and the x14 extensions are C2. Rule styles (font, fill, border, numFmt) become deduplicated `dxf` records after `cellStyles`; the dxf font has no defaults, and a solid one-colour fill sets both colours, as in every dxf example of Part 1. The reader resolves `dxfId` to a `CellStyle`, reads a `patternFill` without `patternType` as solid (as LibreOffice writes it), ignores x14 `extLst`, and bounds collected elements by `maxXmlTreeElements`. Facts SR-09 … SR-16.
+
+### D-C03 Sheet protection, part C1 (2026-10-30)
+`NewSheet.protect(flags)` writes `sheetProtection` with `sheet="1"` and the flags that differ from the schema defaults. Flags keep their file names and their meaning in P1 §18.3.1.85: `true` = locked, except `sheet` (the contradicting example caption is not followed). The reader exposes `Sheet.protection` and `Workbook.protection`, keeping the password verifier as data, never interpreted. Passwords throw `XLV_E_NOT_SUPPORTED` until C2, because the SpreadsheetML hash procedure is delegated to [MS-OFFCRYPTO], which was not available to the review. Facts SR-20 … SR-22.
+
+### D-C04 Page setup and printing (2026-10-30)
+`pageSetup`, `headerFooter`, `pageBreaks`, `printArea` and `printTitles` write the CT_Worksheet print elements in schema order, only values that differ from the defaults, enforcing the [MS-OI29500] limits with `XLV_E_INVALID_OPTION`. Margins not given take the P1 example values. Print area and titles are local `_xlnm.` names in the form Excel writes in the POI corpus (no document defines it; PROVISIONAL), listed in `app.xml` without the prefix. Header and footer codes are stored as given. Paper height/width and the printer settings part are not written. Facts SR-23 … SR-31.
+
+### D-C05 inspect for phase C1 (2026-10-30)
+`inspect()` adds per sheet `protected`, `printArea` (at most 10), `pageBreakCount`, `dataValidationCount` and `conditionalFormatCount` as additive fields of schema version 1; `xlvane inspect` prints "Rules", "Protected" and "Printing" lines.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -527,6 +544,7 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-NODE-11 … F-NODE-13, F-GH-01 | writer facts, checked against ECMA-376 Part 1, [MS-OI29500] and [MS-XLSX] (D-1104); W2-21 and W2-32 PROVISIONAL |
 | docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; checked against ECMA-376 Part 1 §18.17, [MS-OI29500] and [MS-XLSX] §2.2.2 (D-1102, D-1104) |
 | docs/facts/ref-adjust.md | R-* | reference adjustment on insert/delete, observed in LibreOffice 24.2.7.2 (D-B01) |
+| docs/facts/sheet-rules.md | SR-* | data validation, conditional formatting, dxfs, protection, printing (REPORT-3; D-C01 … D-C04) |
 | docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |
 
 ### F-NODE-04 … F-NODE-05

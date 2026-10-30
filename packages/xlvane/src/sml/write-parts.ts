@@ -5,6 +5,8 @@
 // schema types as ST_Xstring also through encodeXstring.
 import { definedNameXml, type NormalizedDefinedName } from '../defined-names';
 import type { NormalizedHyperlink } from '../hyperlinks';
+import { printXml, sheetProtectionXml, type SheetPrintData } from '../printing';
+import type { CfValue, DataValidation, StoredConditionalFormat } from '../sheet-rules';
 import { COMMENTS_CONTENT_TYPE, VML_CONTENT_TYPE } from '../notes';
 import {
   APP_PROPERTIES_CONTENT_TYPE,
@@ -45,6 +47,12 @@ export interface WriteSheetData {
   readonly hyperlinks?: readonly NormalizedHyperlink[];
   /** Notes in row, then column order (W2-45). */
   readonly notes?: readonly StoredNote[];
+  /** Conditional formats in the order they were added, with dxf indexes (SR-07 … SR-16). */
+  readonly conditionalFormats?: readonly StoredConditionalFormat[];
+  /** Data validations in the order they were added (SR-01 … SR-06). */
+  readonly dataValidations?: readonly DataValidation[];
+  /** Protection, page setup, headers and footers, page breaks (SR-20 … SR-28); absent for none. */
+  readonly print?: SheetPrintData;
 }
 
 /** Everything needed to write a package. */
@@ -56,6 +64,8 @@ export interface WritePackageInput {
   /** Document properties; `docProps/core.xml` is written only when one is set. */
   readonly properties?: WorkbookProperties;
   readonly definedNames?: readonly NormalizedDefinedName[];
+  /** Differential formats of conditional formatting, by dxf index (SR-16). */
+  readonly dxfs?: readonly NormalizedStyle[];
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -179,7 +189,7 @@ export function reusableBuiltinNumFmt(code: string): number | undefined {
  * styles that give the same record), so a streaming writer can use style ids as `s` values
  * before the part is built.
  */
-export function buildStyles(styles: readonly NormalizedStyle[], identity = false): StyleTables {
+export function buildStyles(styles: readonly NormalizedStyle[], identity = false, dxfs: readonly NormalizedStyle[] = []): StyleTables {
   const fonts = new Table();
   const fills = new Table();
   const borders = new Table();
@@ -240,6 +250,9 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
     return xfs.add(xf);
   });
 
+  // Differential formats of conditional formatting (CT_Dxf, sml.xsd T3641; SR-16). Their number
+  // formats get ids from the same table, so the numFmts part lists them too.
+  const dxfXml = dxfs.map((d) => dxfRecordXml(d, numFmtId));
   checkStyleCount('customNumFmts', numFmts.size);
   checkStyleCount('fonts', fonts.items.length);
   checkStyleCount('fills', fills.items.length);
@@ -257,6 +270,7 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
   xml += '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>';
   xml += `<cellXfs${attr('count', xfs.items.length)}>${xfs.items.join('')}</cellXfs>`;
   xml += '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>';
+  if (dxfXml.length > 0) xml += `<dxfs${attr('count', dxfXml.length)}>${dxfXml.join('')}</dxfs>`;
   xml += '</styleSheet>';
   return { xml, xfOf };
 }
@@ -390,14 +404,16 @@ function viewAttributes(view: SheetView | undefined): string {
  * (W2-01). `xfOf` maps interned style ids to cell format indexes (identity when omitted).
  */
 export function sheetHead(
-  sheet: Pick<WriteSheetData, 'freeze' | 'columns' | 'tabColor' | 'view'>,
+  sheet: Pick<WriteSheetData, 'freeze' | 'columns' | 'tabColor' | 'view' | 'print'>,
   selected: boolean,
   dimension: string | null,
   xfOf?: readonly number[],
 ): string {
   let xml = `${XML_DECL}<worksheet xmlns="${NS}" xmlns:r="${R_NS}">`;
   // sheetPr comes first, and tabColor first in it (CT_Worksheet, CT_SheetPr; W2-01, W2-50).
-  if (sheet.tabColor) xml += `<sheetPr>${colorXml('tabColor', sheet.tabColor)}</sheetPr>`;
+  // CT_SheetPr: tabColor, outlinePr, pageSetUpPr (sml.xsd T2306; SR-26).
+  const fitToPage = sheet.print?.pageSetup.fitToPage === true;
+  if (sheet.tabColor || fitToPage) xml += `<sheetPr>${sheet.tabColor ? colorXml('tabColor', sheet.tabColor) : ''}${fitToPage ? '<pageSetUpPr fitToPage="1"/>' : ''}</sheetPr>`;
   if (dimension !== null) xml += `<dimension${attr('ref', dimension)}/>`;
   xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(sheet.view)} workbookViewId="0"`;
   const split = sheet.view?.split ?? null;
@@ -454,8 +470,9 @@ export function rowStart(r: number, info: { readonly height: number | null; read
  * is the XML of the elements that follow `mergeCells` in CT_Worksheet, already in schema order
  * (`hyperlinks`, …, `legacyDrawing`; W2-42).
  */
-export function sheetTail(autoFilter: CellRange | null, merges: readonly CellRange[], after = ''): string {
-  let xml = '</sheetData>';
+export function sheetTail(autoFilter: CellRange | null, merges: readonly CellRange[], after = '', protection = ''): string {
+  // sheetProtection comes between sheetData and autoFilter (CT_Worksheet, sml.xsd T2179; SR-20).
+  let xml = `</sheetData>${protection}`;
   if (autoFilter) xml += `<autoFilter${attr('ref', rangeRef(autoFilter))}/>`;
   if (merges.length > 0) {
     xml += `<mergeCells${attr('count', merges.length)}>`;
@@ -491,6 +508,113 @@ export class SheetRels {
 /** Part name of the relationships part of worksheet `n` (1-based). */
 export function sheetRelsPartName(n: number): string {
   return `xl/worksheets/_rels/sheet${String(n)}.xml.rels`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// Conditional formatting and data validation (SR-01 … SR-16)
+
+/**
+ * A differential format (CT_Dxf: font, numFmt, fill, alignment, border, protection; SR-16). The
+ * font is written without the workbook defaults: only what the format changes. A solid fill with
+ * one colour is written with that colour as both foreground and background, as in every dxf
+ * example of ECMA-376 Part 1 (Annex L.2.7.3.8, L.2.7.4.3); the standard does not say which of
+ * the two a spreadsheet application uses in a dxf (SR-16). `numFmtId` is required by the schema
+ * and ignored by Office outside `numFmts` ([MS-OI29500] §2.1.712 c).
+ */
+function dxfRecordXml(style: NormalizedStyle, numFmtId: (code: string | number | undefined) => number): string {
+  let xml = '<dxf>';
+  const f = style.font;
+  if (f) {
+    xml += '<font>';
+    if (f.bold) xml += '<b/>';
+    if (f.italic) xml += '<i/>';
+    if (f.strike) xml += '<strike/>';
+    if (f.underline) xml += f.underline === 'single' ? '<u/>' : `<u${attr('val', f.underline)}/>`;
+    if (f.size !== undefined) xml += `<sz${attr('val', f.size)}/>`;
+    if (f.color !== undefined) xml += colorXml('color', f.color);
+    if (f.name !== undefined) xml += `<name${attr('val', encodeXstring(f.name))}/>`;
+    xml += '</font>';
+  }
+  if (style.numFmt !== undefined) {
+    const id = numFmtId(style.numFmt);
+    const code = typeof style.numFmt === 'number' ? (BUILTIN_NUMBER_FORMATS.get(style.numFmt) ?? 'General') : style.numFmt;
+    xml += `<numFmt${attr('numFmtId', id)}${attr('formatCode', encodeXstring(code))}/>`;
+  }
+  if (style.fill) {
+    const { pattern, fgColor, bgColor } = style.fill;
+    const solidOne = pattern === 'solid' && (fgColor === undefined) !== (bgColor === undefined);
+    const fg = solidOne ? (fgColor ?? bgColor) : fgColor;
+    const bg = solidOne ? (bgColor ?? fgColor) : bgColor;
+    xml += fillXml({ pattern, ...(fg === undefined ? {} : { fgColor: fg }), ...(bg === undefined ? {} : { bgColor: bg }) });
+  }
+  if (style.border) xml += borderXml(style.border);
+  return `${xml}</dxf>`;
+}
+
+function cfValuesXml(values: readonly CfValue[]): string {
+  return values.map((v) => `<cfvo${attr('type', v.type)}${v.value === null ? '' : attr('val', encodeXstring(v.value))}${v.gte ? '' : ' gte="0"'}/>`).join('');
+}
+
+/**
+ * The `conditionalFormatting` elements and the `dataValidations` element of a sheet, in this
+ * order (CT_Worksheet: … mergeCells, phoneticPr, conditionalFormatting*, dataValidations,
+ * hyperlinks …, sml.xsd T2186–T2191; SR-01, SR-07). Attributes are written only where they
+ * differ from the schema defaults.
+ */
+export function sheetRulesXml(sheet: Pick<WriteSheetData, 'conditionalFormats' | 'dataValidations'>): string {
+  let xml = '';
+  for (const cf of sheet.conditionalFormats ?? []) {
+    xml += `<conditionalFormatting${attr('sqref', cf.sqref)}>`;
+    cf.rules.forEach((r, i) => {
+      const dxf = cf.dxfIds[i];
+      xml += `<cfRule${attr('type', r.type)}${dxf === null || dxf === undefined ? '' : attr('dxfId', dxf)}${attr('priority', r.priority)}`;
+      if (r.stopIfTrue) xml += ' stopIfTrue="1"';
+      if (r.type === 'aboveAverage' && !r.aboveAverage) xml += ' aboveAverage="0"';
+      if (r.percent) xml += ' percent="1"';
+      if (r.bottom) xml += ' bottom="1"';
+      if (r.operator !== null) xml += attr('operator', r.operator);
+      if (r.text !== null) xml += attr('text', r.text);
+      if (r.timePeriod !== null) xml += attr('timePeriod', r.timePeriod);
+      if (r.rank !== null) xml += attr('rank', r.rank);
+      if (r.stdDev !== null) xml += attr('stdDev', r.stdDev);
+      if (r.equalAverage) xml += ' equalAverage="1"';
+      let inner = r.formulas.map((f) => `<formula>${escapeText(encodeXstring(f))}</formula>`).join('');
+      if (r.colorScale) inner += `<colorScale>${cfValuesXml(r.colorScale.cfvo)}${r.colorScale.colors.map((c) => colorXml('color', c)).join('')}</colorScale>`;
+      if (r.dataBar) {
+        const d = r.dataBar;
+        inner += `<dataBar${d.minLength === 10 ? '' : attr('minLength', d.minLength)}${d.maxLength === 90 ? '' : attr('maxLength', d.maxLength)}${d.showValue ? '' : ' showValue="0"'}>${cfValuesXml(d.cfvo)}${colorXml('color', d.color)}</dataBar>`;
+      }
+      if (r.iconSet) {
+        const s = r.iconSet;
+        inner += `<iconSet${s.iconSet === '3TrafficLights1' ? '' : attr('iconSet', s.iconSet)}${s.showValue ? '' : ' showValue="0"'}${s.percent ? '' : ' percent="0"'}${s.reverse ? ' reverse="1"' : ''}>${cfValuesXml(s.cfvo)}</iconSet>`;
+      }
+      xml += inner === '' ? '/>' : `>${inner}</cfRule>`;
+    });
+    xml += '</conditionalFormatting>';
+  }
+  const dvs = sheet.dataValidations ?? [];
+  if (dvs.length > 0) {
+    xml += `<dataValidations${attr('count', dvs.length)}>`;
+    for (const d of dvs) {
+      xml += `<dataValidation${d.type === 'none' ? '' : attr('type', d.type)}`;
+      if (d.errorStyle !== 'stop') xml += attr('errorStyle', d.errorStyle);
+      if (d.imeMode !== 'noControl') xml += attr('imeMode', d.imeMode);
+      if (d.operator !== null && d.operator !== 'between') xml += attr('operator', d.operator);
+      if (d.allowBlank) xml += ' allowBlank="1"';
+      if (d.showDropDown) xml += ' showDropDown="1"';
+      if (d.showInputMessage) xml += ' showInputMessage="1"';
+      if (d.showErrorMessage) xml += ' showErrorMessage="1"';
+      for (const k of ['errorTitle', 'error', 'promptTitle', 'prompt'] as const) {
+        const v = d[k];
+        if (v !== null) xml += attr(k, encodeXstring(v));
+      }
+      xml += attr('sqref', d.sqref);
+      const f = (d.formula1 === null ? '' : `<formula1>${escapeText(encodeXstring(d.formula1))}</formula1>`) + (d.formula2 === null ? '' : `<formula2>${escapeText(encodeXstring(d.formula2))}</formula2>`);
+      xml += f === '' ? '/>' : `>${f}</dataValidation>`;
+    }
+    xml += '</dataValidations>';
+  }
+  return xml;
 }
 
 /**
@@ -627,7 +751,8 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
     }
     xml += '</row>';
   }
-  return xml + sheetTail(sheet.autoFilter, sheet.merges, hyperlinksXml(sheet.hyperlinks ?? [], rels) + after);
+  const print = sheet.print;
+  return xml + sheetTail(sheet.autoFilter, sheet.merges, sheetRulesXml(sheet) + hyperlinksXml(sheet.hyperlinks ?? [], rels) + (print ? printXml(print) : '') + after, print ? sheetProtectionXml(print.protection) : '');
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -635,7 +760,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
 
 /** Builds all parts and returns the zipped package. */
 export function writePackage(input: WritePackageInput): Uint8Array {
-  const { xml: stylesXml, xfOf } = buildStyles(input.styles);
+  const { xml: stylesXml, xfOf } = buildStyles(input.styles, false, input.dxfs);
   const sst = new SharedStrings();
   const active = input.sheets.findIndex((s) => s.state === 'visible');
   const sheetRels = input.sheets.map(() => new SheetRels());
@@ -684,7 +809,13 @@ export function writePackage(input: WritePackageInput): Uint8Array {
  * This follows the files written by Excel in the Apache POI corpus (W2-52).
  */
 export function nameTitles(definedNames: readonly NormalizedDefinedName[]): string[] {
-  return definedNames.filter((n) => !n.hidden).map((n) => (n.sheet === null ? n.name : `${quoteSheetName(n.sheet)}!${n.name}`));
+  // Built-in names are listed without "_xlnm.", e.g. 'Sheet 2'!Print_Titles (POI corpus, SR-31).
+  return definedNames
+    .filter((n) => !n.hidden)
+    .map((n) => {
+      const name = n.name.startsWith('_xlnm.') ? n.name.slice(6) : n.name;
+      return n.sheet === null ? name : `${quoteSheetName(n.sheet)}!${name}`;
+    });
 }
 
 /** The workbook part: date system, book view, sheets, and the autofilter and user defined names. */

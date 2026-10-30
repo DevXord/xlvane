@@ -5,6 +5,8 @@ import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
 import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo, SheetLayout, SheetView, SplitPanes } from '../model';
 import type { Color } from '../style';
+import { createPrintCollector, type ReadPrintData } from '../printing';
+import { createRuleCollector, type ConditionalFormat, type DataValidation } from '../sheet-rules';
 import type { WarningCollector } from '../util/warnings';
 import { parseXml, type XmlHandler } from '../xml/parser';
 import type { XmlElement } from '../xml/tree';
@@ -71,6 +73,12 @@ export interface WorksheetData {
   readonly view: SheetView;
   /** `hyperlink` elements in file order, before their relationships are resolved (W2-42). */
   readonly hyperlinks: RawHyperlink[];
+  /** Protection, page setup, headers and footers, page breaks (SR-20 … SR-28). */
+  readonly print: ReadPrintData;
+  /** `conditionalFormatting` elements in file order (SR-07 … SR-16). */
+  readonly conditionalFormats: ConditionalFormat[];
+  /** `dataValidations/dataValidation` in file order (SR-01 … SR-06). */
+  readonly dataValidations: DataValidation[];
 }
 
 /** The view of a sheet without a `sheetView`, from the defaults of CT_SheetView (W2-51). */
@@ -185,6 +193,20 @@ export function createWorksheetParser(
   let tabColor: Color | null = null;
   let view: SheetView = DEFAULT_SHEET_VIEW;
   const hyperlinks: RawHyperlink[] = [];
+  const print = createPrintCollector((message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+  const rules = createRuleCollector({
+    ns: () => ns ?? SML_NS.transitional,
+    maxElements: ctx.limits.maxXmlTreeElements,
+    dxf: (index) => ctx.styles.dxf(index),
+    readColor: (el) => parseColor(el, 'conditional format', (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())),
+    warn: (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()),
+    tooLarge: () =>
+      new XlvError('XLV_E_LIMIT_EXCEEDED', 'The conditional formatting and data validations of the sheet have more elements and attributes than the limit.', {
+        location: { part: ctx.part, sheet: ctx.sheet },
+        hint: `If you trust this file, raise the limit, for example { limits: { maxXmlTreeElements: ${String(ctx.limits.maxXmlTreeElements * 4)} } }.`,
+        details: { limit: 'maxXmlTreeElements', value: ctx.limits.maxXmlTreeElements },
+      }),
+  });
   const relIdKey = `{${REL_NS[ctx.conformance]}}id`;
   let sheetViews = 0;
   let currentRow = 0;
@@ -453,6 +475,8 @@ export function createWorksheetParser(
           else if (local === 't' && cell.inline !== null && (parent === 'is' || parent === 'r')) target = 'is';
           return;
         }
+        if (rules.start(local, depth, attrs)) return;
+        if (print.start(depth, local, parent, attrs)) return;
         if (depth === 2 && local === 'dimension') {
           const ref = attrs.get('ref') ?? '';
           const range = parseRange(ref);
@@ -564,6 +588,8 @@ export function createWorksheetParser(
       },
       end(elementNs, local) {
         path.pop();
+        if (elementNs === ns && rules.end()) return;
+        if (elementNs === ns) print.end(local);
         if (onRow && local === 'row' && elementNs === ns && path.length === 2) flushRows();
         if (elementNs !== ns || cell === null) return;
         if (phoneticDepth > 0) {
@@ -598,6 +624,8 @@ export function createWorksheetParser(
         }
       },
       text(value) {
+        if (rules.text(value)) return;
+        if (print.text(value)) return;
         if (cell === null || target === null) return;
         if (target === 'v') cell.v = (cell.v ?? '') + value;
         else if (target === 'f') cell.formulaText += value;
@@ -607,7 +635,7 @@ export function createWorksheetParser(
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
     else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
-    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view };
+    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, print: print.result(), ...rules.result() };
   };
   return { handler, finish };
 }

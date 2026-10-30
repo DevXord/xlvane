@@ -7,6 +7,7 @@ import type { WarningCollector } from '../util/warnings';
 import { childNamed, childrenNamed, parseXmlTree } from '../xml/tree';
 import { REL_NS, SML_NS } from './namespaces';
 import { decodeXstring } from './xstring';
+import { workbookProtectionOf, type WorkbookProtection } from '../printing';
 
 /** One `sheet` element of the workbook part. */
 export interface WorkbookSheetEntry {
@@ -32,6 +33,8 @@ export interface WorkbookInfo {
   readonly date1904: boolean;
   readonly sheets: readonly WorkbookSheetEntry[];
   readonly definedNames: readonly WorkbookDefinedName[];
+  /** `workbookProtection` (SR-22), or `null`. */
+  readonly protection: WorkbookProtection | null;
 }
 
 /** Context for parsing one part. */
@@ -122,5 +125,8 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
       comment: comment === undefined ? null : decodeXstring(comment),
     };
   });
-  return { conformance, date1904, sheets, definedNames };
+  const protectionElement = childNamed(root, ns, 'workbookProtection');
+  const protection =
+    protectionElement === undefined ? null : workbookProtectionOf(protectionElement.attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, { part: ctx.part }));
+  return { conformance, date1904, sheets, definedNames, protection };
 }

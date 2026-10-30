@@ -96,6 +96,21 @@ out.addSheet('Data').tabColor('FF0070C0').set('A1', 'Docs').link('A1', { url: 'h
 
 Link targets are never opened. Notes are written hidden and need no cell value. `editCells` keeps existing links and notes but cannot add new ones.
 
+Printing and protection:
+
+```ts
+import { createWorkbook, readWorkbook } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const sheet = readWorkbook(bytes).getSheet('Sales');
+console.log(sheet.pageSetup.orientation, sheet.printArea, sheet.protection?.sheet);
+
+const out = createWorkbook();
+out.addSheet('Report').pageSetup({ orientation: 'landscape', margins: { left: 0.5 } }).headerFooter({ oddFooter: '&RPage &P of &N' }).printArea('A1:H40').protect({ sort: false });
+```
+
+Protection flags are `true` when the action is locked. Passwords are not supported yet.
+
 ### Inserting and deleting rows
 
 ```ts

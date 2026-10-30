@@ -126,6 +126,28 @@ console.log(read.hyperlinks, read.notes, read.cell('B2')?.note?.text, read.tabCo
 - **Streaming:** `writeWorkbookStream` takes `hyperlinks` and `notes` per row (`{ values, hyperlinks: [...], notes: [...] }`, by column position) and `tabColor`/`view` per sheet. `openWorkbookStream` sets `cell.note` on the rows it returns and lists a sheet's notes with `notes(sheet)`; it does not set `cell.hyperlink`.
 - `editCells` and `appendRows` keep existing links and notes but cannot add new ones yet.
 
+### Sheet rules and printing
+
+```ts
+import { createWorkbook, readWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook();
+const sheet = workbook.addSheet('Report').set('A1', 'Quarterly report');
+sheet.pageSetup({ orientation: 'landscape', paperSize: 9, margins: { left: 0.5, right: 0.5 }, fitToPage: true, fitToWidth: 1, fitToHeight: 0 });
+sheet.headerFooter({ oddHeader: '&C&A', oddFooter: '&LPrinted &D&RPage &P of &N' });
+sheet.printArea('A1:H40').printTitles({ rows: '1:2' }).pageBreaks({ rows: [21] });
+sheet.protect({ sort: false, autoFilter: false });
+
+const read = readWorkbook(writeWorkbook(workbook)).getSheet('Report');
+console.log(read.pageSetup.orientation, read.printArea, read.printTitles, read.protection?.sheet);
+```
+
+- **Page setup:** `pageSetup({ margins, orientation, paperSize, scale, fitToPage, fitToWidth, fitToHeight, pageOrder, blackAndWhite, draft, cellComments, errors, firstPageNumber, horizontalDpi, verticalDpi, copies, printOptions })`. Margins are in inches. Values outside the limits Office documents (for example margins of 49 inches or more, a scale other than 10–400 or 0) throw `XLV_E_INVALID_OPTION` with the allowed range.
+- **Headers and footers:** `headerFooter({ oddHeader, oddFooter, evenHeader, evenFooter, firstHeader, firstFooter, differentOddEven, differentFirst, … })`, with the codes `&L`, `&C`, `&R` (sections), `&P` (page), `&N` (pages), `&D` (date), `&A` (sheet), `&F` (file), `&&` (an ampersand) and others; at most 255 characters each.
+- **Print area, titles and page breaks:** `printArea(range | ranges)`, `printTitles({ rows: '1:2', columns: 'A' })` and `pageBreaks({ rows: [21], columns: ['F'] })` (the rows and columns that start a new page). The print area and titles are stored as the built-in names `_xlnm.Print_Area` and `_xlnm.Print_Titles`; `insertRows` and `deleteRows` move them.
+- **Protection:** `protect(flags)` turns on sheet protection. Each flag is `true` when the action is locked, as in the file: `protect({ sort: false })` keeps sorting allowed. Flags not given keep the schema defaults. A password is not supported yet (`XLV_E_NOT_SUPPORTED`). Reading gives `sheet.protection` (flags and the stored password verifier, never interpreted) and `workbook.protection`.
+- **Reading** gives `sheet.pageSetup` (with defaults), `sheet.headerFooter`, `sheet.pageBreaks`, `sheet.printArea` and `sheet.printTitles`. `writeWorkbookStream` takes the same settings per sheet (`pageSetup`, `headerFooter`, `pageBreaks`, `printArea`, `printTitles`, `protect`).
+
 ## Tasks in one call
 
 ```ts

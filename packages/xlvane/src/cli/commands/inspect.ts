@@ -94,6 +94,15 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
       lines.push(`  Hyperlinks: ${plural(s.hyperlinkCount, 'link')} (${shown.join(', ')}${s.hyperlinkCount > 3 ? ', …' : ''})`);
     }
     if (s.noteCount > 0) lines.push(`  Notes: ${plural(s.noteCount, 'note')} (${s.notes.slice(0, 5).join(', ')}${s.noteCount > 5 ? ', …' : ''})`);
+    if (s.dataValidationCount > 0 || s.conditionalFormatCount > 0) {
+      const parts = [s.dataValidationCount > 0 ? plural(s.dataValidationCount, 'data validation') : null, s.conditionalFormatCount > 0 ? plural(s.conditionalFormatCount, 'conditional format rule') : null];
+      lines.push(`  Rules: ${parts.filter((p) => p !== null).join(', ')}`);
+    }
+    if (s.protected) lines.push('  Protected: yes');
+    if (s.printArea !== null || s.pageBreakCount > 0) {
+      const parts = [s.printArea === null ? null : `print area ${s.printArea.join(', ')}`, s.pageBreakCount > 0 ? plural(s.pageBreakCount, 'page break') : null];
+      lines.push(`  Printing: ${parts.filter((p) => p !== null).join(', ')}`);
+    }
   }
   if (r.warnings.length > 0) {
     lines.push('', 'Warnings:', ...warningLines(out, r.warnings));

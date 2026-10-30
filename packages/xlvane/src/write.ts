@@ -6,6 +6,23 @@ import { XlvError } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
 import { MAX_AUTHOR_LENGTH, type NoteInput } from './notes';
+import { MAX_DATA_VALIDATIONS, normalizeConditionalFormat, normalizeDataValidation, type ConditionalFormatRuleInput, type DataValidation, type DataValidationRule, type StoredConditionalFormat } from './sheet-rules';
+import {
+  EMPTY_PRINT_DATA,
+  normalizeHeaderFooter,
+  normalizePageBreaks,
+  normalizePageSetup,
+  normalizePrintArea,
+  normalizePrintTitles,
+  normalizeProtection,
+  printNames,
+  type HeaderFooter,
+  type PageBreaks,
+  type PageSetupOptions,
+  type PrintTitles,
+  type SheetPrintData,
+  type SheetProtectionOptions,
+} from './printing';
 import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
@@ -354,6 +371,14 @@ export class NewSheet {
   readonly linkMap: Map<string, NormalizedHyperlink> = new Map();
   /** @internal Notes by cell reference. */
   readonly noteMap: Map<string, StoredNote> = new Map();
+  /** @internal Data validations in the order they were added (SR-01). */
+  readonly validationList: DataValidation[] = [];
+  /** @internal Conditional formats in the order they were added (SR-07). */
+  readonly conditionalList: StoredConditionalFormat[] = [];
+  /** Priorities of the conditional formatting rules of the sheet (unique, SR-10). */
+  private readonly priorities = new Set<number>();
+  /** @internal Protection, page setup, headers and footers, page breaks, print area and titles. */
+  print: SheetPrintData = EMPTY_PRINT_DATA;
   private count = 0;
 
   /** @internal Use {@link NewWorkbook.addSheet}. */
@@ -737,6 +762,172 @@ export class NewSheet {
     return this;
   }
 
+  /**
+   * Protects the sheet (`sheetProtection`, SR-20), or removes the protection with `null`. Each
+   * flag is `true` when the action is locked and `false` when it stays allowed; flags not given
+   * keep the schema defaults (formatting, inserting, deleting, sorting, autofilter and pivot
+   * tables locked; selecting cells, objects and scenarios allowed). A password is not supported
+   * yet and throws `XLV_E_NOT_SUPPORTED`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Form').set('A1', 'Name').protect({ sort: false, autoFilter: false });
+   * ```
+   */
+  protect(options: SheetProtectionOptions | null = {}): this {
+    this.print = { ...this.print, protection: options === null ? null : normalizeProtection(options, this.name) };
+    return this;
+  }
+
+  /**
+   * Sets page setup for printing: margins, orientation, paper size, scale or fit to pages, page
+   * order, print options and more (SR-23 … SR-26). Settings not given keep their value. Throws
+   * `XLV_E_INVALID_OPTION` for values outside the limits of `PageSetupOptions`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Report').pageSetup({
+   *   orientation: 'landscape',
+   *   paperSize: 9,
+   *   margins: { left: 0.5, right: 0.5 },
+   *   fitToPage: true,
+   *   fitToWidth: 1,
+   *   fitToHeight: 0,
+   *   printOptions: { gridLines: true },
+   * });
+   * ```
+   */
+  pageSetup(options: PageSetupOptions): this {
+    this.print = { ...this.print, pageSetup: normalizePageSetup(options, this.print.pageSetup), pageSetupSet: true };
+    return this;
+  }
+
+  /**
+   * Sets printed headers and footers (SR-27), or removes them with `null`. Texts use the
+   * formatting codes of `HeaderFooter`; settings not given keep their value.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Report').headerFooter({ oddHeader: '&C&A', oddFooter: '&RPage &P of &N' });
+   * ```
+   */
+  headerFooter(options: HeaderFooter | null): this {
+    this.print = { ...this.print, headerFooter: options === null ? null : normalizeHeaderFooter(options, this.print.headerFooter) };
+    return this;
+  }
+
+  /**
+   * Sets the manual page breaks (SR-28): the rows and columns that start a new printed page.
+   * Replaces earlier breaks; `{}` removes them.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Report').pageBreaks({ rows: [41, 81] });
+   * ```
+   */
+  pageBreaks(breaks: PageBreaks): this {
+    const { rows, cols } = normalizePageBreaks(breaks);
+    this.print = { ...this.print, rowBreaks: rows, colBreaks: cols };
+    return this;
+  }
+
+  /**
+   * Sets the print area, one range or several, or removes it with `null`. It is stored as the
+   * defined name `_xlnm.Print_Area` of the sheet (SR-30).
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Report').printArea('A1:H40');
+   * ```
+   */
+  printArea(ranges: string | readonly string[] | null): this {
+    this.print = { ...this.print, printArea: normalizePrintArea(ranges) };
+    return this;
+  }
+
+  /**
+   * Sets rows and columns repeated on every printed page, or removes them with `null`. They are
+   * stored as the defined name `_xlnm.Print_Titles` of the sheet (SR-30).
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Report').printTitles({ rows: '1:2', columns: 'A' });
+   * ```
+   */
+  printTitles(titles: PrintTitles | null): this {
+    this.print = { ...this.print, printTitles: normalizePrintTitles(titles) };
+    return this;
+  }
+
+  /**
+   * Adds a data validation to a cell or ranges (`"B2:B50"`, or several separated by spaces), or
+   * with `null` removes the validations added for exactly that range. Each call writes one
+   * `dataValidation` element. See `DataValidationRule` for the rules and the limits; throws
+   * `XLV_E_INVALID_OPTION` or `XLV_E_INVALID_CELL_REF`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const sheet = createWorkbook().addSheet('Orders');
+   * sheet.validate('C2:C500', { type: 'list', formula1: '"Open,Shipped,Paid"', showErrorMessage: true, error: 'Pick a status from the list.' });
+   * sheet.validate('D2:D500', { type: 'whole', operator: 'greaterThan', formula1: 0, showInputMessage: true, prompt: 'Quantity, at least 1' });
+   * ```
+   */
+  validate(sqref: string, rule: DataValidationRule | null): this {
+    const where = { sheet: this.name, dateSystem: this.book.dateSystem };
+    if (rule === null) {
+      const range = normalizeDataValidation(sqref, { type: 'none' }, where).sqref;
+      for (let i = this.validationList.length - 1; i >= 0; i--) if (this.validationList[i]?.sqref === range) this.validationList.splice(i, 1);
+      return this;
+    }
+    const dv = normalizeDataValidation(sqref, rule, where);
+    if (this.validationList.length >= MAX_DATA_VALIDATIONS) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The sheet "${this.name}" already has ${String(MAX_DATA_VALIDATIONS)} data validations, the most Office accepts.`, {
+        location: { sheet: this.name },
+        hint: 'Give one validation a list of ranges ("A1:A9 C1:C9") instead of adding one per range.',
+        details: { limit: 'dataValidations', value: MAX_DATA_VALIDATIONS },
+      });
+    }
+    this.validationList.push(dv);
+    return this;
+  }
+
+  /**
+   * Adds conditional formatting to a cell or ranges: one or more rules, each with the format
+   * applied where it is true. Rules get unique priorities on the sheet (1 is applied first). See
+   * `ConditionalFormatRuleInput` for the rule types; throws `XLV_E_INVALID_OPTION`,
+   * `XLV_E_INVALID_STYLE` or `XLV_E_INVALID_CELL_REF`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const sheet = createWorkbook().addSheet('Sales');
+   * sheet.conditionalFormat('B2:B100', [
+   *   { type: 'cellIs', operator: 'lessThan', formulas: [0], style: { font: { color: '9C0006' }, fill: { pattern: 'solid', fgColor: 'FFC7CE' } } },
+   *   { type: 'dataBar', dataBar: { cfvo: [{ type: 'min' }, { type: 'max' }], color: '638EC6' } },
+   * ]);
+   * ```
+   */
+  conditionalFormat(sqref: string, rules: readonly ConditionalFormatRuleInput[]): this {
+    const cf = normalizeConditionalFormat(sqref, rules, { sheet: this.name, dateSystem: this.book.dateSystem }, this.priorities);
+    this.conditionalList.push({ sqref: cf.sqref, rules: cf.rules, dxfIds: cf.rules.map((r) => (r.style === null ? null : this.book.internDxf(r.style))) });
+    return this;
+  }
+
   /** @internal */
   data(): WriteSheetData {
     return {
@@ -752,6 +943,9 @@ export class NewSheet {
       view: this.viewSettings,
       hyperlinks: [...this.linkMap.values()],
       notes: sortedNotes(this.noteMap),
+      conditionalFormats: this.conditionalList,
+      dataValidations: this.validationList,
+      print: this.print,
     };
   }
 }
@@ -1101,6 +1295,26 @@ export class NewWorkbook {
   styles(): readonly NormalizedStyle[] {
     return this.styleList;
   }
+
+  private readonly dxfIds = new Map<string, number>();
+  private readonly dxfList: NormalizedStyle[] = [];
+
+  /** @internal Index of a differential format (conditional formatting), deduplicated (SR-16). */
+  internDxf(style: NormalizedStyle): number {
+    const key = stableKey(style);
+    let id = this.dxfIds.get(key);
+    if (id === undefined) {
+      id = this.dxfList.length;
+      this.dxfList.push(style);
+      this.dxfIds.set(key, id);
+    }
+    return id;
+  }
+
+  /** @internal */
+  dxfStyles(): readonly NormalizedStyle[] {
+    return this.dxfList;
+  }
 }
 
 /**
@@ -1164,6 +1378,7 @@ export function writeWorkbook(workbook: NewWorkbook): Uint8Array {
     sheets: sheets.map((s) => s.data()),
     styles: workbook.styles(),
     properties: workbook.properties,
-    definedNames: workbook.definedNames,
+    definedNames: [...workbook.definedNames, ...sheets.flatMap((s) => printNames(s.name, s.print))],
+    dxfs: workbook.dxfStyles(),
   });
 }

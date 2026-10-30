@@ -45,6 +45,8 @@ export interface Styles {
   cellStyle(styleIndex: number, numFmt: string | null): CellStyle;
   /** Font 0, the workbook's default font (W2-12), if the part declares one. */
   defaultFont(): FontStyle | undefined;
+  /** The differential format (dxfs/dxf) at a zero-based index, if there is one (SR-16). */
+  dxf(index: number): CellStyle | undefined;
 }
 
 /** Font, fill, border and alignment ids of one cellXfs record. */
@@ -72,12 +74,17 @@ class NumberFormats implements Styles {
     private readonly fonts: readonly (FontStyle | undefined)[] = [],
     private readonly fills: readonly (FillStyle | undefined)[] = [],
     private readonly borders: readonly (Readonly<Record<string, BorderEdge>> | undefined)[] = [],
+    private readonly dxfs: readonly CellStyle[] = [],
   ) {
     this.cellFormatCount = ids.length;
   }
 
   defaultFont(): FontStyle | undefined {
     return this.fonts[0];
+  }
+
+  dxf(index: number): CellStyle | undefined {
+    return Number.isInteger(index) && index >= 0 ? this.dxfs[index] : undefined;
   }
 
   cellStyle(styleIndex: number, numFmt: string | null): CellStyle {
@@ -201,7 +208,44 @@ export function parseStyles(xml: string, ctx: PartContext): Styles {
     return id;
   });
 
-  return new NumberFormats(ids, codes, xfs, fonts, fills, borders);
+  const dxfs = listOf('dxfs', 'dxf', (el) => parseDxf(el, ns, colorOf, warn));
+  return new NumberFormats(ids, codes, xfs, fonts, fills, borders, dxfs);
+}
+
+/**
+ * Parses a differential format (CT_Dxf, SR-16): font, number format, fill and border; the
+ * properties a dxf leaves out are not part of the result. A pattern fill without `patternType`
+ * is read as solid, and a solid fill whose background equals its foreground as its foreground
+ * only (implementation choice, SR-16: the standard does not say how a dxf's fill colours apply).
+ */
+function parseDxf(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: string) => void): CellStyle {
+  const style: { -readonly [K in keyof CellStyle]: CellStyle[K] } = {};
+  const fontEl = childNamed(el, ns, 'font');
+  if (fontEl !== undefined) {
+    const font = parseFont(fontEl, ns, colorOf, warn);
+    if (Object.keys(font).length > 0) style.font = font;
+  }
+  const code = childNamed(el, ns, 'numFmt')?.attrs.get('formatCode');
+  if (code !== undefined) style.numFmt = decodeXstring(code);
+  const fillEl = childNamed(el, ns, 'fill');
+  const pf = fillEl === undefined ? undefined : childNamed(fillEl, ns, 'patternFill');
+  if (fillEl !== undefined && pf !== undefined && pf.attrs.get('patternType') === undefined) {
+    const fg = colorOf(childNamed(pf, ns, 'fgColor'), 'fill');
+    const bg = colorOf(childNamed(pf, ns, 'bgColor'), 'fill');
+    if (fg !== undefined || bg !== undefined) style.fill = Object.freeze({ pattern: 'solid' as const, ...(fg === undefined ? {} : { fgColor: fg }), ...(bg === undefined ? {} : { bgColor: bg }) });
+  } else if (fillEl !== undefined) {
+    const fill = parseFill(fillEl, ns, colorOf, warn);
+    if (fill !== undefined) {
+      // parseFill always gives the pattern form.
+      const f = fill as { readonly pattern: string; readonly fgColor?: Color; readonly bgColor?: Color };
+      const same = f.pattern === 'solid' && f.fgColor !== undefined && f.bgColor !== undefined && JSON.stringify(f.fgColor) === JSON.stringify(f.bgColor);
+      style.fill = same && f.fgColor !== undefined ? Object.freeze({ pattern: 'solid' as const, fgColor: f.fgColor }) : fill;
+    }
+  }
+  const borderEl = childNamed(el, ns, 'border');
+  const border = borderEl === undefined ? undefined : parseBorder(borderEl, ns, colorOf, warn);
+  if (border !== undefined) style.border = border;
+  return Object.freeze(style);
 }
 
 type ColorOf = (el: XmlElement | undefined, what: string) => Color | undefined;

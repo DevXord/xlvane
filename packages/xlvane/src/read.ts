@@ -2,8 +2,10 @@ import type { DefinedName } from './defined-names';
 import { isAppPropertiesRel, isCorePropertiesRel, parseAppProperties, parseCoreProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { isUnusualTarget, type Hyperlink } from './hyperlinks';
+import { DEFAULT_PAGE_SETUP, parsePrintArea, parsePrintTitles, type HeaderFooter, type PageSetup, type SheetProtection, type WorkbookProtection } from './printing';
 import { resolveLimits, type ReadLimits } from './limits';
 import { parseComments, THREADED_COMMENTS_REL, type Note } from './notes';
+import type { ConditionalFormat, DataValidation } from './sheet-rules';
 import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, SheetView, Workbook, WorkbookFormat } from './model';
 import type { Color } from './style';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
@@ -63,7 +65,34 @@ class ReadSheet implements Sheet {
     private readonly data: WorksheetData | null,
     readonly hyperlinks: readonly Hyperlink[] = [],
     readonly notes: readonly Note[] = [],
+    private readonly names: readonly DefinedName[] = [],
   ) {}
+
+  get protection(): SheetProtection | null {
+    return this.data?.print.protection ?? null;
+  }
+
+  get pageSetup(): PageSetup {
+    return this.data?.print.pageSetup ?? DEFAULT_PAGE_SETUP;
+  }
+
+  get headerFooter(): Required<HeaderFooter> | null {
+    return this.data?.print.headerFooter ?? null;
+  }
+
+  get pageBreaks(): { readonly rows: readonly number[]; readonly columns: readonly number[] } {
+    return { rows: this.data?.print.rowBreaks ?? [], columns: this.data?.print.colBreaks ?? [] };
+  }
+
+  get printArea(): readonly string[] | null {
+    const n = this.names.find((d) => d.sheet === this.name && d.name.toLowerCase() === '_xlnm.print_area');
+    return n === undefined ? null : parsePrintArea(n.refersTo, this.name);
+  }
+
+  get printTitles(): { readonly rows: string | null; readonly columns: string | null } | null {
+    const n = this.names.find((d) => d.sheet === this.name && d.name.toLowerCase() === '_xlnm.print_titles');
+    return n === undefined ? null : parsePrintTitles(n.refersTo, this.name);
+  }
 
   get dimension(): string | null {
     return this.data?.dimension ?? null;
@@ -91,6 +120,14 @@ class ReadSheet implements Sheet {
 
   get tabColor(): Color | null {
     return this.data?.tabColor ?? null;
+  }
+
+  get dataValidations(): readonly DataValidation[] {
+    return this.data?.dataValidations ?? [];
+  }
+
+  get conditionalFormats(): readonly ConditionalFormat[] {
+    return this.data?.conditionalFormats ?? [];
   }
 
   get view(): SheetView {
@@ -142,6 +179,7 @@ class ReadWorkbook implements Workbook {
     readonly warnings: readonly XlvWarning[],
     readonly properties: WorkbookProperties,
     readonly definedNames: readonly DefinedName[],
+    readonly protection: WorkbookProtection | null = null,
   ) {}
 
   getSheet(name: string): Sheet {
@@ -240,9 +278,9 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     const links = data === null || entry.part === null ? [] : resolveHyperlinks(pkg, entry.part, entry.name, data, warnings);
     const notes = data === null || entry.part === null ? [] : readNotes(pkg, entry.part, entry.name, limits, warnings);
     if (data !== null) attachNotes(data.rows, notes);
-    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links, notes);
+    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links, notes, book.definedNames);
   });
-  return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames);
+  return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection);
 }
 
 /**
@@ -355,6 +393,7 @@ export interface WorkbookInfo {
   readonly externalLinkCount: number;
   readonly properties: WorkbookProperties;
   readonly definedNames: readonly DefinedName[];
+  readonly protection: WorkbookProtection | null;
 }
 
 /** The Core Properties relationship of the package, if any (D-A02). */
@@ -478,7 +517,7 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
     if (xml === undefined) warnings.add('XLV_W_PART_MISSING', 'The package refers to an extended document properties part that does not exist; reading continues without it.', { part: app.target });
     else properties = { ...properties, ...parseAppProperties(xml, { part: app.target, ...context }) };
   }
-  return { workbookPart, sheets, sharedStrings, richStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount, properties, definedNames };
+  return { workbookPart, sheets, sharedStrings, richStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount, properties, definedNames, protection: info.protection };
 }
 
 function detectMacros(pkg: OpcPackage, workbookRels: readonly Relationship[]): boolean {

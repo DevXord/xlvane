@@ -5,8 +5,10 @@ import { checkDefinedName, checkUniqueName, type DefinedNameOptions, type Normal
 import { APP_PROPERTIES_PART, appPropertiesXml, CORE_PROPERTIES_PART, corePropertiesXml, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
+import { printNames, printXml, sheetProtectionXml, type HeaderFooter, type PageBreaks, type PageSetupOptions, type PrintTitles, type SheetProtectionOptions } from './printing';
 import type { DateSystem, SheetState } from './model';
 import type { NoteInput } from './notes';
+import type { ConditionalFormatRuleInput, DataValidationRule } from './sheet-rules';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
 import {
   buildStyles,
@@ -19,6 +21,7 @@ import {
   sheetHead,
   sheetTail,
   hyperlinksXml,
+  sheetRulesXml,
   noteParts,
   type NoteParts,
   SheetRels,
@@ -105,6 +108,22 @@ export interface StreamSheetSpec {
    * `NewSheet.link`. They are given up front because they are written after the rows.
    */
   readonly hyperlinks?: readonly (HyperlinkTarget & { readonly ref: string })[];
+  /** Sheet protection, as for `NewSheet.protect`. */
+  readonly protect?: SheetProtectionOptions;
+  /** Page setup, as for `NewSheet.pageSetup`. */
+  readonly pageSetup?: PageSetupOptions;
+  /** Headers and footers, as for `NewSheet.headerFooter`. */
+  readonly headerFooter?: HeaderFooter;
+  /** Manual page breaks, as for `NewSheet.pageBreaks`. */
+  readonly pageBreaks?: PageBreaks;
+  /** Print area, as for `NewSheet.printArea`. */
+  readonly printArea?: string | readonly string[];
+  /** Print titles, as for `NewSheet.printTitles`. */
+  readonly printTitles?: PrintTitles;
+  /** Data validations, each a range (`sqref`) with a rule, as for `NewSheet.validate`. */
+  readonly dataValidations?: readonly (DataValidationRule & { readonly sqref: string })[];
+  /** Conditional formats, each a range with its rules, as for `NewSheet.conditionalFormat`. */
+  readonly conditionalFormats?: readonly { readonly sqref: string; readonly rules: readonly ConditionalFormatRuleInput[] }[];
   /** The rows, from row 1. Any iterable or async iterable (arrays, generators, streams of rows). */
   readonly rows: Iterable<StreamRowInput> | AsyncIterable<StreamRowInput>;
 }
@@ -241,7 +260,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
   const prepare = (raw: unknown, i: number): PreparedSheet => {
-    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'autoFilter', 'merges', 'hyperlinks', 'rows'], `sheets[${String(i)}]`);
+    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
     const sheet = book.addSheet(s.get('name') as string, state === undefined ? undefined : { state: state as SheetState });
     const columns = s.get('columns');
@@ -257,6 +276,28 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     if (tabColor !== undefined) sheet.tabColor(tabColor as Color);
     const view = s.get('view');
     if (view !== undefined) sheet.view(view as SheetViewOptions);
+    if (s.has('protect')) sheet.protect(s.get('protect') as SheetProtectionOptions);
+    if (s.has('pageSetup')) sheet.pageSetup(s.get('pageSetup') as PageSetupOptions);
+    if (s.has('headerFooter')) sheet.headerFooter(s.get('headerFooter') as HeaderFooter);
+    if (s.has('pageBreaks')) sheet.pageBreaks(s.get('pageBreaks') as PageBreaks);
+    if (s.has('printArea')) sheet.printArea(s.get('printArea') as string | readonly string[]);
+    if (s.has('printTitles')) sheet.printTitles(s.get('printTitles') as PrintTitles);
+    const listOf = (key: string, example: string): unknown[] => {
+      const v = s.get(key) ?? [];
+      if (!Array.isArray(v)) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].${key} must be an array.`, { hint: `For example ${key}: [${example}].`, details: { option: key } });
+      return v.map((item: unknown) => {
+        if (typeof item !== 'object' || item === null) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].${key} must hold objects.`, { hint: `For example ${example}.`, details: { option: key } });
+        return item;
+      });
+    };
+    for (const v of listOf('dataValidations', '{ sqref: "A2:A9", type: "list", formula1: "\\"a,b\\"" }')) {
+      const { sqref, ...rule } = v as { sqref?: unknown };
+      sheet.validate(sqref as string, rule as DataValidationRule);
+    }
+    for (const v of listOf('conditionalFormats', '{ sqref: "A2:A9", rules: [{ type: "cellIs", operator: "greaterThan", formulas: [0], style: { font: { bold: true } } }] }')) {
+      const c = readOptions(v, ['sqref', 'rules'], `sheets[${String(i)}].conditionalFormats`);
+      sheet.conditionalFormat(c.get('sqref') as string, c.get('rules') as ConditionalFormatRuleInput[]);
+    }
     const merges = s.get('merges');
     if (merges !== undefined) {
       if (!Array.isArray(merges)) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].merges must be an array of ranges.`, { hint: 'For example merges: ["A1:C1"].', details: { option: 'merges' } });
@@ -307,7 +348,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
 
   async function* sheetData(p: PreparedSheet, selected: boolean, n: number): AsyncGenerator<Uint8Array> {
     const name = p.sheet.name;
-    let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings }, selected, null);
+    let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings, print: p.sheet.print }, selected, null);
     let r = 0;
     let maxCol = 0;
     for await (const raw of iterate(p.rows)) {
@@ -400,7 +441,12 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     p.notes = noteParts(sortedNotes(p.sheet.noteMap), n, p.rels, shapeBlock);
     p.sheet.noteMap.clear();
     if (p.notes !== null) shapeBlock += p.notes.blocks;
-    buffer += sheetTail(p.filterRange, p.sheet.mergeList, hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + (p.notes?.legacyDrawing ?? ''));
+    buffer += sheetTail(
+      p.filterRange,
+      p.sheet.mergeList,
+      sheetRulesXml({ conditionalFormats: p.sheet.conditionalList, dataValidations: p.sheet.validationList }) + hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + printXml(p.sheet.print) + (p.notes?.legacyDrawing ?? ''),
+      sheetProtectionXml(p.sheet.print.protection),
+    );
     yield encoder.encode(buffer);
   }
 
@@ -426,17 +472,19 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   function* closingParts(): Generator<ZipStreamEntry> {
     yield {
       name: 'xl/workbook.xml',
-      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, book.definedNames)),
+      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames())),
     };
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
-    yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true).xml) };
+    yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true, book.dxfStyles()).xml) };
     if (core !== null) yield { name: CORE_PROPERTIES_PART, data: encoder.encode(core) };
     const app = appXml();
     if (app !== null) yield { name: APP_PROPERTIES_PART, data: encoder.encode(app) };
     if (strings) yield { name: 'xl/sharedStrings.xml', data: encoder.encode(strings.xml()) };
   }
   /** `docProps/app.xml` (W2-52); known once the sheets and names are. */
-  const appXml = (): string | null => appPropertiesXml(book.properties, prepared.map((p) => p.sheet.name), nameTitles(book.definedNames));
+  const appXml = (): string | null => appPropertiesXml(book.properties, prepared.map((p) => p.sheet.name), nameTitles(allNames()));
+  /** The user's defined names and the print area and titles of every sheet (SR-30). */
+  const allNames = (): NormalizedDefinedName[] => [...book.definedNames, ...prepared.flatMap((p) => printNames(p.sheet.name, p.sheet.print))];
   async function* entries(): AsyncGenerator<ZipStreamEntry> {
     // The package-level parts follow the sheets: which sheets have notes, and so which parts the
     // content types must name, is known only after the rows (D-A12); sheets given as an iterable

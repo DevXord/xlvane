@@ -53,6 +53,11 @@
 | `hyperlinks` | object[] | up to ten of them: `ref`, `target` (external URL or path as stored, or `null`), `location` (place in the workbook, or `null`); targets are never opened |
 | `noteCount` | number | notes (comments) of the sheet (`Sheet.notes`) |
 | `notes` | string[] | up to ten cells that have a note |
+| `protected` | boolean | the sheet is protected (`Sheet.protection.sheet`) |
+| `printArea` | string[] \| null | the print area (`Sheet.printArea`), at most ten ranges |
+| `pageBreakCount` | number | manual page breaks, rows and columns together (`Sheet.pageBreaks`) |
+| `dataValidationCount` | number | data validation rules (`Sheet.dataValidations`) |
+| `conditionalFormatCount` | number | conditional formatting rules over all ranges (`Sheet.conditionalFormats`) |
 
 **Header detection.** Among the first `headerScanRows` non-empty rows, the header row is the first one whose cells are all distinct, non-blank strings and cover at least half of the used width. The confidence is `"high"` when the next non-empty row contains a value that is not a string (number, date, boolean or error), otherwise `"low"`. This is a heuristic; check `confidence` before relying on it.
 
@@ -112,6 +117,11 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
       "hyperlinks": [],
       "noteCount": 0,
       "notes": [],
+      "protected": false,
+      "printArea": null,
+      "pageBreakCount": 0,
+      "dataValidationCount": 0,
+      "conditionalFormatCount": 0,
       "rowCount": 3,
       "columnCount": 3,
       "headerRow": { "row": 1, "confidence": "high" },

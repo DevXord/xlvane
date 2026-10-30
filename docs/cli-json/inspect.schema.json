@@ -310,6 +310,34 @@
                     "type": "integer",
                     "minimum": 0
                   },
+                  "protected": {
+                    "type": "boolean"
+                  },
+                  "printArea": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "pageBreakCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "dataValidationCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "conditionalFormatCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
                   "notes": {
                     "type": "array",
                     "items": {
@@ -368,7 +396,12 @@
                   "hyperlinkCount",
                   "hyperlinks",
                   "noteCount",
-                  "notes"
+                  "notes",
+                  "protected",
+                  "printArea",
+                  "pageBreakCount",
+                  "dataValidationCount",
+                  "conditionalFormatCount"
                 ],
                 "additionalProperties": false
               }

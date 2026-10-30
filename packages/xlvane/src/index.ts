@@ -30,6 +30,41 @@ export type { WorkbookProperties } from './doc-properties';
 export type { DefinedName, DefinedNameOptions } from './defined-names';
 export type { Hyperlink, HyperlinkTarget } from './hyperlinks';
 export type { Note, NoteInput } from './notes';
+export type {
+  CfValue,
+  CfValueInput,
+  CfValueType,
+  ConditionalFormat,
+  ConditionalFormatOperator,
+  ConditionalFormatRule,
+  ConditionalFormatRuleInput,
+  ConditionalFormatType,
+  DataValidation,
+  DataValidationErrorStyle,
+  DataValidationImeMode,
+  DataValidationOperator,
+  DataValidationRule,
+  DataValidationType,
+  IconSetType,
+  TimePeriod,
+} from './sheet-rules';
+export type {
+  HeaderFooter,
+  PageBreaks,
+  PageMargins,
+  PageOrder,
+  PageOrientation,
+  PageSetup,
+  PageSetupOptions,
+  PrintCellComments,
+  PrintErrors,
+  PrintOptions,
+  PrintTitles,
+  SheetProtection,
+  SheetProtectionFlags,
+  SheetProtectionOptions,
+  WorkbookProtection,
+} from './printing';
 export {
   createWorkbook,
   writeWorkbook,
