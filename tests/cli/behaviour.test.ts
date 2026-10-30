@@ -160,7 +160,6 @@ describe('migrate', () => {
       expect(report.stdout).toContain('- "exceljs": "^4.4.0"');
       expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/exceljs@^1"');
       expect(report.stdout).toContain('src/report.js:4:3  insertRow / insertRows');
-      expect(report.stdout).toContain('not published to npm yet');
       expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before);
       const forced = await cli(['migrate', 'my-app', '--force'], { cwd: dir });
       expect(forced.code).toBe(0);

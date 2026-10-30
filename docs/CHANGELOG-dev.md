@@ -2,6 +2,18 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 10: publication prepared (2026-10-30)
+
+- **Packages:** `xlvane` and `@xlvane/exceljs` set to version 1.0.0, public, with provenance (D-1001); the "not published" texts are removed.
+- **Release workflow** `release.yml` (D-1002 … D-1004):
+  - tag `v*`;
+  - full verification;
+  - `npm stage publish` through trusted publishing (OIDC), with no secrets.
+- **`scripts/check-release-version.mjs`** stops a release whose tag and versions differ.
+- **docs/RELEASING.md** lists the maintainer's steps: account with 2FA, organization, trusted publisher with stage-only permission, approval with 2FA, disallowing tokens. **CHANGELOG.md** describes 1.0.0 for users.
+- **`tests/policy/release.test.ts`** checks the package settings, the workflows (SHA pins, permissions, no secrets) and that no "not published" texts remain.
+- **Not done here (the maintainer's steps):** the npm account and organization, a public repository, the tag, and approving the staged packages.
+
 ## Phase 9: corpus and environments (2026-10-30)
 
 - **Corpus:**

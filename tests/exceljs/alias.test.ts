@@ -6,9 +6,8 @@
 // name of the package as it is reified in the `node_modules` folder" (npm/cli
 // docs/lib/content/using-npm/package-spec.md, section "Aliases", branch `latest` at 158315cd,
 // read 2026-10-30). So after installation the package simply sits in node_modules/exceljs.
-// The packages are not published yet (CLAUDE.md: no publishing without the maintainer's
-// approval), so this test builds them (into its own directory) and places the built @xlvane/exceljs at
-// node_modules/exceljs and xlvane at node_modules/xlvane, which is what module resolution sees
+// Tests must not use the network, so this test builds the packages (into its own directory)
+// and places the built @xlvane/exceljs at node_modules/exceljs and xlvane at node_modules/xlvane, which is what module resolution sees
 // after `npm install` with the alias. The scripts in sample-project are then run with `node`.
 import { spawnSync } from 'node:child_process';
 import { readFile, rm } from 'node:fs/promises';

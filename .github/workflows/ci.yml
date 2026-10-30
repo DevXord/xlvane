@@ -1,6 +1,6 @@
 # Tests on Node.js 22, 24 and 26 (docs/decisions.md D-007), including the LibreOffice check of
 # written files (D-209), and the portable smoke bundle in Bun, Deno, Chromium and workerd
-# (Cloudflare Workers) (D-904, D-905). Actions are pinned to commit SHAs (D-210); the comment
+# (Cloudflare Workers) (D-905, D-907). Actions are pinned to commit SHAs (D-210); the comment
 # gives the tag.
 name: CI
 

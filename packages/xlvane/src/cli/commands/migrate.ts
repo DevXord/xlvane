@@ -161,7 +161,6 @@ async function run(ctx: CommandContext) {
         for (const c of changes) lines.push(`  ${c.section}: ${out.red(`- "exceljs": "${c.from}"`)}`, `  ${' '.repeat(c.section.length)}  ${out.green(`+ "exceljs": "${c.to}"`)}`);
       }
       lines.push(
-        'Note: @xlvane/exceljs is not published to npm yet, so installing the alias fails until it is.',
         `Node.js: require('exceljs') of @xlvane/exceljs needs Node.js 22.12 or later (package.json engines.node: ${typeof engines === 'string' ? `"${engines}"` : 'not set'}).`,
       );
       lines.push('', `Scanned ${plural(files.length, 'source file')}${limited ? ` (stopped at ${String(MAX_FILES)})` : ''} for exceljs API that @xlvane/exceljs does not fully support:`);

@@ -8,7 +8,7 @@
 }
 ```
 
-npm installs an alias `<alias>@npm:<name>` under the alias name in `node_modules` (npm/cli `docs/lib/content/using-npm/package-spec.md`, "Aliases"), so `require('exceljs')` and `import ExcelJS from 'exceljs'` load `@xlvane/exceljs`. The package is not published yet.
+npm installs an alias `<alias>@npm:<name>` under the alias name in `node_modules` (npm/cli `docs/lib/content/using-npm/package-spec.md`, "Aliases"), so `require('exceljs')` and `import ExcelJS from 'exceljs'` load `@xlvane/exceljs`.
 
 - **ESM:** `import ExcelJS from 'exceljs'` works as with exceljs. `@xlvane/exceljs` is an ES module, so named imports (`import { Workbook } from 'exceljs'`) work too; exceljs 4.4.0 rejects them because it is a CommonJS package.
 - **CommonJS:** `const ExcelJS = require('exceljs')` needs **Node.js 22.12 or later**. The package is ESM-only and exports the `ExcelJS` object under the name `"module.exports"`, which `require()` of an ES module returns directly from Node.js 22.12 on (Node.js `doc/api/modules.md`, "Loading ECMAScript modules using `require()`"). `engines.node` is `>=22.12`.

@@ -9,8 +9,6 @@ compatibility: Node.js 22 or later. The library core works on Uint8Array and has
 
 xlvane reads, writes and edits `.xlsx` files. It treats input files as untrusted (size and ZIP limits, no external entities, macros are never run, links are never followed). It does not calculate formulas: it reads the cached results stored in the file and writes the formula text you give.
 
-Status: the packages are not published to npm yet; until they are, build them from https://github.com/DevXord/xlvane.
-
 Two ways to use it, with the same behaviour:
 
 | Way | When | Start |

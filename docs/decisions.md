@@ -394,6 +394,20 @@ Approved by the maintainer: `playwright` 1.63.0 (Apache-2.0; matches the Chromiu
 ### D-907 CI layout (2026-10-30)
 The `test` job (Node.js 22, 24, 26 with LibreOffice) is unchanged. A new `runtimes` job (ubuntu-24.04, Node.js 24) installs Bun 1.4.4 with `oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6` (tag v2.2.0, a lightweight tag on that commit per `git ls-remote`, 2026-10-30), runs `npm ci`, installs Chromium and runs `npm run test:runtimes`. Every action stays pinned to a commit SHA with the tag in a comment (D-210). The workflow has not run on GitHub yet: it runs on pushes to `main` and on pull requests.
 
+## Decisions: phase 10 (publication)
+
+### D-1001 Version 1.0.0 and packages (2026-10-30)
+At the maintainer's decision the first release is 1.0.0 (the plan's scope minus the agent benchmark and the MCP server, D-801, D-802), for `xlvane` and `@xlvane/exceljs`, which always share one version; `@xlvane/exceljs` depends on `xlvane` `^<version>`. Both are public (`publishConfig.access`), with `publishConfig.provenance: true`; the root package stays private. The names were free on the registry (`npm view` 404, 2026-10-30). The texts that said the packages were not published were removed; `tests/policy/release.test.ts` keeps them out.
+
+### D-1002 Release workflow (2026-10-30)
+`.github/workflows/release.yml` runs on tags `v*`. Job `verify` (no extra permissions): `scripts/check-release-version.mjs` (tag equals both versions, dependency range, public with provenance), then the full CI checks (typecheck, tests with LibreOffice, check:pkg, the runtime smoke tests). Job `publish` (`needs: verify`, environment `npm-release`, the only place with `id-token: write`): npm 11.21.1, `npm ci`, build, `npm stage publish` for each workspace. There are no tokens or secrets; `tests/policy/release.test.ts` checks this, the SHA pins and the permissions.
+
+### D-1003 Trusted publishing with stage-only permission (2026-10-30)
+Following the npm documentation's recommendation for the strongest setup (F-NPM-01, F-NPM-02), the trusted publisher of each package is meant to allow only `npm stage publish`, and publishing access is set to "Require two-factor authentication and disallow tokens", so every release needs a maintainer's 2FA approval. The steps are in docs/RELEASING.md; they are the maintainer's (account, organization, settings, approvals).
+
+### D-1004 First release bootstrap (2026-10-30)
+A trusted publisher is configured in the settings of an existing package, so docs/RELEASING.md first stages both packages from the maintainer's machine (which creates them with the public placeholder `0.0.0-stage`), rejects those stages (no provenance), configures the trusted publisher and re-runs the publish job. Not documented by npm and so marked in RELEASING.md: whether a rejected staged version can be staged again.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -440,6 +454,15 @@ See docs/facts/sml-write.md.
 
 ### F-EXCELJS-01 exceljs 4.4.0 behaviour
 The exceljs behaviours copied by `@xlvane/exceljs` are taken from the exceljs 4.4.0 source installed in `bench/node_modules/exceljs` (`lib/doc/enums.js` for `ValueType`, `FormulaType`, `ErrorValue`; `lib/exceljs.nodejs.js` for the CommonJS export; `lib/doc/worksheet.js` L134–173 for sheet-name rules; `lib/doc/cell.js`, `row.js`, `column.js`; `lib/stream/xlsx/*`) and from its specs at tag v4.4.0. Each behaviour lists its source file and line in docs/exceljs-compat.md.
+
+### F-NPM-01 Trusted publishing
+From github.com/npm/documentation (main, read 2026-10-30) `content/packages-and-modules/securing-your-code/trusted-publishers.mdx`: requires npm CLI 11.5.1 or later and Node 22.14.0 or later; GitHub-hosted runners only; configured in the package settings on npmjs.com (organization or user, repository, workflow filename with `.yml`, optional environment, allowed actions); the workflow needs `permissions: id-token: write`; a new configuration expires if it is not used for a publish within 2 days; configurations created after 2026-09-03 allow `npm stage publish` by default; the documentation recommends stage-only permissions and "Require two-factor authentication and disallow tokens". Provenance is generated automatically with trusted publishing for a public repository and a public package; not for private repositories. `generating-provenance-statements.mdx`: `package.json` `repository` must match the repository (case-sensitive).
+
+### F-NPM-02 Staged publishing
+`staged-publishing.mdx` (same repository and date): requires npm CLI 11.15.0 or later and Node 22.14.0 or later; `npm stage publish` needs no 2FA; approval with `npm stage approve <stage-id>` or on npmjs.com needs 2FA; for a package that does not exist yet npm publishes a public placeholder `0.0.0-stage`. `npx npm@11.21.1 stage --help`: subcommands `publish`, `list`, `view`, `approve`, `reject`, `download`; `stage publish` accepts `-w`, `--access`, `--provenance`, `--dry-run`. A dry run of `npm stage publish -w packages/xlvane` staged `xlvane@1.0.0` (dry-run) with public access.
+
+### F-NPM-03 npm and setup-node versions
+`npm view npm`: 11.21.1 (2026-10-15) is the newest 11.x, engines `^20.17.0 || >=22.9.0`; 12.2.1 needs Node `^22.22.2 || ^24.15.0 || >=26.0.0`. `actions/setup-node` at 949feb24 (v7.1.0) `action.yml`: inputs `registry-url` and `package-manager-cache` (set to false to disable automatic caching).
 
 ### F-WORKERD-01 workerd configuration and compatibility date
 The config format (`using Workerd = import "/workerd/workerd.capnp"`, `services`, `sockets` with `address`, `http`, `service`, worker `modules` with `esModule = embed`) follows `samples/helloworld_esm/config.capnp` in github.com/cloudflare/workerd (main, read 2026-10-30). `src/workerd/server/workerd.capnp`: "`compatibilityDate` must be specified". The README: "`workerd`'s version number is simply a date, corresponding to the maximum compatibility date supported by that version." CLI: `workerd serve <config-file> [<const-name>]` (`workerd serve --help`, 1.20260730.1).

@@ -1,7 +1,6 @@
 {
   "name": "@xlvane/exceljs",
-  "version": "0.0.0",
-  "private": true,
+  "version": "1.0.0",
   "description": "The commonly used exceljs 4.4.0 API on top of xlvane, for switching with one line in package.json.",
   "keywords": [
     "xlsx",
@@ -9,6 +8,10 @@
     "exceljs"
   ],
   "license": "MIT",
+  "homepage": "https://github.com/DevXord/xlvane#readme",
+  "bugs": {
+    "url": "https://github.com/DevXord/xlvane/issues"
+  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DevXord/xlvane.git",
@@ -33,6 +36,10 @@
     "build": "tsdown"
   },
   "dependencies": {
-    "xlvane": "0.0.0"
+    "xlvane": "^1.0.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
   }
 }

@@ -2,7 +2,11 @@
 
 Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 
-Not published to npm yet. The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access.
+```sh
+npm install xlvane
+```
+
+The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access.
 
 ## Tested environments
 
@@ -10,7 +14,7 @@ The core API (reading, writing, inspect, tables, CSV, editing, diff, streaming w
 
 ## Command line in 5 minutes
 
-The package installs an `xlvane` command (Node.js 22 or later). Until it is published, build it from this repository with `npm install && npm run build` and run `node packages/xlvane/dist/cli.js` instead of `xlvane`.
+The package installs an `xlvane` command (Node.js 22 or later): `npm install xlvane` in a project and run `npx xlvane`, or `npm install -g xlvane`.
 
 ```sh
 xlvane                                    # what the tool does and the common commands

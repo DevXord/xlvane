@@ -8,8 +8,6 @@ The commonly used part of the [exceljs](https://github.com/exceljs/exceljs) 4.4.
 }
 ```
 
-The package is not published to npm yet.
-
 ```js
 import ExcelJS from 'exceljs'; // or: const ExcelJS = require('exceljs');
 
