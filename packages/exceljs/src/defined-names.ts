@@ -175,17 +175,25 @@ export class CellMatrix {
     for (const name of this.sheets.keys()) this.forEachInSheet(name, (cell) => callback(cell));
   }
 
+  /**
+   * @internal The keys of `sheets` that name `sheetName`, ignoring case as spreadsheet
+   * applications compare sheet names (xlvane addition; exceljs compares exactly).
+   */
+  sheetKeys(sheetName: string | undefined): (string | undefined)[] {
+    if (sheetName === undefined) return this.sheets.has(undefined) ? [undefined] : [];
+    const name = sheetName.toLowerCase();
+    return [...this.sheets.keys()].filter((k) => k !== undefined && k.toLowerCase() === name);
+  }
+
   /** Removes `numDelete` rows at `start` and inserts `numInsert` empty ones (cell-matrix.js L138). */
   spliceRows(sheetName: string | undefined, start: number, numDelete: number, numInsert: number): void {
-    const sheet = this.sheets.get(sheetName);
-    if (sheet) sheet.splice(start, numDelete, ...Array.from({ length: numInsert }, () => []));
+    for (const key of this.sheetKeys(sheetName)) this.sheets.get(key)?.splice(start, numDelete, ...Array.from({ length: numInsert }, () => []));
   }
 
   /** Removes `numDelete` columns at `start` and inserts `numInsert` empty ones (cell-matrix.js L150). */
   spliceColumns(sheetName: string | undefined, start: number, numDelete: number, numInsert: number): void {
-    const sheet = this.sheets.get(sheetName);
-    if (sheet) {
-      for (const row of sheet) if (row) row.splice(start, numDelete, ...Array.from({ length: numInsert }, () => undefined));
+    for (const key of this.sheetKeys(sheetName)) {
+      for (const row of this.sheets.get(key) ?? []) if (row) row.splice(start, numDelete, ...Array.from({ length: numInsert }, () => undefined));
     }
   }
 
@@ -300,13 +308,15 @@ export class DefinedNames {
 
   /** Gives moved cells their new row and column (lib/doc/defined-names.js L147). */
   normaliseMatrix(matrix: CellMatrix, sheetName: string | undefined): void {
-    matrix.forEachInSheet(sheetName, (cell, row, col) => {
-      if (cell.row !== row || cell.col !== col) {
-        cell.row = row;
-        cell.col = col;
-        cell.address = `${columnLetter(col)}${String(row)}`;
-      }
-    });
+    for (const key of matrix.sheetKeys(sheetName)) {
+      matrix.forEachInSheet(key, (cell, row, col) => {
+        if (cell.row !== row || cell.col !== col) {
+          cell.row = row;
+          cell.col = col;
+          cell.address = `${columnLetter(col)}${String(row)}`;
+        }
+      });
+    }
   }
 
   spliceRows(sheetName: string | undefined, start: number, numDelete: number, numInsert: number): void {
@@ -331,16 +341,18 @@ export class DefinedNames {
   fillInserted(sheetName: string | undefined, axis: 'row' | 'col', start: number, numInsert: number): void {
     if (numInsert <= 0) return;
     for (const matrix of this.matrixMap.values()) {
-      const lines = new Set<number>();
-      matrix.forEachInSheet(sheetName, (_cell, row, col) => {
-        if ((axis === 'row' ? row : col) === start - 1) lines.add(axis === 'row' ? col : row);
-      });
-      for (const line of lines) {
-        const after = axis === 'row' ? matrix.findCellAt(sheetName, start + numInsert, line) : matrix.findCellAt(sheetName, line, start + numInsert);
-        if (!after) continue;
-        for (let i = start; i < start + numInsert; i++) {
-          if (axis === 'row') matrix.getCellAt(sheetName, i, line);
-          else matrix.getCellAt(sheetName, line, i);
+      for (const key of matrix.sheetKeys(sheetName)) {
+        const lines = new Set<number>();
+        matrix.forEachInSheet(key, (_cell, row, col) => {
+          if ((axis === 'row' ? row : col) === start - 1) lines.add(axis === 'row' ? col : row);
+        });
+        for (const line of lines) {
+          const after = axis === 'row' ? matrix.findCellAt(key, start + numInsert, line) : matrix.findCellAt(key, line, start + numInsert);
+          if (!after) continue;
+          for (let i = start; i < start + numInsert; i++) {
+            if (axis === 'row') matrix.getCellAt(key, i, line);
+            else matrix.getCellAt(key, line, i);
+          }
         }
       }
     }

@@ -134,10 +134,16 @@ function adjustCell(p: CellPart, c: Change): string {
 }
 
 /** Adjusts a range of two cell references; returns its new text or `#REF!`. */
-function adjustCellRange(a: CellPart, b: CellPart, c: Change): string | null {
+function adjustCellRange(first: CellPart, second: CellPart, c: Change): string | null {
+  let a = first;
+  let b = second;
+  // A reversed range (B9:B2) is the same range as B2:B9; it is written in order (R-15).
+  if (c.row ? a.row > b.row : a.col > b.col) {
+    a = c.row ? { ...first, row: second.row, rowAbs: second.rowAbs } : { ...first, col: second.col, colAbs: second.colAbs };
+    b = c.row ? { ...second, row: first.row, rowAbs: first.rowAbs } : { ...second, col: first.col, colAbs: first.colAbs };
+  }
   const v1 = c.row ? a.row : a.col;
   const v2 = c.row ? b.row : b.col;
-  if (v1 > v2) return null;
   const span = moveSpan(v1, v2, c);
   if (span === null) return REF;
   return c.row ? `${cellText(a, a.col, span[0])}:${cellText(b, b.col, span[1])}` : `${cellText(a, span[0], a.row)}:${cellText(b, span[1], b.row)}`;
@@ -147,11 +153,12 @@ function adjustLines(p: RowsPart | ColumnsPart, c: Change): string | null {
   const rows = p.kind === 'rows';
   // Whole rows do not change when columns change, and whole columns not when rows change.
   if (rows !== c.row) return render(p);
-  const v1 = rows ? p.r1 : p.c1;
-  const v2 = rows ? p.r2 : p.c2;
-  const abs1 = rows ? p.r1Abs : p.c1Abs;
-  const abs2 = rows ? p.r2Abs : p.c2Abs;
-  if (v1 > v2) return null;
+  let v1 = rows ? p.r1 : p.c1;
+  let v2 = rows ? p.r2 : p.c2;
+  let abs1 = rows ? p.r1Abs : p.c1Abs;
+  let abs2 = rows ? p.r2Abs : p.c2Abs;
+  // A reversed range (9:2) is written in order (R-15).
+  if (v1 > v2) [v1, v2, abs1, abs2] = [v2, v1, abs2, abs1];
   const span = moveSpan(v1, v2, c);
   if (span === null) return REF;
   const show = (v: number, abs: boolean): string => (abs ? '$' : '') + (rows ? String(v) : columnLetters(v));
@@ -178,7 +185,13 @@ function adjustParts(parts: readonly Part[], c: Change): string | null {
     if (p.kind === 'prefix') {
       prefix = p;
       const next = parts[i + 1];
-      // A prefix is always followed by a reference; anything else is not understood.
+      // A prefix followed by text qualifies a defined name or an error (`Sheet1!Total`,
+      // `Sheet1!#REF!`), not cells; it is kept as written. Anything else is not understood.
+      if (typeof next === 'string' && /^(?:#REF!|[A-Za-z_\\\u0080-\uFFFF])/.test(next)) {
+        out += p.text;
+        i++;
+        continue;
+      }
       if (next === undefined || typeof next === 'string' || next.kind === 'prefix') return null;
       p = next;
       i++;

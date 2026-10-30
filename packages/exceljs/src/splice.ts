@@ -1,7 +1,7 @@
 // Helpers for row and column splicing (worksheet.spliceRows / spliceColumns, row.splice). xlvane
 // behaves like a spreadsheet application here, not like exceljs 4.4.0, which moves only values,
 // styles and heights (docs/facts/exceljs.md X4-15; docs/decisions.md D-B03).
-import { adjustFormula, shiftFormula, XlvError } from 'xlvane';
+import { adjustFormula, adjustRange, shiftFormula, XlvError } from 'xlvane';
 
 /** A splice on one axis: `count` positions from `at` are removed, then `inserts` positions are inserted at `at`. */
 export interface SpliceChange {
@@ -23,34 +23,52 @@ export function movePosition(n: number, c: SpliceChange): number | null {
   return n - c.count + c.inserts;
 }
 
+/** The last row or column of the grid on the axis of `c`. */
+export function axisMax(c: SpliceChange): number {
+  return c.axis === 'row' ? 1_048_576 : 16_384;
+}
+
+function letters(n: number): string {
+  let out = '';
+  for (let v = n; v > 0; v = Math.floor((v - 1) / 26)) out = String.fromCharCode(65 + ((v - 1) % 26)) + out;
+  return out;
+}
+
+function number(text: string): number {
+  let n = 0;
+  for (const ch of text) n = n * 26 + ch.charCodeAt(0) - 64;
+  return n;
+}
+
 /**
- * The new span of `[lo, hi]` after the splice, as a spreadsheet application adjusts a range: the
- * removed part is cut out (the span shrinks, and disappears when nothing is left), then inserted
- * positions at or above the first position move the span, inside it they extend it.
+ * The removal and the insertion of a splice as two changes for xlvane's reference engine. Counts
+ * are limited to what is left of the grid, so a removal past the last row or column is valid.
+ */
+function engineChanges(c: SpliceChange): { at: number; count: number }[] {
+  const out: { at: number; count: number }[] = [];
+  const max = axisMax(c);
+  if (c.count > 0) out.push({ at: c.at, count: -Math.min(c.count, max - c.at + 1) });
+  if (c.inserts > 0) out.push({ at: c.at, count: Math.min(c.inserts, max) });
+  return out;
+}
+
+/**
+ * The new span of `[lo, hi]` after the splice, with the rules of xlvane's `adjustRange`
+ * (docs/facts/ref-adjust.md): the removed part is cut out (the span shrinks, and disappears when
+ * nothing is left), then inserted positions at or above the first position move the span, inside
+ * it they extend it; an end pushed beyond the grid stops at the last row or column, a start pushed
+ * beyond it removes the span (R-09).
  */
 export function moveSpan(lo: number, hi: number, c: SpliceChange): [number, number] | null {
-  let a = lo;
-  let b = hi;
-  if (c.count > 0) {
-    const end = c.at + c.count - 1;
-    if (b >= c.at) {
-      if (a > end) {
-        a -= c.count;
-        b -= c.count;
-      } else {
-        a = a < c.at ? a : c.at;
-        b = b > end ? b - c.count : c.at - 1;
-        if (b < a) return null;
-      }
-    }
+  let text = c.axis === 'row' ? `A${String(lo)}:A${String(hi)}` : `${letters(lo)}1:${letters(hi)}1`;
+  for (const step of engineChanges(c)) {
+    const next = adjustRange(text, { sheet: c.sheet, axis: c.axis, at: step.at, count: step.count });
+    if (next === null || next === '') return null;
+    text = next;
   }
-  if (c.inserts > 0) {
-    if (a >= c.at) {
-      a += c.inserts;
-      b += c.inserts;
-    } else if (b >= c.at) b += c.inserts;
-  }
-  return [a, b];
+  const m = /^([A-Z]+)(\d+):([A-Z]+)(\d+)$/.exec(text);
+  if (!m) return null;
+  return c.axis === 'row' ? [Number(m[2]), Number(m[4])] : [number(m[1] ?? ''), number(m[3] ?? '')];
 }
 
 /** Throws XLV_E_INVALID_ARGUMENT for an argument exceljs would accept and corrupt data with. */
@@ -88,11 +106,26 @@ export function copyPlain<T>(value: T): T {
  * `null` when a reference cannot be adjusted safely.
  */
 export function adjustFormulaText(text: string, formulaSheet: string, change: SpliceChange, sheets: readonly string[]): string | null {
-  const base = { formulaSheet, sheet: change.sheet, axis: change.axis, at: change.at, sheets };
+  if (!mayRefer(text, formulaSheet, change.sheet)) return text;
   let out: string | null = text;
-  if (change.count > 0) out = adjustFormula(out, { ...base, count: -change.count });
-  if (out !== null && change.inserts > 0) out = adjustFormula(out, { ...base, count: change.inserts });
+  for (const step of engineChanges(change)) {
+    if (out === null) break;
+    out = adjustFormula(out, { formulaSheet, sheet: change.sheet, axis: change.axis, at: step.at, count: step.count, sheets });
+  }
   return out;
+}
+
+/**
+ * Whether a formula on `formulaSheet` can refer to `sheet` at all: it is on that sheet, it names
+ * the sheet (also quoted, with '' for an apostrophe), or it may hold a 3-D prefix (a ":" before a
+ * "!"). Formulas that cannot are left unchanged without being parsed.
+ */
+function mayRefer(text: string, formulaSheet: string, sheet: string): boolean {
+  const name = sheet.toLowerCase();
+  if (formulaSheet.toLowerCase() === name) return true;
+  if (!text.includes('!')) return false;
+  const lower = text.toLowerCase();
+  return lower.includes(name) || lower.includes(name.replace(/'/g, "''")) || /:[^!]*!/.test(text);
 }
 
 /**

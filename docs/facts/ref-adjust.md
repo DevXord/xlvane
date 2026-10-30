@@ -100,7 +100,16 @@ xlvane does not copy this (D-B01). A 3-D reference that covers the changed sheet
   - A merge that would shrink to one cell is dropped: `G4:G5`, `I6:I7`, `D7:E7`.
   - Otherwise it shrinks: `H4:H8` → `H4:H6`.
 
-  This is a rule for merges only. Formula ranges whose start is deleted shrink instead (R-08).
+  This is a rule for merges only. Formula ranges whose start is deleted shrink instead (R-08). @xlvane/exceljs follows this rule for merged ranges too (D-B03 addendum).
+
+### R-15 — A reversed range is written in order
+Observed 2026-10-30 with `tests/libreoffice/ref-adjust-facts.py` on a separate workbook (formulas in Main!C1:C7). LibreOffice writes a reversed range in order, whether or not the change touches it: `SUM(B9:B2)` → `SUM(B2:B7)` (delete), `SUM(B2:B11)` (insert), `SUM(B2:B9)` (a change that does not touch it); `SUM(B6:B4)` → `SUM(B4:B4)` (delete); `SUM(Other!B9:B2)` → `SUM(Other!B2:B9)` after an insert on Main. xlvane normalises a reversed range of the changed sheet before adjusting it; a reversed range on another sheet keeps its text.
+
+### R-16 — A colon with spaces around it joins two separate references
+Same observation. `SUM(B4 : B6)` → `SUM(B4 : #REF!)` and `SUM(B5 : B10)` → `SUM(#REF! : B8)` (delete), `SUM(B4 : B8)` and `SUM(B7 : B12)` (insert): each side is adjusted as a single reference, not as a range.
+
+### R-17 — Deleting the last rows
+Same observation, rows 1048575–1048576 deleted: `SUM(B1048570:B1048576)` stays (R-10 also holds when the deleted rows include the last one), `SUM(B1048575:B1048576)` → `SUM(#REF!)`, `B1048575` → `#REF!`.
 
 ### Not observed
 - Conditional-formatting and data-validation `sqref`, hyperlink `ref` and comments. xlvane cannot write the first two yet. xlvane applies the formula rules to these by analogy (`adjustRange`), which is not an observation.

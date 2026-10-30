@@ -619,6 +619,7 @@ export class Row {
   splice(start: number, count: number, ...inserts: CellValue[]): void {
     checkInteger('row.splice()', 'start', start, 1, 16_384);
     checkInteger('row.splice()', 'count', count, 0, 16_384);
+    if (start + inserts.length - 1 > 16_384) invalidArgument('row.splice()', 'inserts', inserts.length, 'The inserted cells would reach beyond column XFD (16384). Insert fewer cells or start further left.');
     for (const m of this.worksheet._merges.values()) {
       if (m.top <= this._number && this._number <= m.bottom && m.right >= start) {
         notSupported(`row.splice() of row ${String(this._number)}, which crosses the merged range ${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`);
@@ -980,10 +981,19 @@ export class Worksheet {
       if (!Array.isArray(insert)) invalidArgument(method, `inserts[${String(i)}]`, insert, 'Give each inserted column as an array of values by row (index 0 is row 1).');
     });
     const change: SpliceChange = { sheet: this.name, axis: 'col', at: start, count, inserts: inserts.length };
-    if (this._columns.length >= start + count && this._columns.length - count + inserts.length > 16_384) {
+    // Every check runs before anything changes: the last used column of any row, and of the
+    // column definitions, must stay inside XFD, and so must the inserted columns themselves.
+    let last = this._columns.length;
+    for (const row of this._rows) {
+      if (!row) continue;
+      let n = row._cells.length;
+      while (n > 0 && row._cells[n - 1] === undefined) n--;
+      if (n > last) last = n;
+    }
+    if ((last >= start + count && last - count + inserts.length > 16_384) || start + inserts.length - 1 > 16_384) {
       invalidArgument(method, 'inserts', inserts.length, 'The columns would move beyond column XFD (16384). Remove columns at the end of the sheet first.');
     }
-    this._checkFormulas(change, method);
+    const formulas = this._checkFormulas(change, method);
     const merges = this._takeMerges();
     for (const row of this._rows) row?._spliceCells(change, method);
     // Column definitions move as objects, so keys keep pointing at their column.
@@ -999,6 +1009,9 @@ export class Worksheet {
     });
     for (let i = 0; i < columns.length; i++) if (!columns[i]) columns[i] = new Column(this, i + 1);
     this._columns = columns;
+    // Existing formulas follow the splice before the inserted values are written, so formulas
+    // given in the inserts keep the text the caller wrote.
+    this._afterSplice(change, formulas);
     inserts.forEach((insert, j) => {
       insert.forEach((value, i) => {
         if (value === undefined) return;
@@ -1008,7 +1021,6 @@ export class Worksheet {
       });
     });
     this._restoreMerges(merges, change);
-    this._afterSplice(change);
     this.workbook.definedNames?.spliceColumns(this.name, start, count, inserts.length);
     this.workbook.definedNames?.fillInserted(this.name, 'col', start, inserts.length);
   }
@@ -1104,9 +1116,12 @@ export class Worksheet {
 
   /**
    * Makes `count` copies of row `rowNum` below it, inserting new rows with `insert = true` or
-   * replacing the rows below with `insert = false` (the default of exceljs's code; its README says
-   * `true`). Copies get the values, styles and height, the merged ranges inside the row, and
-   * formulas moved with the row.
+   * overwriting the rows below with `insert = false` (the default of exceljs's code; its README
+   * says `true`). Copies get the values, styles and height and the merged ranges inside the row;
+   * a formula is copied as a spreadsheet application copies a cell: its relative references move by
+   * the distance of the copy. With `insert = true` the rows below move first and every formula
+   * follows (spliceRows); with `insert = false` the rows below are overwritten in place, merged
+   * ranges that touch them are removed, and no other formula changes.
    */
   duplicateRow(rowNum: number, count: number, insert = false): void {
     const method = 'worksheet.duplicateRow()';
@@ -1115,30 +1130,49 @@ export class Worksheet {
     const src = this.findRow(rowNum);
     if (!src) invalidArgument(method, 'rowNum', rowNum, `Row ${String(rowNum)} does not exist; duplicate a row that has cells.`);
     if (count === 0) return;
-    const values: CellValue[] = [];
-    src._cells.forEach((cell) => {
-      if (cell && !cell._master) values[cell.col] = cell.value;
-    });
+    if (rowNum + count > 1_048_576) invalidArgument(method, 'count', count, 'The copies would reach beyond row 1048576. Make fewer copies.');
+    const change: SpliceChange = { sheet: this.name, axis: 'row', at: rowNum + 1, count: 0, inserts: count };
+    const names = this._sheetNames();
+    // The source formulas as they will read after the insertion, and a check that every copy can
+    // be made, before anything changes.
+    const sources = new Map<number, string>();
     src._cells.forEach((cell) => {
       const v = cell && !cell._master ? cell.value : null;
       const formula = v !== null && typeof v === 'object' && !(v instanceof Date) ? (v as { formula?: unknown }).formula : undefined;
-      if (cell && typeof formula === 'string' && (copyFormula(formula, 1) === null || copyFormula(formula, count) === null)) {
-        formulaNotAdjustable(method, this.name, cell.address, formula);
-      }
+      if (!cell || typeof formula !== 'string') return;
+      const text = insert ? adjustFormulaText(formula, this.name, change, names) : formula;
+      if (text === null || copyFormula(text, 1) === null || copyFormula(text, count) === null) formulaNotAdjustable(method, this.name, cell.address, formula);
+      sources.set(cell.col, text);
     });
     const rowMerges = [...this._merges.values()].filter((m) => m.top === rowNum && m.bottom === rowNum);
-    this.spliceRows(rowNum + 1, insert ? 0 : count, ...new Array<CellValue[]>(count).fill(values));
+    if (insert) this.spliceRows(rowNum + 1, 0, ...new Array<null>(count).fill(null));
+    else {
+      const last = rowNum + count;
+      for (const m of [...this._merges.values()]) {
+        if (m.bottom > rowNum && m.top <= last) this.unMergeCells(m.top, m.left, m.bottom, m.right);
+      }
+      for (let r = rowNum + 1; r <= last; r++) {
+        const row = this.findRow(r);
+        if (!row) continue;
+        row.style = {};
+        row._cells = [];
+      }
+    }
     for (let i = 1; i <= count; i++) {
       const dst = this.getRow(rowNum + i);
       dst.style = copyPlain(src.style);
       dst.height = src.height;
       src.eachCell({ includeEmpty: true }, (cell, col) => {
         const copy = dst.getCell(col);
-        copy.style = copyPlain(cell.style);
-        const v = copy.value;
-        if (v !== null && typeof v === 'object' && !(v instanceof Date) && typeof (v as { formula?: unknown }).formula === 'string') {
-          copy.value = { ...(v as Record<string, unknown>), formula: copyFormula((v as { formula: string }).formula, i) ?? (v as { formula: string }).formula } as CellValue;
+        if (!cell._master) {
+          const formula = sources.get(col);
+          const v = cell.value;
+          copy.value =
+            formula !== undefined && v !== null && typeof v === 'object' && !(v instanceof Date)
+              ? ({ ...(v as Record<string, unknown>), formula: copyFormula(formula, i) ?? formula } as CellValue)
+              : copyPlain(v);
         }
+        copy.style = copyPlain(cell.style);
       });
       for (const m of rowMerges) this._mergeRange({ top: rowNum + i, bottom: rowNum + i, left: m.left, right: m.right });
     }
@@ -1156,10 +1190,10 @@ export class Worksheet {
     checkInteger(method, 'count', count, 0, 1_048_576);
     const change: SpliceChange = { sheet: this.name, axis: 'row', at: start, count, inserts: inserts.length };
     const last = this.lastRowNumber;
-    if (last >= start + count && last - count + inserts.length > 1_048_576) {
+    if ((last >= start + count && last - count + inserts.length > 1_048_576) || start + inserts.length - 1 > 1_048_576) {
       invalidArgument(method, 'inserts', inserts.length, 'The rows would move beyond row 1048576. Remove rows at the end of the sheet first.');
     }
-    this._checkFormulas(change, method);
+    const formulas = this._checkFormulas(change, method);
     const merges = this._takeMerges();
     const rows: (Row | undefined)[] = [];
     this._rows.forEach((row, i) => {
@@ -1170,13 +1204,15 @@ export class Worksheet {
       rows[n - 1] = row;
     });
     this._rows = rows;
+    // Existing formulas follow the splice before the inserted values are written, so formulas
+    // given in the inserts keep the text the caller wrote.
+    this._afterSplice(change, formulas);
     inserts.forEach((value, i) => {
       const row = this.getRow(start + i);
       row.style = {};
       row.values = value ?? null;
     });
     this._restoreMerges(merges, change);
-    this._afterSplice(change);
     this.workbook.definedNames?.spliceRows(this.name, start, count, inserts.length);
     this.workbook.definedNames?.fillInserted(this.name, 'row', start, inserts.length);
   }
@@ -1217,17 +1253,29 @@ export class Worksheet {
    * with its own (empty) value.
    */
   _restoreMerges(merges: readonly { top: number; left: number; bottom: number; right: number }[], change: SpliceChange): void {
+    const row = change.axis === 'row';
+    const inserted = (r: number, c: number): boolean => {
+      const v = row ? r : c;
+      return v >= change.at && v < change.at + change.inserts;
+    };
     for (const m of merges) {
-      const span = change.axis === 'row' ? moveSpan(m.top, m.bottom, change) : moveSpan(m.left, m.right, change);
+      // A merge whose top-left cell is removed is dropped, as LibreOffice does (R-14).
+      const first = row ? m.top : m.left;
+      if (first >= change.at && first < change.at + change.count) continue;
+      const span = row ? moveSpan(m.top, m.bottom, change) : moveSpan(m.left, m.right, change);
       if (!span) continue;
-      const range = change.axis === 'row' ? { top: span[0], bottom: span[1], left: m.left, right: m.right } : { top: m.top, bottom: m.bottom, left: span[0], right: span[1] };
+      const range = row ? { top: span[0], bottom: span[1], left: m.left, right: m.right } : { top: m.top, bottom: m.bottom, left: span[0], right: span[1] };
       if (range.top === range.bottom && range.left === range.right) continue;
-      this._mergeRange(range);
+      this._mergeRange(range, inserted);
     }
   }
 
-  /** @internal Merges a range without the overlap check of `mergeCells`. */
-  _mergeRange(range: { top: number; left: number; bottom: number; right: number }): void {
+  /**
+   * @internal Merges a range without the overlap check of `mergeCells`. Cells keep their own
+   * style, except those for which `takeMasterStyle` returns true (cells inserted inside the range),
+   * which get a copy of the master's style; style objects are never shared.
+   */
+  _mergeRange(range: { top: number; left: number; bottom: number; right: number }, takeMasterStyle: (r: number, c: number) => boolean = () => false): void {
     const master = this.getCell(range.top, range.left);
     master._unmerge();
     for (let r = range.top; r <= range.bottom; r++) {
@@ -1235,15 +1283,18 @@ export class Worksheet {
         if (r === range.top && c === range.left) continue;
         const cell = this.getCell(r, c);
         cell._merge(master);
-        cell.style = { ...master.style };
+        if (takeMasterStyle(r, c)) cell.style = copyPlain(master.style);
       }
     }
     master._mergeCount++;
     this._merges.set(`${columnLetter(range.left)}${String(range.top)}`, range);
   }
 
-  /** @internal The autofilter range and every formula of the workbook follow a splice of this sheet. */
-  _afterSplice(change: SpliceChange): void {
+  /**
+   * @internal The autofilter range and every formula of the workbook follow a splice of this
+   * sheet. `formulas` are the new texts computed by `_checkFormulas` before the splice.
+   */
+  _afterSplice(change: SpliceChange, formulas: ReadonlyMap<Cell, string>): void {
     if (this.autoFilter) {
       const f = this.autoFilter;
       const text = typeof f === 'string' ? f : `${typeof f.from === 'string' ? f.from : `${columnLetter(f.from.column)}${String(f.from.row)}`}:${typeof f.to === 'string' ? f.to : `${columnLetter(f.to.column)}${String(f.to.row)}`}`;
@@ -1260,19 +1311,25 @@ export class Worksheet {
         }
       }
     }
-    const names = this._sheetNames();
-    this._eachFormula((sheet, cell, v, formula) => {
-      const text = adjustFormulaText(formula, sheet.name, change, names);
-      if (text !== null && text !== formula) cell.value = { ...v, formula: text } as CellValue;
-    });
+    for (const [cell, text] of formulas) {
+      const v = cell.value;
+      if (v !== null && typeof v === 'object' && !(v instanceof Date)) cell.value = { ...(v as Record<string, unknown>), formula: text } as CellValue;
+    }
   }
 
-  /** @internal Throws before anything changes when a formula of the workbook cannot follow `change`. */
-  _checkFormulas(change: SpliceChange, method: string): void {
+  /**
+   * @internal Computes the new text of every formula of the workbook that `change` alters, and
+   * throws before anything changes when one cannot follow it. Each formula is parsed once.
+   */
+  _checkFormulas(change: SpliceChange, method: string): Map<Cell, string> {
     const names = this._sheetNames();
+    const out = new Map<Cell, string>();
     this._eachFormula((sheet, cell, _v, formula) => {
-      if (adjustFormulaText(formula, sheet.name, change, names) === null) formulaNotAdjustable(method, sheet.name, cell.address, formula);
+      const text = adjustFormulaText(formula, sheet.name, change, names);
+      if (text === null) formulaNotAdjustable(method, sheet.name, cell.address, formula);
+      if (text !== formula) out.set(cell, text);
     });
+    return out;
   }
 
   private _sheetNames(): string[] {

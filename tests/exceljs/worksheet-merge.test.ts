@@ -135,11 +135,10 @@ describe('Worksheet', () => {
       expect(ws.getCell('A2').value).toBe('top');
       ws.spliceRows(2, 2);
       expect([...ws._merges.values()]).toEqual([{ top: 1, left: 1, bottom: 2, right: 2 }]);
-      // The top-left cell is removed: the remaining range keeps merging, its new master is empty.
-      ws.spliceRows(1, 1);
-      expect([...ws._merges.values()]).toEqual([{ top: 1, left: 1, bottom: 1, right: 2 }]);
-      expect(ws.getCell('A1').value).toBeNull();
       ws.spliceColumns(2, 1);
+      expect([...ws._merges.values()]).toEqual([{ top: 1, left: 1, bottom: 2, right: 1 }]);
+      // The top-left cell is removed: the merge is dropped, as LibreOffice does (R-14).
+      ws.spliceRows(1, 1);
       expect(ws.hasMerges).toBe(false);
     });
 

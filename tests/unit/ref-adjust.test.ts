@@ -79,7 +79,6 @@ describe('adjustFormula', () => {
     expect(adjustFormula('@A1', ins(1))).toBeNull();
     expect(adjustFormula('"open', ins(1))).toBeNull();
     expect(adjustFormula('Main!A1:Main!B2', ins(1))).toBeNull();
-    expect(adjustFormula('SUM(B9:B2)', ins(5))).toBeNull();
   });
 
   it('rejects an invalid change with XLV_E_INVALID_OPTION', () => {
@@ -118,5 +117,45 @@ describe('adjustRange', () => {
     expect(adjustRange('A1,B2', ins(1))).toBeNull();
     expect(adjustRange('Sheet1!A1', ins(1))).toBeNull();
     expect(adjustRange('1:3', ins(1))).toBeNull();
+  });
+});
+
+describe('sheet-qualified names and errors', () => {
+  it('keeps Sheet!Name and Sheet!#REF! as written', () => {
+    const change = { sheet: 'Main', axis: 'row' as const, at: 5, count: 2 };
+    expect(adjustFormula('Defines!Total+Main!B9', change)).toBe('Defines!Total+Main!B11');
+    expect(adjustFormula('Main!#REF!+Main!B9', change)).toBe('Main!#REF!+Main!B11');
+    expect(adjustFormula('[1]Main!Total', change)).toBe('[1]Main!Total');
+    expect(adjustFormula("'My S'!name+1", change)).toBe("'My S'!name+1");
+  });
+});
+
+// Regressions found by the review of phase B; LibreOffice 24.2.7.2 observations R-15 … R-17.
+describe('adjustFormula: review fixes', () => {
+  it('copies a sheet prefix followed by a defined name or an error constant unchanged', () => {
+    expect(adjustFormula('SUM(Main!Total)+B9', ins(5))).toBe('SUM(Main!Total)+B11');
+    expect(adjustFormula("SUM('My Sheet'!Total)", { sheet: 'My Sheet', axis: 'row', at: 1, count: 1 })).toBe("SUM('My Sheet'!Total)");
+    expect(adjustFormula('Main!#REF!+B9', ins(5))).toBe('Main!#REF!+B11');
+  });
+
+  it('adjusts each side of a colon with spaces around it on its own, as LibreOffice does (R-16)', () => {
+    expect(adjustFormula('SUM(B4 : B6)', del(5))).toBe('SUM(B4 : #REF!)');
+    expect(adjustFormula('SUM(B5 : B10)', del(5))).toBe('SUM(#REF! : B8)');
+    expect(adjustFormula('SUM(B4 : B6)', ins(5))).toBe('SUM(B4 : B8)');
+  });
+
+  it('normalises a reversed range before adjusting it (R-15)', () => {
+    expect(adjustFormula('SUM(B9:B2)', del(5))).toBe('SUM(B2:B7)');
+    expect(adjustFormula('SUM(B9:B2)', ins(5))).toBe('SUM(B2:B11)');
+    expect(adjustFormula('SUM(B6:B4)', del(5))).toBe('SUM(B4:B4)');
+    expect(adjustFormula('SUM(9:2)', ins(5))).toBe('SUM(2:11)');
+    expect(adjustFormula('SUM(J2:B2)', { sheet: 'Main', axis: 'col', at: 5, count: 2 })).toBe('SUM(B2:L2)');
+    expect(adjustRange('B9:B2', ins(5))).toBe('B2:B11');
+  });
+
+  it('keeps an end at the last row when the rows above it are deleted, even the last rows (R-17)', () => {
+    expect(adjustFormula('SUM(B1048570:B1048576)', del(1_048_575))).toBe('SUM(B1048570:B1048576)');
+    expect(adjustFormula('SUM(B1048575:B1048576)', del(1_048_575))).toBe('SUM(#REF!)');
+    expect(adjustFormula('B1048575', del(1_048_575))).toBe('#REF!');
   });
 });
