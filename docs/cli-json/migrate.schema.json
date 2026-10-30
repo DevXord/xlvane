@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "migrate.schema.json",
+  "title": "xlvane migrate --json",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "const": "migrate"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "directory": {
+              "type": "string"
+            },
+            "packageJson": {
+              "type": "string"
+            },
+            "changes": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "section": {
+                    "enum": [
+                      "dependencies",
+                      "devDependencies",
+                      "optionalDependencies",
+                      "peerDependencies"
+                    ]
+                  },
+                  "from": {
+                    "type": "string"
+                  },
+                  "to": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "section",
+                  "from",
+                  "to"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "alreadyMigrated": {
+              "type": "boolean"
+            },
+            "enginesNode": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "filesScanned": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "scanLimited": {
+              "type": "boolean"
+            },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string"
+                  },
+                  "line": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "column": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "api": {
+                    "type": "string"
+                  },
+                  "status": {
+                    "enum": [
+                      "not supported",
+                      "partly"
+                    ]
+                  }
+                },
+                "required": [
+                  "file",
+                  "line",
+                  "column",
+                  "api",
+                  "status"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "written": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "directory",
+            "packageJson",
+            "changes",
+            "alreadyMigrated",
+            "enginesNode",
+            "filesScanned",
+            "scanLimited",
+            "findings",
+            "written"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "common.schema.json#/$defs/errorEnvelope"
+    }
+  ]
+}

@@ -42,6 +42,9 @@ export const ERROR_CODES = [
   'XLV_E_JSON_INVALID',
   'XLV_E_CSV_MALFORMED',
   'XLV_E_NOT_SUPPORTED',
+  'XLV_E_USAGE',
+  'XLV_E_NOT_INSTALLED',
+  'XLV_E_INTERNAL',
 ] as const;
 
 /**

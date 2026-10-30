@@ -1,0 +1,15 @@
+report.xlsx: xlsx, 2 sheets, date system 1900
+
+Sheet "Sales": A1:C4, 4 rows × 3 columns, 11 cells, 1 formula
+  Header row: 1 (high confidence)
+  Column  Header   Type    Samples
+  A       Region   string  North, South, Total
+  B       Revenue  number  1200, 980, 2180
+  C       Date     date    2024-01-31, 2024-02-29
+  Formulas: B4 =SUM(B2:B3)
+
+Sheet "Costs": A1:B3, 3 rows × 2 columns, 6 cells, 0 formulas
+  Header row: 1 (high confidence)
+  Column  Header  Type    Samples
+  A       Item    string  Rent, =cmd|calc
+  B       Cost    number  500, 1

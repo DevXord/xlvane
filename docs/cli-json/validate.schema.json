@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "validate.schema.json",
+  "title": "xlvane validate --json",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "const": "validate"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "file": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean"
+            },
+            "sheet": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "rowsChecked": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "problems": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "enum": [
+                      "missing-column",
+                      "empty",
+                      "type"
+                    ]
+                  },
+                  "column": {
+                    "type": "string"
+                  },
+                  "cell": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "row": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
+                  "message": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "column",
+                  "cell",
+                  "row",
+                  "message"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/warning"
+              }
+            }
+          },
+          "required": [
+            "file",
+            "ok",
+            "sheet",
+            "rowsChecked",
+            "problems",
+            "warnings"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "common.schema.json#/$defs/errorEnvelope"
+    }
+  ]
+}

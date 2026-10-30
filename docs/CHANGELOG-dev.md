@@ -2,6 +2,35 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 6: command line (2026-10-30)
+
+- **`xlvane` command** (`packages/xlvane`, `bin` → `dist/cli.js`), on `util.parseArgs` and `util.styleText` without new dependencies (D-601 … D-603):
+  - 9 commands: `inspect`, `read`, `convert`, `create`, `edit`, `diff`, `validate`, `migrate`, `mcp`;
+  - a welcome screen, and `help <command>` / `--help` with 2–4 examples and related commands;
+  - "Did you mean" for commands, options, sheet names and file names;
+  - errors in three parts (Error / Where / Fix) with a ready-to-run `Try:` command;
+  - overwrite protection with `--force`, atomic replacement, `--dry-run`, `--quiet`, `--verbose`;
+  - colour only on terminals and never as the only carrier of information;
+  - exit codes 0/1/2/3 (D-604).
+- **`--json`:** one envelope per command, with JSON Schema files in docs/cli-json/ and docs/cli-json.md (D-605).
+- **New error codes:** `XLV_E_USAGE`, `XLV_E_NOT_INSTALLED`, `XLV_E_INTERNAL` (docs/errors.md).
+- **Library changes:**
+  - Node.js file helpers moved to `src/util/node-files.ts` and shared with the CLI;
+  - `inferValue` from csv.ts is reused by `edit --set` (D-606).
+- **Tests** (`tests/cli/`):
+  - snapshots of the welcome screen, every help screen and 27 error messages;
+  - every example of every help screen and of the welcome screen runs against fixture files;
+  - `--json` successes and errors of every command are validated against the schemas;
+  - behaviour: colour, `--force`, `--dry-run`, CSV injection, `edit`, `validate`, `migrate`, `mcp`;
+  - the built `dist/cli.js` is run with node;
+  - a policy test checks that the core entry does not reach Node.js-only modules.
+- **Docs:** a 5-minute CLI start in README.md and packages/xlvane/README.md; decisions D-601 … D-608; facts F-NODE-09 and F-NODE-10.
+- **Package:** separate CLI size budget of 40 kB gzip (20.3 kB measured); library 104.1 kB of 125 kB (D-608).
+- **Not done in this phase:**
+  - progress for large files is a single status line (the reader reports no progress);
+  - table widths count UTF-16 code units, so wide characters may misalign;
+  - the MCP server itself (phase 7).
+
 ## Phase 5: exceljs compatibility (2026-10-30)
 
 - **`@xlvane/exceljs`:** the commonly used exceljs 4.4.0 API on xlvane, for migration with one line (`"exceljs": "npm:@xlvane/exceljs@^1"`):

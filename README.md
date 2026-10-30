@@ -8,9 +8,25 @@ An MIT-licensed library for reading and writing XLSX files, designed for input f
 
 | Package | Contents | Runtime dependencies |
 |---|---|---|
-| [`xlvane`](packages/xlvane) | Core library: safe reading, `inspect()`, writing with styles | `fflate` |
-| [`@xlvane/exceljs`](packages/exceljs) | exceljs-compatible API (phase 5, not implemented) | `xlvane` |
+| [`xlvane`](packages/xlvane) | Core library (safe reading, `inspect()`, writing with styles, task API, streaming) and the `xlvane` command line | `fflate` |
+| [`@xlvane/exceljs`](packages/exceljs) | exceljs-compatible API ([docs/exceljs-compat.md](docs/exceljs-compat.md)) | `xlvane` |
 | [`@xlvane/mcp`](packages/mcp) | MCP server (phase 7, not implemented) | `xlvane` |
+
+## Command line in 5 minutes
+
+```sh
+npm install && npm run build
+alias xlvane="node $PWD/packages/xlvane/dist/cli.js"   # until the package is published
+xlvane                                   # overview and common commands
+xlvane inspect report.xlsx               # sheets, columns, header rows, warnings
+xlvane read report.xlsx --sheet Sales    # print a sheet as a table
+xlvane convert report.xlsx sales.csv     # XLSX ⇄ CSV / JSON
+xlvane create data.json report.xlsx      # formatted report from JSON or CSV
+xlvane diff old.xlsx new.xlsx            # what changed
+xlvane help <command>                    # usage and examples
+```
+
+Add `--json` to any command for machine-readable output ([docs/cli-json.md](docs/cli-json.md)). More in [packages/xlvane/README.md](packages/xlvane/README.md#command-line-in-5-minutes).
 
 ## Development
 

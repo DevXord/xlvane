@@ -2,7 +2,29 @@
 
 Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 
-Not published to npm yet. Planned next: exceljs compatibility, CLI, MCP server (see [docs/PLAN.md](../../docs/PLAN.md)).
+Not published to npm yet. Planned next: MCP server (see [docs/PLAN.md](../../docs/PLAN.md)).
+
+## Command line in 5 minutes
+
+The package installs an `xlvane` command (Node.js 22 or later). Until it is published, build it from this repository with `npm install && npm run build` and run `node packages/xlvane/dist/cli.js` instead of `xlvane`.
+
+```sh
+xlvane                                    # what the tool does and the common commands
+xlvane inspect report.xlsx                # sheets, used ranges, header rows, column types, warnings
+xlvane read report.xlsx --sheet Sales     # a sheet as a table (first 50 rows; --limit, --range)
+xlvane convert report.xlsx sales.csv      # XLSX to CSV or JSON, or CSV/JSON to XLSX
+xlvane create data.json report.xlsx       # a formatted report from JSON or CSV
+xlvane edit report.xlsx --set "Sales!B2=1250" -o updated.xlsx
+xlvane diff report.xlsx updated.xlsx      # what changed; exit code 1 when they differ
+xlvane validate report.xlsx --columns "Region:string,Revenue:number"
+xlvane help edit                          # usage and examples of one command
+```
+
+- Nothing is overwritten without `--force`. Commands that write accept `--dry-run` and end with the path they wrote.
+- Errors say what happened, where, and what to do next, often with a ready-to-run `Try:` command; typos get "Did you mean …?".
+- `--json` prints one JSON document per command with a documented schema ([docs/cli-json.md](../../docs/cli-json.md)). Exit codes: 0 success, 1 a check found something (`diff`, `validate`), 2 usage error, 3 input or file error.
+- Colour is used only on a terminal and never carries information alone; `NO_COLOR` turns it off.
+- `xlvane migrate` prepares a project for `@xlvane/exceljs`, and `xlvane mcp` starts the MCP server from `@xlvane/mcp` (a separate package).
 
 ## Reading a workbook
 
@@ -169,7 +191,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 ## Package size
 
-**Size budget:** 125 kB of gzip-compressed JavaScript for `dist/*.js` (level 9, unminified as published; measured 101.4 kB on 2026-10-30, after streaming was added). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
+**Size budget:** 125 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 104.1 kB on 2026-10-30, after the CLI was added). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 20.3 kB). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
 Not supported: password-protected workbooks and legacy `.xls` files (both rejected with `XLV_E_UNSUPPORTED_CONTAINER`).
 

@@ -1,0 +1,32 @@
+xlvane read — Print a sheet as a table
+
+Usage:
+  xlvane read <file> [options]
+
+Prints the rows of a sheet. The header row is detected unless --header gives its
+number or "none" (then columns are named by their letters). Long cells are cut
+to fit the terminal; --json prints every row in full, with dates as ISO 8601
+strings.
+
+Options:
+      --sheet <name>            Sheet to read (default: the first visible sheet)
+      --range <A1:D20>          Read only this range
+      --header <auto|none|row>  Header row: detect it (default), none, or its number
+      --limit <n>               Rows to print (default 50; with --json: all)
+      --json                    Print one JSON document to stdout (docs/cli-json.md)
+  -q, --quiet                   Print only results and errors
+      --verbose                 Print more detail, including stack traces of internal errors
+  -h, --help                    Show help for the command
+
+Examples:
+  xlvane read report.xlsx
+      Print the first visible sheet
+  xlvane read report.xlsx --sheet Sales --limit 10
+      The first 10 rows of the sheet "Sales"
+  xlvane read report.xlsx --range A1:B3 --header none
+      A range, with columns named A, B
+  xlvane read report.xlsx --json
+      All rows as JSON objects
+
+Exit codes: 0 success, 2 usage error, 3 input or file error.
+Related: xlvane inspect, xlvane convert

@@ -29,6 +29,9 @@
     },
     "./package.json": "./package.json"
   },
+  "bin": {
+    "xlvane": "./dist/cli.js"
+  },
   "files": [
     "dist"
   ],

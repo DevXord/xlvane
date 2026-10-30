@@ -1,0 +1,32 @@
+xlvane validate — Check a workbook and the types of its columns
+
+Usage:
+  xlvane validate <file> [options]
+
+Checks that a file can be read safely and reports warnings (macros, external
+links, damaged parts). With --columns it also checks a table: every listed
+column must exist in the header row, its cells must not be empty unless the type
+ends with "?", and they must have the given type (number, string, date, boolean
+or any). Each problem names the cell. The exit code is 1 when problems are
+found; warnings count only with --strict.
+
+Options:
+      --sheet <name>             Sheet to check with --columns (default: the first visible sheet)
+      --columns <name:type,...>  Column rules, e.g. "Region:string,Revenue:number"
+      --header <auto|row>        Header row for --columns (default: detected)
+      --strict                   Treat warnings as problems
+      --json                     Print one JSON document to stdout (docs/cli-json.md)
+  -q, --quiet                    Print only results and errors
+      --verbose                  Print more detail, including stack traces of internal errors
+  -h, --help                     Show help for the command
+
+Examples:
+  xlvane validate report.xlsx
+      Check that the file reads cleanly
+  xlvane validate report.xlsx --sheet Sales --columns "Region:string,Revenue:number"
+      Check the columns of a table
+  xlvane validate report.xlsx --strict --json
+      Fail on warnings too; problems as JSON
+
+Exit codes: 0 success, 1 problems were found, 2 usage error, 3 input or file error.
+Related: xlvane inspect, xlvane read

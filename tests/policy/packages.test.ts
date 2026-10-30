@@ -1,6 +1,6 @@
 // Repository policy from CLAUDE.md, checked on package manifests and sources.
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -116,11 +116,16 @@ describe('core sources', () => {
     'process', 'stream', 'url', 'util', 'worker_threads', 'zlib',
   ];
 
-  it('do not import Node.js built-ins outside src/node.ts', async () => {
+  // Node.js-only modules: the xlvane/node entry, its file helpers and the CLI (D-601). The core
+  // entry (src/index.ts) must not reach them, so it keeps running in browsers, Deno and Workers.
+  const isNodeOnly = (srcDir: string, file: string): boolean =>
+    file === join(srcDir, 'node.ts') || file === join(srcDir, 'util', 'node-files.ts') || file.startsWith(join(srcDir, 'cli') + sep);
+
+  it('do not import Node.js built-ins outside the Node.js-only modules', async () => {
     const srcDir = join(root, 'packages/xlvane/src');
     const offenders: string[] = [];
     for (const file of await listTsFiles(srcDir)) {
-      if (file === join(srcDir, 'node.ts')) continue;
+      if (isNodeOnly(srcDir, file)) continue;
       const text = await readFile(file, 'utf8');
       for (const match of text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)) {
         const specifier = match[1] ?? '';
@@ -131,5 +136,24 @@ describe('core sources', () => {
       if (/\bprocess\.|\bBuffer\b|\brequire\(/.test(text)) offenders.push(`${file}: Node global`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('src/index.ts does not reach the Node.js-only modules', async () => {
+    const srcDir = join(root, 'packages/xlvane/src');
+    const seen = new Set<string>();
+    const reached: string[] = [];
+    const visit = async (file: string): Promise<void> => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      if (isNodeOnly(srcDir, file)) reached.push(file);
+      const text = await readFile(file, 'utf8');
+      for (const match of text.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g)) {
+        const target = join(dirname(file), match[1]!);
+        await visit(target.endsWith('.ts') ? target : `${target}.ts`);
+      }
+    };
+    await visit(join(srcDir, 'index.ts'));
+    expect(seen.size).toBeGreaterThan(10);
+    expect(reached).toEqual([]);
   });
 });

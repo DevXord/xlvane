@@ -306,7 +306,8 @@ function inferNumber(s: string): number | null {
   return Number.isFinite(value) ? value : null;
 }
 
-function inferValue(s: string, minDate: number): string | number | boolean | Date | null {
+/** The value of a CSV field with `types: "infer"` (also used by `xlvane edit --set`). */
+export function inferValue(s: string, minDate: number): string | number | boolean | Date | null {
   if (s === '') return null;
   const number = inferNumber(s);
   if (number !== null) return number;

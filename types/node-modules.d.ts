@@ -22,6 +22,8 @@ declare module 'node:fs/promises' {
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;
   export function mkdtemp(prefix: string): Promise<string>;
   export function rm(path: string | URL, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
+  export function rename(oldPath: string | URL, newPath: string | URL): Promise<void>;
+  export function copyFile(src: string | URL, dest: string | URL): Promise<void>;
 }
 
 declare module 'node:fs' {
@@ -36,6 +38,7 @@ declare module 'node:fs' {
 declare module 'node:path' {
   export function join(...paths: string[]): string;
   export function resolve(...paths: string[]): string;
+  export function isAbsolute(path: string): boolean;
   export function relative(from: string, to: string): string;
   export function dirname(path: string): string;
   export function basename(path: string, suffix?: string): string;
@@ -64,6 +67,46 @@ declare module 'node:child_process' {
   export function spawnSync(
     command: string,
     args: readonly string[],
-    options?: { timeout?: number; encoding?: 'utf8'; cwd?: string },
+    options?: { timeout?: number; encoding?: 'utf8'; cwd?: string; env?: Record<string, string | undefined> },
   ): { status: number | null; stdout: string; stderr: string; error?: Error };
+}
+
+declare module 'node:util' {
+  /** https://nodejs.org/api/util.html#utilparseargsconfig (stable since v20.0.0; F-NODE-09). */
+  export interface ParseArgsOptionConfig {
+    type: 'string' | 'boolean';
+    multiple?: boolean;
+    short?: string;
+  }
+  export type ParseArgsToken =
+    | { kind: 'option'; name: string; rawName: string; index: number; value: string | undefined; inlineValue: boolean | undefined }
+    | { kind: 'positional'; index: number; value: string }
+    | { kind: 'option-terminator'; index: number };
+  export function parseArgs(config: {
+    args: string[];
+    options: Record<string, ParseArgsOptionConfig>;
+    strict: boolean;
+    allowPositionals: boolean;
+    tokens: true;
+  }): { values: Record<string, unknown>; positionals: string[]; tokens: ParseArgsToken[] };
+  /** https://nodejs.org/api/util.html#utilstyletextformat-text-options (added v20.12.0; F-NODE-10). */
+  export function styleText(format: string | readonly string[], text: string, options?: { validateStream?: boolean }): string;
+}
+
+declare module 'node:process' {
+  /** https://nodejs.org/api/process.html (the CLI entry point only). */
+  interface WriteStream {
+    write(chunk: string): boolean;
+    readonly isTTY?: boolean;
+    readonly columns?: number;
+  }
+  const process: {
+    readonly argv: string[];
+    readonly env: Record<string, string | undefined>;
+    readonly stdout: WriteStream;
+    readonly stderr: WriteStream;
+    cwd(): string;
+    exitCode: number | undefined;
+  };
+  export default process;
 }

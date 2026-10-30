@@ -11,5 +11,8 @@ describe('size budget', () => {
     expect(budget).toBeDefined();
     const kb = Number(budget) / 1000;
     expect(readme).toContain(`**Size budget:** ${String(kb)} kB`);
+    const cli = /const CLI_SIZE_BUDGET_BYTES = ([\d_]+);/.exec(script)?.[1]?.replace(/_/g, '');
+    expect(cli).toBeDefined();
+    expect(readme).toContain(`**CLI size budget:** ${String(Number(cli) / 1000)} kB`);
   });
 });

@@ -309,6 +309,32 @@ Specs from exceljs tag v4.4.0 (commit d911329c, MIT) are ported to Vitest in `te
 ### D-507 Streaming writer and reader (2026-10-30)
 `stream.xlsx.WorkbookWriter` feeds `writeWorkbookStream` through an async queue; committed rows are converted and dropped. To allow worksheets to be added while writing, `writeWorkbookStream` now accepts `sheets` as an (async) iterable and then writes the package parts ([Content_Types].xml, relationships, workbook, styles, shared strings) after the worksheets (allowed: ZIP entries may be in any order, Z-19; LibreOffice opens the result, checked in alias.test.ts). The worksheet layout is written before its rows, so it must be set before the first commit; a later change throws `XLV_E_NOT_SUPPORTED` (exceljs writes `autoFilter` and merges at the end). `stream.xlsx.WorkbookReader` iterates `openWorkbookStream`.
 
+## Decisions: phase 6 (command line)
+
+### D-601 CLI structure (2026-10-30)
+The `xlvane` command lives in the `xlvane` package (docs/PLAN.md section 3) as `src/cli/`, built by tsdown into `dist/cli.js` and declared in `package.json` `bin`; it is not in `exports`, so it is not library API. `run(argv, io)` gets a `CliIO` (output functions, environment, working directory, TTY flags, module loader, version) and returns the exit code; only `src/cli/bin.ts` touches `process` (via `node:process`). Tests run the CLI in-process and once from a separate build (`tests/cli/bin.test.ts`). The CLI and `src/util/node-files.ts` are Node.js-only modules; `tests/policy/packages.test.ts` checks that `src/index.ts` does not reach them. No new dependencies: arguments use `util.parseArgs` (F-NODE-09), colour uses `util.styleText` (F-NODE-10).
+
+### D-602 Colour (2026-10-30)
+`util.styleText` respects `NO_COLOR`, `NODE_DISABLE_COLORS`, `FORCE_COLOR` and isTTY only from Node.js 22.8.0, and xlvane supports `>=22`. The CLI therefore applies the rules Node.js documents (doc/api/cli.md, v22.x) itself and calls `styleText` with `validateStream: false` only when colour is on. Colour only adds to text: every status is a word (`changed`, `added`, `warning`, `Error:`), and a test checks that output with colour removed equals output without colour.
+
+### D-603 Arguments and typos (2026-10-30)
+`parseArgs` runs with `strict: false, tokens: true`, and the CLI checks the tokens itself, so every mistake is an `XLV_E_USAGE` error (new code) with "Did you mean …?" from the existing `suggest()` (optimal string alignment distance, at most a third of the name). Commands must come first. `--help`/`-h` anywhere before `--` prints the command's help. `xlvane mcp` passes its arguments on unparsed.
+
+### D-604 Writing and exit codes (2026-10-30)
+An output file is created exclusively (`wx`); an existing file is replaced only with `--force`, through a temporary file in the same directory and a rename. `--dry-run` reports what would be written. `edit` never changes its input without `--force` (or writes to `--output`). Exit codes: 0 success, 1 a check found something (`diff`: files differ, `validate`: problems), 2 usage error, 3 input or file error. Unexpected exceptions become `XLV_E_INTERNAL` (new code; `--verbose` prints the stack).
+
+### D-605 `--json` envelope and schemas (2026-10-30)
+`--json` prints exactly one document: `{ xlvane: 1, command, ok: true, result }` or `{ xlvane: 1, command, ok: false, error, try }`, where `error` is `XlvError.toJSON()` and `try` the suggested command or `null`. The schemas are JSON Schema files in docs/cli-json/. At the maintainer's decision they are checked by a small validator in `tests/helpers/json-schema.ts` that supports only the keywords the schemas use and throws on any other keyword (no new dependency).
+
+### D-606 Value typing in `edit --set` (2026-10-30)
+`--set` values are typed like CSV fields with `types: "infer"` (the same `inferValue` as `fromCSV`): numbers, `true`/`false` and ISO 8601 dates; `=...` is a formula, a leading apostrophe keeps the text (as in spreadsheet programs), and an empty value clears the cell.
+
+### D-607 `migrate` and `mcp` (2026-10-30)
+At the maintainer's decision `migrate` reports and changes `package.json` only with `--force`, replacing just the `exceljs` value with `npm:@xlvane/exceljs@^1` so that formatting stays. It scans source files that mention `exceljs` (no `node_modules`, no dot folders, at most 10 000 files of 2 MB) for API listed as not or partly supported in docs/exceljs-compat.md; matching is textual. The report says that @xlvane/exceljs is not published yet; this line must be removed when it is. `mcp` loads `@xlvane/mcp` with a dynamic import and calls its `runCli(args): Promise<number>`; this is the contract for phase 7. Without the package it reports `XLV_E_NOT_INSTALLED` (new code) with `npm install @xlvane/mcp`.
+
+### D-608 Size budgets (2026-10-30)
+At the maintainer's decision the 125 kB budget covers the library files of `dist/` and `dist/cli.js` has its own budget of 40 kB gzip. Measured: library 104.1 kB (from 101.7 kB; adding the CLI entry changed how tsdown splits shared chunks), CLI 20.3 kB.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -346,6 +372,12 @@ See docs/facts/sml-write.md.
 
 ### F-NODE-08 require(esm) and the `'module.exports'` export name
 `require()` of an ES module returns its namespace object (the default export at `.default`); from v22.12.0 / v23.0.0 a module can export a value under the string name `'module.exports'`, which `require()` then returns directly. Source: Node.js `doc/api/modules.md` (v22.x), recorded as W-05 in docs/facts/zip-xml-web.md. Verified with the built `@xlvane/exceljs` on Node.js 26 (`tests/exceljs/alias.test.ts`, `check:pkg`).
+
+### F-NODE-09 util.parseArgs
+`util.parseArgs({ args, options, strict, allowPositionals, tokens })` was added in v18.3.0 / v16.17.0 and is no longer experimental from v20.0.0; `tokens: true` returns tokens of kind `option` (with `name`, `rawName`, `value`, `inlineValue`), `positional` and `option-terminator`; `allowNegative` was added in v22.4.0 (not used, because xlvane supports `>=22`). Source: https://github.com/nodejs/node/blob/v22.x/doc/api/util.md (`util.parseArgs([config])`), checked 2026-10-30.
+
+### F-NODE-10 util.styleText and colour environment variables
+`util.styleText(format, text[, options])` was added in v21.7.0 / v20.12.0; from v22.8.0 / v20.18.0 it respects isTTY and `NO_COLOR`, `NODE_DISABLE_COLORS`, `FORCE_COLOR`; options `validateStream` (default `true`) and `stream`; stable from v22.13.0. `FORCE_COLOR` values `1`, `true`, empty, `2`, `3` enable colour and then `NO_COLOR` and `NODE_DISABLE_COLORS` are ignored; any other value disables colour; `NO_COLOR` is an alias of `NODE_DISABLE_COLORS` and its value is arbitrary. Sources: https://github.com/nodejs/node/blob/v22.x/doc/api/util.md (`util.styleText`) and doc/api/cli.md (`FORCE_COLOR`, `NO_COLOR`), checked 2026-10-30. no-color.org could not be reached from the development environment (proxy refusal), so the Node.js definition is used.
 
 ### F-EXCELJS-01 exceljs 4.4.0 behaviour
 The exceljs behaviours copied by `@xlvane/exceljs` are taken from the exceljs 4.4.0 source installed in `bench/node_modules/exceljs` (`lib/doc/enums.js` for `ValueType`, `FormulaType`, `ErrorValue`; `lib/exceljs.nodejs.js` for the CommonJS export; `lib/doc/worksheet.js` L134–173 for sheet-name rules; `lib/doc/cell.js`, `row.js`, `column.js`; `lib/stream/xlsx/*`) and from its specs at tag v4.4.0. Each behaviour lists its source file and line in docs/exceljs-compat.md.

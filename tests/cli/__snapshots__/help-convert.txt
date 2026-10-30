@@ -1,0 +1,36 @@
+xlvane convert — Convert between XLSX, CSV and JSON
+
+Usage:
+  xlvane convert <input> <output> [options]
+
+Converts a sheet to CSV, TSV or JSON (an array of row objects), or CSV, TSV and
+JSON to a plain XLSX file. The formats come from the file extensions. CSV output
+escapes text cells that start with =, +, -, @ and similar characters, so that
+spreadsheet programs do not run them as formulas (OWASP CSV injection); dates
+are written as ISO 8601. Use "xlvane create" for a formatted report.
+
+Options:
+      --sheet <name>            Sheet to convert (default: the first visible sheet); for XLSX output, its name
+      --range <A1:D20>          Convert only this range (XLSX input)
+      --header <auto|none|row>  Header row for JSON output (default: detected)
+      --delimiter <char>        CSV delimiter (default "," and tab for .tsv)
+      --bom                     Start CSV output with a byte order mark (for Excel)
+      --force                   Replace the output file if it exists
+      --dry-run                 Show what would be written, without writing
+      --json                    Print one JSON document to stdout (docs/cli-json.md)
+  -q, --quiet                   Print only results and errors
+      --verbose                 Print more detail, including stack traces of internal errors
+  -h, --help                    Show help for the command
+
+Examples:
+  xlvane convert report.xlsx out.csv
+      The first visible sheet as CSV
+  xlvane convert report.xlsx costs.json --sheet Costs
+      A sheet as an array of JSON objects
+  xlvane convert sales.csv sales.xlsx
+      CSV to XLSX (numbers, true/false and ISO 8601 dates are recognised)
+  xlvane convert report.xlsx out.csv --delimiter ";" --bom
+      CSV for spreadsheet programs that expect semicolons
+
+Exit codes: 0 success, 2 usage error, 3 input or file error.
+Related: xlvane create, xlvane read

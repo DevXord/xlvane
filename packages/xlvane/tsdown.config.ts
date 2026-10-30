@@ -1,7 +1,8 @@
 import { defineConfig } from 'tsdown';
 
 export default defineConfig({
-  entry: ['src/index.ts', 'src/node.ts'],
+  // cli: the `xlvane` command (package.json "bin"), not part of the library API.
+  entry: { index: 'src/index.ts', node: 'src/node.ts', cli: 'src/cli/bin.ts' },
   format: 'esm',
   platform: 'neutral',
   target: 'es2022',

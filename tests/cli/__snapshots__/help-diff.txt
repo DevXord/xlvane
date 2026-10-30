@@ -1,0 +1,27 @@
+xlvane diff — Show what changed between two workbooks
+
+Usage:
+  xlvane diff <old.xlsx> <new.xlsx> [options]
+
+Compares two workbooks cell by cell: values, formulas and, with --styles,
+formatting. Sheets are matched by name. The exit code is 1 when the workbooks
+differ, as with the diff tool, so scripts can check the result.
+
+Options:
+      --styles     Also compare cell formatting
+      --limit <n>  Changes listed per sheet (default 50; --json lists all)
+      --json       Print one JSON document to stdout (docs/cli-json.md)
+  -q, --quiet      Print only results and errors
+      --verbose    Print more detail, including stack traces of internal errors
+  -h, --help       Show help for the command
+
+Examples:
+  xlvane diff old.xlsx new.xlsx
+      List changed, added and removed cells
+  xlvane diff old.xlsx new.xlsx --styles
+      Include formatting changes
+  xlvane diff old.xlsx new.xlsx --json
+      The changes as JSON
+
+Exit codes: 0 success, 1 the workbooks differ, 2 usage error, 3 input or file error.
+Related: xlvane edit, xlvane inspect

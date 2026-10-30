@@ -156,6 +156,18 @@ The CSV text given to `fromCSV` has a quoted field that is never closed, text ri
 `@xlvane/exceljs` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, conditional formatting, data validation, notes, CSV, protection or `insertRow`. `details.feature` names it. The error is thrown where the feature is used, so nothing is dropped silently.
 **Fix:** see docs/exceljs-compat.md for the supported subset; remove the call, or keep using exceljs for files that need the feature.
 
+### XLV_E_USAGE
+The `xlvane` command line was used incorrectly: an unknown command or option, a missing or extra argument, an option without its value, or an option value that is not allowed. `details` names the command and the option or argument; `details.suggestions` lists close matches ("Did you mean ...?"). Exit code 2.
+**Fix:** run `xlvane help <command>` for the usage and examples of the command.
+
+### XLV_E_NOT_INSTALLED
+`xlvane mcp` needs the separate package `@xlvane/mcp`, which could not be loaded. `details.package` names it.
+**Fix:** install it next to xlvane, for example `npm install @xlvane/mcp`.
+
+### XLV_E_INTERNAL
+The `xlvane` command line caught an error that is not an `XlvError`. This is a bug in xlvane. `details.name` is the error's name; `--verbose` prints the stack trace.
+**Fix:** report it with the command and, if possible, the input file (see SECURITY.md for files that must stay private).
+
 ## Warnings
 
 ### XLV_W_DIMENSION_MISMATCH

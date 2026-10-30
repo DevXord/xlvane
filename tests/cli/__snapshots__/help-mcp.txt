@@ -1,0 +1,24 @@
+xlvane mcp — Start the MCP server for AI agents
+
+Usage:
+  xlvane mcp [server options]
+
+Starts the Model Context Protocol server from the separate package @xlvane/mcp,
+so that an AI agent can inspect, read, convert and compare spreadsheets through
+tools instead of code. The arguments after "mcp" are passed to the server. If
+@xlvane/mcp is not installed, the command prints how to install it.
+
+Options:
+      --json     Print one JSON document to stdout (docs/cli-json.md)
+  -q, --quiet    Print only results and errors
+      --verbose  Print more detail, including stack traces of internal errors
+  -h, --help     Show help for the command
+
+Examples:
+  xlvane mcp
+      Start the server, or show how to install it
+  xlvane help mcp
+      This help
+
+Exit codes: 0 success, 2 usage error, 3 input or file error.
+Related: xlvane inspect, xlvane read
