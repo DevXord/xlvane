@@ -301,6 +301,39 @@
                     "items": {
                       "type": "string"
                     }
+                  },
+                  "hyperlinkCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "hyperlinks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string"
+                        },
+                        "target": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "location": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "ref",
+                        "target",
+                        "location"
+                      ],
+                      "additionalProperties": false
+                    }
                   }
                 },
                 "required": [
@@ -321,7 +354,9 @@
                   "formulas",
                   "richTextCellCount",
                   "richTextCells",
-                  "styledColumns"
+                  "styledColumns",
+                  "hyperlinkCount",
+                  "hyperlinks"
                 ],
                 "additionalProperties": false
               }

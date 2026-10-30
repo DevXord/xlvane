@@ -9,7 +9,10 @@
     "created": "2016-01-05T11:22:57.000Z",
     "creator": "x",
     "lastModifiedBy": "x",
-    "modified": "2016-01-05T11:25:30.000Z"
+    "modified": "2016-01-05T11:25:30.000Z",
+    "application": "Microsoft Macintosh Excel",
+    "appVersion": "14.0300",
+    "company": ""
   },
   "definedNames": [],
   "definedNamesTruncated": false,
@@ -31,6 +34,8 @@
         "A1"
       ],
       "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
       "rowCount": 2,
       "columnCount": 2,
       "headerRow": {

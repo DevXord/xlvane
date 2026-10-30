@@ -4,8 +4,19 @@
 // E-05. Every string from the caller goes through escapeText/escapeAttr, and text that the
 // schema types as ST_Xstring also through encodeXstring.
 import { definedNameXml, type NormalizedDefinedName } from '../defined-names';
-import { CORE_PROPERTIES_CONTENT_TYPE, CORE_PROPERTIES_PART, CORE_PROPERTIES_REL, corePropertiesXml, type WorkbookProperties } from '../doc-properties';
-import type { DateSystem, SheetState } from '../model';
+import type { NormalizedHyperlink } from '../hyperlinks';
+import {
+  APP_PROPERTIES_CONTENT_TYPE,
+  APP_PROPERTIES_PART,
+  APP_PROPERTIES_REL,
+  appPropertiesXml,
+  CORE_PROPERTIES_CONTENT_TYPE,
+  CORE_PROPERTIES_PART,
+  CORE_PROPERTIES_REL,
+  corePropertiesXml,
+  type WorkbookProperties,
+} from '../doc-properties';
+import type { DateSystem, SheetState, SheetView } from '../model';
 import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
@@ -25,6 +36,12 @@ export interface WriteSheetData {
   readonly merges: readonly CellRange[];
   readonly freeze: { readonly rows: number; readonly cols: number } | null;
   readonly autoFilter: CellRange | null;
+  /** Colour of the sheet tab (W2-50); absent or `null` for none. */
+  readonly tabColor?: NormalizedColor | null;
+  /** Display settings (W2-51); absent for the defaults. */
+  readonly view?: SheetView;
+  /** Hyperlinks in the order they were added (W2-42). */
+  readonly hyperlinks?: readonly NormalizedHyperlink[];
 }
 
 /** Everything needed to write a package. */
@@ -353,20 +370,43 @@ export function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[] |
   return `<c r="${ref}"${s}${r.t === '' ? '' : attr('t', r.t)}><v>${r.v}</v></c>`;
 }
 
+/** Attributes of `sheetView` that differ from the CT_SheetView defaults (W2-51). */
+function viewAttributes(view: SheetView | undefined): string {
+  if (view === undefined) return '';
+  let xml = '';
+  if (!view.showGridLines) xml += ' showGridLines="0"';
+  if (!view.showRowColHeaders) xml += ' showRowColHeaders="0"';
+  if (view.rightToLeft) xml += ' rightToLeft="1"';
+  if (view.layout !== 'normal') xml += attr('view', view.layout);
+  if (view.zoom !== 100) xml += attr('zoomScale', view.zoom);
+  return xml;
+}
+
 /**
  * The start of a worksheet part, up to and including `<sheetData>`; `dimension` is optional
  * (W2-01). `xfOf` maps interned style ids to cell format indexes (identity when omitted).
  */
 export function sheetHead(
-  sheet: Pick<WriteSheetData, 'freeze' | 'columns'>,
+  sheet: Pick<WriteSheetData, 'freeze' | 'columns' | 'tabColor' | 'view'>,
   selected: boolean,
   dimension: string | null,
   xfOf?: readonly number[],
 ): string {
   let xml = `${XML_DECL}<worksheet xmlns="${NS}" xmlns:r="${R_NS}">`;
+  // sheetPr comes first, and tabColor first in it (CT_Worksheet, CT_SheetPr; W2-01, W2-50).
+  if (sheet.tabColor) xml += `<sheetPr>${colorXml('tabColor', sheet.tabColor)}</sheetPr>`;
   if (dimension !== null) xml += `<dimension${attr('ref', dimension)}/>`;
-  xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''} workbookViewId="0"`;
-  if (sheet.freeze) {
+  xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(sheet.view)} workbookViewId="0"`;
+  const split = sheet.view?.split ?? null;
+  if (split !== null && !sheet.freeze) {
+    // A split window: positions in 1/20 point, xSplit for the vertical bar; topLeftCell is
+    // optional for state="split" ([MS-OI29500] §2.1.640 a, d; W2-51).
+    const pane = split.x > 0 && split.y > 0 ? 'bottomRight' : split.y > 0 ? 'bottomLeft' : 'topRight';
+    xml += '><pane';
+    if (split.x > 0) xml += attr('xSplit', split.x * 20);
+    if (split.y > 0) xml += attr('ySplit', split.y * 20);
+    xml += `${attr('activePane', pane)} state="split"/></sheetView>`;
+  } else if (sheet.freeze) {
     const { rows, cols } = sheet.freeze;
     const pane = rows > 0 && cols > 0 ? 'bottomRight' : rows > 0 ? 'bottomLeft' : 'topRight';
     const topLeft = formatCellRef(rows + 1, cols + 1);
@@ -406,8 +446,12 @@ export function rowStart(r: number, info: { readonly height: number | null; read
   return xml;
 }
 
-/** The end of a worksheet part, from `</sheetData>` (W2-01 order: autoFilter, mergeCells). */
-export function sheetTail(autoFilter: CellRange | null, merges: readonly CellRange[]): string {
+/**
+ * The end of a worksheet part, from `</sheetData>` (W2-01 order: autoFilter, mergeCells). `after`
+ * is the XML of the elements that follow `mergeCells` in CT_Worksheet, already in schema order
+ * (`hyperlinks`, …, `legacyDrawing`; W2-42).
+ */
+export function sheetTail(autoFilter: CellRange | null, merges: readonly CellRange[], after = ''): string {
   let xml = '</sheetData>';
   if (autoFilter) xml += `<autoFilter${attr('ref', rangeRef(autoFilter))}/>`;
   if (merges.length > 0) {
@@ -415,10 +459,57 @@ export function sheetTail(autoFilter: CellRange | null, merges: readonly CellRan
     for (const m of merges) xml += `<mergeCell${attr('ref', rangeRef(m))}/>`;
     xml += '</mergeCells>';
   }
-  return `${xml}</worksheet>`;
+  return `${xml}${after}</worksheet>`;
 }
 
-function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings): string {
+/**
+ * The relationships of one worksheet part, collected while its XML is written. Each feature that
+ * points from the sheet to another part or to an external resource (hyperlinks; comments and
+ * their VML drawing) calls `add` and writes the returned id into the sheet's XML; `xml()` gives
+ * the part `xl/worksheets/_rels/sheetN.xml.rels`, or `null` when nothing was added, in which case
+ * no part is written. Relationship types are Transitional (Part 4 §13.3, W2-52), like every other
+ * relationship the writer emits. The `.rels` extension is covered by the `Default` content type.
+ */
+export class SheetRels {
+  private readonly items: string[] = [];
+
+  /** Adds a relationship of type `REL_BASE + type` and returns its id (`rId1`, `rId2`, …). */
+  add(type: string, target: string, external = false): string {
+    const id = `rId${String(this.items.length + 1)}`;
+    this.items.push(`<Relationship${attr('Id', id)}${attr('Type', REL_BASE + type)}${attr('Target', target)}${external ? ' TargetMode="External"' : ''}/>`);
+    return id;
+  }
+
+  xml(): string | null {
+    return this.items.length === 0 ? null : `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">${this.items.join('')}</Relationships>`;
+  }
+}
+
+/** Part name of the relationships part of worksheet `n` (1-based). */
+export function sheetRelsPartName(n: number): string {
+  return `xl/worksheets/_rels/sheet${String(n)}.xml.rels`;
+}
+
+/**
+ * The `hyperlinks` element (§18.3.1.47, §18.3.1.48; W2-42). An external target gets a
+ * relationship with TargetMode="External" and `r:id`; a place in the workbook is written in
+ * `location` only, without a relationship.
+ */
+export function hyperlinksXml(links: readonly NormalizedHyperlink[], rels: SheetRels): string {
+  if (links.length === 0) return '';
+  let xml = '<hyperlinks>';
+  for (const l of links) {
+    xml += `<hyperlink${attr('ref', l.ref)}`;
+    if (l.url !== null) xml += attr('r:id', rels.add('hyperlink', l.url, true));
+    if (l.location !== null) xml += attr('location', encodeXstring(l.location));
+    if (l.tooltip !== null) xml += attr('tooltip', encodeXstring(l.tooltip));
+    if (l.display !== null) xml += attr('display', encodeXstring(l.display));
+    xml += '/>';
+  }
+  return `${xml}</hyperlinks>`;
+}
+
+function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings, rels: SheetRels): string {
   const rowNumbers = new Set<number>([...sheet.cells.keys(), ...sheet.rows.keys()]);
   const sortedRows = [...rowNumbers].sort((a, b) => a - b);
 
@@ -451,7 +542,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
     }
     xml += '</row>';
   }
-  return xml + sheetTail(sheet.autoFilter, sheet.merges);
+  return xml + sheetTail(sheet.autoFilter, sheet.merges, hyperlinksXml(sheet.hyperlinks ?? [], rels));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -462,14 +553,16 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const { xml: stylesXml, xfOf } = buildStyles(input.styles);
   const sst = new SharedStrings();
   const active = input.sheets.findIndex((s) => s.state === 'visible');
-  const sheetParts = input.sheets.map((sheet, i) => sheetXml(sheet, i === active, xfOf, sst));
+  const sheetRels = input.sheets.map(() => new SheetRels());
+  const sheetParts = input.sheets.map((sheet, i) => sheetXml(sheet, i === active, xfOf, sst, sheetRels[i]!));
 
   const n = input.sheets.length;
   const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames);
   const workbookRels = workbookRelsXml(n, true);
   const core = corePropertiesXml(input.properties ?? {});
-  const rootRels = rootRelsXml(core !== null);
-  const types = contentTypesXml(n, true, core !== null);
+  const app = appPropertiesXml(input.properties ?? {}, input.sheets.map((sheet) => sheet.name), nameTitles(input.definedNames ?? []));
+  const rootRels = rootRelsXml(core !== null, app !== null);
+  const types = contentTypesXml(n, true, core !== null, app !== null);
 
   const entries: ZipWriteEntry[] = [
     { name: '[Content_Types].xml', data: encoder.encode(types) },
@@ -480,8 +573,22 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     { name: 'xl/styles.xml', data: encoder.encode(stylesXml) },
     { name: 'xl/sharedStrings.xml', data: encoder.encode(sst.xml()) },
   ];
+  sheetRels.forEach((rels, i) => {
+    const xml = rels.xml();
+    if (xml !== null) entries.push({ name: sheetRelsPartName(i + 1), data: encoder.encode(xml) });
+  });
   if (core !== null) entries.push({ name: CORE_PROPERTIES_PART, data: encoder.encode(core) });
+  if (app !== null) entries.push({ name: APP_PROPERTIES_PART, data: encoder.encode(app) });
   return writeZip(entries);
+}
+
+/**
+ * The defined names as listed in `TitlesOfParts` of `docProps/app.xml` (Part 1 §18.17.6.5): names
+ * that are not hidden, a sheet-level name prefixed with its quoted sheet, e.g. `'Data'!Total`.
+ * This follows the files written by Excel in the Apache POI corpus (W2-52).
+ */
+export function nameTitles(definedNames: readonly NormalizedDefinedName[]): string[] {
+  return definedNames.filter((n) => !n.hidden).map((n) => (n.sheet === null ? n.name : `${quoteSheetName(n.sheet)}!${n.name}`));
 }
 
 /** The workbook part: date system, book view, sheets, and the autofilter and user defined names. */
@@ -533,18 +640,19 @@ export function workbookRelsXml(sheetCount: number, sharedStrings: boolean): str
   return `${xml}</Relationships>`;
 }
 
-/** The package relationships part; with `coreProperties` also the Core Properties relationship. */
-export function rootRelsXml(coreProperties = false): string {
+/** The package relationships part, with the Core and Extended File Properties relationships when asked. */
+export function rootRelsXml(coreProperties = false, appProperties = false): string {
   return (
     `${XML_DECL}<Relationships xmlns="${PACKAGE_REL_NS}">` +
     `<Relationship Id="rId1" Type="${REL_BASE}officeDocument" Target="xl/workbook.xml"/>` +
     (coreProperties ? `<Relationship Id="rId2" Type="${CORE_PROPERTIES_REL}" Target="${CORE_PROPERTIES_PART}"/>` : '') +
+    (appProperties ? `<Relationship Id="rId3" Type="${APP_PROPERTIES_REL}" Target="${APP_PROPERTIES_PART}"/>` : '') +
     '</Relationships>'
   );
 }
 
 /** The Media Types stream (W2-30). */
-export function contentTypesXml(sheetCount: number, sharedStrings: boolean, coreProperties = false): string {
+export function contentTypesXml(sheetCount: number, sharedStrings: boolean, coreProperties = false, appProperties = false): string {
   let types = `${XML_DECL}<Types xmlns="${CONTENT_TYPES_NS}">`;
   types += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>';
   types += '<Default Extension="xml" ContentType="application/xml"/>';
@@ -553,6 +661,7 @@ export function contentTypesXml(sheetCount: number, sharedStrings: boolean, core
   types += `<Override PartName="/xl/styles.xml" ContentType="${CT_BASE}styles+xml"/>`;
   if (sharedStrings) types += `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_BASE}sharedStrings+xml"/>`;
   if (coreProperties) types += `<Override PartName="/${CORE_PROPERTIES_PART}" ContentType="${CORE_PROPERTIES_CONTENT_TYPE}"/>`;
+  if (appProperties) types += `<Override PartName="/${APP_PROPERTIES_PART}" ContentType="${APP_PROPERTIES_CONTENT_TYPE}"/>`;
   return `${types}</Types>`;
 }
 

@@ -27,7 +27,7 @@ if (!available && !required) console.warn(`LibreOffice tests skipped: "${SOFFICE
 const CSV_FILTER = 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,true,false,false,-1';
 
 function fixtures(): Record<string, NewWorkbook> {
-  const values = createWorkbook();
+  const values = createWorkbook({ properties: { title: 'Values', company: 'Acme', manager: 'Ann' } });
   const data = values.addSheet('Data');
   data.set('A1', 'Text', { font: { bold: true } }).set('B1', 'Number').set('C1', 'Date').set('D1', 'Bool').set('E1', 'Formula');
   data
@@ -44,7 +44,7 @@ function fixtures(): Record<string, NewWorkbook> {
     .set('E3', { error: '#N/A' });
   data.set('A4', '_x0041_ <&>').set('B4', 1e20, { numFmt: '0.00E+00' }).set('C4', new Date(Date.UTC(1900, 2, 1))).set('E4', { formula: 'A2&"!"', result: 'zażółć "q", 😀!' });
   data.merge('A6:C6').freeze({ rows: 1, cols: 1 }).autoFilter('A1:E4').column('A', { width: 30 }).column('F', { hidden: true }).row(1, { height: 25 });
-  values.addSheet('Second & <x>').set('A1', { formula: 'Data!B2+1', result: 1235.5 });
+  values.addSheet('Second & <x>').set('A1', { formula: 'Data!B2+1', result: 1235.5 }).tabColor('00B050').view({ zoom: 80, showGridLines: false });
   values.addSheet('Hidden', { state: 'hidden' }).set('A1', 'secret');
 
   const dates1904 = createWorkbook({ dateSystem: '1904' });
@@ -245,6 +245,10 @@ describe.skipIf(!available && !required)('LibreOffice opens files written by xlv
     expect(s.cell('A1')?.style.font?.bold).toBe(true);
     expect(s.cell('C2')?.value).toEqual(new Date(Date.UTC(2024, 0, 31)));
     expect(s.cell('E2')?.formula?.text).toBe('B2*2');
+    const second = wb.getSheet('Second & <x>');
+    expect(second.tabColor).toBe('FF00B050');
+    expect(second.view).toMatchObject({ zoom: 80, showGridLines: false });
+    expect(wb.properties).toMatchObject({ title: 'Values', company: 'Acme', manager: 'Ann' });
   });
 
   it('keeps fonts, fills, borders, alignment and number formats', async () => {

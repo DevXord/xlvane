@@ -2,23 +2,28 @@
 // memory stays constant however many rows are written (docs/decisions.md D-403, D-404). Values
 // and styles are validated with the rules of the batch writer (write.ts).
 import { checkDefinedName, checkUniqueName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
-import { CORE_PROPERTIES_PART, corePropertiesXml, type WorkbookProperties } from './doc-properties';
+import { APP_PROPERTIES_PART, appPropertiesXml, CORE_PROPERTIES_PART, corePropertiesXml, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
+import type { HyperlinkTarget } from './hyperlinks';
 import type { DateSystem, SheetState } from './model';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
 import {
   buildStyles,
   cellXml,
   contentTypesXml,
+  nameTitles,
   createSharedStrings,
   rootRelsXml,
   rowStart,
   sheetHead,
   sheetTail,
+  hyperlinksXml,
+  SheetRels,
+  sheetRelsPartName,
   workbookRelsXml,
   workbookXml,
 } from './sml/write-parts';
-import { normalizeStyle, type CellStyle, type NormalizedStyle } from './style';
+import { normalizeStyle, type CellStyle, type Color, type NormalizedStyle } from './style';
 import type { TableColumnSpec } from './table';
 import { readOptions } from './util/options';
 import {
@@ -29,6 +34,7 @@ import {
   type CellInput,
   type ColumnOptions,
   type FreezeOptions,
+  type SheetViewOptions,
   type NewSheet,
 } from './write';
 import { createZipStream, type ZipStreamEntry } from './zip/stream';
@@ -74,10 +80,19 @@ export interface StreamSheetSpec {
   /** Column options by position (column A first); `undefined` entries keep the default. */
   readonly columns?: readonly (ColumnOptions | undefined)[];
   readonly freeze?: FreezeOptions;
+  /** Colour of the sheet tab, as for `NewSheet.tabColor`. */
+  readonly tabColor?: Color;
+  /** Display settings, as for `NewSheet.view`. */
+  readonly view?: SheetViewOptions;
   /** `true`: a filter over all written rows and columns; or a range such as `"A1:D100"`. */
   readonly autoFilter?: boolean | string;
   /** Ranges to merge, for example `["A1:C1"]`. */
   readonly merges?: readonly string[];
+  /**
+   * Hyperlinks of the sheet, each a cell or range (`ref`) with a `HyperlinkTarget`; checked like
+   * `NewSheet.link`. They are given up front because they are written after the rows.
+   */
+  readonly hyperlinks?: readonly (HyperlinkTarget & { readonly ref: string })[];
   /** The rows, from row 1. Any iterable or async iterable (arrays, generators, streams of rows). */
   readonly rows: Iterable<StreamRowInput> | AsyncIterable<StreamRowInput>;
 }
@@ -141,6 +156,8 @@ interface PreparedSheet {
   readonly rows: Iterable<StreamRowInput> | AsyncIterable<StreamRowInput>;
   /** Filled in while the sheet is written. */
   filterRange: CellRange | null;
+  /** Relationships of the sheet part (hyperlinks), written after the sheet. */
+  readonly rels: SheetRels;
 }
 
 function isIterable(value: unknown): value is Iterable<unknown> | AsyncIterable<unknown> {
@@ -210,7 +227,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
   const prepare = (raw: unknown, i: number): PreparedSheet => {
-    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'autoFilter', 'merges', 'rows'], `sheets[${String(i)}]`);
+    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'autoFilter', 'merges', 'hyperlinks', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
     const sheet = book.addSheet(s.get('name') as string, state === undefined ? undefined : { state: state as SheetState });
     const columns = s.get('columns');
@@ -222,6 +239,10 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     }
     const freeze = s.get('freeze');
     if (freeze !== undefined) sheet.freeze(freeze as FreezeOptions);
+    const tabColor = s.get('tabColor');
+    if (tabColor !== undefined) sheet.tabColor(tabColor as Color);
+    const view = s.get('view');
+    if (view !== undefined) sheet.view(view as SheetViewOptions);
     const merges = s.get('merges');
     if (merges !== undefined) {
       if (!Array.isArray(merges)) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].merges must be an array of ranges.`, { hint: 'For example merges: ["A1:C1"].', details: { option: 'merges' } });
@@ -238,7 +259,16 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     if (!isIterable(rows)) {
       throw new XlvError('XLV_E_TABLE_INVALID', `sheets[${String(i)}].rows is not an iterable.`, { hint: 'Pass an array, a generator or an async iterable of rows.', details: { row: 0 } });
     }
-    return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null };
+    const links = s.get('hyperlinks');
+    if (links !== undefined) {
+      if (!Array.isArray(links)) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].hyperlinks must be an array.`, { hint: 'For example hyperlinks: [{ ref: "A1", url: "https://example.com" }].', details: { option: 'hyperlinks' } });
+      for (const l of links) {
+        if (typeof l !== 'object' || l === null) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].hyperlinks must hold objects.`, { hint: 'For example { ref: "A1", url: "https://example.com" }.', details: { option: 'hyperlinks' } });
+        const { ref, ...target } = l as { ref?: unknown };
+        sheet.link(ref as string, target);
+      }
+    }
+    return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null, rels: new SheetRels() };
   };
   const noVisibleSheet = (): XlvError =>
     new XlvError('XLV_E_INVALID_INPUT', 'All sheets of the workbook are hidden.', { hint: 'A workbook needs at least one visible sheet.' });
@@ -260,7 +290,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
 
   async function* sheetData(p: PreparedSheet, selected: boolean): AsyncGenerator<Uint8Array> {
     const name = p.sheet.name;
-    let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap }, selected, null);
+    let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings }, selected, null);
     let r = 0;
     let maxCol = 0;
     for await (const raw of iterate(p.rows)) {
@@ -333,8 +363,17 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     }
     if (p.autoFilter === true) p.filterRange = r > 0 && maxCol > 0 ? { start: { row: 1, col: 1 }, end: { row: r, col: maxCol } } : null;
     else if (p.autoFilter !== false) p.filterRange = p.autoFilter;
-    buffer += sheetTail(p.filterRange, p.sheet.mergeList);
+    buffer += sheetTail(p.filterRange, p.sheet.mergeList, hyperlinksXml([...p.sheet.linkMap.values()], p.rels));
     yield encoder.encode(buffer);
+  }
+
+  /**
+   * The sheet's relationships part, if it has relationships. The ZIP stream reads an entry's data
+   * completely before it asks for the next entry, so the sheet has been written by now.
+   */
+  function* sheetRelsEntry(p: PreparedSheet, n: number): Generator<ZipStreamEntry> {
+    const xml = p.rels.xml();
+    if (xml !== null) yield { name: sheetRelsPartName(n), data: encoder.encode(xml) };
   }
 
   /** The parts written after the sheets: filter ranges and styles are known only then. */
@@ -346,16 +385,24 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
     yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true).xml) };
     if (core !== null) yield { name: CORE_PROPERTIES_PART, data: encoder.encode(core) };
+    const app = appXml();
+    if (app !== null) yield { name: APP_PROPERTIES_PART, data: encoder.encode(app) };
     if (strings) yield { name: 'xl/sharedStrings.xml', data: encoder.encode(strings.xml()) };
   }
+  /** `docProps/app.xml` (W2-52); known once the sheets and names are. */
+  const appXml = (): string | null => appPropertiesXml(book.properties, prepared.map((p) => p.sheet.name), nameTitles(book.definedNames));
   async function* entries(): AsyncGenerator<ZipStreamEntry> {
     if (!dynamic) {
       const active = prepared.findIndex((p) => p.sheet.state === 'visible');
-      yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null)) };
-      yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null)) };
+      const app = appXml() !== null;
+      yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app)) };
+      yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null, app)) };
       for (let i = 0; i < prepared.length; i++) {
         const p = prepared[i];
-        if (p) yield { name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: sheetData(p, i === active) };
+        if (p) {
+          yield { name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: sheetData(p, i === active) };
+          yield* sheetRelsEntry(p, i + 1);
+        }
       }
       yield* closingParts();
       return;
@@ -370,12 +417,14 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       const select = !selected && p.sheet.state === 'visible';
       if (select) selected = true;
       yield { name: `xl/worksheets/sheet${String(prepared.length)}.xml`, data: sheetData(p, select) };
+      yield* sheetRelsEntry(p, prepared.length);
     }
     if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
     if (!selected) throw noVisibleSheet();
     addNames();
-    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null)) };
-    yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null)) };
+    const app = appXml() !== null;
+    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app)) };
+    yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null, app)) };
     yield* closingParts();
   }
   return createZipStream(entries());

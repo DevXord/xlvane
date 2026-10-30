@@ -89,6 +89,10 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
     if (s.formulas.length > 0) lines.push(`  Formulas: ${s.formulas.slice(0, 3).map((f) => `${f.cell} =${f.formula ?? '(shared)'}`).join(', ')}`);
     if (s.richTextCellCount > 0) lines.push(`  Rich text: ${plural(s.richTextCellCount, 'cell')} (${s.richTextCells.slice(0, 5).join(', ')}${s.richTextCellCount > 5 ? ', …' : ''})`);
     if (s.styledColumns.length > 0) lines.push(`  Column styles: ${s.styledColumns.slice(0, 10).join(', ')}${s.styledColumns.length > 10 ? ', …' : ''}`);
+    if (s.hyperlinkCount > 0) {
+      const shown = s.hyperlinks.slice(0, 3).map((l) => `${l.ref} → ${l.target ?? ''}${l.location === null ? '' : `${l.target === null ? '' : '#'}${l.location}`}`);
+      lines.push(`  Hyperlinks: ${plural(s.hyperlinkCount, 'link')} (${shown.join(', ')}${s.hyperlinkCount > 3 ? ', …' : ''})`);
+    }
   }
   if (r.warnings.length > 0) {
     lines.push('', 'Warnings:', ...warningLines(out, r.warnings));

@@ -1,10 +1,12 @@
 import type { DefinedName } from './defined-names';
-import { isCorePropertiesRel, parseCoreProperties, type WorkbookProperties } from './doc-properties';
+import { isAppPropertiesRel, isCorePropertiesRel, parseAppProperties, parseCoreProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
+import { isUnusualTarget, type Hyperlink } from './hyperlinks';
 import { resolveLimits, type ReadLimits } from './limits';
-import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
+import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, SheetView, Workbook, WorkbookFormat } from './model';
+import type { Color } from './style';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
-import { parseCellRef } from './sml/cell-ref';
+import { parseCellRef, parseRange } from './sml/cell-ref';
 import {
   classifyRelationship,
   INTL_MACROSHEET_REL,
@@ -16,7 +18,7 @@ import {
 import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
 import { parseWorkbookPart } from './sml/workbook';
-import { parseWorksheet, type NumberFormat, type WorksheetData } from './sml/worksheet';
+import { DEFAULT_SHEET_VIEW, parseWorksheet, type NumberFormat, type WorksheetData } from './sml/worksheet';
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 import { openZip } from './zip/reader';
@@ -58,6 +60,7 @@ class ReadSheet implements Sheet {
     readonly state: SheetState,
     readonly part: string | null,
     private readonly data: WorksheetData | null,
+    readonly hyperlinks: readonly Hyperlink[] = [],
   ) {}
 
   get dimension(): string | null {
@@ -82,6 +85,14 @@ class ReadSheet implements Sheet {
 
   get autoFilter(): string | null {
     return this.data?.autoFilter ?? null;
+  }
+
+  get tabColor(): Color | null {
+    return this.data?.tabColor ?? null;
+  }
+
+  get view(): SheetView {
+    return this.data?.view ?? DEFAULT_SHEET_VIEW;
   }
 
   rowInfo(row: number): RowInfo | undefined {
@@ -224,9 +235,63 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
         formatCache,
       });
     }
-    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data);
+    const links = data === null || entry.part === null ? [] : resolveHyperlinks(pkg, entry.part, entry.name, data, warnings);
+    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links);
   });
   return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames);
+}
+
+/**
+ * Resolves the `r:id` of each hyperlink against the sheet's relationships (W2-42, W2-44) and
+ * attaches the links to the cells they cover. Targets are only read as text, never opened.
+ */
+function resolveHyperlinks(pkg: OpcPackage, part: string, sheet: string, data: WorksheetData, warnings: WarningCollector): Hyperlink[] {
+  if (data.hyperlinks.length === 0) return [];
+  const rels = pkg.relationships(part);
+  const links: Hyperlink[] = [];
+  let unusual: string | null = null;
+  for (const raw of data.hyperlinks) {
+    let target: string | null = null;
+    if (raw.relId !== null) {
+      const rel = rels.find((r) => r.id === raw.relId);
+      if (rel === undefined || classifyRelationship(rel.type)?.name !== 'hyperlink') {
+        warnings.add('XLV_W_INVALID_VALUE', `The hyperlink of ${raw.ref} refers to relationship "${raw.relId.slice(0, 40)}", which is not a hyperlink relationship of the sheet; its target is unknown.`, { part, sheet, cell: raw.ref });
+      } else {
+        target = rel.target;
+        if (unusual === null && isUnusualTarget(target)) unusual = target;
+      }
+    }
+    links.push(Object.freeze({ ref: raw.ref, target, location: raw.location, tooltip: raw.tooltip, display: raw.display }));
+  }
+  if (unusual !== null) {
+    warnings.add('XLV_W_UNUSUAL_HYPERLINK', `The sheet has hyperlinks to targets other than web pages or e-mail addresses, for example "${unusual.slice(0, 80)}". xlvane does not open them.`, { part, sheet });
+  }
+  // Each cell gets the first link that covers it. Per link, the smaller of the range and the
+  // sheet's rows (and cells) is walked, so a single-cell link costs O(1).
+  for (const link of links) {
+    const range = parseRange(link.ref);
+    if (range === null) continue;
+    const rowSpan = range.end.row - range.start.row + 1;
+    const colSpan = range.end.col - range.start.col + 1;
+    const visit = (cells: Map<number, Cell>): void => {
+      const mark = (c: number, cell: Cell): void => {
+        if (cell.hyperlink === undefined) cells.set(c, { ...cell, hyperlink: link });
+      };
+      if (colSpan <= cells.size) {
+        for (let c = range.start.col; c <= range.end.col; c++) {
+          const cell = cells.get(c);
+          if (cell) mark(c, cell);
+        }
+      } else for (const [c, cell] of cells) if (c >= range.start.col && c <= range.end.col) mark(c, cell);
+    };
+    if (rowSpan <= data.rows.size) {
+      for (let r = range.start.row; r <= range.end.row; r++) {
+        const cells = data.rows.get(r);
+        if (cells) visit(cells);
+      }
+    } else for (const [r, cells] of data.rows) if (r >= range.start.row && r <= range.end.row) visit(cells);
+  }
+  return links;
 }
 
 /** A sheet as listed in the workbook part, before its cells are read. */
@@ -261,6 +326,11 @@ function corePropertiesRel(pkg: OpcPackage): Relationship | undefined {
   return pkg.relationships(null).find((r) => !r.external && isCorePropertiesRel(r.type));
 }
 
+/** The Extended File Properties relationship of the package, if any (D-A10). */
+function appPropertiesRel(pkg: OpcPackage): Relationship | undefined {
+  return pkg.relationships(null).find((r) => !r.external && isAppPropertiesRel(r.type));
+}
+
 /** The workbook part's relationships that the reader loads in full (workbook, styles, shared strings). */
 export function workbookPartsToLoad(pkg: OpcPackage): string[] {
   const officeDocument = findRelationship(pkg.relationships(null), 'officeDocument');
@@ -273,6 +343,8 @@ export function workbookPartsToLoad(pkg: OpcPackage): string[] {
   }
   const core = corePropertiesRel(pkg);
   if (core !== undefined) out.push(core.target);
+  const app = appPropertiesRel(pkg);
+  if (app !== undefined) out.push(app.target);
   return out;
 }
 
@@ -364,9 +436,14 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
     if (xml === undefined) warnings.add('XLV_W_PART_MISSING', 'The package refers to a document properties part that does not exist; reading continues without it.', { part: core.target });
     else properties = parseCoreProperties(xml, { part: core.target, ...context });
   }
+  const app = appPropertiesRel(pkg);
+  if (app !== undefined) {
+    const xml = pkg.readXml(app.target);
+    if (xml === undefined) warnings.add('XLV_W_PART_MISSING', 'The package refers to an extended document properties part that does not exist; reading continues without it.', { part: app.target });
+    else properties = { ...properties, ...parseAppProperties(xml, { part: app.target, ...context }) };
+  }
   return { workbookPart, sheets, sharedStrings, richStrings, styles, dateSystem, conformance: info.conformance, format, hasMacros, externalLinkCount, properties, definedNames };
 }
-
 
 function detectMacros(pkg: OpcPackage, workbookRels: readonly Relationship[]): boolean {
   if (workbookRels.some((r) => r.type === VBA_PROJECT_REL || r.type === MACROSHEET_REL || r.type === INTL_MACROSHEET_REL)) {

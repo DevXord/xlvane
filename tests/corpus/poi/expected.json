@@ -239,7 +239,9 @@
   },
   "53734.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_UNUSUAL_HYPERLINK"
+    ]
   },
   "53798.xlsx": {
     "ok": true,
@@ -965,7 +967,9 @@
   },
   "WithMoreVariousData.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_UNUSUAL_HYPERLINK"
+    ]
   },
   "WithTable.xlsx": {
     "ok": true,

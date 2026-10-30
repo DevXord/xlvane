@@ -3,16 +3,17 @@
 // §18.3.1.35 dimension; docs/facts/ecma-376.md E-20 … E-39).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo } from '../model';
+import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo, SheetLayout, SheetView, SplitPanes } from '../model';
+import type { Color } from '../style';
 import type { WarningCollector } from '../util/warnings';
 import { parseXml, type XmlHandler } from '../xml/parser';
 import type { XmlElement } from '../xml/tree';
 import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './cell-ref';
 import { compileFormula, type CompiledFormula } from './formula-shift';
 import { parseIsoDateTime, serialToDate } from './dates';
-import { SML_NS } from './namespaces';
+import { REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS, isDateFormat, isDateFormatId } from './numfmt';
-import { parseRunFont, type Styles } from './styles';
+import { parseColor, parseRunFont, type Styles } from './styles';
 import { parseXsdBoolean } from './workbook';
 import { decodeXstring } from './xstring';
 
@@ -64,7 +65,28 @@ export interface WorksheetData {
   readonly freeze: FrozenPanes | null;
   /** `autoFilter@ref` (W2-06). */
   readonly autoFilter: string | null;
+  /** `sheetPr/tabColor` (W2-50). */
+  readonly tabColor: Color | null;
+  /** Settings of the first sheet view (W2-51). */
+  readonly view: SheetView;
+  /** `hyperlink` elements in file order, before their relationships are resolved (W2-42). */
+  readonly hyperlinks: RawHyperlink[];
 }
+
+/** The view of a sheet without a `sheetView`, from the defaults of CT_SheetView (W2-51). */
+export const DEFAULT_SHEET_VIEW: SheetView = Object.freeze({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null });
+
+/** A `hyperlink` element as read: `relId` is its `r:id`, resolved by the caller. */
+export interface RawHyperlink {
+  readonly ref: string;
+  readonly relId: string | null;
+  readonly location: string | null;
+  readonly tooltip: string | null;
+  readonly display: string | null;
+}
+
+/** Hyperlinks kept per sheet; more are skipped with a warning (implementation limit, D-A08). */
+const MAX_HYPERLINKS = 65_536;
 
 const FORMULA_KINDS: readonly FormulaKind[] = ['normal', 'shared', 'array', 'dataTable'];
 
@@ -160,6 +182,10 @@ export function createWorksheetParser(
   const rowInfo = new Map<number, RowInfo>();
   let freeze: FrozenPanes | null = null;
   let autoFilter: string | null = null;
+  let tabColor: Color | null = null;
+  let view: SheetView = DEFAULT_SHEET_VIEW;
+  const hyperlinks: RawHyperlink[] = [];
+  const relIdKey = `{${REL_NS[ctx.conformance]}}id`;
   let sheetViews = 0;
   let currentRow = 0;
   let lastCol = 0;
@@ -437,6 +463,16 @@ export function createWorksheetParser(
           const range = parseRange(ref);
           if (range === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The merged range "${ref.slice(0, 40)}" is not a valid range.`, loc());
           else merges.push(formatRange(range));
+        } else if (depth === 3 && local === 'hyperlink' && parent === 'hyperlinks') {
+          const ref = attrs.get('ref') ?? '';
+          const range = parseRange(ref);
+          const text = (name: string): string | null => {
+            const v = attrs.get(name);
+            return v === undefined ? null : decodeXstring(v);
+          };
+          if (range === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The hyperlink range "${ref.slice(0, 40)}" is not a valid range; the link is skipped.`, loc());
+          else if (hyperlinks.length >= MAX_HYPERLINKS) ctx.warnings.add('XLV_W_INVALID_VALUE', `The sheet has more than ${String(MAX_HYPERLINKS)} hyperlinks; the rest are skipped.`, loc());
+          else hyperlinks.push({ ref: formatRange(range), relId: attrs.get(relIdKey) ?? null, location: text('location'), tooltip: text('tooltip'), display: text('display') });
         } else if (depth === 2 && local === 'autoFilter') {
           const ref = attrs.get('ref');
           const range = ref === undefined ? null : parseRange(ref);
@@ -445,8 +481,14 @@ export function createWorksheetParser(
           } else autoFilter = formatRange(range);
         } else if (depth === 3 && local === 'sheetView' && parent === 'sheetViews') {
           sheetViews++;
+          if (sheetViews === 1) view = parseSheetView(attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
         } else if (depth === 4 && local === 'pane' && parent === 'sheetView' && sheetViews === 1) {
-          freeze = parsePane(attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+          const warn = (message: string): void => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc());
+          freeze = parsePane(attrs, warn);
+          const split = parseSplit(attrs, warn);
+          if (split !== null) view = Object.freeze({ ...view, split });
+        } else if (depth === 3 && local === 'tabColor' && parent === 'sheetPr') {
+          tabColor = parseColor({ ns: elementNs, local, attrs, children: [], text: '' }, 'sheet tab', (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())) ?? null;
         } else if (depth === 3 && local === 'col' && parent === 'cols') {
           const col = parseColumn(attrs);
           if (col === null) ctx.warnings.add('XLV_W_INVALID_VALUE', 'A column definition (col) has invalid min, max or width attributes; it is ignored.', loc());
@@ -565,7 +607,7 @@ export function createWorksheetParser(
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
     else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
-    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter };
+    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view };
   };
   return { handler, finish };
 }
@@ -652,6 +694,64 @@ function parseColumn(attrs: ReadonlyMap<string, string>): ColumnInfo | null {
   if (rawWidth !== undefined && (width === null || width < 0)) return null;
   const hidden = attrs.get('hidden');
   return { min, max, width, hidden: hidden !== undefined && parseXsdBoolean(hidden) === true };
+}
+
+const LAYOUTS: readonly SheetLayout[] = ['normal', 'pageBreakPreview', 'pageLayout'];
+
+/**
+ * Reads the display settings of a `sheetView` (CT_SheetView, W2-51). Absent attributes take the
+ * schema defaults; invalid ones give a warning and the default. `zoomScale` is a percentage from
+ * 10 to 400 (Part 1 §18.3.1.87).
+ */
+function parseSheetView(attrs: ReadonlyMap<string, string>, warn: (message: string) => void): SheetView {
+  const flag = (name: string, fallback: boolean): boolean => {
+    const raw = attrs.get(name);
+    if (raw === undefined) return fallback;
+    const v = parseXsdBoolean(raw);
+    if (v === null) warn(`The sheet view attribute ${name}="${raw.slice(0, 20)}" is not a boolean; the default is used.`);
+    return v ?? fallback;
+  };
+  let zoom = 100;
+  const rawZoom = attrs.get('zoomScale');
+  if (rawZoom !== undefined) {
+    const n = parseUint(rawZoom.trim(), 10);
+    if (n === null || n < 10 || n > 400) warn(`The sheet zoom "${rawZoom.slice(0, 20)}" is not a percentage from 10 to 400; 100 is used.`);
+    else zoom = n;
+  }
+  const rawLayout = (attrs.get('view') ?? 'normal').trim();
+  const layout = LAYOUTS.find((l) => l === rawLayout);
+  if (layout === undefined) warn(`The sheet view type "${rawLayout.slice(0, 30)}" is not known; "normal" is used.`);
+  return Object.freeze({
+    zoom,
+    showGridLines: flag('showGridLines', true),
+    showRowColHeaders: flag('showRowColHeaders', true),
+    rightToLeft: flag('rightToLeft', false),
+    layout: layout ?? 'normal',
+    split: null,
+  });
+}
+
+/**
+ * Reads a split (not frozen) window from a `pane` whose `state` is `split`, the default (CT_Pane,
+ * ST_PaneState): xSplit and ySplit are then positions in 1/20 point, and xSplit is the vertical
+ * split bar ([MS-OI29500] §2.1.640 d; W2-51). Returned in points.
+ */
+function parseSplit(attrs: ReadonlyMap<string, string>, warn: (message: string) => void): SplitPanes | null {
+  if ((attrs.get('state') ?? 'split').trim() !== 'split') return null;
+  const position = (name: string): number | null => {
+    const raw = attrs.get(name);
+    if (raw === undefined) return 0;
+    const n = parseXsdDouble(raw);
+    if (n === null || n < 0) {
+      warn(`The split pane attribute ${name}="${raw.slice(0, 20)}" is not a valid position; the split is ignored.`);
+      return null;
+    }
+    return n / 20;
+  };
+  const x = position('xSplit');
+  const y = position('ySplit');
+  if (x === null || y === null || (x === 0 && y === 0)) return null;
+  return Object.freeze({ x, y });
 }
 
 /**

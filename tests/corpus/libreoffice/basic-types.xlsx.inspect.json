@@ -12,7 +12,9 @@
     "lastModifiedBy": "",
     "revision": "0",
     "subject": "",
-    "title": ""
+    "title": "",
+    "application": "LibreOffice/24.2.7.2$Linux_X86_64 LibreOffice_project/420$Build-2",
+    "appVersion": "15.0000"
   },
   "definedNames": [],
   "definedNamesTruncated": false,
@@ -57,6 +59,8 @@
       "richTextCellCount": 0,
       "richTextCells": [],
       "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
       "rowCount": 5,
       "columnCount": 6,
       "headerRow": {
@@ -198,6 +202,8 @@
       "richTextCellCount": 0,
       "richTextCells": [],
       "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
       "rowCount": 1,
       "columnCount": 1,
       "headerRow": null,

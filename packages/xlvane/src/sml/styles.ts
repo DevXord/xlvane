@@ -207,7 +207,7 @@ export function parseStyles(xml: string, ctx: PartContext): Styles {
 type ColorOf = (el: XmlElement | undefined, what: string) => Color | undefined;
 
 /** Parses CT_Color (W2-16): rgb as ARGB, or theme (with tint), indexed or auto. */
-function parseColor(el: XmlElement, what: string, warn: (message: string) => void): Color | undefined {
+export function parseColor(el: XmlElement, what: string, warn: (message: string) => void): Color | undefined {
   const rgb = el.attrs.get('rgb');
   if (rgb !== undefined) {
     if (/^[0-9A-Fa-f]{8}$/.test(rgb)) return rgb.toUpperCase();

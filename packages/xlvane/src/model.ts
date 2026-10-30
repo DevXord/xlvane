@@ -2,7 +2,8 @@
 import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import type { XlvWarning } from './errors';
-import type { CellStyle, FontStyle } from './style';
+import type { Hyperlink } from './hyperlinks';
+import type { CellStyle, Color, FontStyle } from './style';
 
 /**
  * The kind of value a cell holds after reading.
@@ -131,6 +132,11 @@ export interface Cell {
    * text joined. Absent for plain text and other values.
    */
   readonly richText?: readonly RichTextRun[];
+  /**
+   * The hyperlink whose range covers this cell, if any (the first one in file order). Not set
+   * by the streaming reader, because the links follow the rows in the file (D-A08).
+   */
+  readonly hyperlink?: Hyperlink;
 }
 
 /**
@@ -192,6 +198,64 @@ export interface RowInfo {
 export interface FrozenPanes {
   readonly rows: number;
   readonly cols: number;
+}
+
+/**
+ * How a sheet is displayed: normal, with page breaks, or as printed pages (ST_SheetViewType,
+ * ECMA-376 Part 1 §18.18.69).
+ *
+ * @example
+ * ```ts
+ * import type { SheetLayout } from 'xlvane';
+ *
+ * const layout: SheetLayout = 'pageLayout';
+ * console.log(layout);
+ * ```
+ */
+export type SheetLayout = 'normal' | 'pageBreakPreview' | 'pageLayout';
+
+/**
+ * A split window (not frozen): the distance of the vertical split bar from the left and of the
+ * horizontal split bar from the top, in points; 0 means no split in that direction. Stored as
+ * `pane@xSplit` and `pane@ySplit` in 1/20 point (ECMA-376 Part 1 §18.3.1.66, W2-51).
+ *
+ * @example
+ * ```ts
+ * import type { SplitPanes } from 'xlvane';
+ *
+ * const split: SplitPanes = { x: 120, y: 60 };
+ * console.log(split.x);
+ * ```
+ */
+export interface SplitPanes {
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * Display settings of a sheet's view (`sheetView`, ECMA-376 Part 1 §18.3.1.87, W2-51). Frozen
+ * panes are in {@link Sheet.freeze}.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type SheetView } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const view: SheetView | undefined = readWorkbook(bytes).sheets[0]?.view;
+ * console.log(view?.zoom, view?.showGridLines);
+ * ```
+ */
+export interface SheetView {
+  /** Zoom in percent, 10 to 400; 100 when the file does not set it. */
+  readonly zoom: number;
+  readonly showGridLines: boolean;
+  /** Whether row numbers and column letters are shown. */
+  readonly showRowColHeaders: boolean;
+  /** Column A at the right, text right to left. */
+  readonly rightToLeft: boolean;
+  readonly layout: SheetLayout;
+  /** A split window, or `null`. */
+  readonly split: SplitPanes | null;
 }
 
 /**
@@ -296,6 +360,12 @@ export interface Sheet {
   readonly freeze: FrozenPanes | null;
   /** The autofilter range, for example `"A1:D100"`, or `null`. */
   readonly autoFilter: string | null;
+  /** Hyperlinks of the sheet in file order (see `Hyperlink`); their targets are never opened. */
+  readonly hyperlinks: readonly Hyperlink[];
+  /** Colour of the sheet tab (`sheetPr/tabColor`), or `null`. */
+  readonly tabColor: Color | null;
+  /** Display settings of the sheet's first view. */
+  readonly view: SheetView;
   /** Height and visibility of a row (1-based), or `undefined` if the file sets neither. */
   rowInfo(row: number): RowInfo | undefined;
   /** Returns the cell at an A1-style reference, or `undefined` if the file has none there. */

@@ -132,6 +132,10 @@ export interface InspectSheet {
   readonly richTextCells: readonly string[];
   /** Columns with a default style (`ColumnInfo.style`), e.g. `["B", "D:F"]`; at most `maxColumns` entries. */
   readonly styledColumns: readonly string[];
+  /** Number of hyperlinks (`Sheet.hyperlinks`). */
+  readonly hyperlinkCount: number;
+  /** Up to ten hyperlinks: range, external target and place in the workbook. Targets are never opened. */
+  readonly hyperlinks: readonly { readonly ref: string; readonly target: string | null; readonly location: string | null }[];
 }
 
 /**
@@ -194,6 +198,7 @@ const MAX_MERGE_CHECK_WORK = 5_000_000;
 /** Bounds of the lists that are not controlled by an option. */
 const MAX_DEFINED_NAMES = 100;
 const MAX_RICH_TEXT_CELLS = 10;
+const MAX_HYPERLINK_SAMPLES = 10;
 const TYPE_ORDER: readonly Exclude<CellType, 'empty'>[] = ['number', 'string', 'date', 'boolean', 'error'];
 
 interface ResolvedOptions {
@@ -366,6 +371,8 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     richTextCellCount,
     richTextCells,
     styledColumns: styledColumns(sheet, options.maxColumns),
+    hyperlinkCount: sheet.hyperlinks.length,
+    hyperlinks: sheet.hyperlinks.slice(0, MAX_HYPERLINK_SAMPLES).map((l) => ({ ref: l.ref, target: l.target, location: l.location })),
   };
   if (empty) {
     return { ...base, rowCount: 0, columnCount: 0, headerRow: null, columns: [], columnsTruncated: false };

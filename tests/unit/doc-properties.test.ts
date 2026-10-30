@@ -100,7 +100,6 @@ describe('writing document properties', () => {
   it('rejects invalid properties', () => {
     expectXlvError(() => createWorkbook({ properties: 'x' as never }), 'XLV_E_INVALID_OPTION');
     expectXlvError(() => createWorkbook({ properties: { titel: 'x' } as never }), 'XLV_E_INVALID_OPTION', { option: 'properties.titel' });
-    expectXlvError(() => createWorkbook({ properties: { company: 'x' } as never }), 'XLV_E_INVALID_OPTION');
     expectXlvError(() => createWorkbook({ properties: { title: 1 } as never }), 'XLV_E_INVALID_OPTION', { option: 'properties.title' });
     expectXlvError(() => createWorkbook({ properties: { title: 'a\u0001b' } }), 'XLV_E_INVALID_OPTION');
     expectXlvError(() => createWorkbook({ properties: { title: '\uD800' } }), 'XLV_E_INVALID_OPTION');

@@ -8,6 +8,7 @@ import { readWorkbook } from '../../packages/xlvane/src/read';
 import { writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
 import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
 import { expectXlvError } from '../helpers/expect-error';
+import { buildXlsx } from '../helpers/xlsx-builder';
 
 function part(bytes: Uint8Array, name: string): string {
   const data = unzipSync(bytes)[name];
@@ -92,12 +93,42 @@ describe('column default style', () => {
     expect(bad.warnings.map((w) => w.code)).toContain('XLV_W_INVALID_VALUE');
   });
 
-  it('editCells keeps col@style and does not apply it to new cells', () => {
+  it('editCells keeps col@style and starts new cells from it (Part 1 §18.3.1.13)', () => {
     const wb = createWorkbook();
-    wb.addSheet('S').column('A', { style: { font: { bold: true } } }).set('B1', 1);
-    const edited = editCells(writeWorkbook(wb), [{ sheet: 'S', cell: 'A2', value: 'new' }]);
+    wb.addSheet('S').column('A', { style: { font: { bold: true } } }).set('A1', 'old').set('B1', 1);
+    const edited = editCells(writeWorkbook(wb), [
+      { sheet: 'S', cell: 'A2', value: 'new' },
+      { sheet: 'S', cell: 'A3', value: 'red', style: { font: { color: 'FF0000' } } },
+      { sheet: 'S', cell: 'A1', value: 'changed' },
+      { sheet: 'S', cell: 'B2', value: 2 },
+    ]);
     const s = readWorkbook(edited.bytes).getSheet('S');
     expect(s.columns[0]?.style).toEqual({ font: BOLD });
-    expect(s.cell('A2')?.style).toEqual({});
+    expect(s.cell('A2')?.style).toEqual({ font: BOLD });
+    expect(s.cell('A3')?.style).toEqual({ font: { ...BOLD, color: 'FFFF0000' } });
+    // An existing cell keeps its own format; other columns are unchanged.
+    expect(s.cell('A1')?.style).toEqual({});
+    expect(s.cell('B2')?.style).toEqual({});
+  });
+
+  it('editCells does not use the column style in a row with its own format, or an index the file lacks', () => {
+    const sheet =
+      '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><cols><col min="1" max="2" style="1"/><col min="3" max="3" style="99"/></cols>' +
+      '<sheetData><row r="1" s="0" customFormat="1"><c r="D1"><v>1</v></c></row></sheetData></worksheet>';
+    const styles =
+      '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><name val="Calibri"/></font></fonts>' +
+      '<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>' +
+      '<borders count="1"><border/></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>' +
+      '<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>';
+    const bytes = buildXlsx({ sheets: [{ name: 'S', data: sheet }], styles });
+    const edited = editCells(bytes, [
+      { sheet: 'S', cell: 'B1', value: 'row format' },
+      { sheet: 'S', cell: 'B2', value: 'column format' },
+      { sheet: 'S', cell: 'C2', value: 'missing format' },
+    ]);
+    const s = readWorkbook(edited.bytes).getSheet('S');
+    expect(s.cell('B1')?.style).toEqual({});
+    expect(s.cell('B2')?.style.font?.bold).toBe(true);
+    expect(s.cell('C2')?.style).toEqual({});
   });
 });

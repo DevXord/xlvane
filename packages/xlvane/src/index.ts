@@ -28,6 +28,7 @@ export {
 export { DEFAULT_READ_LIMITS, type ReadLimits } from './limits';
 export type { WorkbookProperties } from './doc-properties';
 export type { DefinedName, DefinedNameOptions } from './defined-names';
+export type { Hyperlink, HyperlinkTarget } from './hyperlinks';
 export {
   createWorkbook,
   writeWorkbook,
@@ -41,6 +42,7 @@ export {
   type ErrorValue,
   type FormulaResult,
   type FreezeOptions,
+  type SheetViewOptions,
   type RowOptions,
 } from './write';
 export type {
@@ -71,7 +73,10 @@ export type {
   RowInfo,
   Sheet,
   SheetKind,
+  SheetLayout,
   SheetState,
+  SheetView,
+  SplitPanes,
   Workbook,
   WorkbookFormat,
 } from './model';

@@ -3,11 +3,12 @@
 import { checkDefinedName, checkUniqueName, type DefinedName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
 import { normalizeProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
-import type { DateSystem, RichTextRun, SheetState } from './model';
+import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
+import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
 import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
-import { mergeStyles, normalizeStyle, stableKey, type CellStyle, type NormalizedStyle } from './style';
+import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type NormalizedColor, type NormalizedStyle } from './style';
 import { suggest } from './util/suggest';
 import { firstLoneSurrogate } from './xml/writer';
 
@@ -163,6 +164,37 @@ export interface FreezeOptions {
 }
 
 /**
+ * Options for {@link NewSheet.view}: how the sheet is displayed when opened (`sheetView`,
+ * ECMA-376 Part 1 §18.3.1.87; W2-51). Settings not given keep their current value.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type SheetViewOptions } from 'xlvane';
+ *
+ * const view: SheetViewOptions = { zoom: 80, showGridLines: false };
+ * createWorkbook().addSheet('Report').view(view);
+ * ```
+ */
+export interface SheetViewOptions {
+  /** Zoom in percent, a whole number from 10 to 400. Default 100. */
+  readonly zoom?: number;
+  /** Default true. */
+  readonly showGridLines?: boolean;
+  /** Show row numbers and column letters. Default true. */
+  readonly showRowColHeaders?: boolean;
+  /** Column A at the right and text right to left. Default false. */
+  readonly rightToLeft?: boolean;
+  /** Default "normal". */
+  readonly layout?: SheetLayout;
+  /**
+   * Splits the window (without freezing) at `x` points from the left and `y` points from the
+   * top; a missing one is 0, but not both. `null` removes the split. A split replaces frozen
+   * panes, and {@link NewSheet.freeze} replaces a split.
+   */
+  readonly split?: Partial<SplitPanes> | null;
+}
+
+/**
  * Error values accepted in cells (ECMA-376 Part 1 §18.17.3, fact E-33).
  *
  * @example
@@ -173,6 +205,10 @@ export interface FreezeOptions {
  * ```
  */
 export const ERROR_VALUES: readonly ErrorValue[] = ['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA'];
+/** The view of a new sheet: the defaults of CT_SheetView (W2-51). */
+const DEFAULT_VIEW: SheetView = { zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null };
+/** Largest split position accepted, in points: an implementation bound, not a documented limit. */
+const MAX_SPLIT_POINTS = 1_000_000;
 /** Most characters a cell can contain (Excel specifications and limits, W-04). */
 const MAX_CELL_TEXT = 32_767;
 /** Widest column, in characters (Excel specifications and limits, W-04). */
@@ -309,6 +345,12 @@ export class NewSheet {
   frozen: { rows: number; cols: number } | null = null;
   /** @internal */
   filter: CellRange | null = null;
+  /** @internal */
+  tab: NormalizedColor | null = null;
+  /** @internal */
+  viewSettings: SheetView = DEFAULT_VIEW;
+  /** @internal Hyperlinks by normalised range, in the order they were added. */
+  readonly linkMap: Map<string, NormalizedHyperlink> = new Map();
   private count = 0;
 
   /** @internal Use {@link NewWorkbook.addSheet}. */
@@ -551,6 +593,83 @@ export class NewSheet {
     const rows = count('rows', MAX_ROWS);
     const cols = count('cols', MAX_COLUMNS);
     this.frozen = rows === 0 && cols === 0 ? null : { rows, cols };
+    if (this.frozen !== null && this.viewSettings.split !== null) this.viewSettings = { ...this.viewSettings, split: null };
+    return this;
+  }
+
+  /**
+   * Sets the colour of the sheet tab (`sheetPr/tabColor`, W2-50), or removes it with `null`.
+   * Colours are given as for cell styles.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Summary').tabColor('00B050');
+   * ```
+   */
+  tabColor(color: Color | null): this {
+    this.tab = color === null ? null : normalizeColor(color, 'tabColor');
+    return this;
+  }
+
+  /**
+   * Sets how the sheet is displayed when opened: zoom, gridlines, headings, direction, layout
+   * and a split window (W2-51). Settings not given keep their value.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Report').view({ zoom: 120, showGridLines: false });
+   * ```
+   */
+  view(options: SheetViewOptions): this {
+    const o = readOptions(options, ['zoom', 'showGridLines', 'showRowColHeaders', 'rightToLeft', 'layout', 'split'], 'view options');
+    const next: { -readonly [K in keyof SheetView]: SheetView[K] } = { ...this.viewSettings };
+    const zoom = o.get('zoom');
+    if (zoom !== undefined) {
+      if (typeof zoom !== 'number' || !Number.isInteger(zoom) || zoom < 10 || zoom > 400) {
+        throw invalidOption('The view option "zoom" must be a whole number from 10 to 400 (percent).', 'For example { zoom: 80 }.');
+      }
+      next.zoom = zoom;
+    }
+    for (const key of ['showGridLines', 'showRowColHeaders', 'rightToLeft'] as const) {
+      const v = o.get(key);
+      if (v === undefined) continue;
+      if (typeof v !== 'boolean') throw invalidOption(`The view option "${key}" must be true or false.`, `For example { ${key}: false }.`);
+      next[key] = v;
+    }
+    const layout = o.get('layout');
+    if (layout !== undefined) {
+      if (layout !== 'normal' && layout !== 'pageBreakPreview' && layout !== 'pageLayout') {
+        throw invalidOption(`The view option "layout" is ${JSON.stringify(String(layout).slice(0, 30))}.`, 'Use "normal", "pageBreakPreview" or "pageLayout".');
+      }
+      next.layout = layout;
+    }
+    let unfreeze = false;
+    if (o.has('split')) {
+      const split = o.get('split');
+      if (split === null) next.split = null;
+      else {
+        const p = readOptions(split, ['x', 'y'], 'view option "split"');
+        const at = (key: string): number => {
+          const v = p.get(key) ?? 0;
+          if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_SPLIT_POINTS) {
+            throw invalidOption(`The split position "${key}" must be a number of points from 0 to ${String(MAX_SPLIT_POINTS)}.`, 'For example { split: { x: 100, y: 50 } }.');
+          }
+          return v;
+        };
+        const x = at('x');
+        const y = at('y');
+        // Office does not support a split pane at 0, 0 ([MS-OI29500] §2.1.640 e).
+        if (x === 0 && y === 0) throw invalidOption('A split needs "x" or "y" greater than 0.', 'For example { split: { y: 50 } }, or { split: null } to remove it.');
+        next.split = { x, y };
+        unfreeze = true;
+      }
+    }
+    this.viewSettings = next;
+    if (unfreeze) this.frozen = null;
     return this;
   }
 
@@ -569,6 +688,30 @@ export class NewSheet {
     return this;
   }
 
+  /**
+   * Attaches a hyperlink to a cell or range, or removes it with `null`. `{ url }` links to a web
+   * page, `mailto:` address or file; `{ location }` to a place in the workbook such as
+   * `"'Sales 2026'!A1"` or a defined name. The cell text is set separately with `set`; a link
+   * added again for the same range replaces the earlier one. Throws `XLV_E_INVALID_HYPERLINK`
+   * (see `HyperlinkTarget` for the limits). xlvane never opens or checks the target.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const sheet = createWorkbook().addSheet('Links');
+   * sheet.set('A1', 'Example').link('A1', { url: 'https://example.com', tooltip: 'Open example.com' });
+   * sheet.set('A2', 'Back to the top').link('A2', { location: 'Links!A1' });
+   * ```
+   */
+  link(range: string, target: HyperlinkTarget | null): this {
+    const r = this.range(range, 'cell or range', '"A1" or "A1:B2"');
+    const ref = r.start.row === r.end.row && r.start.col === r.end.col ? formatCellRef(r.start.row, r.start.col) : `${formatCellRef(r.start.row, r.start.col)}:${formatCellRef(r.end.row, r.end.col)}`;
+    this.linkMap.delete(ref);
+    if (target !== null) this.linkMap.set(ref, { ref, ...normalizeHyperlink(target, { sheet: this.name, cell: ref }) });
+    return this;
+  }
+
   /** @internal */
   data(): WriteSheetData {
     return {
@@ -580,6 +723,9 @@ export class NewSheet {
       merges: this.mergeList,
       freeze: this.frozen,
       autoFilter: this.filter,
+      tabColor: this.tab,
+      view: this.viewSettings,
+      hyperlinks: [...this.linkMap.values()],
     };
   }
 }

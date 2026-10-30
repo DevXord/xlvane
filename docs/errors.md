@@ -13,7 +13,7 @@ The input is not what the function expects: `readWorkbook` and `inspect` accept 
 **Fix:** pass the bytes of the file. A path string is the most common mistake; in Node.js use `readWorkbookFile()` or `inspectFile()` from `xlvane/node`.
 
 ### XLV_E_INVALID_OPTION
-An option is unknown, has the wrong type or is out of range. The hint lists the known options and suggests the closest name. `details.option` names the option.
+An option is unknown, has the wrong type or is out of range. The hint lists the known options and suggests the closest name. `details.option` names the option. Ranges checked include the sheet view zoom (10 to 400 percent, ECMA-376 Part 1 §18.3.1.87), a split window that needs a position above 0 in at least one direction ([MS-OI29500] §2.1.640 e), and the document property `appVersion` (one or two digits, a dot, one to four digits, [MS-OI29500] §2.1.1717).
 **Fix:** correct the option name or value.
 
 ### XLV_E_LIMIT_EXCEEDED
@@ -122,6 +122,10 @@ The workbook already has a sheet with this name. Names are compared ignoring upp
 `defineName` (or `definedNames` of `writeWorkbookStream`) was given a name that spreadsheet applications do not accept, or a duplicate. Rules ([MS-OI29500] §2.1.568, ECMA-376 Part 1 §18.17.2.5): 1 to 255 characters; letters, digits, `_`, `.`, `\` and `?`, starting with a letter, `_` or `\`; not `TRUE`/`FALSE`, not a cell reference (`A1`, `R1C1`); not starting with `_xl` (reserved for built-in names); unique in its scope, ignoring case. The same code is used for an empty or too long formula (`refersTo`, at most 8192 characters) and a comment longer than 255 characters. `details.name` is the name.
 **Fix:** choose another name, for example `Sales_2026` instead of `Sales 2026` or `A1`, or make the name local to a sheet with `{ sheet: "Data" }`.
 
+### XLV_E_INVALID_HYPERLINK
+`link` (or `hyperlinks` of a sheet of `writeWorkbookStream`) was given a hyperlink that cannot be stored: not an object, an unknown property, a property that is not a string, neither `url` nor `location`, an empty `url` or one with control characters, or a property longer than Office accepts ([MS-OI29500] §2.1.626: `location` and `display` at most 2084 characters, `tooltip` at most 255; `url` at most 65 536, an xlvane limit). `location.cell` is the linked cell or range and `details.property` the property.
+**Fix:** pass `{ url: "https://example.com" }` for a web page or file, or `{ location: "Sheet1!A1" }` for a place in the workbook, and shorten long texts.
+
 ### XLV_E_OVERLAPPING_MERGE
 A range passed to `merge()` shares cells with a range merged before. `details.other` is that range.
 **Fix:** merge ranges that do not overlap.
@@ -198,6 +202,9 @@ A sheet defines the same cell more than once. The last definition is used.
 
 ### XLV_W_INVALID_VALUE
 A value does not match its declared type and is returned in a safe form, for example a numeric cell whose text is not a number (returned as text), a boolean cell that is neither 0 nor 1, a shared-string index that does not exist (the cell is treated as empty), a date serial outside the date system (returned as a number), an unknown sheet state (treated as visible), or an invalid style index or range. The message says what was found and what was done.
+
+### XLV_W_UNUSUAL_HYPERLINK
+A sheet has hyperlinks whose external target uses a scheme other than `http`, `https` or `mailto`, for example `file:`, `javascript:` or a relative file path. xlvane never opens or follows link targets; the warning is there so that an application which shows or opens links can decide what to do. The message names one such target; `Sheet.hyperlinks` lists all of them.
 
 ### XLV_W_SHEET_PART_MISSING
 A sheet listed in the workbook has no part (the relationship or the part itself is missing). The sheet is returned with `part: null` and no cells.

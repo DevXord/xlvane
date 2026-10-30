@@ -1,16 +1,18 @@
-// Core properties of a package: the Core Properties part, `docProps/core.xml` (ECMA-376 Part 2
-// Clause 8, Annex E; facts F-OPC-16 … F-OPC-20 in docs/facts/opc.md, decision D-A02).
+// Document properties of a package: the Core Properties part, `docProps/core.xml` (ECMA-376 Part 2
+// Clause 8, Annex E; facts F-OPC-16 … F-OPC-20 in docs/facts/opc.md, decision D-A02) and the
+// Extended File Properties part, `docProps/app.xml` (Part 1 §15.2.12.3, §22.2; W2-52, D-A10).
 import { XlvError } from './errors';
 import type { ReadLimits } from './limits';
 import type { WarningCollector } from './util/warnings';
-import { escapeText, firstLoneSurrogate } from './xml/writer';
+import { decodeXstring } from './sml/xstring';
+import { encodeXstring, escapeText, firstLoneSurrogate } from './xml/writer';
 import { parseXmlTree, type XmlElement } from './xml/tree';
 
 /**
- * Document properties of a workbook (the package's core properties, ECMA-376 Part 2 Clause 8).
- * Every property is optional. Reading gives the properties found in `docProps/core.xml`;
- * writing stores the ones given. `company` and `manager` are not core properties (they belong
- * to `docProps/app.xml`) and are not supported yet.
+ * Document properties of a workbook: the package's core properties (ECMA-376 Part 2 Clause 8,
+ * stored in `docProps/core.xml`) and four extended properties (Part 1 §22.2, stored in
+ * `docProps/app.xml`): `company`, `manager`, `application` and `appVersion`. Every property is
+ * optional. Reading gives the properties found in the file; writing stores the ones given.
  *
  * @example
  * ```ts
@@ -51,6 +53,14 @@ export interface WorkbookProperties {
   readonly modified?: Date;
   /** `cp:lastPrinted`: when the document was last printed. */
   readonly lastPrinted?: Date;
+  /** `Company` (extended property): a company associated with the document. */
+  readonly company?: string;
+  /** `Manager` (extended property): a supervisor associated with the document. */
+  readonly manager?: string;
+  /** `Application` (extended property): the application that created the document. xlvane does not set it. */
+  readonly application?: string;
+  /** `AppVersion` (extended property): that application's version, two digits, a dot and up to four digits, e.g. "16.0300". */
+  readonly appVersion?: string;
 }
 
 /** The core properties namespace (Part 2 Table E.1). */
@@ -96,7 +106,17 @@ const ELEMENTS: readonly (readonly [TextKey | DateKey, 'cp' | 'dc' | 'dcterms'])
   ['version', 'cp'],
 ];
 const DATE_KEYS: readonly string[] = ['created', 'modified', 'lastPrinted'];
-const KEYS: readonly string[] = ELEMENTS.map(([key]) => key);
+type AppKey = 'company' | 'manager' | 'application' | 'appVersion';
+/** Extended properties and their element names (Part 1 §22.2.2.5, .15, .1, .2). */
+const APP_ELEMENTS: readonly (readonly [AppKey, string])[] = [
+  ['application', 'Application'],
+  ['appVersion', 'AppVersion'],
+  ['company', 'Company'],
+  ['manager', 'Manager'],
+];
+const KEYS: readonly string[] = [...ELEMENTS.map(([key]) => key), ...APP_ELEMENTS.map(([key]) => key)];
+/** Office's pattern for AppVersion ([MS-OI29500] §2.1.1717 a; Part 1 §22.2.2.2: `XX.YYYY`). */
+const APP_VERSION_RE = /^[0-9]{1,2}\.[0-9]{1,4}$/;
 const PREFIX_NS = { cp: CORE_PROPERTIES_NS, dc: DC_NS, dcterms: DCTERMS_NS } as const;
 
 function invalidProperty(key: string, message: string, hint: string): XlvError {
@@ -120,7 +140,7 @@ export function normalizeProperties(value: unknown): WorkbookProperties {
   for (const key of Object.keys(value)) {
     if (!KEYS.includes(key)) {
       throw new XlvError('XLV_E_INVALID_OPTION', `Unknown document property "${key.slice(0, 40)}".`, {
-        hint: `Known properties: ${KEYS.join(', ')}. company and manager are not supported yet.`,
+        hint: `Known properties: ${KEYS.join(', ')}.`,
         details: { option: `properties.${key.slice(0, 40)}`, known: KEYS },
       });
     }
@@ -135,6 +155,9 @@ export function normalizeProperties(value: unknown): WorkbookProperties {
       if (typeof v !== 'string') throw invalidProperty(key, `The document property "${key}" must be a string.`, `For example ${key}: "text".`);
       if (firstLoneSurrogate(v) !== -1 || /[\x00-\x08\x0B\x0C\x0E-\x1F￾￿]/.test(v)) {
         throw invalidProperty(key, `The document property "${key}" contains a character that XML cannot store.`, 'Remove control characters (other than tab, line feed and carriage return) and unpaired surrogates.');
+      }
+      if (key === 'appVersion' && !APP_VERSION_RE.test(v)) {
+        throw invalidProperty(key, `The document property "appVersion" is "${v.slice(0, 20)}"; it must be one or two digits, a dot and one to four digits.`, 'For example appVersion: "1.0".');
       }
       out[key] = v;
     }
@@ -254,6 +277,87 @@ export function parseCoreProperties(xml: string, ctx: CorePropertiesContext): Wo
     } else {
       out[key] = text;
     }
+  }
+  return out as WorkbookProperties;
+}
+
+/** Root namespaces of the Extended File Properties part: Transitional (Part 4 §13.2.12), Strict (Part 1 §15.2.12.3). */
+export const APP_PROPERTIES_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/extended-properties';
+const APP_PROPERTIES_NS_STRICT = 'http://purl.oclc.org/ooxml/officeDocument/extendedProperties';
+/** Variant types namespace of the Transitional schema (shared-documentPropertiesExtended.xsd). */
+const VT_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/docPropsVTypes';
+/** Relationship types of the Extended File Properties part: Transitional (Part 4 §13.2.12), Strict (Part 1 §15.2.12.3). */
+export const APP_PROPERTIES_REL = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships/extended-properties';
+const APP_PROPERTIES_REL_STRICT = 'http://purl.oclc.org/ooxml/officeDocument/relationships/extendedProperties';
+/** Media type of the Extended File Properties part (Part 1 §15.2.12.3). */
+export const APP_PROPERTIES_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.extended-properties+xml';
+/** Part name used by the writer (the name in Part 1 §12.2's example; parts are found through relationships). */
+export const APP_PROPERTIES_PART = 'docProps/app.xml';
+
+/** `true` for a relationship type that points to the Extended File Properties part. */
+export function isAppPropertiesRel(type: string): boolean {
+  return type === APP_PROPERTIES_REL || type === APP_PROPERTIES_REL_STRICT;
+}
+
+/** A `vt:lpstr` with the text escaped as ST_Xstring requires for this part (Part 1 §22.2.2.21). */
+function lpstr(s: string): string {
+  return `<vt:lpstr>${escapeText(encodeXstring(s))}</vt:lpstr>`;
+}
+
+/**
+ * The Extended File Properties part, or `null` when it is not needed. It is written when one of
+ * `company`, `manager`, `application`, `appVersion` is set, or when the workbook has defined
+ * names that are not hidden: Part 1 §18.17.6.5 requires each name to be an `lpstr` of this part.
+ * `TitlesOfParts` then lists the sheet names followed by those names, and `HeadingPairs` counts
+ * them as "Worksheets" and "Named Ranges" ([MS-OI29500] §2.1.1720 b, §2.1.1722; W2-52).
+ */
+export function appPropertiesXml(properties: WorkbookProperties, sheetNames: readonly string[], nameTitles: readonly string[]): string | null {
+  const set = APP_ELEMENTS.filter(([key]) => properties[key] !== undefined);
+  if (set.length === 0 && nameTitles.length === 0) return null;
+  const text = (key: AppKey, element: string): string => {
+    const v = properties[key];
+    return v === undefined ? '' : `<${element}>${escapeText(encodeXstring(v))}</${element}>`;
+  };
+  let body = text('application', 'Application');
+  const pairs = [['Worksheets', sheetNames.length], ['Named Ranges', nameTitles.length]].filter(([, n]) => n !== 0) as [string, number][];
+  if (pairs.length > 0) {
+    body += `<HeadingPairs><vt:vector size="${String(pairs.length * 2)}" baseType="variant">`;
+    for (const [heading, n] of pairs) body += `<vt:variant>${lpstr(heading)}</vt:variant><vt:variant><vt:i4>${String(n)}</vt:i4></vt:variant>`;
+    body += '</vt:vector></HeadingPairs>';
+    const titles = [...sheetNames, ...nameTitles];
+    body += `<TitlesOfParts><vt:vector size="${String(titles.length)}" baseType="lpstr">${titles.map(lpstr).join('')}</vt:vector></TitlesOfParts>`;
+  }
+  body += text('manager', 'Manager') + text('company', 'Company') + text('appVersion', 'AppVersion');
+  return (
+    '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n' +
+    `<Properties xmlns="${APP_PROPERTIES_NS}" xmlns:vt="${VT_NS}">${body}</Properties>`
+  );
+}
+
+/**
+ * Reads `Company`, `Manager`, `Application` and `AppVersion` from the Extended File Properties
+ * part (Transitional or Strict namespace), decoding `_xHHHH_` escapes. Other elements are
+ * ignored; malformed XML or another root element gives a warning and no properties.
+ */
+export function parseAppProperties(xml: string, ctx: CorePropertiesContext): WorkbookProperties {
+  let root: XmlElement;
+  try {
+    root = parseXmlTree(xml, ctx);
+  } catch (error) {
+    if (error instanceof XlvError && error.code === 'XLV_E_XML_MALFORMED') {
+      ctx.warnings.add('XLV_W_INVALID_VALUE', 'The extended document properties part is not well-formed XML; its properties are ignored.', { part: ctx.part });
+      return {};
+    }
+    throw error;
+  }
+  if ((root.ns !== APP_PROPERTIES_NS && root.ns !== APP_PROPERTIES_NS_STRICT) || root.local !== 'Properties') {
+    ctx.warnings.add('XLV_W_INVALID_VALUE', `The extended document properties part has the root element <${root.local}>; its properties are ignored.`, { part: ctx.part });
+    return {};
+  }
+  const out: Record<string, string> = {};
+  for (const [key, element] of APP_ELEMENTS) {
+    const el = root.children.find((c) => c.ns === root.ns && c.local === element);
+    if (el !== undefined) out[key] = decodeXstring(el.text);
   }
   return out as WorkbookProperties;
 }

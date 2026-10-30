@@ -425,6 +425,11 @@ class StylesEditor {
     }
   }
 
+  /** `true` if the styles part has a cell format at this index. */
+  hasCellFormat(index: number): boolean {
+    return index < (this.existingCount.get('cellXfs') ?? -1);
+  }
+
   /** The cell style of a cell format index, as the reader resolves it. */
   styleOf(index: number): CellStyle {
     return this.styles.cellStyle(index, null);
@@ -614,6 +619,35 @@ interface RowInfo {
 function insertRef(tag: string, qname: string, ref: string): string {
   const at = 1 + qname.length;
   return `${tag.slice(0, at)} r="${ref}"${tag.slice(at)}`;
+}
+
+/**
+ * The cell format a new cell of a sheet starts from: the `style` of the `col` element that covers
+ * its column, which ECMA-376 Part 1 §18.3.1.13 says affects cells not yet allocated (W2-03). A row
+ * with its own format (`row@s` with `customFormat`) keeps the earlier behaviour, format 0, since
+ * which of the two wins is not stated in the sources read (D-A04). Indexes beyond the cell
+ * formats of the file are ignored.
+ */
+function newCellStyles(text: string, part: string, limits: ReadLimits, styles: StylesEditor): (row: number, col: number) => number {
+  const { elements } = scan(text, part, limits, (local, depth, parent) => (depth === 3 && local === 'col' && parent === 'cols') || (depth === 3 && local === 'row' && parent === 'sheetData'));
+  const cols: { min: number; max: number; style: number }[] = [];
+  const rowsWithFormat = new Set<number>();
+  let rowNumber = 0;
+  for (const e of elements) {
+    if (e.local === 'col') {
+      const [min, max, style] = ['min', 'max', 'style'].map((k) => {
+        const v = e.attrs.get(k)?.trim() ?? '';
+        return /^[0-9]{1,10}$/.test(v) ? Number(v) : Number.NaN;
+      });
+      if (Number.isInteger(min) && Number.isInteger(max) && Number.isInteger(style) && style !== 0 && styles.hasCellFormat(style ?? 0)) cols.push({ min: min ?? 0, max: max ?? 0, style: style ?? 0 });
+    } else {
+      const r = e.attrs.get('r')?.trim();
+      rowNumber = r !== undefined && /^[0-9]{1,7}$/.test(r) ? Number(r) : rowNumber + 1;
+      const custom = e.attrs.get('customFormat')?.trim();
+      if (e.attrs.has('s') && (custom === '1' || custom === 'true')) rowsWithFormat.add(rowNumber);
+    }
+  }
+  return (row, col) => (rowsWithFormat.has(row) ? 0 : (cols.find((c) => col >= c.min && col <= c.max)?.style ?? 0));
 }
 
 function editSheetXml(text: string, part: string, sheet: string, planned: readonly PlannedCell[], limits: ReadLimits): string {
@@ -843,6 +877,8 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
   for (const plan of plans.values()) {
     const part = plan.sheet.part ?? '';
     const planned: PlannedCell[] = [];
+    const text = edit.text(part);
+    const columnStyle = text === undefined ? () => 0 : newCellStyles(text, part, limits, styles);
     for (const [ref, c] of plan.cells) {
       const existing: Cell | undefined = plan.sheet.cell(ref);
       if (isFormula(c.value) || existing?.formula) formulasChanged = true;
@@ -850,14 +886,14 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
         planned.push({ row: c.row, col: c.col, ref, xml: null });
         continue;
       }
-      const base = existing?.styleIndex ?? 0;
+      // A new cell starts from its column's default style (col@style, W2-03).
+      const base = existing?.styleIndex ?? columnStyle(c.row, c.col);
       let patch: NormalizedStyle = c.style ?? {};
       const existingIsDate = existing?.numFmt != null && isDateFormat(existing.numFmt);
       if (c.date !== null && patch.numFmt === undefined && !existingIsDate) patch = { ...patch, numFmt: c.date };
       const xf = Object.keys(patch).length === 0 ? base : styles.derive(base, patch);
       planned.push({ row: c.row, col: c.col, ref, xml: newCellXml(ref, c.value, xf, sst) });
     }
-    const text = edit.text(part);
     if (text === undefined) continue;
     edit.write(part, editSheetXml(text, part, plan.sheet.name, planned, limits));
   }
