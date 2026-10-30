@@ -61,3 +61,17 @@ Implementation: an unquoted sheet name that reads as a cell or R1C1 reference, a
 
 ### F2-12 — Conservative failure — implementation choice
 Anything else (unknown characters, unbalanced quotes or brackets, `$` inside a name, `(` after white space following a reference, `@`, spill `#`, references beyond the grid) makes the formula not shiftable; its dependents keep `formula.text = null` with `XLV_W_SHARED_FORMULA_NOT_EXPANDED`, and their cached values stay available.
+
+## Writing array and shared formulas (phase E, D-E02)
+
+### F2-13 — Array formulas — VERIFIED
+The `f` element of an array formula has `t="array"` and the range in `ref` ([MS-OI29500] §2.1.620 e, §2.1.872: Office uses `ref`, where the P1 examples write `r`); for a multi-cell array the top-left cell's `f` designates the range and **the other cells of the range shall not have an `f` element but shall each have a `v` element** (P1 §18.17.6.3, p.2068–2069; report 1 §4.8). `aca` is ignored unless `t="array"` (E-26). Implementation: `{ formula, result?, array: "B1:B3" }` is accepted only on the top-left cell of its range; the writer refuses a formula in another cell of the range and overlapping ranges (`XLV_E_INVALID_VALUE`); the other cells take their cached results as plain values. `aca` is not written.
+
+### F2-14 — LibreOffice 24.2.7.2 writes array formulas the same way — OBSERVED
+A sheet where `B1:B3` got `setArrayFormula("A1:A3*2")` through the UNO API and was saved with the "Calc Office Open XML" filter has `<c r="B1" …><f aca="false" t="array" ref="B1:B3">A1:A3*2</f><v>2</v></c>` and `<c r="B2" …><v>4</v></c>`, `<c r="B3" …><v>6</v></c>` (observed 2026-10-30). LibreOffice reads xlvane's array formula back and computes it (tests/libreoffice/formulas.test.ts).
+
+### F2-15 — Shared formula groups on write — VERIFIED (rules) / implementation (numbering)
+Rules: E-28 (P1 §18.3.1.40): the master holds the text with `t="shared"`, `ref` and `si`; dependents carry `t="shared"` and `si` and need no text; `si` is required with `t="shared"` ([MS-OI29500] §2.1.620 h); master ranges on a sheet shall not overlap; a cell outside the master's `ref` is implementation-defined. Implementation: `{ formula, result?, shared: "C1:C10" }` on the top-left cell of the range writes the master; `{ sharedFormula: "C1", result? }` writes a dependent with an empty `f`; `si` numbers the groups of a sheet from 0 in the order their masters are written (row, then column), so output is deterministic; a dependent outside its master's range, a dependent whose master is missing and overlapping array or shared ranges are refused (`XLV_E_INVALID_VALUE`). Requiring the master in the top-left cell matches the definition of the master cell for data tables in [MS-OI29500] §2.1.620 d and guarantees that the master is written before its dependents in both writers.
+
+### F2-16 — LibreOffice 24.2.7.2 and shared formulas — OBSERVED
+LibreOffice reads xlvane's shared group (master and dependents without text), computes every cell, and writes the group back as one ordinary formula per cell (`A1+10`, `A2+10`, `A3+10`; observed 2026-10-30, tests/libreoffice/formulas.test.ts).

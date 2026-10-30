@@ -52,7 +52,7 @@ describe('reading rich text', () => {
     expect(s.cell('A1')?.value).toBe('plain');
     expect(s.cell('A1')?.richText).toBeUndefined();
     expect(s.cell('B1')?.value).toBe('Bold normal');
-    expect(s.cell('B1')?.richText).toEqual([{ text: 'Bold ', font: { bold: true, size: 11, color: 'FF0000FF', name: 'Calibri' } }, { text: 'normal' }]);
+    expect(s.cell('B1')?.richText).toEqual([{ text: 'Bold ', font: { bold: true, size: 11, color: 'FF0000FF', name: 'Calibri', family: 2 } }, { text: 'normal' }]);
     // A leading t is a run without properties; i val="0" is not italic.
     expect(s.cell('C1')?.richText).toEqual([{ text: 'lead' }, { text: 'x', font: { underline: 'double' } }]);
     expect(Object.isFrozen(s.cell('B1')?.richText)).toBe(true);

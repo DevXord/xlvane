@@ -12,13 +12,13 @@ import type { Cell, RichTextRun, Sheet, Workbook } from './model';
 import { openPackage, relationshipsPartName, type OpcPackage } from './opc/package';
 import { partKey, zipNameToPartName } from './opc/part-name';
 import { readWorkbook, toBytes } from './read';
-import { formatCellRef, MAX_ROWS, parseCellRef, parseRange } from './sml/cell-ref';
+import { formatCellRef, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { classifyRelationship, relationshipTypes, SML_NS } from './sml/namespaces';
 import { isDateFormat } from './sml/numfmt';
 import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
 import { attr, borderXml, DEFAULT_FONT, fillXml, fontXml, formatNumber, reusableBuiltinNumFmt, stringItemXml, textElement } from './sml/write-parts';
-import { checkStyleCount, mergeStyles, normalizeStyle, stableKey, type CellStyle, type NormalizedStyle, type StyleCountLimit } from './style';
+import { checkStyleCount, mergeStyles, normalizeStyle, READING_ORDERS, stableKey, type CellStyle, type NormalizedStyle, type StyleCountLimit } from './style';
 import { pickSheet, readTable } from './table';
 import { readOptions } from './util/options';
 import { suggest } from './util/suggest';
@@ -516,11 +516,25 @@ class StylesEditor {
       if (a.wrapText) alignmentAttrs.set('wrapText', '1');
       if (a.indent !== undefined) alignmentAttrs.set('indent', String(a.indent));
       if (a.textRotation !== undefined) alignmentAttrs.set('textRotation', String(a.textRotation));
+      if (a.shrinkToFit) alignmentAttrs.set('shrinkToFit', '1');
+      if (a.justifyLastLine) alignmentAttrs.set('justifyLastLine', '1');
+      if (a.readingOrder !== undefined) alignmentAttrs.set('readingOrder', String(READING_ORDERS.indexOf(a.readingOrder)));
       attrs.set('applyAlignment', '1');
     }
     if (alignmentAttrs.size > 0) children += `<alignment${[...alignmentAttrs].map(([k, v]) => attr(k, v)).join('')}/>`;
     const protection = baseXf === undefined ? undefined : childNamed(baseXf, this.ns, 'protection');
-    if (protection !== undefined) children += `<protection${[...protection.attrs].filter(([k]) => !k.startsWith('{')).map(([k, v]) => attr(k, v)).join('')}/>`;
+    const protectionAttrs = new Map<string, string>();
+    for (const [k, v] of protection?.attrs ?? []) if (!k.startsWith('{')) protectionAttrs.set(k, v);
+    if (patch.protection) {
+      // Defaults (locked, not hidden; [MS-OI29500] §2.1.714) are written explicitly when the
+      // base format has the other value, so the patch always wins (W2-63).
+      for (const key of ['locked', 'hidden'] as const) {
+        const v = patch.protection[key];
+        if (v !== undefined) protectionAttrs.set(key, v ? '1' : '0');
+      }
+      attrs.set('applyProtection', '1');
+    }
+    if (protectionAttrs.size > 0) children += `<protection${[...protectionAttrs].map(([k, v]) => attr(k, v)).join('')}/>`;
     const xf = `<xf${[...attrs].map(([k, v]) => attr(k, v)).join('')}${children === '' ? '/>' : `>${children}</xf>`}`;
     const id = this.add('cellXfs', xf);
     this.cache.set(key, id);
@@ -785,6 +799,37 @@ export function requestFullCalculation(edit: PackageEditor, workbookPart: string
   edit.write(workbookPart, splice(text, [[next ? next.start.start : root.end.start, next ? next.start.start : root.end.start, created]]));
 }
 
+/**
+ * editCells writes plain formulas only, and does not change cells whose formula covers other
+ * cells: an array formula's range (P1 §18.17.6.3) or a shared formula master with dependents
+ * (E-28). Replacing a cell that shares a master's formula is allowed: its own value overrides
+ * the group (E-28).
+ */
+function checkFormulaGroups(sheet: Sheet, ref: string, at: { row: number; col: number }, value: StoredValue | null, cache: Map<string, { ref: string; range: CellRange }[]>): void {
+  const refuse = (message: string, hint: string) => new XlvError('XLV_E_NOT_SUPPORTED', message, { location: { part: sheet.part ?? '', sheet: sheet.name, cell: ref }, hint, details: { cell: ref } });
+  if (value !== null && value.kind === 'formula' && (value.group !== undefined || value.master !== undefined)) {
+    throw refuse(`editCells writes plain formulas only; the value for ${ref} is an array or shared formula.`, 'Write { formula: "…" } for each cell, or build the sheet with createWorkbook to write array and shared formulas.');
+  }
+  let arrays = cache.get(sheet.name);
+  if (arrays === undefined) {
+    arrays = [];
+    for (const c of sheet.cells()) {
+      const range = c.formula?.kind === 'array' && c.formula.ref !== null ? parseRange(c.formula.ref) : null;
+      if (range !== null) arrays.push({ ref: c.formula!.ref!, range });
+    }
+    cache.set(sheet.name, arrays);
+  }
+  const array = arrays.find((a) => at.row >= a.range.start.row && at.row <= a.range.end.row && at.col >= a.range.start.col && at.col <= a.range.end.col);
+  if (array !== undefined) {
+    throw refuse(`${ref} belongs to the array formula ${array.ref}, which editCells cannot change cell by cell.`, `Change the array formula in a spreadsheet application, or rebuild the sheet with createWorkbook; cells outside ${array.ref} can be edited.`);
+  }
+  const f = sheet.cell(ref)?.formula;
+  const range = f?.kind === 'shared' && f.ref !== null ? parseRange(f.ref) : null;
+  if (range !== null && (range.start.row !== range.end.row || range.start.col !== range.end.col)) {
+    throw refuse(`${ref} is the master of a shared formula used by cells in ${f!.ref!}; replacing it would leave them without a formula.`, `Edit the other cells of ${f!.ref!} first, or rebuild the sheet with createWorkbook.`);
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // Entry points
 
@@ -809,6 +854,7 @@ function planEdits(workbook: Workbook, edits: readonly unknown[]): Map<string, E
   const scratch = createWorkbook({ dateSystem: workbook.dateSystem });
   const scratchSheet = scratch.addSheet('Edit');
   const plans = new Map<string, EditPlan>();
+  const arrayRanges = new Map<string, { ref: string; range: CellRange }[]>();
   edits.forEach((raw, i) => {
     const o = readOptions(raw, ['sheet', 'cell', 'value', 'style'], `edits[${String(i)}]`);
     const sheetName = o.get('sheet');
@@ -840,6 +886,7 @@ function planEdits(workbook: Workbook, edits: readonly unknown[]): Map<string, E
       throw error;
     }
     const stored = scratchSheet.cellMap.get(address.row)?.get(address.col);
+    checkFormulaGroups(sheet, ref, address, stored?.value ?? null, arrayRanges);
     const scratchStyle = scratch.styleOf(stored?.style ?? 0);
     scratchSheet.set(ref, null, {});
     const dateValue = value instanceof Date ? value : typeof value === 'object' && value !== null && 'result' in value && (value as { result?: unknown }).result instanceof Date ? ((value as { result: Date }).result) : null;

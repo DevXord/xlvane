@@ -11,6 +11,7 @@ import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, me
 import type { NoteInput } from './notes';
 import type { ConditionalFormatRuleInput, DataValidationRule } from './sheet-rules';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
+import { FormulaGroups } from './sml/formula-groups';
 import {
   buildStyles,
   cellXml,
@@ -400,6 +401,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     let buffer = sheetHead({ freeze: p.sheet.frozen, columns: p.sheet.columnMap, tabColor: p.sheet.tab, view: p.sheet.viewSettings, print: p.sheet.print }, selected, null);
     let r = 0;
     let maxCol = 0;
+    const groups = new FormulaGroups(name);
     for await (const raw of iterate(p.rows)) {
       r++;
       if (r > MAX_ROWS) {
@@ -474,7 +476,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
           id = dated;
         }
         if (converted.stored === null && id === 0) continue;
-        cells += cellXml(ref, { value: converted.stored, style: id }, null, strings);
+        cells += cellXml(ref, { value: converted.stored, style: id }, null, strings, groups.attributes(r, c + 1, ref, converted.stored));
         if (c + 1 > maxCol) maxCol = c + 1;
       }
       const start = rowStart(r, info);

@@ -26,6 +26,7 @@ import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
 import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ImageFormat, type ResolvedImage } from '../images';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
+import { FormulaGroups } from './formula-groups';
 import { CONTENT_TYPES_NS, PACKAGE_REL_NS, REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS } from './numfmt';
 import type { StoredCell, StoredNote, StoredRun, StoredValue } from '../write';
@@ -160,20 +161,46 @@ class Table {
  * the run properties ([MS-OI29500] §2.1.674 a); CT_Font in sml.xsd allows any order (W2-11).
  */
 export function fontXml(font: NonNullable<NormalizedStyle['font']>, defaults: { readonly name: string; readonly size: number } = DEFAULT_FONT): string {
-  const f = { ...defaults, ...font };
-  let xml = '<font>';
+  return `<font>${fontChildrenXml({ ...defaults, ...font }, 'name')}</font>`;
+}
+
+/**
+ * The children of a font (CT_Font) or of run properties (CT_RPrElt, with the name in `rFont`),
+ * only those given, in the order Office requires: b, i, strike, condense, extend, outline,
+ * shadow, u, vertAlign, sz, color, name, family, charset, scheme ([MS-OI29500] §2.1.674 a,
+ * §2.1.706 a; W2-11, F-SST-08).
+ */
+export function fontChildrenXml(f: NonNullable<NormalizedStyle['font']>, nameElement: 'name' | 'rFont'): string {
+  let xml = '';
   if (f.bold) xml += '<b/>';
   if (f.italic) xml += '<i/>';
   if (f.strike) xml += '<strike/>';
+  if (f.condense) xml += '<condense/>';
+  if (f.extend) xml += '<extend/>';
+  if (f.outline) xml += '<outline/>';
+  if (f.shadow) xml += '<shadow/>';
   if (f.underline) xml += f.underline === 'single' ? '<u/>' : `<u${attr('val', f.underline)}/>`;
-  xml += `<sz${attr('val', f.size)}/>`;
+  if (f.vertAlign !== undefined) xml += `<vertAlign${attr('val', f.vertAlign)}/>`;
+  if (f.size !== undefined) xml += `<sz${attr('val', f.size)}/>`;
   if (f.color !== undefined) xml += colorXml('color', f.color);
-  xml += `<name${attr('val', encodeXstring(f.name))}/>`;
-  return `${xml}</font>`;
+  if (f.name !== undefined) xml += `<${nameElement}${attr('val', encodeXstring(f.name))}/>`;
+  if (f.family !== undefined) xml += `<family${attr('val', f.family)}/>`;
+  if (f.charset !== undefined) xml += `<charset${attr('val', f.charset)}/>`;
+  if (f.scheme !== undefined) xml += `<scheme${attr('val', f.scheme)}/>`;
+  return xml;
 }
 
 /** A `fill` record with a pattern fill. */
 export function fillXml(fill: NonNullable<NormalizedStyle['fill']>): string {
+  if ('gradient' in fill) {
+    // CT_GradientFill (W2-60): `type` defaults to linear and the numbers to 0.
+    let xml = '<gradientFill';
+    if (fill.gradient === 'path') xml += ' type="path"';
+    for (const k of ['degree', 'left', 'right', 'top', 'bottom'] as const) if (fill[k] !== undefined) xml += attr(k, fill[k]);
+    xml += '>';
+    for (const stop of fill.stops) xml += `<stop${attr('position', stop.position)}>${colorXml('color', stop.color)}</stop>`;
+    return `<fill>${xml}</gradientFill></fill>`;
+  }
   const { pattern, fgColor, bgColor } = fill;
   let inner = '';
   if (fgColor !== undefined) inner += colorXml('fgColor', fgColor);
@@ -181,14 +208,43 @@ export function fillXml(fill: NonNullable<NormalizedStyle['fill']>): string {
   return `<fill><patternFill${attr('patternType', pattern)}${inner === '' ? '/>' : `>${inner}</patternFill>`}</fill>`;
 }
 
-/** A `border` record with the left, right, top and bottom edges in schema order (W2-15). */
+/** A `border` record with the left, right, top, bottom and diagonal edges in schema order (W2-15, W2-61). */
 export function borderXml(border: NonNullable<NormalizedStyle['border']>): string {
-  let xml = '<border>';
-  for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
+  let xml = `<border${border.diagonalUp ? ' diagonalUp="1"' : ''}${border.diagonalDown ? ' diagonalDown="1"' : ''}>`;
+  for (const edge of ['left', 'right', 'top', 'bottom', 'diagonal'] as const) {
     const e = border[edge];
     xml += e === undefined ? `<${edge}/>` : `<${edge}${attr('style', e.style)}>${e.color === undefined ? '' : colorXml('color', e.color)}</${edge}>`;
   }
-  return `${xml}<diagonal/></border>`;
+  return `${xml}</border>`;
+}
+
+const READING_ORDER_VALUES = { context: 0, leftToRight: 1, rightToLeft: 2 } as const;
+
+/** An `alignment` element (CT_CellAlignment, W2-17, W2-62), or '' when there is nothing to write. */
+export function alignmentXml(a: NormalizedStyle['alignment']): string {
+  if (!a) return '';
+  let al = '<alignment';
+  if (a.horizontal !== undefined) al += attr('horizontal', a.horizontal);
+  if (a.vertical !== undefined) al += attr('vertical', a.vertical);
+  if (a.textRotation !== undefined) al += attr('textRotation', a.textRotation);
+  if (a.wrapText) al += ' wrapText="1"';
+  if (a.indent !== undefined) al += attr('indent', a.indent);
+  if (a.justifyLastLine) al += ' justifyLastLine="1"';
+  if (a.shrinkToFit) al += ' shrinkToFit="1"';
+  if (a.readingOrder !== undefined) al += attr('readingOrder', READING_ORDER_VALUES[a.readingOrder]);
+  return `${al}/>`;
+}
+
+/**
+ * A `protection` element (CT_CellProtection, W2-63) with the values that differ from Office's
+ * defaults, locked and not hidden ([MS-OI29500] §2.1.714), or '' when both are the defaults.
+ */
+export function protectionXml(p: NormalizedStyle['protection']): string {
+  if (!p) return '';
+  let xml = '';
+  if (p.locked === false) xml += ' locked="0"';
+  if (p.hidden === true) xml += ' hidden="1"';
+  return xml === '' ? '' : `<protection${xml}/>`;
 }
 
 /** The built-in id reused for a format code, if any (D-204). */
@@ -243,18 +299,11 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
     if (fontId !== 0) xf += ' applyFont="1"';
     if (fillId !== 0) xf += ' applyFill="1"';
     if (borderId !== 0) xf += ' applyBorder="1"';
-    const a = style.alignment;
-    if (a) {
-      let al = '<alignment';
-      if (a.horizontal !== undefined) al += attr('horizontal', a.horizontal);
-      if (a.vertical !== undefined) al += attr('vertical', a.vertical);
-      if (a.textRotation !== undefined) al += attr('textRotation', a.textRotation);
-      if (a.wrapText) al += ' wrapText="1"';
-      if (a.indent !== undefined) al += attr('indent', a.indent);
-      xf += ` applyAlignment="1">${al}/></xf>`;
-    } else {
-      xf += '/>';
-    }
+    const al = alignmentXml(style.alignment);
+    const pr = protectionXml(style.protection);
+    if (al !== '') xf += ' applyAlignment="1"';
+    if (pr !== '') xf += ' applyProtection="1"';
+    xf += al === '' && pr === '' ? '/>' : `>${al}${pr}</xf>`;
     if (identity) {
       xfs.items.push(xf);
       return xfs.items.length - 1;
@@ -327,14 +376,7 @@ class SharedStrings implements StringSink {
  */
 export function runPropertiesXml(font: StoredRun['font']): string {
   if (font === undefined) return '';
-  let xml = '';
-  if (font.bold) xml += '<b/>';
-  if (font.italic) xml += '<i/>';
-  if (font.strike) xml += '<strike/>';
-  if (font.underline) xml += font.underline === 'single' ? '<u/>' : `<u${attr('val', font.underline)}/>`;
-  if (font.size !== undefined) xml += `<sz${attr('val', font.size)}/>`;
-  if (font.color !== undefined) xml += colorXml('color', font.color);
-  if (font.name !== undefined) xml += `<rFont${attr('val', encodeXstring(font.name))}/>`;
+  const xml = fontChildrenXml(font, 'rFont');
   return xml === '' ? '' : `<rPr>${xml}</rPr>`;
 }
 
@@ -383,14 +425,16 @@ function valueXml(v: Exclude<StoredValue, { kind: 'formula' }>, sst: StringSink,
  * One `c` element. With `sst === null`, plain strings are written inline (`t="inlineStr"`,
  * E-22, E-29) instead of into the shared string table.
  */
-export function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[] | null, sst: StringSink | null): string {
+export function cellXml(ref: string, cell: StoredCell, xfOf: readonly number[] | null, sst: StringSink | null, fAttributes = ''): string {
   const xf = xfOf === null ? cell.style : (xfOf[cell.style] ?? 0);
   const s = xf === 0 ? '' : attr('s', xf);
   const v = cell.value;
   if (v === null) return `<c r="${ref}"${s}/>`;
   if (sst === null && v.kind === 'string') return `<c r="${ref}"${s} t="inlineStr"><is>${stringItemXml(v)}</is></c>`;
   if (v.kind === 'formula') {
-    const f = `<f>${escapeText(encodeXstring(v.text))}</f>`;
+    // fAttributes: t, ref and si of array and shared formulas (FormulaGroups); a cell that shares
+    // its master's formula writes no text (E-28).
+    const f = v.master !== undefined ? `<f${fAttributes}/>` : `<f${fAttributes}>${escapeText(encodeXstring(v.text))}</f>`;
     if (v.result === null) return `<c r="${ref}"${s}>${f}</c>`;
     const r = valueXml(v.result, sst ?? INLINE_ONLY, true);
     return `<c r="${ref}"${s}${r.t === '' ? '' : attr('t', r.t)}>${f}<v>${r.v}</v></c>`;
@@ -549,30 +593,24 @@ export function tableParts(tables: readonly NormalizedTable[], first: number, re
 function dxfRecordXml(style: NormalizedStyle, numFmtId: (code: string | number | undefined) => number): string {
   let xml = '<dxf>';
   const f = style.font;
-  if (f) {
-    xml += '<font>';
-    if (f.bold) xml += '<b/>';
-    if (f.italic) xml += '<i/>';
-    if (f.strike) xml += '<strike/>';
-    if (f.underline) xml += f.underline === 'single' ? '<u/>' : `<u${attr('val', f.underline)}/>`;
-    if (f.size !== undefined) xml += `<sz${attr('val', f.size)}/>`;
-    if (f.color !== undefined) xml += colorXml('color', f.color);
-    if (f.name !== undefined) xml += `<name${attr('val', encodeXstring(f.name))}/>`;
-    xml += '</font>';
-  }
+  if (f) xml += `<font>${fontChildrenXml(f, 'name')}</font>`;
   if (style.numFmt !== undefined) {
     const id = numFmtId(style.numFmt);
     const code = typeof style.numFmt === 'number' ? (BUILTIN_NUMBER_FORMATS.get(style.numFmt) ?? 'General') : style.numFmt;
     xml += `<numFmt${attr('numFmtId', id)}${attr('formatCode', encodeXstring(code))}/>`;
   }
-  if (style.fill) {
+  if (style.fill && 'gradient' in style.fill) xml += fillXml(style.fill);
+  else if (style.fill) {
     const { pattern, fgColor, bgColor } = style.fill;
     const solidOne = pattern === 'solid' && (fgColor === undefined) !== (bgColor === undefined);
     const fg = solidOne ? (fgColor ?? bgColor) : fgColor;
     const bg = solidOne ? (bgColor ?? fgColor) : bgColor;
     xml += fillXml({ pattern, ...(fg === undefined ? {} : { fgColor: fg }), ...(bg === undefined ? {} : { bgColor: bg }) });
   }
+  // CT_Dxf order: font, numFmt, fill, alignment, border, protection (sml.xsd T3641).
+  xml += alignmentXml(style.alignment);
   if (style.border) xml += borderXml(style.border);
+  xml += protectionXml(style.protection);
   return `${xml}</dxf>`;
 }
 
@@ -867,6 +905,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
   const dimension = maxRow === 0 ? 'A1' : rangeRef({ start: { row: minRow, col: minCol }, end: { row: maxRow, col: maxCol } });
 
   let xml = sheetHead(sheet, selected, dimension, xfOf);
+  const groups = new FormulaGroups(sheet.name);
   for (const r of sortedRows) {
     const cells = sheet.cells.get(r);
     const start = rowStart(r, sheet.rows.get(r));
@@ -877,7 +916,10 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
     xml += `${start}>`;
     for (const c of [...cells.keys()].sort((a, b) => a - b)) {
       const cell = cells.get(c);
-      if (cell) xml += cellXml(formatCellRef(r, c), cell, xfOf, sst);
+      if (cell) {
+        const ref = formatCellRef(r, c);
+        xml += cellXml(ref, cell, xfOf, sst, groups.attributes(r, c, ref, cell.value));
+      }
     }
     xml += '</row>';
   }

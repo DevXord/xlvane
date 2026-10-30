@@ -67,6 +67,12 @@ export type FormulaResult = number | string | boolean | Date | { readonly error:
  * value, `{ formula, result }` for a formula with an optional cached result, or
  * `{ richText: [{ text, font? }, …] }` for text whose parts have their own fonts.
  *
+ * Array and shared formulas (D-E02): `{ formula, result?, array: "B1:B3" }` on the top-left cell
+ * of the array's range writes an array formula (the other cells of the range take their cached
+ * results as plain values); `{ formula, result?, shared: "C1:C10" }` on the top-left cell writes
+ * the master of a shared formula, and `{ sharedFormula: "C1", result? }` a cell inside its range
+ * that shares it.
+ *
  * @example
  * ```ts
  * import { createWorkbook, type CellInput } from 'xlvane';
@@ -83,7 +89,8 @@ export type CellInput =
   | Date
   | null
   | { readonly error: ErrorValue }
-  | { readonly formula: string; readonly result?: FormulaResult }
+  | { readonly formula: string; readonly result?: FormulaResult; readonly array?: string; readonly shared?: string }
+  | { readonly sharedFormula: string; readonly result?: FormulaResult }
   | { readonly richText: readonly RichTextRun[] };
 
 /**
@@ -259,8 +266,13 @@ export type StoredValue =
   | { readonly kind: 'error'; readonly e: ErrorValue }
   | {
       readonly kind: 'formula';
+      /** The formula text; `''` for a cell that shares the formula of `master`. */
       readonly text: string;
       readonly result: Exclude<StoredValue, { kind: 'formula' }> | null;
+      /** Array formula or shared-formula master: the formula's range (`f@ref`, E-26). */
+      readonly group?: { readonly t: 'array' | 'shared'; readonly ref: string };
+      /** A cell sharing the formula of the master at this address (E-28). */
+      readonly master?: string;
     };
 
 /** A rich text run after validation: its text and its font with only known keys. */
@@ -1143,11 +1155,12 @@ export function convertCellInput(value: unknown, ctx: ConvertContext, cell: stri
   if (typeof value === 'object' && !(value instanceof Date)) {
     const keys = Object.keys(value);
     if (keys.includes('richText')) return { stored: readRichText(value, ctx.sheet, cell), isDate: false, hasTime: false };
-    if (keys.includes('formula')) {
-      const o = readFormula(value, ctx.sheet, cell);
-      if (o.result === undefined) return { stored: { kind: 'formula', text: o.text, result: null }, isDate: false, hasTime: false };
+    if (keys.includes('formula') || keys.includes('sharedFormula')) {
+      const o = keys.includes('formula') ? readFormula(value, ctx.sheet, cell) : readSharedDependent(value, ctx.sheet, cell);
+      const extra = { ...(o.group === undefined ? {} : { group: o.group }), ...(o.master === undefined ? {} : { master: o.master }) };
+      if (o.result === undefined) return { stored: { kind: 'formula', text: o.text, result: null, ...extra }, isDate: false, hasTime: false };
       const r = scalarValue(ctx, o.result, cell, 'formula result');
-      return { stored: { kind: 'formula', text: o.text, result: r.stored }, isDate: r.isDate, hasTime: r.hasTime };
+      return { stored: { kind: 'formula', text: o.text, result: r.stored, ...extra }, isDate: r.isDate, hasTime: r.hasTime };
     }
   }
   return scalarValue(ctx, value, cell, 'value');
@@ -1262,19 +1275,61 @@ function readRichText(value: object, sheet: string, cell: string): Extract<Store
   return { kind: 'string', s: text, runs };
 }
 
-function readFormula(value: object, sheet: string, cell: string): { text: string; result: unknown } {
+interface ReadFormula {
+  readonly text: string;
+  readonly result: unknown;
+  readonly group?: { readonly t: 'array' | 'shared'; readonly ref: string };
+  readonly master?: string;
+}
+
+function readFormula(value: object, sheet: string, cell: string): ReadFormula {
   const keys = Object.keys(value);
   for (const key of keys) {
-    if (key !== 'formula' && key !== 'result') {
-      throw invalidValue(sheet, cell, `Unknown property "${key.slice(0, 40)}" in the formula for ${cell}.`, 'Use { formula: "A1*2" } or { formula: "A1*2", result: 2 }.');
+    if (key !== 'formula' && key !== 'result' && key !== 'array' && key !== 'shared') {
+      throw invalidValue(sheet, cell, `Unknown property "${key.slice(0, 40)}" in the formula for ${cell}.`, 'Use { formula: "A1*2" } or { formula: "A1*2", result: 2 }; add array: "A1:B2" or shared: "A1:A10" for array or shared formulas.');
     }
+  }
+  let group: ReadFormula['group'];
+  if (keys.includes('array') && keys.includes('shared')) {
+    throw invalidValue(sheet, cell, `The formula for ${cell} cannot be both an array formula and a shared formula.`, 'Give either array: "A1:B2" or shared: "A1:A10", not both.');
+  }
+  for (const t of ['array', 'shared'] as const) {
+    if (!keys.includes(t)) continue;
+    const raw = (value as Record<string, unknown>)[t];
+    const range = typeof raw === 'string' ? parseRange(raw) : null;
+    const at = parseCellRef(cell);
+    if (range === null || at === null || range.start.row !== at.row || range.start.col !== at.col) {
+      throw invalidValue(
+        sheet,
+        cell,
+        `The ${t} range of the formula for ${cell} must be a range whose top-left cell is ${cell}, got ${JSON.stringify(String(raw).slice(0, 40))}.`,
+        `Put the formula in the top-left cell of its range, for example set("${cell}", { formula: "…", ${t}: "${cell}:${cell.replace(/\d+$/, (n) => String(Number(n) + 2))}" }).`,
+      );
+    }
+    group = { t, ref: formatRange(range) };
   }
   const raw = (value as { formula: unknown }).formula;
   const text = typeof raw === 'string' && raw.startsWith('=') ? raw.slice(1) : raw;
   if (typeof text !== 'string' || text.trim().length === 0 || text.length > MAX_FORMULA_LENGTH || firstLoneSurrogate(text) !== -1) {
     throw invalidValue(sheet, cell, `The formula for ${cell} is empty, too long or not valid text.`, `Pass the formula text, with or without "=", for example { formula: "SUM(A1:A10)" }; at most ${String(MAX_FORMULA_LENGTH)} characters.`);
   }
-  return { text, result: keys.includes('result') ? (value as { result: unknown }).result : undefined };
+  return { text, result: keys.includes('result') ? (value as { result: unknown }).result : undefined, ...(group === undefined ? {} : { group }) };
+}
+
+/** `{ sharedFormula: "C1", result? }`: a cell that shares the formula of the master in C1 (E-28). */
+function readSharedDependent(value: object, sheet: string, cell: string): ReadFormula {
+  const keys = Object.keys(value);
+  for (const key of keys) {
+    if (key !== 'sharedFormula' && key !== 'result') {
+      throw invalidValue(sheet, cell, `Unknown property "${key.slice(0, 40)}" in the shared formula for ${cell}.`, 'Use { sharedFormula: "C1" } or { sharedFormula: "C1", result: 2 }, where C1 holds { formula, shared: "C1:C10" }.');
+    }
+  }
+  const raw = (value as { sharedFormula: unknown }).sharedFormula;
+  const master = typeof raw === 'string' ? parseCellRef(raw) : null;
+  if (master === null) {
+    throw invalidValue(sheet, cell, `sharedFormula for ${cell} must name one cell, the master of the shared formula, got ${JSON.stringify(String(raw).slice(0, 40))}.`, 'Name the cell that holds { formula, shared: "C1:C10" }, for example { sharedFormula: "C1" }.');
+  }
+  return { text: '', result: keys.includes('result') ? (value as { result: unknown }).result : undefined, master: formatCellRef(master.row, master.col) };
 }
 
 /**

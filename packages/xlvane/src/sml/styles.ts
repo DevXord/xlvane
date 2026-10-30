@@ -14,16 +14,22 @@ import { XlvError } from '../errors';
 import {
   BORDER_STYLES,
   EDGES,
+  FONT_FLAGS,
+  FONT_SCHEMES,
   HORIZONTAL,
   PATTERNS,
+  READING_ORDERS,
   UNDERLINES,
+  VERT_ALIGN_RUNS,
   VERTICAL,
   type AlignmentStyle,
   type BorderEdge,
+  type BorderStyle,
   type CellStyle,
   type Color,
   type FontStyle,
   type FillStyle,
+  type ProtectionStyle,
 } from '../style';
 import { childNamed, childrenNamed, parseXmlTree, type XmlElement } from '../xml/tree';
 import { SML_NS } from './namespaces';
@@ -55,6 +61,7 @@ interface XfParts {
   readonly fillId: number;
   readonly borderId: number;
   readonly alignment: AlignmentStyle | undefined;
+  readonly protection: ProtectionStyle | undefined;
 }
 
 const EMPTY_STYLE: CellStyle = Object.freeze({});
@@ -73,7 +80,7 @@ class NumberFormats implements Styles {
     private readonly xfs: readonly XfParts[] = [],
     private readonly fonts: readonly (FontStyle | undefined)[] = [],
     private readonly fills: readonly (FillStyle | undefined)[] = [],
-    private readonly borders: readonly (Readonly<Record<string, BorderEdge>> | undefined)[] = [],
+    private readonly borders: readonly (BorderStyle | undefined)[] = [],
     private readonly dxfs: readonly CellStyle[] = [],
   ) {
     this.cellFormatCount = ids.length;
@@ -102,6 +109,7 @@ class NumberFormats implements Styles {
       const border = this.borders[xf.borderId];
       if (border !== undefined) style.border = border;
       if (xf.alignment !== undefined) style.alignment = xf.alignment;
+      if (xf.protection !== undefined) style.protection = xf.protection;
     }
     if (numFmt !== null) style.numFmt = numFmt;
     const frozen = Object.freeze(style);
@@ -195,6 +203,7 @@ export function parseStyles(xml: string, ctx: PartContext): Styles {
       fillId: index(xf, 'fillId'),
       borderId: index(xf, 'borderId'),
       alignment: parseAlignment(childNamed(xf, ns, 'alignment'), warn),
+      protection: parseProtection(childNamed(xf, ns, 'protection')),
     }),
   );
   const ids = xfElements.map((xf): number => {
@@ -236,15 +245,19 @@ function parseDxf(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: 
   } else if (fillEl !== undefined) {
     const fill = parseFill(fillEl, ns, colorOf, warn);
     if (fill !== undefined) {
-      // parseFill always gives the pattern form.
+      // parseFill gives the pattern or the gradient form.
       const f = fill as { readonly pattern: string; readonly fgColor?: Color; readonly bgColor?: Color };
       const same = f.pattern === 'solid' && f.fgColor !== undefined && f.bgColor !== undefined && JSON.stringify(f.fgColor) === JSON.stringify(f.bgColor);
       style.fill = same && f.fgColor !== undefined ? Object.freeze({ pattern: 'solid' as const, fgColor: f.fgColor }) : fill;
     }
   }
+  const alignment = parseAlignment(childNamed(el, ns, 'alignment'), warn);
+  if (alignment !== undefined) style.alignment = alignment;
   const borderEl = childNamed(el, ns, 'border');
   const border = borderEl === undefined ? undefined : parseBorder(borderEl, ns, colorOf, warn);
   if (border !== undefined) style.border = border;
+  const protection = parseProtection(childNamed(el, ns, 'protection'));
+  if (protection !== undefined) style.protection = protection;
   return Object.freeze(style);
 }
 
@@ -331,11 +344,77 @@ function parseFont(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message:
   }
   const color = colorOf(childNamed(el, ns, 'color'), 'font');
   if (color !== undefined) font.color = color;
+  for (const key of FONT_FLAGS) if (booleanProperty(childNamed(el, ns, key))) font[key] = true;
+  const vertAlign = childNamed(el, ns, 'vertAlign')?.attrs.get('val');
+  if (vertAlign !== undefined) {
+    const found = VERT_ALIGN_RUNS.find((x) => x === vertAlign);
+    if (found === undefined) warn(`The vertical text alignment ${quote(vertAlign)} is unknown; it is ignored.`);
+    else if (found !== 'baseline') font.vertAlign = found;
+  }
+  const scheme = childNamed(el, ns, 'scheme')?.attrs.get('val');
+  if (scheme !== undefined) {
+    const found = FONT_SCHEMES.find((x) => x === scheme);
+    if (found === undefined) warn(`The font scheme ${quote(scheme)} is unknown; it is ignored.`);
+    else font.scheme = found;
+  }
+  // family: ST_FontFamily 0–14 in a font, xsd:int in run properties; charset 0–255 (§18.4.1).
+  for (const [key, max] of [['family', 14], ['charset', 255]] as const) {
+    const raw = childNamed(el, ns, key)?.attrs.get('val');
+    if (raw === undefined) continue;
+    const n = parseUnsignedInt(raw);
+    if (n === null || n > max) warn(`The font ${key} ${quote(raw)} is not valid; it is ignored.`);
+    else font[key] = n;
+  }
   return Object.freeze(font);
 }
 
-/** Parses CT_Fill (W2-14); only pattern fills other than "none" give a fill. */
+/** Parses CT_CellProtection (W2-63): the values given in the file, as booleans. */
+function parseProtection(el: XmlElement | undefined): ProtectionStyle | undefined {
+  if (el === undefined) return undefined;
+  const p: { -readonly [K in keyof ProtectionStyle]: ProtectionStyle[K] } = {};
+  for (const key of ['locked', 'hidden'] as const) {
+    const raw = el.attrs.get(key);
+    const b = raw === undefined ? null : parseBoolean(raw);
+    if (b !== null) p[key] = b;
+  }
+  return Object.keys(p).length > 0 ? Object.freeze(p) : undefined;
+}
+
+/** Parses CT_GradientFill (W2-60): the type, the numbers other than their default 0, and the stops. */
+function parseGradient(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: string) => void): FillStyle {
+  const number = (name: string): number | undefined => {
+    const raw = el.attrs.get(name);
+    if (raw === undefined) return undefined;
+    const n = Number(raw.trim());
+    if (raw.trim() === '' || !Number.isFinite(n)) {
+      warn(`gradientFill@${name} has the invalid value ${quote(raw)}; it is ignored.`);
+      return undefined;
+    }
+    return n === 0 ? undefined : n;
+  };
+  const stops: { position: number; color: Color }[] = [];
+  for (const stop of childrenNamed(el, ns, 'stop')) {
+    const raw = stop.attrs.get('position') ?? '';
+    const position = Number(raw.trim());
+    const color = colorOf(childNamed(stop, ns, 'color'), 'gradient stop');
+    if (raw.trim() === '' || !Number.isFinite(position) || color === undefined) {
+      warn('A gradient stop has no valid position or colour; it is ignored.');
+      continue;
+    }
+    stops.push(Object.freeze({ position, color }));
+  }
+  const fill: { -readonly [K in 'degree' | 'left' | 'right' | 'top' | 'bottom']?: number } = {};
+  for (const k of ['degree', 'left', 'right', 'top', 'bottom'] as const) {
+    const n = number(k);
+    if (n !== undefined) fill[k] = n;
+  }
+  return Object.freeze({ type: 'gradient' as const, gradient: el.attrs.get('type') === 'path' ? ('path' as const) : ('linear' as const), ...fill, stops: Object.freeze(stops) });
+}
+
+/** Parses CT_Fill (W2-14, W2-60): gradient fills, and pattern fills other than "none". */
 function parseFill(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: string) => void): FillStyle | undefined {
+  const gf = childNamed(el, ns, 'gradientFill');
+  if (gf !== undefined) return parseGradient(gf, ns, colorOf, warn);
   const pf = childNamed(el, ns, 'patternFill');
   if (pf === undefined) return undefined;
   const type = pf.attrs.get('patternType');
@@ -353,16 +432,21 @@ function parseFill(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message:
   return Object.freeze(fill);
 }
 
-/** Parses CT_Border (W2-15): the left, right, top and bottom edges whose style is not "none". */
-function parseBorder(
-  el: XmlElement,
-  ns: string,
-  colorOf: ColorOf,
-  warn: (message: string) => void,
-): Readonly<Record<string, BorderEdge>> | undefined {
-  const border: Record<string, BorderEdge> = {};
+/**
+ * Parses CT_Border (W2-15, W2-61): the left, right, top, bottom and diagonal edges whose style is
+ * not "none", and the diagonal directions.
+ */
+function parseBorder(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: string) => void): BorderStyle | undefined {
+  const border: Record<string, BorderEdge | boolean> = {};
   let any = false;
-  for (const edge of EDGES) {
+  for (const flag of ['diagonalUp', 'diagonalDown'] as const) {
+    const raw = el.attrs.get(flag);
+    if (raw !== undefined && parseBoolean(raw) === true) {
+      border[flag] = true;
+      any = true;
+    }
+  }
+  for (const edge of [...EDGES, 'diagonal'] as const) {
     const e = childNamed(el, ns, edge);
     const raw = e?.attrs.get('style');
     if (e === undefined || raw === undefined || raw === 'none') continue;
@@ -375,7 +459,7 @@ function parseBorder(
     border[edge] = Object.freeze(color === undefined ? { style } : { style, color });
     any = true;
   }
-  return any ? Object.freeze(border) : undefined;
+  return any ? (Object.freeze(border) as BorderStyle) : undefined;
 }
 
 /** Parses CT_CellAlignment (W2-17): the properties xlvane models, defaults left out. */
@@ -394,8 +478,17 @@ function parseAlignment(el: XmlElement | undefined, warn: (message: string) => v
     if (found !== undefined) a.vertical = found;
     else warn(`The vertical alignment ${quote(v)} is unknown; it is ignored.`);
   }
-  const wrap = el.attrs.get('wrapText');
-  if (wrap !== undefined && parseBoolean(wrap) === true) a.wrapText = true;
+  for (const key of ['wrapText', 'shrinkToFit', 'justifyLastLine'] as const) {
+    const raw = el.attrs.get(key);
+    if (raw !== undefined && parseBoolean(raw) === true) a[key] = true;
+  }
+  const order = el.attrs.get('readingOrder');
+  if (order !== undefined) {
+    // [MS-OI29500] §2.1.693 c: 0, 1 or 2 (W2-62); 0 (context) is the default.
+    const n = parseUnsignedInt(order);
+    if (n === null || n > 2) warn(`The reading order ${quote(order)} is not valid; it is ignored.`);
+    else if (n > 0) a.readingOrder = READING_ORDERS[n] ?? 'context';
+  }
   const indent = el.attrs.get('indent');
   const indentN = indent === undefined ? null : parseUnsignedInt(indent);
   if (indentN !== null && indentN > 0) a.indent = indentN;

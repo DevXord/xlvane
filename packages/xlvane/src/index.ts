@@ -97,11 +97,16 @@ export type {
   CellStyle,
   Color,
   FillStyle,
+  FontScheme,
   FontStyle,
+  GradientFill,
   HorizontalAlignment,
   PatternType,
+  ProtectionStyle,
+  ReadingOrder,
   UnderlineStyle,
   VerticalAlignment,
+  VerticalAlignRun,
 } from './style';
 export type {
   Cell,
