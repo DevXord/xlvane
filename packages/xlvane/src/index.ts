@@ -71,3 +71,24 @@ export type {
   Workbook,
   WorkbookFormat,
 } from './model';
+export type { StandardSchemaV1 } from './standard-schema';
+export {
+  readTable,
+  readTableAsync,
+  writeTable,
+  toJSON,
+  fromJSON,
+  type JsonTable,
+  type ReadTableOptions,
+  type TableColumn,
+  type TableColumnSpec,
+  type TableIssue,
+  type TableResult,
+  type TableRow,
+  type TableValue,
+  type ToJSONOptions,
+  type WriteTableOptions,
+} from './table';
+export { toCSV, fromCSV, type ToCSVOptions, type FromCSVOptions } from './csv';
+export { diff, type CellChange, type DiffCell, type DiffOptions, type SheetDiff, type WorkbookDiff } from './diff';
+export { editCells, appendRows, type AppendRowsOptions, type CellEdit, type EditOptions, type EditResult } from './edit';

@@ -83,6 +83,12 @@ describe('NewSheet.set', () => {
     expectXlvError(() => s.set('A1', new Date(Date.UTC(1903, 11, 31))), 'XLV_E_INVALID_VALUE');
   });
 
+  it('keeps the current style when set without one, as spreadsheet applications do', () => {
+    const wb = createWorkbook();
+    wb.addSheet('S').set('A1', new Date(Date.UTC(2024, 0, 31))).set('A1', 45322);
+    expect(readWorkbook(writeWorkbook(wb)).getSheet('S').cell('A1')?.value).toEqual(new Date(Date.UTC(2024, 0, 31)));
+  });
+
   it('removes a cell when set to null without a style', () => {
     const wb = createWorkbook();
     const s = wb.addSheet('S').set('A1', 1).set('A1', null);

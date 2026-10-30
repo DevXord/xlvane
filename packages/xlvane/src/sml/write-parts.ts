@@ -56,7 +56,7 @@ export function formatNumber(n: number): string {
   return String(n).replace('e+', 'E').replace('e-', 'E-');
 }
 
-function attr(name: string, value: string | number): string {
+export function attr(name: string, value: string | number): string {
   return ` ${name}="${typeof value === 'number' ? formatNumber(value) : escapeAttr(value)}"`;
 }
 
@@ -84,7 +84,7 @@ interface StyleTables {
   readonly xfOf: readonly number[];
 }
 
-function colorXml(element: string, color: NormalizedColor): string {
+export function colorXml(element: string, color: NormalizedColor): string {
   if (typeof color === 'string') return `<${element}${attr('rgb', color)}/>`;
   if ('theme' in color) return `<${element}${attr('theme', color.theme)}${color.tint === undefined ? '' : attr('tint', color.tint)}/>`;
   if ('indexed' in color) return `<${element}${attr('indexed', color.indexed)}/>`;
@@ -105,25 +105,50 @@ class Table {
   }
 }
 
+/** A `font` record: the font completed with `defaults` (name and size). */
+export function fontXml(font: NonNullable<NormalizedStyle['font']>, defaults: { readonly name: string; readonly size: number } = DEFAULT_FONT): string {
+  const f = { ...defaults, ...font };
+  let xml = '<font>';
+  if (f.bold) xml += '<b/>';
+  if (f.italic) xml += '<i/>';
+  if (f.strike) xml += '<strike/>';
+  if (f.underline) xml += f.underline === 'single' ? '<u/>' : `<u${attr('val', f.underline)}/>`;
+  xml += `<sz${attr('val', f.size)}/>`;
+  if (f.color !== undefined) xml += colorXml('color', f.color);
+  xml += `<name${attr('val', encodeXstring(f.name))}/>`;
+  return `${xml}</font>`;
+}
+
+/** A `fill` record with a pattern fill. */
+export function fillXml(fill: NonNullable<NormalizedStyle['fill']>): string {
+  const { pattern, fgColor, bgColor } = fill;
+  let inner = '';
+  if (fgColor !== undefined) inner += colorXml('fgColor', fgColor);
+  if (bgColor !== undefined) inner += colorXml('bgColor', bgColor);
+  return `<fill><patternFill${attr('patternType', pattern)}${inner === '' ? '/>' : `>${inner}</patternFill>`}</fill>`;
+}
+
+/** A `border` record with the left, right, top and bottom edges in schema order (W2-15). */
+export function borderXml(border: NonNullable<NormalizedStyle['border']>): string {
+  let xml = '<border>';
+  for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
+    const e = border[edge];
+    xml += e === undefined ? `<${edge}/>` : `<${edge}${attr('style', e.style)}>${e.color === undefined ? '' : colorXml('color', e.color)}</${edge}>`;
+  }
+  return `${xml}<diagonal/></border>`;
+}
+
+/** The built-in id reused for a format code, if any (D-204). */
+export function reusableBuiltinNumFmt(code: string): number | undefined {
+  return REUSABLE_BUILTINS.get(code);
+}
+
 function buildStyles(styles: readonly NormalizedStyle[]): StyleTables {
   const fonts = new Table();
   const fills = new Table();
   const borders = new Table();
   const xfs = new Table();
   const numFmts = new Map<string, number>();
-
-  const fontXml = (font: NonNullable<NormalizedStyle['font']>): string => {
-    const f = { ...DEFAULT_FONT, ...font };
-    let xml = '<font>';
-    if (f.bold) xml += '<b/>';
-    if (f.italic) xml += '<i/>';
-    if (f.strike) xml += '<strike/>';
-    if (f.underline) xml += f.underline === 'single' ? '<u/>' : `<u${attr('val', f.underline)}/>`;
-    xml += `<sz${attr('val', f.size)}/>`;
-    if (f.color !== undefined) xml += colorXml('color', f.color);
-    xml += `<name${attr('val', encodeXstring(f.name))}/>`;
-    return `${xml}</font>`;
-  };
 
   // Fills 0 and 1 are reserved: none and gray125 (D-205, W2-14).
   fonts.add(fontXml({}));
@@ -146,22 +171,9 @@ function buildStyles(styles: readonly NormalizedStyle[]): StyleTables {
   const xfOf = styles.map((style) => {
     const fontId = style.font ? fonts.add(fontXml(style.font)) : 0;
     let fillId = 0;
-    if (style.fill) {
-      const { pattern, fgColor, bgColor } = style.fill;
-      let inner = '';
-      if (fgColor !== undefined) inner += colorXml('fgColor', fgColor);
-      if (bgColor !== undefined) inner += colorXml('bgColor', bgColor);
-      fillId = fills.add(`<fill><patternFill${attr('patternType', pattern)}${inner === '' ? '/>' : `>${inner}</patternFill>`}</fill>`);
-    }
+    if (style.fill) fillId = fills.add(fillXml(style.fill));
     let borderId = 0;
-    if (style.border) {
-      let xml = '<border>';
-      for (const edge of ['left', 'right', 'top', 'bottom'] as const) {
-        const e = style.border[edge];
-        xml += e === undefined ? `<${edge}/>` : `<${edge}${attr('style', e.style)}>${e.color === undefined ? '' : colorXml('color', e.color)}</${edge}>`;
-      }
-      borderId = borders.add(`${xml}<diagonal/></border>`);
-    }
+    if (style.border) borderId = borders.add(borderXml(style.border));
     const nf = numFmtId(style.numFmt);
     let xf = `<xf${attr('numFmtId', nf)}${attr('fontId', fontId)}${attr('fillId', fillId)}${attr('borderId', borderId)} xfId="0"`;
     if (nf !== 0) xf += ' applyNumberFormat="1"';
@@ -224,7 +236,7 @@ class SharedStrings {
 }
 
 /** A `t` element; `xml:space="preserve"` when white space at the ends or inside could be lost (W2-07). */
-function textElement(s: string): string {
+export function textElement(s: string): string {
   const preserve = /^[\s]|[\s]$|[\t\n\r]/.test(s) ? ' xml:space="preserve"' : '';
   return `<t${preserve}>${escapeText(encodeXstring(s))}</t>`;
 }

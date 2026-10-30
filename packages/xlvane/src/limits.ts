@@ -6,6 +6,16 @@ import { suggest } from './util/suggest';
  * malicious or broken input (zip bombs, deeply nested XML, huge sheets). Exceeding a limit
  * throws `XLV_E_LIMIT_EXCEEDED`; the error's `details.limit` names the limit.
  * Any limit can be set to `Infinity` to switch it off.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type ReadLimits } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const limits: Partial<ReadLimits> = { maxCells: 50_000_000, maxInputBytes: Infinity };
+ * const workbook = readWorkbook(bytes, { limits });
+ * console.log(workbook.sheets.length);
+ * ```
  */
 export interface ReadLimits {
   /** Maximum size of the input file in bytes. Default 256 MiB. */

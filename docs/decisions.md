@@ -134,7 +134,7 @@ See `DEFAULT_READ_LIMITS` and the package README. The compression-ratio limit (2
 ### D-106 Date conversion depends on the conformance class (2026-10-30)
 The plan assumed a Strict `workbookPr@dateCompatibility` attribute; it does not exist in the 2016 edition (E-12). Instead, Strict serial dates count from 1899-12-30 without a phantom 29 February 1900 (E-13, E-14), while Transitional replaces that section with the 1900 system that Excel uses (Part 4 §15.3.4; E-15, E-16). `serialToDate` and `dateToSerial` therefore take the conformance class; see docs/facts/values.md.
 
-### D-107 Shared formulas are not expanded yet (2026-10-30)
+### D-107 Shared formulas are not expanded yet (2026-10-30) — closed in phase 3 by D-313
 A cell that reuses a shared formula gets `formula.text = null` and `formula.sharedIndex`. Any text written in such a cell is ignored, as the spec requires (E-28), and `XLV_W_SHARED_FORMULA_NOT_EXPANDED` is reported. Translating the master formula to each cell needs a formula tokenizer and is left for phase 3.
 
 ### D-108 Macros, external links, encrypted and legacy files (2026-10-30)
@@ -195,7 +195,7 @@ New workbooks use Calibri 11 as font 0, fills 0 and 1 are `none` and `gray125`, 
 Text up to 32 767 characters, column width up to 255 and row height up to 409 points (W-04, checked in phase 1). Sheet names (W2-20), formula length 8 192 (W2-21) and font size 409 (W2-19) are provisional. Font names are capped at 255 characters as an implementation limit. Strings with unpaired UTF-16 surrogates are rejected, because XML cannot hold them and the `_xHHHH_` escape of a lone surrogate is not decoded by readers that follow D-XS-3.
 
 ### D-208 Package size budget (2026-10-30)
-70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done.
+70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done. **Phase 3:** the task API brought the size to 84.5 kB; the maintainer chose to raise the budget to 100 kB and keep the build unminified (a minified build measured about 51 kB).
 
 ### D-209 LibreOffice check of written files (2026-10-30)
 `tests/libreoffice/libreoffice.test.ts` writes workbooks covering every feature of the phase, converts them with `soffice --headless` to CSV (all sheets, contents as shown; F-LO-01) and back to XLSX, and checks values in the CSV and merges, frozen panes, filter, widths, heights, states and styles in LibreOffice's own XLSX. The test is skipped when `soffice` is missing and fails instead when `XLV_REQUIRE_LIBREOFFICE=1` (set in CI). Each run uses its own LibreOffice profile directory.
@@ -205,6 +205,60 @@ Text up to 32 767 characters, column width up to 255 and row height up to 409 po
 
 ### D-211 Reader additions for round trips (2026-10-30)
 `Cell.style` (frozen, shared per style index; parts equal to the defaults left out), `Sheet.columns` (the `col` records as ranges, so a file cannot make the reader expand millions of entries), `Sheet.rowInfo(row)`, `Sheet.freeze` (first sheet view, `frozen` or `frozenSplit` panes only) and `Sheet.autoFilter`. Colours are returned as upper-case ARGB strings, or as `{ theme, tint }`, `{ indexed }`, `{ auto: true }`. Formula text is now decoded as ST_Xstring (W2-02); before, `_xHHHH_` escapes in formulas were returned undecoded. The `inspect()` JSON is unchanged.
+
+## Decisions: phase 3 (task-oriented API)
+
+### D-301 Development dependencies for schema tests (2026-10-30)
+Approved by the maintainer: zod 4.6.7, valibot 1.5.0 and arktype 2.2.9 as exact root devDependencies (SS-02), used only by tests (type inference, issue mapping) and by TSDoc examples. None of them is a dependency of `xlvane`; `tests/policy/packages.test.ts` lists them as approved.
+
+### D-302 Standard Schema types copied, not imported (2026-10-30)
+docs/PLAN.md asks to copy the interface types from the specification. `src/standard-schema.ts` holds the declarations of S-SS at a pinned commit with the MIT notice; `@standard-schema/spec` is not a dependency. Only version 1 is accepted (`XLV_E_SCHEMA_INVALID` otherwise).
+
+### D-303 `readTable` row model (2026-10-30)
+- Keys are the trimmed header texts; duplicates get `_2`, `_3`; empty headers use the column letter. Without a header (`header: false`, or `"auto"` finding none) keys are column letters.
+- Every row has every key; empty cells are `null`; error cells give their code as a string; dates are `Date` (or ISO strings with `dates: "iso"`).
+- Row objects are plain objects whose properties are defined with `Object.defineProperty`, so keys such as `__proto__` are ordinary own properties and no prototype changes.
+- With a schema, `rows` holds only valid rows (output type of the schema), `rowNumbers` their sheet rows, and `issues` the problems, mapped to a cell through the first path key. `readTable` throws `XLV_E_ASYNC_SCHEMA` for asynchronous schemas instead of returning a Promise sometimes; `readTableAsync` handles them.
+- Header detection is the one of `inspect()` (D-109), so both agree.
+
+### D-304 `writeTable` report preset (2026-10-30)
+Bold header with fill `D9E1F2` and a thin bottom border, frozen first row, autofilter over the table, column widths from the longest value (8 to 60 characters) unless given. Dates get the writer's date formats (D-204); numbers keep the General format unless a column sets `numFmt`, so values are not rounded on display. `"plain"` writes values only. Rows must all be objects or all arrays; values must be cell values (`XLV_E_TABLE_INVALID` with row and key otherwise); inherited properties are ignored.
+
+### D-305 `toJSON` and `fromJSON` (2026-10-30)
+`toJSON` is `readTable` with ISO dates and returns `{ sheet, headerRow, range, columns, rows }`. `fromJSON` accepts JSON text (parsed with `JSON.parse`, errors as `XLV_E_JSON_INVALID`) or an array, and writes it with `writeTable`. JSON keys such as `__proto__` are own properties after `JSON.parse` and become ordinary columns. ISO date strings stay strings: JSON has no date type, and guessing would change data.
+
+### D-306 `toCSV` (2026-10-30)
+Output covers A1 to the last used row and column (as LibreOffice does), so positions match the sheet; `range` restricts it. Numbers use JavaScript's shortest round-trip form, booleans `TRUE`/`FALSE`, dates ISO 8601 (date only at midnight, otherwise `YYYY-MM-DDThh:mm:ss[.sss]` without a zone, because sheet dates have no zone), errors their code, formulas their cached value. Formula-injection escaping is on by default (CSV-10, CSV-11).
+
+### D-307 `fromCSV` (2026-10-30)
+Own linear parser (CSV-01 … CSV-03). Type inference (`types: "infer"`, default): plain decimal numbers without leading zeros and with at most 15 significant digits (so IDs, account and postal codes keep their digits), `true`/`false` in any case, and ISO 8601 dates with a date part inside the date system; everything else is text. Nothing ever becomes a formula. Default preset `plain`. Limits: `maxChars` (default 256 Mi characters), 16 384 fields per line, 1 048 576 lines, 32 767 characters per field (the cell limit).
+
+### D-308 `diff` (2026-10-30)
+Sheets are matched by name; a renamed sheet shows as removed plus added. Cells are compared by type, value (dates by time) and formula text; styles only with `styles: true`. Cached formula results are compared as stored. At most `maxCells` changes (default 10 000) are listed per sheet, in row order; the summary counts all. Output is JSON-safe.
+
+### D-309 Surgical editing (2026-10-30)
+Chosen by the maintainer. `editCells` and `appendRows` rewrite only:
+- the `sheetData` of edited sheets: untouched rows are copied as source text; in an edited row, untouched cells are copied as source text and new cells are inserted in column order; rows or cells without `r` get an explicit `r` so that positions cannot shift;
+- the `dimension@ref` of edited sheets (grown to include new cells);
+- appended `si` records in the shared string table (an existing equal string is reused; `count` and `uniqueCount` updated), or a new shared string part with its relationship and content type;
+- appended `font`/`fill`/`border`/`numFmt`/`xf` records in the styles part (existing indexes never change), creating missing containers in schema order;
+- `calcPr fullCalcOnLoad="1"` in the workbook part when it contains formulas, and removal of the calculation chain (part, relationship, content type) when formula cells were added, changed or removed (D-312).
+Every other part keeps its decompressed bytes; the ZIP is rewritten with the D-202 writer. Tag positions come from new `XmlSpan` arguments of the SAX parser.
+
+### D-310 Text of edited parts (2026-10-30)
+Edited parts are produced from the parser's input after end-of-line normalisation (XML 1.0 §2.11), so CRLF in an edited part becomes LF. That does not change the XML information set. Parts declared as UTF-16 are written as UTF-8 and their declaration is corrected.
+
+### D-311 Styles in edits (2026-10-30)
+An edit's `style` is merged into the cell's current format like `NewSheet.style()`: given font, border and alignment properties replace the current ones, fill and number format replace. The new `xf` copies the current one's attributes and `protection`, and keeps unknown `alignment` attributes; its `extLst` and namespaced attributes are not copied. New fonts are completed with the workbook's font 0 (name and size). Dates written into cells without a date format get the writer's date format; cells that already have a date format keep it. When a container such as `fonts` is missing, it is created with the default records first, so that index 0 keeps its meaning.
+
+### D-312 Formulas after edits (2026-10-30) — PROVISIONAL fact
+xlvane does not calculate. When the workbook has formulas, `XLV_W_FORMULAS_NOT_RECALCULATED` is reported and `calcPr@fullCalcOnLoad="1"` asks applications to recalculate on load (attribute name from the schema copy S-XSD; its meaning is to be checked in ECMA-376 §18.2.2). The calculation chain lists formula cells, so it is removed when formula cells change; applications rebuild it. Editing a Strict workbook refuses dates before 1900-03-01, because the writer converts dates with the Transitional rules (D-106).
+
+### D-313 Shared formula expansion (2026-10-30)
+Closes D-107. A conservative linear tokenizer (`sml/formula-shift.ts`) translates the master formula to dependent cells inside the master's range by shifting relative A1 references (facts docs/facts/formulas.md, mostly PROVISIONAL). It refuses (keeps `text: null` with `XLV_W_SHARED_FORMULA_NOT_EXPANDED`) for R1C1-looking names, unbalanced quotes or brackets, unknown characters, references that would leave the grid (Excel would write `#REF!`), and ambiguous sheet-qualified or 3-D references. Each master is tokenized once and dependents render lazily, so memory stays proportional to the file. Moved references are written in upper case.
+
+### D-314 TSDoc example check (2026-10-30)
+`tests/policy/tsdoc-examples.test.ts` extracts every ```ts block from TSDoc in `packages/xlvane/src`, type-checks them in one `tsc` run (TypeScript 7 CLI; its JavaScript compiler API is not stable) with the project's strict options and `xlvane`/`xlvane/node` mapped to the sources, and checks that every symbol exported from `index.ts` and `node.ts` has an `@example`. The temporary project lives under `node_modules/.cache` so that examples can import zod.
 
 ## Facts: Node.js
 
@@ -229,3 +283,5 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/opc.md | see file | ECMA-376 Part 2 (packaging) |
 | docs/facts/sst-styles.md | see file | shared strings, ST_Xstring, styles |
 | docs/facts/sml-write.md | W2-*, F-LO-01, F-NODE-04, F-NODE-05, F-GH-01 | writer facts; partly PROVISIONAL (D-203): python-docx copy of sml.xsd, Open XML SDK, LibreOffice help, Node.js docs |
+| docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; mostly PROVISIONAL (no ECMA-376 §18.17 available) |
+| docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |

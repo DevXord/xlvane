@@ -6,7 +6,18 @@ import { columnLetters, formatRange, parseRange, type CellRange } from './sml/ce
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 
-/** Options for {@link inspect}. */
+/**
+ * Options for {@link inspect}.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectOptions } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const options: InspectOptions = { headerScanRows: 50, maxColumns: 20 };
+ * console.log(inspect(bytes, options).sheets.length);
+ * ```
+ */
 export interface InspectOptions {
   /** Resource limits used when `input` is a file; see {@link ReadLimits}. */
   readonly limits?: Partial<ReadLimits>;
@@ -18,10 +29,32 @@ export interface InspectOptions {
   readonly formulaSamples?: number;
 }
 
-/** A JSON-safe cell value: dates are ISO 8601 strings without a time zone. */
+/**
+ * A JSON-safe cell value: dates are ISO 8601 strings without a time zone.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectValue } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const samples: readonly InspectValue[] = inspect(bytes).sheets[0]?.columns[0]?.samples ?? [];
+ * console.log(samples.map((value) => typeof value));
+ * ```
+ */
 export type InspectValue = string | number | boolean;
 
-/** Counts of cell types in a column. */
+/**
+ * Counts of cell types in a column.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectTypeCounts } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const counts: InspectTypeCounts | undefined = inspect(bytes).sheets[0]?.columns[0]?.types;
+ * console.log(counts?.number, counts?.string, counts?.empty);
+ * ```
+ */
 export interface InspectTypeCounts {
   readonly number: number;
   readonly string: number;
@@ -31,7 +64,18 @@ export interface InspectTypeCounts {
   readonly empty: number;
 }
 
-/** Description of one column of the used range. */
+/**
+ * Description of one column of the used range.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectColumn } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const columns: readonly InspectColumn[] = inspect(bytes).sheets[0]?.columns ?? [];
+ * for (const column of columns) console.log(column.letter, column.header, column.dominantType);
+ * ```
+ */
 export interface InspectColumn {
   /** 1-based column number. */
   readonly index: number;
@@ -46,7 +90,18 @@ export interface InspectColumn {
   readonly samples: readonly InspectValue[];
 }
 
-/** Description of one sheet. */
+/**
+ * Description of one sheet.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectSheet } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const hidden: InspectSheet[] = inspect(bytes).sheets.filter((sheet) => sheet.state !== 'visible');
+ * console.log(hidden.map((sheet) => sheet.name));
+ * ```
+ */
 export interface InspectSheet {
   readonly name: string;
   readonly index: number;
@@ -69,11 +124,22 @@ export interface InspectSheet {
   readonly columns: readonly InspectColumn[];
   /** `true` when the used range has more columns than `maxColumns`. */
   readonly columnsTruncated: boolean;
-  /** Example formulas (text `null` for cells that reuse a shared formula). */
+  /** Example formulas (text `null` only for shared formulas that could not be translated). */
   readonly formulas: readonly { readonly cell: string; readonly formula: string | null }[];
 }
 
-/** The result of {@link inspect}. Version 1 of the schema documented in docs/inspect-json.md. */
+/**
+ * The result of {@link inspect}. Version 1 of the schema documented in docs/inspect-json.md.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectReport } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const report: InspectReport = inspect(bytes);
+ * console.log(report.schemaVersion, report.sheetCount, report.warnings.length);
+ * ```
+ */
 export interface InspectReport {
   readonly schemaVersion: 1;
   readonly format: WorkbookFormat;
@@ -162,6 +228,7 @@ function jsonValue(value: string | number | boolean | Date): InspectValue {
  * ```ts
  * import { inspect } from 'xlvane';
  *
+ * declare const bytes: Uint8Array; // the contents of an .xlsx file
  * const report = inspect(bytes);
  * for (const sheet of report.sheets) {
  *   console.log(sheet.name, sheet.usedRange, sheet.columns.map((c) => `${c.header}: ${c.dominantType}`));
@@ -286,7 +353,7 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
  * non-blank strings covering at least half of the used width. Confidence is high when the
  * next non-empty row contains a value that is not a string.
  */
-function detectHeader(
+export function detectHeader(
   rows: readonly (readonly Cell[])[],
   width: number,
   scanRows: number,

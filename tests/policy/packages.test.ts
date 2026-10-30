@@ -27,15 +27,18 @@ const ALLOWED_RUNTIME_DEPENDENCIES: Record<string, readonly string[]> = {
   '@xlvane/mcp': ['xlvane', '@modelcontextprotocol/sdk'],
 };
 
-/** Development dependencies approved by the maintainer (docs/decisions.md, D-005). */
+/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301). */
 const APPROVED_DEV_DEPENDENCIES = [
   '@arethetypeswrong/cli',
+  'arktype',
   'fast-check',
   'publint',
   'tsdown',
   'typescript',
+  'valibot',
   'vite',
   'vitest',
+  'zod',
 ];
 
 const PACKAGE_DIRS = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];

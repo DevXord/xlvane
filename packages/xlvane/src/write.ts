@@ -9,16 +9,45 @@ import { mergeStyles, normalizeStyle, stableKey, type CellStyle, type Normalized
 import { suggest } from './util/suggest';
 import { firstLoneSurrogate } from './xml/writer';
 
-/** Error values a cell can hold (ECMA-376 Part 1 §18.17.3). */
+/**
+ * Error values a cell can hold (ECMA-376 Part 1 §18.17.3).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type ErrorValue } from 'xlvane';
+ *
+ * const missing: ErrorValue = '#N/A';
+ * createWorkbook().addSheet('Data').set('A1', { error: missing });
+ * ```
+ */
 export type ErrorValue = '#NULL!' | '#DIV/0!' | '#VALUE!' | '#REF!' | '#NAME?' | '#NUM!' | '#N/A' | '#GETTING_DATA';
 
-/** A value that a formula cell stores as its cached result. */
+/**
+ * A value that a formula cell stores as its cached result.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type FormulaResult } from 'xlvane';
+ *
+ * const cached: FormulaResult = 42;
+ * createWorkbook().addSheet('Data').set('A1', 40).set('A2', { formula: 'A1+2', result: cached });
+ * ```
+ */
 export type FormulaResult = number | string | boolean | Date | { readonly error: ErrorValue };
 
 /**
  * A value for {@link NewSheet.set}: a number, a string, a boolean, a `Date` (its UTC fields are
  * the spreadsheet's date and time), `null` for no value, `{ error: "#N/A" }` for an error
  * value, or `{ formula, result }` for a formula with an optional cached result.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type CellInput } from 'xlvane';
+ *
+ * const row: CellInput[] = ['Tea', 12.5, true, new Date(Date.UTC(2024, 0, 31)), null, { formula: 'B1*2' }];
+ * const sheet = createWorkbook().addSheet('Data');
+ * row.forEach((value, i) => sheet.set(`${String.fromCharCode(65 + i)}1`, value));
+ * ```
  */
 export type CellInput =
   | number
@@ -29,33 +58,84 @@ export type CellInput =
   | { readonly error: ErrorValue }
   | { readonly formula: string; readonly result?: FormulaResult };
 
-/** Options for {@link createWorkbook}. */
+/**
+ * Options for {@link createWorkbook}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type CreateWorkbookOptions } from 'xlvane';
+ *
+ * const options: CreateWorkbookOptions = { dateSystem: '1904' };
+ * const workbook = createWorkbook(options);
+ * console.log(workbook.dateSystem); // "1904"
+ * ```
+ */
 export interface CreateWorkbookOptions {
   /** Date system for serial dates. Default `"1900"`, the system Excel uses on Windows. */
   readonly dateSystem?: DateSystem;
 }
 
-/** Options for {@link NewWorkbook.addSheet}. */
+/**
+ * Options for {@link NewWorkbook.addSheet}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type AddSheetOptions } from 'xlvane';
+ *
+ * const options: AddSheetOptions = { state: 'hidden' };
+ * createWorkbook().addSheet('Lookup', options);
+ * ```
+ */
 export interface AddSheetOptions {
   /** Visibility. Default `"visible"`. */
   readonly state?: SheetState;
 }
 
-/** Options for {@link NewSheet.column}. */
+/**
+ * Options for {@link NewSheet.column}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type ColumnOptions } from 'xlvane';
+ *
+ * const wide: ColumnOptions = { width: 40 };
+ * createWorkbook().addSheet('Data').column('A', wide);
+ * ```
+ */
 export interface ColumnOptions {
   /** Width in characters (as in Excel's column width box), 0 to 255. */
   readonly width?: number;
   readonly hidden?: boolean;
 }
 
-/** Options for {@link NewSheet.row}. */
+/**
+ * Options for {@link NewSheet.row}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type RowOptions } from 'xlvane';
+ *
+ * const tall: RowOptions = { height: 30 };
+ * createWorkbook().addSheet('Data').row(1, tall);
+ * ```
+ */
 export interface RowOptions {
   /** Height in points, 0 to 409. */
   readonly height?: number;
   readonly hidden?: boolean;
 }
 
-/** Options for {@link NewSheet.freeze}. */
+/**
+ * Options for {@link NewSheet.freeze}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type FreezeOptions } from 'xlvane';
+ *
+ * const header: FreezeOptions = { rows: 1, cols: 1 };
+ * createWorkbook().addSheet('Data').freeze(header);
+ * ```
+ */
 export interface FreezeOptions {
   /** Number of rows at the top that stay visible when scrolling. Default 0. */
   readonly rows?: number;
@@ -63,7 +143,16 @@ export interface FreezeOptions {
   readonly cols?: number;
 }
 
-/** Error values accepted in cells (ECMA-376 Part 1 §18.17.3, fact E-33). */
+/**
+ * Error values accepted in cells (ECMA-376 Part 1 §18.17.3, fact E-33).
+ *
+ * @example
+ * ```ts
+ * import { ERROR_VALUES } from 'xlvane';
+ *
+ * console.log(ERROR_VALUES.includes('#DIV/0!')); // true
+ * ```
+ */
 export const ERROR_VALUES: readonly ErrorValue[] = ['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA'];
 /** Most characters a cell can contain (Excel specifications and limits, W-04). */
 const MAX_CELL_TEXT = 32_767;

@@ -2,6 +2,35 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 3: task-oriented API (2026-10-30)
+
+- **Public API** (`xlvane`):
+  - `readTable` and `readTableAsync`, with Standard Schema validation (Zod, Valibot, ArkType) and issues tied to cell addresses;
+  - `writeTable`, with the `report` and `plain` presets;
+  - `editCells` and `appendRows`, which edit files surgically;
+  - `diff`;
+  - `toCSV`, which escapes text that spreadsheets would run as formulas;
+  - `fromCSV`, `toJSON`, `fromJSON`;
+  - the Standard Schema types and the option and result types.
+- **Surgical editing** (D-309 to D-312): only the edited sheets' `sheetData` and `dimension` change, plus new shared strings and style records, `calcPr` and the removal of the calculation chain. Every other part keeps its bytes. The XML parser now reports tag positions (`XmlSpan`).
+- **Shared formulas** are translated to dependent cells when reading (D-313, closes D-107).
+- **Errors:** 6 new error codes and 1 new warning (`XLV_W_FORMULAS_NOT_RECALCULATED`), documented in docs/errors.md.
+- **Tests:**
+  - unit tests for every function;
+  - type-inference tests for Zod, Valibot and ArkType (`tests/types`);
+  - security tests: prototype keys, CSV and formula injection, CSV limits, linear parsing;
+  - property tests for CSV, editing and the formula shifter;
+  - TSDoc examples, which all compile, and every public symbol has an `@example` (D-314);
+  - LibreOffice also opens `writeTable`, `fromCSV` and `editCells` output. One case is a file that LibreOffice itself wrote, then edited by xlvane.
+- **Final run** on Node.js 22.22.0 with LibreOffice 24.2.7.2: see the summary in the phase 3 commit message.
+- **Package:** the size budget was raised to 100 kB gzip at the maintainer's decision (measured 84.5 kB). zod, valibot and arktype were added as development dependencies (D-301).
+- **Facts:** docs/facts/csv.md (RFC 4180 facts PROVISIONAL; RFC not reachable) and docs/facts/formulas.md (the §18.17 grammar is mostly PROVISIONAL).
+- **Not done in this phase:**
+  - verification of the provisional facts (ECMA-376 §18.17 and §18.2.2, RFC 4180);
+  - edits that change merges, column widths or other sheet properties;
+  - recalculation;
+  - streaming (phase 4).
+
 ## Phase 2: writing and styles (2026-10-30)
 
 - **Public API** (`xlvane`): `createWorkbook({ dateSystem })`, `NewWorkbook` (`addSheet`, `getSheet`, `sheets`), `NewSheet` (`set`, `style`, `column`, `row`, `merge`, `freeze`, `autoFilter`), `writeWorkbook()`, `ERROR_VALUES` and the style types (`CellStyle`, `FontStyle`, `FillStyle`, `BorderStyle`, `AlignmentStyle`, `Color`, …). `xlvane/node`: `writeWorkbookFile(workbook, path, { overwrite })`, which never replaces a file unless asked (exclusive create).

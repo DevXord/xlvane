@@ -2,25 +2,68 @@
 import type { XlvWarning } from './errors';
 import type { CellStyle } from './style';
 
-/** The kind of value a cell holds after reading. */
+/**
+ * The kind of value a cell holds after reading.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type CellType } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const type: CellType | undefined = readWorkbook(bytes).sheets[0]?.cell('A1')?.type;
+ * console.log(type === 'date' ? 'a date' : type);
+ * ```
+ */
 export type CellType = 'number' | 'string' | 'boolean' | 'error' | 'date' | 'empty';
 
 /**
  * The value of a cell: a number, a string, a boolean, a `Date` (for date-formatted numbers and
  * ISO 8601 date cells), an error code such as `"#DIV/0!"` (when `type` is `"error"`), or `null`
  * for an empty cell.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type CellValue } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const value: CellValue | undefined = readWorkbook(bytes).sheets[0]?.cell('B2')?.value;
+ * if (value instanceof Date) console.log(value.toISOString());
+ * ```
  */
 export type CellValue = number | string | boolean | Date | null;
 
-/** How a formula is stored in the file (ECMA-376 Part 1, ST_CellFormulaType). */
+/**
+ * How a formula is stored in the file (ECMA-376 Part 1, ST_CellFormulaType).
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type FormulaKind } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const kind: FormulaKind | undefined = readWorkbook(bytes).sheets[0]?.cell('C1')?.formula?.kind;
+ * console.log(kind === 'array' ? 'array formula' : kind);
+ * ```
+ */
 export type FormulaKind = 'normal' | 'shared' | 'array' | 'dataTable';
 
-/** A formula as stored in the file. xlvane does not evaluate formulas. */
+/**
+ * A formula as stored in the file. xlvane does not evaluate formulas.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type Formula } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const formula: Formula | null | undefined = readWorkbook(bytes).sheets[0]?.cell('C1')?.formula;
+ * console.log(formula?.text); // e.g. "SUM(A1:B1)"
+ * ```
+ */
 export interface Formula {
   readonly kind: FormulaKind;
   /**
    * The formula text without the leading "=". `null` for cells that share a formula written
-   * in another cell (see `sharedIndex`); expanding shared formulas is not implemented yet.
+   * in another cell (see `sharedIndex`) when xlvane could not translate the shared formula to this
+   * cell (`XLV_W_SHARED_FORMULA_NOT_EXPANDED`); otherwise the translated text.
    */
   readonly text: string | null;
   /** The range the formula applies to, for array, data-table and shared master formulas. */
@@ -29,7 +72,18 @@ export interface Formula {
   readonly sharedIndex: number | null;
 }
 
-/** One cell read from a worksheet. */
+/**
+ * One cell read from a worksheet.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type Cell } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const cells: Cell[] = [...(readWorkbook(bytes).sheets[0]?.cells() ?? [])];
+ * for (const cell of cells) console.log(cell.ref, cell.type, cell.value, cell.numFmt);
+ * ```
+ */
 export interface Cell {
   /** A1-style reference, for example `"B7"`. */
   readonly ref: string;
@@ -54,7 +108,18 @@ export interface Cell {
   readonly style: CellStyle;
 }
 
-/** A `col` definition of a worksheet: width and visibility of columns `min` to `max` (1-based). */
+/**
+ * A `col` definition of a worksheet: width and visibility of columns `min` to `max` (1-based).
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type ColumnInfo } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const columns: readonly ColumnInfo[] = readWorkbook(bytes).sheets[0]?.columns ?? [];
+ * console.log(columns.filter((column) => column.hidden).map((column) => [column.min, column.max]));
+ * ```
+ */
 export interface ColumnInfo {
   readonly min: number;
   readonly max: number;
@@ -63,35 +128,123 @@ export interface ColumnInfo {
   readonly hidden: boolean;
 }
 
-/** Height and visibility of a row. */
+/**
+ * Height and visibility of a row.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type RowInfo } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const first: RowInfo | undefined = readWorkbook(bytes).sheets[0]?.rowInfo(1);
+ * console.log(first?.height, first?.hidden);
+ * ```
+ */
 export interface RowInfo {
   /** Height in points, or `null` if the file does not set one. */
   readonly height: number | null;
   readonly hidden: boolean;
 }
 
-/** Rows at the top and columns at the left that stay visible when scrolling. */
+/**
+ * Rows at the top and columns at the left that stay visible when scrolling.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type FrozenPanes } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const frozen: FrozenPanes | null | undefined = readWorkbook(bytes).sheets[0]?.freeze;
+ * console.log(frozen ? `${String(frozen.rows)} rows, ${String(frozen.cols)} columns` : 'none');
+ * ```
+ */
 export interface FrozenPanes {
   readonly rows: number;
   readonly cols: number;
 }
 
-/** The kind of sheet, from the relationship that points at its part. */
+/**
+ * The kind of sheet, from the relationship that points at its part.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type SheetKind } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const kinds: SheetKind[] = readWorkbook(bytes).sheets.map((sheet) => sheet.kind);
+ * console.log(kinds.filter((kind) => kind === 'worksheet').length);
+ * ```
+ */
 export type SheetKind = 'worksheet' | 'chartsheet' | 'dialogsheet' | 'macrosheet';
 
-/** Visibility of a sheet (ECMA-376 Part 1, ST_SheetState). */
+/**
+ * Visibility of a sheet (ECMA-376 Part 1, ST_SheetState).
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type SheetState } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const states: SheetState[] = readWorkbook(bytes).sheets.map((sheet) => sheet.state);
+ * console.log(states.includes('veryHidden'));
+ * ```
+ */
 export type SheetState = 'visible' | 'hidden' | 'veryHidden';
 
-/** Which date system the workbook uses for serial date values. */
+/**
+ * Which date system the workbook uses for serial date values.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type DateSystem } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const system: DateSystem = readWorkbook(bytes).dateSystem;
+ * console.log(system); // "1900" or "1904"
+ * ```
+ */
 export type DateSystem = '1900' | '1904';
 
-/** Conformance class of the package. */
+/**
+ * Conformance class of the package.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type Conformance } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const conformance: Conformance = readWorkbook(bytes).conformance;
+ * console.log(conformance); // "transitional" or "strict"
+ * ```
+ */
 export type Conformance = 'transitional' | 'strict';
 
-/** File format, derived from the content type of the workbook part. */
+/**
+ * File format, derived from the content type of the workbook part.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type WorkbookFormat } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const format: WorkbookFormat = readWorkbook(bytes).format;
+ * console.log(format === 'xlsm' ? 'macro-enabled' : format);
+ * ```
+ */
 export type WorkbookFormat = 'xlsx' | 'xlsm' | 'xltx' | 'xltm' | 'unknown';
 
-/** A sheet of a workbook read by `readWorkbook`. */
+/**
+ * A sheet of a workbook read by `readWorkbook`.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type Sheet } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const sheet: Sheet = readWorkbook(bytes).getSheet('Sales');
+ * for (const row of sheet.rows()) console.log(row.map((cell) => cell.value));
+ * ```
+ */
 export interface Sheet {
   readonly name: string;
   /** 0-based position in the workbook. */
@@ -122,7 +275,18 @@ export interface Sheet {
   cells(): IterableIterator<Cell>;
 }
 
-/** A workbook read by `readWorkbook`. */
+/**
+ * A workbook read by `readWorkbook`.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type Workbook } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const workbook: Workbook = readWorkbook(bytes);
+ * console.log(workbook.sheets.map((sheet) => sheet.name), workbook.hasMacros);
+ * ```
+ */
 export interface Workbook {
   readonly sheets: readonly Sheet[];
   readonly dateSystem: DateSystem;

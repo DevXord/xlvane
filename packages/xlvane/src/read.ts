@@ -19,7 +19,18 @@ import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 import { openZip } from './zip/reader';
 
-/** Options for {@link readWorkbook}. */
+/**
+ * Options for {@link readWorkbook}.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type ReadOptions } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const options: ReadOptions = { limits: { maxCells: 1_000_000 } };
+ * console.log(readWorkbook(bytes, options).sheets.length);
+ * ```
+ */
 export interface ReadOptions {
   /** Resource limits; see {@link ReadLimits}. Unspecified limits keep their defaults. */
   readonly limits?: Partial<ReadLimits>;

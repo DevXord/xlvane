@@ -216,7 +216,7 @@ describe('formulas', () => {
 
   it('reads shared master, shared child and array formulas', () => {
     expect(s.cell('A1')?.formula).toEqual({ kind: 'shared', text: 'B1*2', ref: 'A1:A3', sharedIndex: 0 });
-    expect(s.cell('A2')?.formula).toEqual({ kind: 'shared', text: null, ref: null, sharedIndex: 0 });
+    expect(s.cell('A2')?.formula).toEqual({ kind: 'shared', text: 'B2*2', ref: null, sharedIndex: 0 });
     expect(s.cell('A2')?.value).toBe(4);
     expect(s.cell('B1')?.formula).toEqual({ kind: 'array', text: 'SUM(C1:C2*2)', ref: 'B1:B2', sharedIndex: null });
   });
@@ -224,8 +224,9 @@ describe('formulas', () => {
   it('keeps formula cells without a cached value and warns', () => {
     expect(s.cell('C1')).toMatchObject({ type: 'empty', value: null, formula: { text: '1/0' } });
     expect(warningCodes(wb)).toEqual(
-      expect.arrayContaining(['XLV_W_SHARED_FORMULA_NOT_EXPANDED', 'XLV_W_FORMULA_NO_CACHED_VALUE']),
+      expect.arrayContaining(['XLV_W_FORMULA_NO_CACHED_VALUE']),
     );
+    expect(warningCodes(wb)).not.toContain('XLV_W_SHARED_FORMULA_NOT_EXPANDED');
   });
 });
 

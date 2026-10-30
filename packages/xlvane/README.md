@@ -2,7 +2,7 @@
 
 Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 
-Not published to npm yet. Streaming and the task-oriented API are planned (see [docs/PLAN.md](../../docs/PLAN.md)).
+Not published to npm yet. Streaming is planned (see [docs/PLAN.md](../../docs/PLAN.md)).
 
 ## Reading a workbook
 
@@ -53,6 +53,37 @@ In Node.js, `writeWorkbookFile(workbook, 'sales.xlsx')` from `xlvane/node` write
 
 Reading returns the same information: `cell.style`, `sheet.columns`, `sheet.rowInfo(row)`, `sheet.freeze` and `sheet.autoFilter`.
 
+## Tasks in one call
+
+```ts
+import { readTable, writeTable, editCells, appendRows, diff, toCSV, fromCSV, toJSON, fromJSON } from 'xlvane';
+import { z } from 'zod'; // or any Standard Schema library: Valibot, ArkType, …
+
+// Rows as objects, validated; problems come with cell addresses.
+const { rows, issues } = readTable(bytes, { sheet: 'Orders', schema: z.object({ Customer: z.string(), Total: z.number() }) });
+
+// A formatted report: bold header, frozen first row, filter, fitted widths.
+const report = writeTable(rows, { sheet: 'Report', columns: ['Customer', { key: 'Total', numFmt: '#,##0.00' }] });
+
+// Change cells or add rows in an existing file; everything else in the file stays as it was.
+const { bytes: edited } = editCells(bytes, [{ sheet: 'Orders', cell: 'B7', value: 120.5 }]);
+const { bytes: appended } = appendRows(bytes, 'Orders', [{ Customer: 'Dan', Total: 42 }]);
+
+// What changed between two versions, as JSON.
+console.log(diff(bytes, edited).sheets[0]?.cells);
+
+// CSV and JSON in both directions. toCSV escapes text that spreadsheets would run as formulas.
+const csv = toCSV(bytes, { sheet: 'Orders' });
+const fromText = fromCSV('sku,stock\r\nA-1,12\r\n');
+const json = toJSON(bytes).rows;
+const fromData = fromJSON([{ sku: 'A-1', stock: 12 }]);
+```
+
+- `readTable` finds the header row like `inspect()`, or takes `header: 3` or `header: false`. With a schema, `rows` has the schema's output type. Asynchronous schemas need `readTableAsync`.
+- `editCells` and `appendRows` change only the cells they write, plus new entries in the shared strings and styles. Charts, comments, conditional formatting, data validation, defined names and every other part are kept byte for byte. xlvane does not calculate formulas. When the workbook has formulas, the result carries `XLV_W_FORMULAS_NOT_RECALCULATED` and the file asks spreadsheet applications to recalculate on load.
+- `fromCSV` never creates formulas. It converts plain numbers, booleans and ISO dates (`types: "infer"`); numbers with leading zeros or more than 15 digits stay text.
+- Shared formulas are translated to each cell when reading. If a formula cannot be translated safely, its `formula.text` is `null` and the reader reports `XLV_W_SHARED_FORMULA_NOT_EXPANDED`.
+
 ## Inspecting a workbook
 
 `inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas and warnings. The schema is documented in [docs/inspect-json.md](../../docs/inspect-json.md).
@@ -96,7 +127,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 ## Package size
 
-**Size budget:** 70 kB of gzip-compressed JavaScript for `dist/*.js` (level 9, unminified as published; measured 58.4 kB on 2026-10-30). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
+**Size budget:** 100 kB of gzip-compressed JavaScript for `dist/*.js` (level 9, unminified as published; measured 84.5 kB on 2026-10-30, after the task API was added). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
 Not supported: password-protected workbooks and legacy `.xls` files (both rejected with `XLV_E_UNSUPPORTED_CONTAINER`).
 

@@ -11,6 +11,9 @@ import { pathToFileURL } from 'node:url';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { createWorkbook, writeWorkbook, type NewWorkbook } from '../../packages/xlvane/src/write';
+import { fromCSV } from '../../packages/xlvane/src/csv';
+import { editCells } from '../../packages/xlvane/src/edit';
+import { writeTable } from '../../packages/xlvane/src/table';
 
 const SOFFICE = process.env['XLV_SOFFICE'] ?? 'soffice';
 const available = spawnSync(SOFFICE, ['--version'], { encoding: 'utf8', timeout: 60_000 }).status === 0;
@@ -57,6 +60,20 @@ function fixtures(): Record<string, NewWorkbook> {
   return { values, dates1904, styles };
 }
 
+/** Files made by the task API (phase 3). */
+function taskFixtures(): Record<string, Uint8Array> {
+  return {
+    report: writeTable(
+      [
+        { name: 'Alice', total: 10.5, when: new Date(Date.UTC(2024, 0, 31)) },
+        { name: 'Bob', total: 3, when: new Date(Date.UTC(2024, 1, 1)) },
+      ],
+      { sheet: 'Report' },
+    ),
+    imported: fromCSV('id,label\r\n1,"a, b"\r\n2,=SUM(1)\r\n', { sheet: 'Imported' }),
+  };
+}
+
 const EXPECTED_CSV: Record<string, string[][]> = {
   'values-Data': [
     ['Text', 'Number', 'Date', 'Bool', 'Formula'],
@@ -68,6 +85,16 @@ const EXPECTED_CSV: Record<string, string[][]> = {
   'values-Hidden': [['secret']],
   'dates1904-S': [['1904-01-01'], ['2030-06-15 06:00:00']],
   'styles-Styles': [['bold red', ''], ['fill', ''], ['border', ''], ['wrapped centre'], ['25.6%']],
+  'report-Report': [
+    ['name', 'total', 'when'],
+    ['Alice', '10.5', '2024-01-31'],
+    ['Bob', '3', '2024-02-01'],
+  ],
+  'imported-Imported': [
+    ['id', 'label'],
+    ['1', 'a, b'],
+    ['2', '=SUM(1)'],
+  ],
 };
 
 /** Minimal RFC 4180 parser: quoted fields, doubled quotes, line breaks inside quotes. */
@@ -137,6 +164,11 @@ describe.skipIf(!available && !required)('LibreOffice opens files written by xlv
       await writeFile(file, writeWorkbook(wb));
       files.push(file);
     }
+    for (const [name, bytes] of Object.entries(taskFixtures())) {
+      const file = join(dir, `${name}.xlsx`);
+      await writeFile(file, bytes);
+      files.push(file);
+    }
     soffice(['--convert-to', CSV_FILTER, '--outdir', join(dir, 'csv'), ...files]);
     soffice(['--convert-to', 'xlsx:Calc MS Excel 2007 XML', '--outdir', join(dir, 'resaved'), ...files]);
   }, 400_000);
@@ -149,6 +181,7 @@ describe.skipIf(!available && !required)('LibreOffice opens files written by xlv
     const produced = (await readdir(join(dir, 'csv'))).map((f) => f.replace(/\.csv$/, '')).sort();
     expect(produced).toEqual(Object.keys(EXPECTED_CSV).sort());
     expect(names.length).toBe(3);
+    expect(Object.keys(taskFixtures())).toEqual(['report', 'imported']);
   });
 
   for (const [file, expected] of Object.entries(EXPECTED_CSV)) {
@@ -197,5 +230,23 @@ describe.skipIf(!available && !required)('LibreOffice opens files written by xlv
     const wb = readWorkbook(await readFile(join(dir, 'resaved', 'dates1904.xlsx')));
     expect(wb.dateSystem).toBe('1904');
     expect(wb.getSheet('S').cell('A1')?.value).toEqual(new Date(Date.UTC(1904, 0, 1)));
+  });
+
+  it('opens a LibreOffice file after xlvane edited it', async () => {
+    const original = await readFile(join(dir, 'resaved', 'values.xlsx'));
+    const { bytes } = editCells(original, [
+      { sheet: 'Data', cell: 'B2', value: 999.25 },
+      { sheet: 'Data', cell: 'A7', value: 'added by xlvane', style: { font: { italic: true } } },
+      { sheet: 'Data', cell: 'E2', value: { formula: 'B2*2', result: 1998.5 } },
+    ]);
+    const edited = join(dir, 'edited.xlsx');
+    await writeFile(edited, bytes);
+    soffice(['--convert-to', CSV_FILTER, '--outdir', join(dir, 'edited-csv'), edited]);
+    const rows = parseCsv(await readFile(join(dir, 'edited-csv', 'edited-Data.csv'), 'utf8'));
+    // E2 holds the new formula; its cached result (and any recalculation) gives B2*2 of the new B2.
+    expect(rows[1]?.slice(0, 5)).toEqual(['zażółć "q", 😀', '999.25', '2024-01-31', 'TRUE', '1998.5']);
+    expect(rows[6]?.[0]).toBe('added by xlvane');
+    // The other sheets came through unchanged.
+    expect(parseCsv(await readFile(join(dir, 'edited-csv', 'edited-Hidden.csv'), 'utf8'))).toEqual([['secret']]);
   });
 });

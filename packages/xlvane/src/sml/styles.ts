@@ -43,6 +43,8 @@ export interface Styles {
    * code (the caller resolves number formats). Cached per index.
    */
   cellStyle(styleIndex: number, numFmt: string | null): CellStyle;
+  /** Font 0, the workbook's default font (W2-12), if the part declares one. */
+  defaultFont(): FontStyle | undefined;
 }
 
 /** Font, fill, border and alignment ids of one cellXfs record. */
@@ -72,6 +74,10 @@ class NumberFormats implements Styles {
     private readonly borders: readonly (Readonly<Record<string, BorderEdge>> | undefined)[] = [],
   ) {
     this.cellFormatCount = ids.length;
+  }
+
+  defaultFont(): FontStyle | undefined {
+    return this.fonts[0];
   }
 
   cellStyle(styleIndex: number, numFmt: string | null): CellStyle {

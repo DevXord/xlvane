@@ -46,7 +46,9 @@ describe('writer properties', () => {
         const last = new Map<string, CellInput>();
         for (const { row, col, value: v } of list) {
           const ref = formatCellRef(row, col);
-          sheet.set(ref, v);
+          // An explicit empty style replaces the cell's style; without it a later number would keep
+          // an earlier date's number format (set() keeps the current style, as Excel does).
+          sheet.set(ref, v, {});
           last.set(ref, v);
         }
         const read = readWorkbook(writeWorkbook(wb));

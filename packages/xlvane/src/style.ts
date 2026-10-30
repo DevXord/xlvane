@@ -9,13 +9,42 @@ import { suggest } from './util/suggest';
  * (`"80FF0000"`); colours read from files are always 8 upper-case digits. Files can also refer
  * to theme colours, the legacy indexed palette or the automatic colour; those are kept as
  * objects so that they can be written back unchanged.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type Color } from 'xlvane';
+ *
+ * const red: Color = 'FF0000';
+ * const accent: Color = { theme: 4, tint: 0.4 };
+ * createWorkbook().addSheet('Data').set('A1', 'x', { font: { color: red }, fill: { color: accent } });
+ * ```
  */
 export type Color = string | { readonly theme: number; readonly tint?: number } | { readonly indexed: number } | { readonly auto: true };
 
-/** Underline styles (ST_UnderlineValues). */
+/**
+ * Underline styles (ST_UnderlineValues).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type UnderlineStyle } from 'xlvane';
+ *
+ * const underline: UnderlineStyle = 'double';
+ * createWorkbook().addSheet('Data').set('A1', 'Total', { font: { underline } });
+ * ```
+ */
 export type UnderlineStyle = 'single' | 'double' | 'singleAccounting' | 'doubleAccounting';
 
-/** Font of a cell. Missing properties take the workbook's default font (Calibri 11 for new workbooks). */
+/**
+ * Font of a cell. Missing properties take the workbook's default font (Calibri 11 for new workbooks).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type FontStyle } from 'xlvane';
+ *
+ * const title: FontStyle = { name: 'Arial', size: 16, bold: true, color: '1F4E79' };
+ * createWorkbook().addSheet('Report').set('A1', 'Quarterly report', { font: title });
+ * ```
+ */
 export interface FontStyle {
   readonly name?: string;
   /** Size in points, greater than 0 and at most 409. */
@@ -28,7 +57,17 @@ export interface FontStyle {
   readonly color?: Color;
 }
 
-/** Fill patterns (ST_PatternType), except `"none"`, which is the absence of a fill. */
+/**
+ * Fill patterns (ST_PatternType), except `"none"`, which is the absence of a fill.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type PatternType } from 'xlvane';
+ *
+ * const pattern: PatternType = 'lightGrid';
+ * createWorkbook().addSheet('Data').set('A1', 'x', { fill: { pattern, fgColor: 'C0C0C0' } });
+ * ```
+ */
 export type PatternType =
   | 'solid'
   | 'mediumGray'
@@ -52,12 +91,30 @@ export type PatternType =
 /**
  * Background of a cell. `{ color }` is short for `{ pattern: "solid", fgColor: color }`; read
  * styles always use the long form.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type FillStyle } from 'xlvane';
+ *
+ * const highlight: FillStyle = { color: 'FFFF00' };
+ * createWorkbook().addSheet('Data').set('A1', 'check me', { fill: highlight });
+ * ```
  */
 export type FillStyle =
   | { readonly color: Color }
   | { readonly pattern: PatternType; readonly fgColor?: Color; readonly bgColor?: Color };
 
-/** Border line styles (ST_BorderStyle), except `"none"`, which is the absence of a line. */
+/**
+ * Border line styles (ST_BorderStyle), except `"none"`, which is the absence of a line.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type BorderLineStyle } from 'xlvane';
+ *
+ * const line: BorderLineStyle = 'double';
+ * createWorkbook().addSheet('Data').set('A1', 100, { border: { bottom: { style: line } } });
+ * ```
+ */
 export type BorderLineStyle =
   | 'thin'
   | 'medium'
@@ -73,13 +130,38 @@ export type BorderLineStyle =
   | 'mediumDashDotDot'
   | 'slantDashDot';
 
-/** One edge of a cell border. */
+/**
+ * One edge of a cell border.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type BorderEdge } from 'xlvane';
+ *
+ * const edge: BorderEdge = { style: 'thin', color: '808080' };
+ * createWorkbook().addSheet('Data').set('A1', 'x', { border: { top: edge, bottom: edge } });
+ * ```
+ */
 export interface BorderEdge {
   readonly style: BorderLineStyle;
   readonly color?: Color;
 }
 
-/** Borders of a cell. */
+/**
+ * Borders of a cell.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type BorderStyle } from 'xlvane';
+ *
+ * const box: BorderStyle = {
+ *   top: { style: 'thin' },
+ *   right: { style: 'thin' },
+ *   bottom: { style: 'thin' },
+ *   left: { style: 'thin' },
+ * };
+ * createWorkbook().addSheet('Data').style('A1:C3', { border: box });
+ * ```
+ */
 export interface BorderStyle {
   readonly top?: BorderEdge;
   readonly right?: BorderEdge;
@@ -87,13 +169,43 @@ export interface BorderStyle {
   readonly left?: BorderEdge;
 }
 
-/** Horizontal alignment (ST_HorizontalAlignment). */
+/**
+ * Horizontal alignment (ST_HorizontalAlignment).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type HorizontalAlignment } from 'xlvane';
+ *
+ * const horizontal: HorizontalAlignment = 'center';
+ * createWorkbook().addSheet('Data').set('A1', 'Title', { alignment: { horizontal } });
+ * ```
+ */
 export type HorizontalAlignment = 'general' | 'left' | 'center' | 'right' | 'fill' | 'justify' | 'centerContinuous' | 'distributed';
 
-/** Vertical alignment (ST_VerticalAlignment). */
+/**
+ * Vertical alignment (ST_VerticalAlignment).
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type VerticalAlignment } from 'xlvane';
+ *
+ * const vertical: VerticalAlignment = 'top';
+ * createWorkbook().addSheet('Data').set('A1', 'Notes', { alignment: { vertical, wrapText: true } });
+ * ```
+ */
 export type VerticalAlignment = 'top' | 'center' | 'bottom' | 'justify' | 'distributed';
 
-/** Alignment of a cell's content. */
+/**
+ * Alignment of a cell's content.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type AlignmentStyle } from 'xlvane';
+ *
+ * const wrapped: AlignmentStyle = { horizontal: 'left', vertical: 'top', wrapText: true, indent: 1 };
+ * createWorkbook().addSheet('Data').set('A1', 'A long comment', { alignment: wrapped });
+ * ```
+ */
 export interface AlignmentStyle {
   readonly horizontal?: HorizontalAlignment;
   readonly vertical?: VerticalAlignment;

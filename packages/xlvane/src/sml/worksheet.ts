@@ -6,7 +6,8 @@ import type { ReadLimits } from '../limits';
 import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RowInfo } from '../model';
 import type { WarningCollector } from '../util/warnings';
 import { parseXml } from '../xml/parser';
-import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange } from './cell-ref';
+import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './cell-ref';
+import { compileFormula, type CompiledFormula } from './formula-shift';
 import { parseIsoDateTime, serialToDate } from './dates';
 import { SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS, isDateFormat, isDateFormatId } from './numfmt';
@@ -130,6 +131,8 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
   let ns: string | null = null;
   let dimension: string | null = null;
   let cellCount = 0;
+  const masters = new Map<number, SharedMaster>();
+  const dependents: SharedDependent[] = [];
   const columns: ColumnInfo[] = [];
   const rowInfo = new Map<number, RowInfo>();
   let freeze: FrozenPanes | null = null;
@@ -282,14 +285,16 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       if (kind === 'shared' && sharedIndex === null) kind = 'normal';
       // ST_Formula is an ST_Xstring (W2-02), so _xHHHH_ escapes are decoded.
       let text: string | null = decodeXstring(p.formulaText);
-      if (kind === 'shared' && ref === null) {
-        // A dependent cell of a shared formula: its own text, if any, is ignored (E-28).
-        text = null;
-        ctx.warnings.add(
-          'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
-          'Cells that reuse a shared formula are returned without formula text (formula.text is null); their cached values are available.',
-          loc(p.ref),
-        );
+      if (kind === 'shared' && sharedIndex !== null) {
+        if (ref === null) {
+          // A dependent cell of a shared formula: its own text, if any, is ignored (E-28). The
+          // text is derived from the master after the whole sheet is read (masters may come later).
+          text = null;
+          dependents.push({ row: p.row, col: p.col, ref: p.ref, si: sharedIndex });
+        } else if (!masters.has(sharedIndex)) {
+          // The first formula of a group is the master (E-28); later ones with ref are ignored.
+          masters.set(sharedIndex, { row: p.row, col: p.col, text, range: parseRange(ref) });
+        }
       }
       formula = { kind, text, ref, sharedIndex: kind === 'shared' ? sharedIndex : null };
       if (p.v === null && p.inline === null) {
@@ -470,7 +475,86 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
     },
     { part: ctx.part, limits: ctx.limits },
   );
+  expandSharedFormulas(rows, masters, dependents, (ref) =>
+    ctx.warnings.add(
+      'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
+      'Some cells reuse a shared formula that could not be moved to them (missing master, cell outside the master range, or formula text xlvane cannot translate safely); their formula.text is null and their cached values are available.',
+      loc(ref),
+    ),
+  );
   return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter };
+}
+
+/** The master cell of a shared formula group (E-28). */
+interface SharedMaster {
+  readonly row: number;
+  readonly col: number;
+  readonly text: string;
+  readonly range: CellRange | null;
+}
+
+/** A cell that reuses a shared formula. */
+interface SharedDependent {
+  readonly row: number;
+  readonly col: number;
+  readonly ref: string;
+  readonly si: number;
+}
+
+/**
+ * Gives every dependent cell of a shared formula the master formula moved to its position
+ * (docs/decisions.md D-107, docs/facts/formulas.md). Each master is tokenized once; a dependent
+ * gets a formula whose `text` is rendered on first access, so a long master formula reused by
+ * many cells costs memory only for the texts actually read. Dependents that cannot be expanded
+ * keep `text: null` and are reported through `warn`.
+ */
+function expandSharedFormulas(
+  rows: Map<number, Map<number, Cell>>,
+  masters: ReadonlyMap<number, SharedMaster>,
+  dependents: readonly SharedDependent[],
+  warn: (ref: string) => void,
+): void {
+  const compiled = new Map<number, CompiledFormula | null>();
+  for (const d of dependents) {
+    const rowCells = rows.get(d.row);
+    const cell = rowCells?.get(d.col);
+    // Skip entries replaced by a later definition of the same cell.
+    if (rowCells === undefined || cell === undefined || cell.formula?.kind !== 'shared' || cell.formula.ref !== null || cell.formula.sharedIndex !== d.si) {
+      continue;
+    }
+    const master = masters.get(d.si);
+    const range = master?.range;
+    // Cells outside the master's range are implementation-defined (E-28); they are not expanded.
+    if (master === undefined || range == null || d.row < range.start.row || d.row > range.end.row || d.col < range.start.col || d.col > range.end.col) {
+      warn(d.ref);
+      continue;
+    }
+    let formula = compiled.get(d.si);
+    if (formula === undefined) {
+      formula = compileFormula(master.text);
+      compiled.set(d.si, formula);
+    }
+    const dRow = d.row - master.row;
+    const dCol = d.col - master.col;
+    if (formula === null || !formula.canShift(dRow, dCol)) {
+      warn(d.ref);
+      continue;
+    }
+    rowCells.set(d.col, { ...cell, formula: lazySharedFormula(formula, dRow, dCol, d.si) });
+  }
+}
+
+function lazySharedFormula(compiled: CompiledFormula, dRow: number, dCol: number, si: number): Formula {
+  let text: string | undefined;
+  return {
+    kind: 'shared',
+    get text(): string {
+      text ??= compiled.render(dRow, dCol);
+      return text;
+    },
+    ref: null,
+    sharedIndex: si,
+  };
 }
 
 /** Parses a `col` element (CT_Col, W2-03); `null` if min/max are missing or out of range. */

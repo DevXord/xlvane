@@ -88,7 +88,20 @@ export async function inspectFile(path: string | URL, options?: InspectOptions):
   return inspect(bytes, options);
 }
 
-/** Options for {@link writeWorkbookFile}. */
+/**
+ * Options for {@link writeWorkbookFile}.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook } from 'xlvane';
+ * import { writeWorkbookFile, type WriteFileOptions } from 'xlvane/node';
+ *
+ * const workbook = createWorkbook();
+ * workbook.addSheet('Data').set('A1', 1);
+ * const options: WriteFileOptions = { overwrite: true };
+ * await writeWorkbookFile(workbook, 'out.xlsx', options);
+ * ```
+ */
 export interface WriteFileOptions {
   /** Replace an existing file. Default `false`: an existing file is never overwritten. */
   readonly overwrite?: boolean;

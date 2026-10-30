@@ -9,7 +9,7 @@ Codes are never reused for a different condition. New codes are added here first
 ## Errors
 
 ### XLV_E_INVALID_INPUT
-The input is not what the function expects: `readWorkbook` and `inspect` accept a `Uint8Array`, an `ArrayBuffer` (or another typed-array view) and, for `inspect`, a workbook returned by `readWorkbook`.
+The input is not what the function expects: `readWorkbook` and `inspect` accept a `Uint8Array`, an `ArrayBuffer` (or another typed-array view) and, for `inspect` and the table functions, a workbook returned by `readWorkbook`. `editCells` and `appendRows` need the original bytes, because unchanged parts are copied from them. `fromCSV` needs text or UTF-8 bytes.
 **Fix:** pass the bytes of the file. A path string is the most common mistake; in Node.js use `readWorkbookFile()` or `inspectFile()` from `xlvane/node`.
 
 ### XLV_E_INVALID_OPTION
@@ -128,13 +128,37 @@ A range passed to `merge()` shares cells with a range merged before. `details.ot
 `writeWorkbookFile` could not write the file. `details.code` is the operating-system error code, for example `ENOENT` when the directory does not exist or `EACCES` when writing is not permitted.
 **Fix:** check that the directory exists and is writable.
 
+### XLV_E_HEADER_NOT_FOUND
+`readTable` was given a header row number that holds no cells (or lies outside the range), or `appendRows` received object rows for a sheet without a detectable header row. `details.row` is the row.
+**Fix:** pass the row that holds the column names, `header: "auto"`, or `header: false` to use column letters; for `appendRows`, pass rows as arrays.
+
+### XLV_E_SCHEMA_INVALID
+The `schema` option is not a Standard Schema (version 1): it has no `~standard` property with `version: 1` and a `validate` function.
+**Fix:** pass a schema object from a library that implements Standard Schema, such as Zod, Valibot or ArkType.
+
+### XLV_E_ASYNC_SCHEMA
+The schema returned a Promise from `validate`, which the synchronous `readTable` cannot wait for.
+**Fix:** use `await readTableAsync(input, options)`.
+
+### XLV_E_TABLE_INVALID
+Rows given to `writeTable`, `fromJSON` or `appendRows` have the wrong shape: not an array, rows mixing objects and arrays, a value that is not a cell value (for example a nested object), or, for `appendRows`, a key that is not a column of the sheet. `details.row` and `details.key` say where; the hint lists the columns and suggests close matches.
+**Fix:** pass an array of flat objects (or of arrays) whose values are numbers, strings, booleans, Dates or null.
+
+### XLV_E_JSON_INVALID
+The text given to `fromJSON` is not valid JSON. The message contains the parser's description, which includes the position.
+**Fix:** correct the JSON, or pass the already parsed array.
+
+### XLV_E_CSV_MALFORMED
+The CSV text given to `fromCSV` has a quoted field that is never closed, text right after a closing quote, or bytes that are not valid UTF-8. `details.line` and `details.column` give the position (1-based; 0 for an encoding error).
+**Fix:** close the quoted field or double the quotes inside it (`""`), or convert the file to UTF-8.
+
 ## Warnings
 
 ### XLV_W_DIMENSION_MISMATCH
 The sheet's declared range (`dimension`) does not contain all of its cells. Programs that trust the declared range may miss data. A declared range that is larger than the cells is normal (formatting without values) and is not reported.
 
 ### XLV_W_SHARED_FORMULA_NOT_EXPANDED
-Some cells reuse a shared formula written in another cell. Their `formula.text` is `null` and `formula.sharedIndex` names the group; their cached values are available. Translating shared formulas to each cell is planned.
+Some cells reuse a shared formula written in another cell, and xlvane could not translate it to them: the master cell is missing, the cell lies outside the master's range, a moved reference would leave the sheet, or the formula contains something the tokenizer does not recognise (docs/facts/formulas.md). Their `formula.text` is `null` and `formula.sharedIndex` names the group; their cached values are available. Other cells of shared formulas get their translated text and no warning.
 
 ### XLV_W_FORMULA_NO_CACHED_VALUE
 Some formula cells have no cached result, so their `value` is `null`. xlvane does not calculate formulas; open and save the file in a spreadsheet application to store the results.
@@ -162,3 +186,7 @@ A sheet listed in the workbook has no part (the relationship or the part itself 
 
 ### XLV_W_PART_MISSING
 The workbook points to a styles or shared strings part that does not exist. Reading continues without it: without styles, date-formatted numbers are returned as numbers; without shared strings, shared-string cells are treated as empty.
+
+### XLV_W_FORMULAS_NOT_RECALCULATED
+Reported by `editCells` and `appendRows` when the workbook contains formulas. xlvane does not calculate formulas, so cached results that depend on edited cells may be out of date. The edited file asks spreadsheet applications to recalculate when it is opened (`calcPr fullCalcOnLoad`), and the calculation chain is removed when formulas themselves changed. Reading the file with xlvane still returns the old cached results.
+**Fix:** nothing, if the file will be opened in a spreadsheet application; otherwise do not rely on cached results of formulas that depend on edited cells.

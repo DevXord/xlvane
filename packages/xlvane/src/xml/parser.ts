@@ -25,11 +25,32 @@ export interface XmlHandler {
    * name, namespaced ones in Clark notation (`{namespace}local`). Namespace declarations are
    * not included.
    */
-  start(ns: string, local: string, attrs: ReadonlyMap<string, string>): void;
+  start(ns: string, local: string, attrs: ReadonlyMap<string, string>, span: XmlSpan): void;
   /** An end tag (also reported for empty-element tags). */
-  end(ns: string, local: string): void;
+  end(ns: string, local: string, span: XmlSpan): void;
   /** Character data between two tags, with references expanded and CDATA sections included. */
   text(value: string): void;
+}
+
+/**
+ * Where a tag is in the parsed text, as UTF-16 offsets into the text after end-of-line
+ * normalisation ({@link normalizeLineEnds}). For an empty-element tag the end event has
+ * `start === end` at the end of the tag. Used by surgical editing (docs/decisions.md D-309).
+ */
+export interface XmlSpan {
+  /** Offset of `<`. */
+  readonly start: number;
+  /** Offset just after `>`. */
+  readonly end: number;
+  /** The qualified name as written, for example `x:row`. */
+  readonly qname: string;
+  /** `true` for an empty-element tag such as `<c r="A1"/>`. */
+  readonly empty: boolean;
+}
+
+/** XML 1.0 §2.11: CR LF and lone CR become LF. The parser applies this before parsing. */
+export function normalizeLineEnds(xml: string): string {
+  return xml.indexOf('\r') === -1 ? xml : xml.replace(/\r\n?/g, '\n');
 }
 
 /** Options for {@link parseXml}. */
@@ -154,7 +175,7 @@ class Parser {
     private readonly options: XmlParseOptions,
   ) {
     // §2.11: translate CR LF and lone CR to LF before parsing.
-    this.s = xml.indexOf('\r') === -1 ? xml : xml.replace(/\r\n?/g, '\n');
+    this.s = normalizeLineEnds(xml);
   }
 
   run(): void {
@@ -420,9 +441,10 @@ class Parser {
       attrs.set(key, value);
     }
 
-    this.handler.start(ns, local, attrs);
+    const span: XmlSpan = { start: tagStart, end: this.pos, qname, empty: selfClosing };
+    this.handler.start(ns, local, attrs, span);
     if (selfClosing) {
-      this.handler.end(ns, local);
+      this.handler.end(ns, local, { start: this.pos, end: this.pos, qname, empty: true });
       this.restore(undo);
     } else {
       this.stack.push({ qname, ns, local, undo });
@@ -444,7 +466,7 @@ class Parser {
       );
     }
     this.flushText();
-    this.handler.end(open.ns, open.local);
+    this.handler.end(open.ns, open.local, { start: tagStart, end: this.pos, qname, empty: false });
     this.restore(open.undo);
   }
 
