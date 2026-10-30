@@ -2,6 +2,21 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 1: safe reading and `inspect()` (2026-10-30)
+
+- **Public API** (`xlvane`): `readWorkbook(bytes, { limits })`, `inspect(input, options)`, `XlvError`/`isXlvError`, `ERROR_CODES`, `WARNING_CODES`, `DEFAULT_READ_LIMITS` and the model types. `xlvane/node`: `readWorkbookFile(path)`, `inspectFile(path)`.
+- **ZIP** (D-102): own central-directory reader with ZIP64, fflate `Inflate` for Deflate. Limits on actually decompressed bytes (per entry, total, ratio), entry count and input size. Rejects overlapping entries, duplicate names (ignoring case), local/central mismatches, leading or trailing data, encryption, unsupported methods and multi-disk archives; verifies sizes and CRC-32. CFB files (legacy `.xls`, encrypted `.xlsx`) get their own error.
+- **XML** (D-101): own iterative parser; DTDs always rejected; only the predefined entities and character references; Char production, line-end and attribute normalisation; namespaces; depth, attribute, name and text limits; UTF-8/UTF-16 only.
+- **OPC**: content types (Default/Override), relationships with RFC 3986 target resolution, part-name grammar and ASCII case-insensitive equivalence (ECMA-376 Part 2).
+- **SpreadsheetML**: workbook (sheets, states, `date1904`, Strict and Transitional), shared strings (rich text, phonetic runs excluded, `_xHHHH_` escapes), styles (number format per cell xf, as Office does), worksheets (all cell types, formulas with cached values, shared/array formulas, merged cells, dimension, positional cells without `r`), built-in and custom number formats with date detection, both date systems with the Strict/Transitional difference (D-106).
+- **inspect()**: JSON report (docs/inspect-json.md) with sheets, visibility, used ranges, header detection, column types and samples, merged ranges, formulas and warnings.
+- **Errors and warnings**: 16 error codes and 11 warning codes, documented in docs/errors.md (test-checked).
+- **Tests**: unit, security (zip bombs with lying headers, overlapping entries, XXE, billion laughs, parameter entities, 100 000-level nesting, prototype pollution, ReDoS-style and amplification inputs), property-based fuzzing with fast-check, and a corpus harness for real-application files. Final run on Node.js 26.13.0: `npm test` 452 passed (4 todo: corpus files not supplied yet), `npm run fuzz` 30 properties × 20 000 runs passed, `npm run typecheck` and `npm run check:pkg` passed.
+- **Security review**: an independent review pass found amplification inputs (quadratic format classification, long namespace names, merged-range sweep, warning keys) and two parsing bugs; all fixed with tests (D-115). Default `maxCells` lowered to 5 000 000 after measuring about 183 bytes per cell.
+- **Process**: parts of the phase were implemented by parallel agents working on disjoint files against shared interfaces (`model.ts`, `sml/namespaces.ts`), each test-first.
+- **Facts**: docs/facts/ (ECMA-376 Parts 1, 2, 4; APPNOTE; XML 1.0; Namespaces; Microsoft open specifications), decisions D-101 … D-115.
+- **Not done in this phase**: real files from Excel, LibreOffice and Google Sheets (list in tests/corpus/REQUESTED.md); shared-formula translation (phase 3); TSDoc example compilation test (phase 3); streaming (phase 4).
+
 ## Phase 0: monorepo skeleton (2026-10-30)
 
 - npm workspaces: `packages/xlvane` (`xlvane`), `packages/exceljs` (`@xlvane/exceljs`), `packages/mcp` (`@xlvane/mcp`), each ESM-only, MIT, `"private": true` until the release phase, with empty entry modules.

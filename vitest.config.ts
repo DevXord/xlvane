@@ -6,7 +6,7 @@ export default defineConfig({
   test: {
     include: ['tests/**/*.test.ts'],
     env: {
-      XLV_FUZZ_RUNS: '100',
+      XLV_FUZZ_RUNS: process.env['XLV_FUZZ_RUNS'] ?? '100',
     },
   },
 });

@@ -19,6 +19,13 @@ declare module 'node:fs/promises' {
   export function rm(path: string | URL, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
 }
 
+declare module 'node:fs' {
+  export function existsSync(path: string | URL): boolean;
+  export function readdirSync(path: string | URL): string[];
+  export function readFileSync(path: string | URL): Uint8Array;
+  export function readFileSync(path: string | URL, encoding: 'utf8'): string;
+}
+
 declare module 'node:path' {
   export function join(...paths: string[]): string;
   export function resolve(...paths: string[]): string;

@@ -6,7 +6,7 @@ export default defineConfig({
     include: ['tests/fuzz/**/*.test.ts'],
     testTimeout: 600_000,
     env: {
-      XLV_FUZZ_RUNS: '20000',
+      XLV_FUZZ_RUNS: process.env['XLV_FUZZ_RUNS'] ?? '20000',
     },
   },
 });
