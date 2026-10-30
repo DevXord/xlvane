@@ -2,6 +2,7 @@
   "123233_charts.xlsx": {
     "ok": true,
     "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ",
       "XLV_W_INVALID_VALUE"
     ]
   },
@@ -15,23 +16,33 @@
   },
   "45540_classic_Footer.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "45540_classic_Header.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "45540_form_Footer.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "45540_form_Header.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "45544.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "46536.xlsx": {
     "ok": true,
@@ -43,7 +54,9 @@
   },
   "47504.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "47668.xlsx": {
     "ok": true,
@@ -133,7 +146,9 @@
   },
   "50299.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "50755_workday_formula_example.xlsx": {
     "ok": true,
@@ -190,6 +205,7 @@
   "51850.xlsx": {
     "ok": true,
     "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ",
       "XLV_W_INVALID_VALUE"
     ]
   },
@@ -397,7 +413,9 @@
   },
   "56514.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "56557.xlsx": {
     "ok": true,
@@ -465,7 +483,9 @@
   },
   "57362.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "57423.xlsx": {
     "ok": true,
@@ -489,7 +509,9 @@
   },
   "57826.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "57828.xlsx": {
     "ok": true,
@@ -595,7 +617,9 @@
   },
   "60509.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "60709.xlsx": {
     "ok": true,
@@ -655,7 +679,9 @@
   },
   "64450.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "64508.xlsx": {
     "ok": true,
@@ -721,7 +747,9 @@
   },
   "DataTableCities.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "DataValidationEvaluations.xlsx": {
     "ok": true,
@@ -887,7 +915,9 @@
   },
   "SimpleScatterChart.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "SimpleStrict.xlsx": {
     "ok": true,
@@ -951,7 +981,9 @@
   },
   "WithChart.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "WithChartSheet.xlsx": {
     "ok": true,
@@ -963,7 +995,9 @@
   },
   "WithDrawing.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "WithEmbeded.xlsx": {
     "ok": true,
@@ -981,19 +1015,27 @@
   },
   "WithTextBox.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "WithTextBox2.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "WithThreeCharts.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "WithTwoCharts.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "WithVariousData.xlsx": {
     "ok": true,
@@ -1032,7 +1074,9 @@
   },
   "bug64512_embed.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "bug65306.xlsx": {
     "ok": true,
@@ -1074,15 +1118,21 @@
   },
   "chartTitle_noTitle.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "chartTitle_withTitle.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "chartTitle_withTitleFormula.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "chart_sheet.xlsx": {
     "ok": true,
@@ -1090,7 +1140,9 @@
   },
   "clone_sheet.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "clusterfuzz-testcase-minimized-POIFuzzer-5040805309710336.xlsx": {
     "ok": false,
@@ -1189,6 +1241,7 @@
   "dataValidationTableRange.xlsx": {
     "ok": true,
     "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ",
       "XLV_W_FORMULA_NO_CACHED_VALUE"
     ]
   },
@@ -1246,7 +1299,9 @@
   },
   "picture-and-shape-same-size.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "poc-shared-strings.xlsx": {
     "ok": false,
@@ -1320,7 +1375,9 @@
   },
   "simple-monthly-budget.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_DRAWING_CONTENT_NOT_READ"
+    ]
   },
   "simple-table-named-range.xlsx": {
     "ok": true,

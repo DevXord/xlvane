@@ -96,6 +96,21 @@ out.addSheet('Data').tabColor('FF0070C0').set('A1', 'Docs').link('A1', { url: 'h
 
 Link targets are never opened. Notes are written hidden and need no cell value. `editCells` keeps existing links and notes but cannot add new ones.
 
+Images (PNG, JPEG, GIF):
+
+```ts
+import { createWorkbook, readWorkbook } from 'xlvane';
+
+declare const bytes: Uint8Array;
+declare const png: Uint8Array;
+const pictures = readWorkbook(bytes).getSheet('Report').images; // anchor (EMU, with cells), image.format, image.bytes
+
+const out = createWorkbook();
+out.addSheet('Report').addImage(out.addImage(png), 'B2:D6', { description: 'Logo' });
+```
+
+Charts and shapes are not read (`XLV_W_DRAWING_CONTENT_NOT_READ`); `editCells` keeps them unchanged.
+
 Printing and protection:
 
 ```ts
@@ -111,6 +126,20 @@ out.addSheet('Report').pageSetup({ orientation: 'landscape', margins: { left: 0.
 
 Protection flags are `true` when the action is locked. `protect({ password: 'secret' })` stores a SHA-512 verifier; it is not encryption. `verifyPassword(sheet.protection, 'secret')` checks a password.
 
+Tables:
+
+```ts
+import { createWorkbook, readTable } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const { rows } = readTable(bytes, { table: 'Sales' }); // data rows of the table "Sales", keyed by its header
+
+const out = createWorkbook();
+out.addSheet('Data').addTable({ name: 'Sales', ref: 'A1', totalsRow: true, columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Revenue', totalsRowFunction: 'sum' }], rows: [['North', 1200]] });
+```
+
+`sheet.tables` lists the tables of a sheet. Table names have no spaces and are unique in the workbook; overlapping tables or merged cells throw `XLV_E_INVALID_TABLE`.
+
 ### Inserting and deleting rows
 
 ```ts
@@ -121,7 +150,7 @@ const { bytes: wider } = insertRows(bytes, { sheet: 'Sales', at: 5, count: 2, st
 const { bytes: shorter } = deleteRows(wider, { sheet: 'Sales', at: 5, count: 2 });
 ```
 
-Formulas on every sheet, merged cells, links, notes, conditional formats, data validation and defined names follow the rows; references to deleted cells become `#REF!`. Sheets with tables, pictures or charts are refused with `XLV_E_NOT_SUPPORTED`.
+Formulas on every sheet, merged cells, links, notes, conditional formats, data validation and defined names follow the rows; references to deleted cells become `#REF!`. Tables move, grow and shrink with their rows. Sheets with pictures or charts are refused with `XLV_E_NOT_SUPPORTED`.
 
 `inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount`, `styledColumns`, `hyperlinkCount` and `noteCount`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
 

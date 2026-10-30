@@ -93,7 +93,9 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
       const shown = s.hyperlinks.slice(0, 3).map((l) => `${l.ref} → ${l.target ?? ''}${l.location === null ? '' : `${l.target === null ? '' : '#'}${l.location}`}`);
       lines.push(`  Hyperlinks: ${plural(s.hyperlinkCount, 'link')} (${shown.join(', ')}${s.hyperlinkCount > 3 ? ', …' : ''})`);
     }
+    if (s.imageCount > 0) lines.push(`  Images: ${plural(s.imageCount, 'picture')} (${s.images.slice(0, 5).map((i) => `${i.cell ?? 'absolute'} ${i.format ?? 'other'}`).join(', ')}${s.imageCount > 5 ? ', …' : ''})`);
     if (s.noteCount > 0) lines.push(`  Notes: ${plural(s.noteCount, 'note')} (${s.notes.slice(0, 5).join(', ')}${s.noteCount > 5 ? ', …' : ''})`);
+    if (s.tables.length > 0) lines.push(`  Tables: ${s.tables.slice(0, 5).map((t) => `${t.name} ${t.ref}`).join(', ')}${s.tables.length > 5 ? ', …' : ''}`);
     if (s.dataValidationCount > 0 || s.conditionalFormatCount > 0) {
       const parts = [s.dataValidationCount > 0 ? plural(s.dataValidationCount, 'data validation') : null, s.conditionalFormatCount > 0 ? plural(s.conditionalFormatCount, 'conditional format rule') : null];
       lines.push(`  Rules: ${parts.filter((p) => p !== null).join(', ')}`);

@@ -5,6 +5,7 @@ import { normalizeProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
+import { checkImage, metricsOf, normalizeImage, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions, type StoredImage } from './images';
 import { MAX_AUTHOR_LENGTH, type NoteInput } from './notes';
 import { MAX_DATA_VALIDATIONS, normalizeConditionalFormat, normalizeDataValidation, type ConditionalFormatRuleInput, type DataValidation, type DataValidationRule, type StoredConditionalFormat } from './sheet-rules';
 import {
@@ -30,6 +31,7 @@ import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parse
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
 import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type NormalizedColor, type NormalizedStyle } from './style';
+import { normalizeTable, rangesOverlap, totalsFormula, type NormalizedTable, type TableInput } from './tables';
 import { suggest } from './util/suggest';
 import { firstLoneSurrogate } from './xml/writer';
 
@@ -374,6 +376,10 @@ export class NewSheet {
   readonly linkMap: Map<string, NormalizedHyperlink> = new Map();
   /** @internal Notes by cell reference. */
   readonly noteMap: Map<string, StoredNote> = new Map();
+  /** @internal Pictures in the order they were added (TD-35). */
+  readonly imageList: StoredImage[] = [];
+  /** @internal Background image (index of `NewWorkbook.addImage`), or `null`. */
+  backgroundImage: number | null = null;
   /** @internal Data validations in the order they were added (SR-01). */
   readonly validationList: DataValidation[] = [];
   /** @internal Conditional formats in the order they were added (SR-07). */
@@ -382,6 +388,8 @@ export class NewSheet {
   private readonly priorities = new Set<number>();
   /** @internal Protection, page setup, headers and footers, page breaks, print area and titles. */
   print: SheetPrintData = EMPTY_PRINT_DATA;
+  /** @internal Tables in the order they were added (TD-01). */
+  readonly tableList: NormalizedTable[] = [];
   private count = 0;
 
   /** @internal Use {@link NewWorkbook.addSheet}. */
@@ -595,6 +603,11 @@ export class NewSheet {
           hint: 'Merged ranges must not overlap. Choose ranges that share no cells.',
           details: { range: String(range), other },
         });
+      }
+    }
+    for (const t of this.tableList) {
+      if (r.start.row <= t.range.end.row && t.range.start.row <= r.end.row && r.start.col <= t.range.end.col && t.range.start.col <= r.end.col) {
+        throw new XlvError('XLV_E_INVALID_TABLE', `The range ${range} overlaps table "${t.name}".`, { location: { sheet: this.name }, hint: 'Tables cannot contain merged cells; merge cells outside the table.', details: { name: t.name } });
       }
     }
     this.mergeList.push(r);
@@ -931,6 +944,101 @@ export class NewSheet {
     return this;
   }
 
+
+  /**
+   * Adds a table (Part 1 §18.5): writes the header row (the column names), the data rows and the
+   * totals row into the cells, and the table itself. `ref` is the top-left cell or the whole
+   * range. Throws `XLV_E_INVALID_TABLE` for invalid or duplicate names (unique in the workbook,
+   * also against defined names), duplicate column names, or a range that overlaps another table
+   * or a merged range; see `TableInput`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * createWorkbook().addSheet('Data').addTable({
+   *   name: 'Sales',
+   *   ref: 'A1',
+   *   totalsRow: true,
+   *   style: { theme: 'TableStyleMedium9', showRowStripes: true },
+   *   columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Revenue', totalsRowFunction: 'sum' }],
+   *   rows: [['North', 1200], ['South', 980]],
+   * });
+   * ```
+   */
+  addTable(table: TableInput): this {
+    const t = normalizeTable(table, this.name);
+    this.book.checkTable(t, this);
+    const { start, end } = t.range;
+    let row = start.row;
+    if (t.headerRow) {
+      t.columns.forEach((c, i) => this.set(formatCellRef(row, start.col + i), c.name));
+      row++;
+    }
+    const dataEnd = end.row - (t.totalsRow ? 1 : 0);
+    for (let r = row; r <= dataEnd; r++) {
+      const values = t.rows[r - row] ?? [];
+      t.columns.forEach((c, i) => {
+        const value = values[i];
+        const ref = formatCellRef(r, start.col + i);
+        if (value !== undefined) this.set(ref, value as CellInput);
+        else if (c.calculatedColumnFormula !== null) this.set(ref, { formula: c.calculatedColumnFormula });
+      });
+    }
+    if (t.totalsRow) {
+      t.columns.forEach((c, i) => {
+        const ref = formatCellRef(end.row, start.col + i);
+        const f = totalsFormula(t.displayName, c);
+        if (f !== null) this.set(ref, { formula: f });
+        else if (c.totalsRowLabel !== null) this.set(ref, c.totalsRowLabel);
+      });
+    }
+    this.tableList.push(t);
+    return this;
+  }
+
+  /**
+   * Places a picture on the sheet. `image` is the number `NewWorkbook.addImage` returned; the same
+   * image can be placed many times and is stored once. `anchor` is a range such as `"B2:D6"`,
+   * two corners `{ from, to }` (with `editAs`), or a corner and a size in pixels
+   * (`{ from, size }`), see `ImageAnchorInput`. Fractional positions and pixel sizes use the
+   * sheet's column widths and row heights at the time the workbook is written, at 96 pixels per
+   * inch (TD-33).
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * declare const png: Uint8Array;
+   * const workbook = createWorkbook();
+   * const logo = workbook.addImage(png);
+   * workbook.addSheet('Report').addImage(logo, 'B2:D6', { description: 'Company logo' });
+   * ```
+   */
+  addImage(image: number, anchor: ImageAnchorInput, options?: ImageOptions): this {
+    this.imageList.push(normalizeImage(image, this.book.imageCount, anchor, options));
+    return this;
+  }
+
+  /**
+   * Sets the picture shown behind the cells of the sheet (`picture` element, Part 1 §18.3.1.67),
+   * or removes it with `null`. `image` is the number `NewWorkbook.addImage` returned.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * declare const png: Uint8Array;
+   * const workbook = createWorkbook();
+   * workbook.addSheet('Cover').background(workbook.addImage(png));
+   * ```
+   */
+  background(image: number | null): this {
+    if (image !== null) normalizeImage(image, this.book.imageCount, 'A1', undefined);
+    this.backgroundImage = image;
+    return this;
+  }
+
   /** @internal */
   data(): WriteSheetData {
     return {
@@ -949,6 +1057,9 @@ export class NewSheet {
       conditionalFormats: this.conditionalList,
       dataValidations: this.validationList,
       print: this.print,
+      tables: this.tableList,
+      images: this.imageList.map((i) => resolveImage(i, metricsOf(this.columnMap, this.rowMap))),
+      background: this.backgroundImage,
     };
   }
 }
@@ -1289,8 +1400,42 @@ export class NewWorkbook {
   defineName(name: string, refersTo: string, options?: DefinedNameOptions): this {
     const n = checkDefinedName(name, refersTo, options, this.list.map((s) => s.name));
     checkUniqueName(n, this.names);
+    const table = this.list.flatMap((s) => s.tableList).find((t) => t.name.toLowerCase() === n.name.toLowerCase() || t.displayName.toLowerCase() === n.name.toLowerCase());
+    if (table !== undefined) {
+      throw new XlvError('XLV_E_INVALID_DEFINED_NAME', `"${n.name}" is already the name of a table.`, { hint: 'Table names and defined names share one list in a workbook (ECMA-376 Part 1 §18.5.1.2); choose another name.', details: { name: n.name } });
+    }
     this.names.push(n);
     return this;
+  }
+
+  /**
+   * @internal Checks that a table's names are unique in the workbook (tables and defined names,
+   * ignoring case; Part 1 §18.5.1.2) and that it overlaps no table or merged range of its sheet.
+   */
+  checkTable(t: NormalizedTable, sheet: NewSheet): void {
+    const where = { sheet: sheet.name };
+    const names = new Set([t.name.toLowerCase(), t.displayName.toLowerCase()]);
+    for (const other of this.list.flatMap((s) => s.tableList)) {
+      if (names.has(other.name.toLowerCase()) || names.has(other.displayName.toLowerCase())) {
+        throw new XlvError('XLV_E_INVALID_TABLE', `The workbook already has a table named "${other.displayName}".`, { location: where, hint: 'Table names are unique in a workbook, ignoring case; choose another name, for example "Sales_2".', details: { name: t.name } });
+      }
+    }
+    for (const n of this.names) {
+      if (names.has(n.name.toLowerCase())) {
+        throw new XlvError('XLV_E_INVALID_TABLE', `"${n.name}" is already a defined name of the workbook.`, { location: where, hint: 'Table names and defined names share one list in a workbook (ECMA-376 Part 1 §18.5.1.2); choose another table name.', details: { name: t.name } });
+      }
+    }
+    const ref = (r: CellRange): string => `${formatCellRef(r.start.row, r.start.col)}:${formatCellRef(r.end.row, r.end.col)}`;
+    for (const other of sheet.tableList) {
+      if (rangesOverlap(t.range, other.range)) {
+        throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps table "${other.name}" (${ref(other.range)}).`, { location: where, hint: 'Tables must not share cells ([MS-OI29500] §2.1.680 h); move one of them.', details: { name: t.name } });
+      }
+    }
+    for (const m of sheet.mergeList) {
+      if (rangesOverlap(t.range, m)) {
+        throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps the merged range ${ref(m)}.`, { location: where, hint: 'Tables cannot contain merged cells; unmerge the range or move the table.', details: { name: t.name } });
+      }
+    }
   }
 
   /** Defined names in the order they were added. */
@@ -1338,6 +1483,38 @@ export class NewWorkbook {
   /** @internal */
   dxfStyles(): readonly NormalizedStyle[] {
     return this.dxfList;
+  }
+
+  private readonly imageData: { readonly bytes: Uint8Array; readonly format: ImageFormat }[] = [];
+
+  /**
+   * Adds an image (the bytes of a PNG, JPEG or GIF file, recognised from its first bytes) and
+   * returns its number for `NewSheet.addImage` and `NewSheet.background`. Other formats throw
+   * `XLV_E_INVALID_IMAGE`. Identical images are stored once in the file.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * declare const jpeg: Uint8Array;
+   * const workbook = createWorkbook();
+   * const photo = workbook.addImage(jpeg);
+   * workbook.addSheet('Team').addImage(photo, { from: 'A1', size: { width: 120, height: 160 } });
+   * ```
+   */
+  addImage(bytes: Uint8Array): number {
+    this.imageData.push(checkImage(bytes));
+    return this.imageData.length - 1;
+  }
+
+  /** @internal */
+  get imageCount(): number {
+    return this.imageData.length;
+  }
+
+  /** @internal */
+  imageList(): readonly { readonly bytes: Uint8Array; readonly format: ImageFormat }[] {
+    return this.imageData;
   }
 }
 
@@ -1405,5 +1582,6 @@ export function writeWorkbook(workbook: NewWorkbook): Uint8Array {
     definedNames: [...workbook.definedNames, ...sheets.flatMap((s) => printNames(s.name, s.print))],
     dxfs: workbook.dxfStyles(),
     workbookProtection: workbook.workbookProtection,
+    images: workbook.imageList(),
   });
 }

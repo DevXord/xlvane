@@ -126,6 +126,27 @@ console.log(read.hyperlinks, read.notes, read.cell('B2')?.note?.text, read.tabCo
 - **Streaming:** `writeWorkbookStream` takes `hyperlinks` and `notes` per row (`{ values, hyperlinks: [...], notes: [...] }`, by column position) and `tabColor`/`view` per sheet. `openWorkbookStream` sets `cell.note` on the rows it returns and lists a sheet's notes with `notes(sheet)`; it does not set `cell.hyperlink`.
 - `editCells` and `appendRows` keep existing links and notes but cannot add new ones yet.
 
+### Images
+
+```ts
+import { createWorkbook, readWorkbook, writeWorkbook } from 'xlvane';
+
+declare const png: Uint8Array; // the bytes of a PNG, JPEG or GIF file
+const workbook = createWorkbook();
+const logo = workbook.addImage(png);
+const sheet = workbook.addSheet('Report').set('A1', 'Quarterly report');
+sheet.addImage(logo, 'E1:G4', { description: 'Company logo', hyperlink: 'https://example.com' });
+sheet.addImage(logo, { from: 'A6', size: { width: 160, height: 90 } });
+
+const read = readWorkbook(writeWorkbook(workbook));
+for (const picture of read.getSheet('Report').images) console.log(picture.anchor, picture.image?.format);
+```
+
+- **Adding:** `workbook.addImage(bytes)` takes PNG, JPEG or GIF bytes (recognised from the first bytes; other formats throw `XLV_E_INVALID_IMAGE`) and returns a number; the same image placed many times is stored once. `sheet.addImage(image, anchor, { name?, description?, hyperlink? })` places it over a range (`"E1:G4"`), between two corners (`{ from, to, editAs }`, each a cell or a 0-based `{ col, row }` with fractions) or at a corner with a size in pixels (`{ from, size }`). `sheet.background(image)` sets the sheet background. Pixels are converted at 96 per inch (9525 EMU); fractional positions use the sheet's column widths and row heights.
+- **Reading:** `sheet.images` lists the pictures (`anchor` in EMU with the cell of each corner, `image` with `format`, `contentType` and `bytes`, `description`, `hyperlink`), `sheet.backgroundImage` the background, and `workbook.images` every image once. Charts, shapes and other drawing objects are not read; `XLV_W_DRAWING_CONTENT_NOT_READ` reports them, and `editCells` keeps them unchanged.
+- **Rows:** `insertRows` and `deleteRows` move pictures with their rows. A deletion that would cut a picture, and a drawing with charts or shapes, are refused with `XLV_E_NOT_SUPPORTED`.
+- **Streaming:** `writeWorkbookStream({ images: [png], sheets: [{ images: [{ image: 0, anchor: 'B2:D6' }], background: 0, rows }] })`.
+
 ### Sheet rules and printing
 
 ```ts
@@ -147,6 +168,30 @@ console.log(read.pageSetup.orientation, read.printArea, read.printTitles, read.p
 - **Print area, titles and page breaks:** `printArea(range | ranges)`, `printTitles({ rows: '1:2', columns: 'A' })` and `pageBreaks({ rows: [21], columns: ['F'] })` (the rows and columns that start a new page). The print area and titles are stored as the built-in names `_xlnm.Print_Area` and `_xlnm.Print_Titles`; `insertRows` and `deleteRows` move them.
 - **Protection:** `protect(flags)` turns on sheet protection. Each flag is `true` when the action is locked, as in the file: `protect({ sort: false })` keeps sorting allowed. Flags not given keep the schema defaults. `protect({ password: 'secret' })` stores a SHA-512 password verifier (100,000 iterations, random salt; `hashPassword` gives a fixed salt or another algorithm), and `workbook.protect({ password })` protects the workbook structure. A protection password is not encryption: the content stays readable, and spreadsheet applications only refuse changes without it. Reading gives `sheet.protection` and `workbook.protection`; `verifyPassword(protection, password)` checks a password against them, including legacy 4-digit verifiers.
 - **Reading** gives `sheet.pageSetup` (with defaults), `sheet.headerFooter`, `sheet.pageBreaks`, `sheet.printArea` and `sheet.printTitles`. `writeWorkbookStream` takes the same settings per sheet (`pageSetup`, `headerFooter`, `pageBreaks`, `printArea`, `printTitles`, `protect`).
+
+### Tables
+
+```ts
+import { createWorkbook, readTable, readWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook();
+workbook.addSheet('Data').addTable({
+  name: 'Sales',
+  ref: 'B2',
+  totalsRow: true,
+  style: { theme: 'TableStyleMedium9', showRowStripes: true },
+  columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Revenue', totalsRowFunction: 'sum' }],
+  rows: [['North', 1200], ['South', 980]],
+});
+const bytes = writeWorkbook(workbook);
+console.log(readWorkbook(bytes).getSheet('Data').tables.map((t) => [t.displayName, t.ref]));
+console.log(readTable(bytes, { table: 'Sales' }).rows); // [{ Region: 'North', Revenue: 1200 }, …]
+```
+
+- **Writing:** `addTable({ name, displayName, ref, headerRow, totalsRow, style, columns, rows })` writes the header row (the column names), the data rows and the totals row into the cells, and the table part. `ref` is the top-left cell or the whole range. Totals use `SUBTOTAL` (`sum`, `average`, `count`, `countNums`, `min`, `max`, `stdDev`, `var`), a label (`totalsRowLabel`) or a custom formula; `calculatedColumnFormula` fills the empty data cells of a column. Styles are the 60 built-in table styles. Names follow the rules of defined names (no spaces) and are unique in the workbook together with the defined names; tables must not overlap other tables or merged cells; violations throw `XLV_E_INVALID_TABLE`.
+- **Reading:** `sheet.tables` lists each table with its range, header and totals rows, columns (totals functions and formulas) and style. `readTable(bytes, { table: 'Sales' })` reads the data rows of a table by name; an unknown name throws `XLV_E_TABLE_NOT_FOUND` with the available names.
+- **Streaming:** `writeWorkbookStream` takes `tables` per sheet with the whole range in `ref`; the header, data and totals values are streamed as rows.
+- **Editing:** `editCells` keeps tables as they are; `insertRows` and `deleteRows` move, grow and shrink them with their rows and refuse to delete a table's header row, totals row or all of its data rows.
 
 ## Tasks in one call
 
@@ -193,7 +238,8 @@ const { bytes: shorter } = deleteRows(wider, { sheet: 'Orders', at: 10, count: 3
 
 - Like `editCells`, they change an existing file in place and keep every other part as it was.
 - References follow the rows as in a spreadsheet application: formulas on every sheet, merged cells, hyperlinks, notes, the autofilter, conditional formats, data validation, page breaks and defined names. A range grows when rows are inserted inside it and shrinks when some of its rows are deleted; a reference whose cells are all deleted becomes `#REF!`. The rules are in docs/facts/ref-adjust.md (observed in LibreOffice; not yet checked against Excel).
-- Sheets with tables, pictures, charts, pivot tables or form controls, and formulas xlvane cannot rewrite safely (for example 3-D references such as `Jan:Mar!A1` that include the sheet), are refused with `XLV_E_NOT_SUPPORTED`. Data that would be pushed past row 1048576 gives `XLV_E_LIMIT_EXCEEDED`.
+- Tables move, grow and shrink with their rows; deleting a table's header row, totals row or all of its data rows is refused.
+- Sheets with pictures, charts, pivot tables or form controls, and formulas xlvane cannot rewrite safely (for example 3-D references such as `Jan:Mar!A1` that include the sheet), are refused with `XLV_E_NOT_SUPPORTED`. Data that would be pushed past row 1048576 gives `XLV_E_LIMIT_EXCEEDED`.
 - Sheet views (selection, frozen panes) are not changed.
 - `adjustFormula` and `adjustRange` apply the same rules to formula text you hold yourself.
 

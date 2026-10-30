@@ -60,10 +60,10 @@ const MAX_REFERS_TO_LENGTH = 8192;
 // Name characters: P1 §18.17.2.5 with the Office extensions of [MS-XLSX] §2.2.2 (F2-05): a
 // letter, `_` or `\` first; then letters, digits, `_`, `\`, `.` and `?`; any character above
 // U+007F counts as a letter.
-const NAME_RE = /^(?:[A-Za-z_\\]|[^\x00-\x7F])(?:[A-Za-z0-9_\\.?]|[^\x00-\x7F])*$/u;
+export const NAME_RE: RegExp = /^(?:[A-Za-z_\\]|[^\x00-\x7F])(?:[A-Za-z0-9_\\.?]|[^\x00-\x7F])*$/u;
 /** A1 cell references (also beyond the grid, to stay on the safe side) and R1C1 forms (F2-09). */
-const A1_RE = /^[A-Za-z]{1,3}\d+$/;
-const R1C1_RE = /^(?:[Rr]\d*(?:[Cc]\d*)?|[Cc]\d*(?:[Rr]\d*)?)$/;
+export const A1_NAME_RE: RegExp = /^[A-Za-z]{1,3}\d+$/;
+export const R1C1_NAME_RE: RegExp = /^(?:[Rr]\d*(?:[Cc]\d*)?|[Cc]\d*(?:[Rr]\d*)?)$/;
 
 function invalidName(name: string, message: string, hint: string): XlvError {
   return new XlvError('XLV_E_INVALID_DEFINED_NAME', message, { hint, details: { name: name.slice(0, 100) } });
@@ -83,7 +83,7 @@ export function checkDefinedName(name: unknown, refersTo: unknown, options: unkn
     throw invalidName(name, `"${name.slice(0, 40)}" is not a valid defined name.`, `${example} Spaces and characters such as "-", "!" or "$" are not allowed.`);
   }
   const upper = name.toUpperCase();
-  if (upper === 'TRUE' || upper === 'FALSE' || A1_RE.test(name) || R1C1_RE.test(name)) {
+  if (upper === 'TRUE' || upper === 'FALSE' || A1_NAME_RE.test(name) || R1C1_NAME_RE.test(name)) {
     throw invalidName(name, `"${name}" cannot be a defined name because it reads as ${upper === 'TRUE' || upper === 'FALSE' ? 'a boolean' : 'a cell reference'}.`, 'Add a word or an underscore, for example "Rate_A1" or "_A1".');
   }
   if (upper.startsWith('_XL')) {

@@ -21,7 +21,7 @@ import { resolveLimits, type ReadLimits } from './limits';
 import type { Sheet, Workbook } from './model';
 import { openPackage, type OpcPackage } from './opc/package';
 import { readWorkbook } from './read';
-import { formatCellRef, MAX_ROWS, parseCellRef, parseRange } from './sml/cell-ref';
+import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange } from './sml/cell-ref';
 import { shiftFormula } from './sml/formula-shift';
 import { classifyRelationship } from './sml/namespaces';
 import { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
@@ -76,12 +76,10 @@ export interface DeleteRowsOptions extends EditOptions {
 }
 
 /** Relationship types of a worksheet whose parts do not depend on row positions or are handled here. */
-const SAFE_SHEET_RELATIONSHIPS = new Set(['hyperlink', 'comments', 'vmlDrawing', 'printerSettings', 'image', 'customProperty']);
+const SAFE_SHEET_RELATIONSHIPS = new Set(['hyperlink', 'comments', 'vmlDrawing', 'printerSettings', 'image', 'customProperty', 'drawing', 'table']);
 
 /** Elements of a worksheet whose content refers to cells and that xlvane does not rewrite. */
 const REFUSED_ELEMENTS: Readonly<Record<string, string>> = {
-  drawing: 'drawings (pictures, charts or shapes)',
-  tableParts: 'tables',
   oleObjects: 'embedded objects',
   controls: 'form controls',
   scenarios: 'scenarios',
@@ -541,6 +539,119 @@ function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, s
   if (changed) edit.write(vml.target, out);
 }
 
+/**
+ * Moves the pictures of the changed sheet's drawing with their rows (TD-38): the `row` of each
+ * `from` and `to` marker of two-cell and one-cell anchors; absolute anchors do not depend on
+ * rows. Drawings with charts, shapes, groups or other objects are refused, and so is a deletion
+ * that would cut a picture (a deleted row inside the rows it covers or under its anchor cell).
+ */
+function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, sheetText: string, sheet: Sheet, c: RowChange): void {
+  const id = /<(?:[A-Za-z_][\w.-]*:)?drawing\b[^>]*?\br:id\s*=\s*["']([^"']*)["']/.exec(sheetText)?.[1];
+  const rels = pkg.relationships(sheetPart);
+  const rel = id === undefined ? undefined : rels.find((r) => r.id === id && !r.external && classifyRelationship(r.type)?.name === 'drawing');
+  if (rel === undefined) return;
+  const text = edit.text(rel.target);
+  if (text === undefined) return;
+  const where = { part: rel.target, sheet: sheet.name };
+  for (const r of pkg.relationships(rel.target)) {
+    const name = classifyRelationship(r.type)?.name;
+    if (!r.external && name !== 'image' && name !== 'hyperlink') throw notSupported(`The drawing of sheet "${sheet.name}" has a related part of type "${name ?? r.type}" (${r.target}), which xlvane cannot move with its rows yet.`, where, { type: r.type });
+  }
+  const anchors = /<([A-Za-z_][\w.-]*:)?(twoCellAnchor|oneCellAnchor|absoluteAnchor)\b[\s\S]*?<\/\1\2>/g;
+  const rest = text.replace(anchors, (anchor, p: string | undefined) => (new RegExp(`<${p ?? ''}pic[\\s>]`).test(anchor) ? '' : anchor));
+  if (/graphicFrame|<[^>]*:sp[\s>]|grpSp|cxnSp|contentPart|AlternateContent|twoCellAnchor|oneCellAnchor|absoluteAnchor/.test(rest)) {
+    throw notSupported(`The drawing of sheet "${sheet.name}" has charts, shapes or other objects besides pictures, which xlvane cannot move with its rows yet.`, where);
+  }
+  const end = c.at - c.count - 1;
+  // A marker at the start of row m + 1 (0-based m): its new row, as a range end moves (R-03, R-08).
+  const moveMarker = (m: number): number => {
+    const one = m + 1;
+    if (c.count > 0) return one >= c.at ? m + c.count : m;
+    return one < c.at ? m : one > end ? m + c.count : c.at - 1;
+  };
+  let changed = false;
+  const out = text.replace(anchors, (anchor, p: string | undefined, kind: string) => {
+    if (kind === 'absoluteAnchor') return anchor;
+    const pre = p ?? '';
+    const marker = (local: 'from' | 'to'): { row: number; rowOff: number } | null => {
+      const m = new RegExp(`<${pre}${local}>[\\s\\S]*?<${pre}row>\\s*(\\d+)\\s*</${pre}row>\\s*<${pre}rowOff>\\s*([^<]*?)\\s*</${pre}rowOff>`).exec(anchor);
+      return m === null ? null : { row: Number(m[1]), rowOff: Number(m[2]) || 0 };
+    };
+    const from = marker('from');
+    const to = kind === 'twoCellAnchor' ? marker('to') : null;
+    if (from === null || (kind === 'twoCellAnchor' && to === null)) throw notSupported(`A picture of sheet "${sheet.name}" has a position xlvane cannot read, so its rows cannot be moved.`, where);
+    const first = from.row + 1;
+    const last = to === null ? first : to.rowOff === 0 && to.row > from.row ? to.row : to.row + 1;
+    if (c.count < 0 && first <= end && last >= c.at) throw notSupported(`Deleting rows ${String(c.at)} to ${String(end)} of sheet "${sheet.name}" would cut a picture (rows ${String(first)} to ${String(last)}), which xlvane does not do.`, where, { cell: formatCellRef(first, 1) });
+    const rows = [moveMarker(from.row), to === null ? null : moveMarker(to.row)];
+    if (rows.some((r) => r !== null && r > MAX_ROWS - 1)) throw notSupported(`Inserting rows would push a picture of sheet "${sheet.name}" beyond the last row.`, where);
+    if (rows[0] === from.row && (to === null || rows[1] === to.row)) return anchor;
+    changed = true;
+    let k = 0;
+    return anchor.replace(new RegExp(`(<${pre}row>)\\s*\\d+\\s*(</${pre}row>)`, 'g'), (all, open: string, close: string) => {
+      const value = rows[k++];
+      return value === null || value === undefined ? all : `${open}${String(value)}${close}`;
+    });
+  });
+  if (changed) edit.write(rel.target, out);
+}
+
+/**
+ * Moves, grows or shrinks the tables of a sheet with its rows (TD-11): the table `ref` and its
+ * `autoFilter` follow as ranges do (adjustRange), formulas of calculated columns and totals are
+ * adjusted like cell formulas, and structured references are left as they are. A deletion that
+ * would remove a table's header row, totals row or all of its data rows is refused. For tables
+ * of other sheets (`target` false) only the formulas are adjusted.
+ */
+function rewriteTables(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, sheet: Sheet, c: RowChange, target: boolean): void {
+  for (const rel of pkg.relationships(sheetPart)) {
+    if (rel.external || classifyRelationship(rel.type)?.name !== 'table') continue;
+    const text = edit.text(rel.target);
+    if (text === undefined) continue;
+    const where = { part: rel.target, sheet: sheet.name };
+    const { root, elements } = scan(text, rel.target, edit.limits, (local, depth, parent) => (depth === 2 && local === 'autoFilter') || (depth === 4 && parent === 'tableColumn' && (local === 'calculatedColumnFormula' || local === 'totalsRowFormula')));
+    const name = root.attrs.get('displayName') ?? root.attrs.get('name') ?? '';
+    const edits: [number, number, string][] = [];
+    if (target) {
+      const ref = root.attrs.get('ref') ?? '';
+      const range = parseRange(ref.trim().toUpperCase());
+      if (range === null) throw notSupported(`Table "${name}" of sheet "${sheet.name}" has a range xlvane cannot read ("${ref.slice(0, 20)}").`, where);
+      const header = (root.attrs.get('headerRowCount') ?? '1').trim() !== '0' ? 1 : 0;
+      const totals = /^[1-9]/.test((root.attrs.get('totalsRowCount') ?? '0').trim()) ? 1 : 0;
+      if (c.count < 0) {
+        const end = c.at - c.count - 1;
+        const cuts = (row: number): boolean => row >= c.at && row <= end;
+        const dataFirst = range.start.row + header;
+        const dataLast = range.end.row - totals;
+        if ((header === 1 && cuts(range.start.row)) || (totals === 1 && cuts(range.end.row)) || (c.at <= dataFirst && end >= dataLast && range.start.row <= end && range.end.row >= c.at)) {
+          throw notSupported(`Deleting rows ${String(c.at)} to ${String(end)} of sheet "${sheet.name}" would remove the header row, the totals row or every data row of table "${name}" (${formatRange(range)}).`, where, { table: name });
+        }
+      }
+      const newRef = adjustRange(ref, refChange(c, sheet.name));
+      if (newRef === null || newRef === '') throw notSupported(`Table "${name}" of sheet "${sheet.name}" cannot be moved with its rows.`, where, { table: name });
+      const moved = parseRange(newRef);
+      if (moved !== null && moved.end.row - moved.start.row < range.end.row - range.start.row && c.count > 0) throw notSupported(`Inserting rows would push table "${name}" beyond the last row.`, where, { table: name });
+      if (newRef !== ref) edits.push([root.start.start, root.start.end, setAttr(text.slice(root.start.start, root.start.end), 'ref', newRef)]);
+    }
+    for (const e of elements) {
+      if (e.local === 'autoFilter') {
+        if (!target) continue;
+        const ref = e.attrs.get('ref');
+        if (ref === undefined) continue;
+        const out = adjustRange(ref, refChange(c, sheet.name));
+        if (out === null || out === '') throw notSupported(`The filter of table "${name}" of sheet "${sheet.name}" cannot be moved with its rows.`, where, { table: name });
+        if (out !== ref) edits.push([e.start.start, e.start.end, setAttr(text.slice(e.start.start, e.start.end), 'ref', out)]);
+        continue;
+      }
+      const raw = content(text, e);
+      const out = adjustText(raw, c, sheet.name);
+      if (out === null) throw notSupported(`A formula of table "${name}" of sheet "${sheet.name}" cannot be adjusted safely: "${decodeEntities(raw).slice(0, 60)}".`, where, { table: name });
+      if (out !== raw) edits.push([e.start.end, e.end.start, out]);
+    }
+    if (edits.length > 0) edit.write(rel.target, applyEdits(text, edits));
+  }
+}
+
 /** Rewrites the defined names of the workbook part. */
 function rewriteNames(edit: PackageEditor, workbookPart: string, c: RowChange): void {
   const text = edit.text(workbookPart);
@@ -621,7 +732,11 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
     const out = rewriteSheet(text, s.part, s, c, target, style, limits);
     hasFormulas ||= out.hasFormulas;
     if (out.text !== text) edit.write(s.part, out.text);
-    if (target) rewriteNotes(edit, pkg, s.part, text, s, c);
+    rewriteTables(edit, pkg, s.part, s, c, target);
+    if (target) {
+      rewriteNotes(edit, pkg, s.part, text, s, c);
+      rewriteDrawing(edit, pkg, s.part, text, s, c);
+    }
   }
   rewriteNames(edit, workbookPart, c);
 
@@ -643,9 +758,10 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
  * Inserts empty rows into a sheet of an existing XLSX file and returns the new file. Rows below
  * move down, and every reference follows them as in a spreadsheet application: formulas on all
  * sheets (ranges that the new rows fall into grow), merged cells, hyperlinks, notes, the
- * autofilter, conditional formats, data validation, page breaks and defined names. Every other part
- * of the file stays exactly as it was. Sheets with tables, pictures, charts, pivot tables or
- * other content that xlvane cannot move are refused with `XLV_E_NOT_SUPPORTED`, and so are
+ * autofilter, conditional formats, data validation, page breaks, defined names and tables (which
+ * grow when rows are inserted inside them). Every other part of the file stays exactly as it was.
+ * Sheets with pictures, charts, pivot tables or other content that xlvane cannot move are refused
+ * with `XLV_E_NOT_SUPPORTED`, and so are
  * formulas it cannot rewrite safely (docs/facts/ref-adjust.md).
  *
  * @example

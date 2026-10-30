@@ -310,6 +310,22 @@
                     "type": "integer",
                     "minimum": 0
                   },
+                  "imageCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "cell": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
+                        "format": { "anyOf": [{ "type": "null" }, { "enum": ["png", "jpeg", "gif"] }] }
+                      },
+                      "required": ["cell", "format"],
+                      "additionalProperties": false
+                    }
+                  },
                   "protected": {
                     "type": "boolean"
                   },
@@ -337,6 +353,19 @@
                   "conditionalFormatCount": {
                     "type": "integer",
                     "minimum": 0
+                  },
+                  "tables": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": { "type": "string" },
+                        "ref": { "type": "string" },
+                        "columns": { "type": "array", "items": { "type": "string" } }
+                      },
+                      "required": ["name", "ref", "columns"],
+                      "additionalProperties": false
+                    }
                   },
                   "notes": {
                     "type": "array",
@@ -396,12 +425,15 @@
                   "hyperlinkCount",
                   "hyperlinks",
                   "noteCount",
+                  "imageCount",
+                  "images",
                   "notes",
                   "protected",
                   "printArea",
                   "pageBreakCount",
                   "dataValidationCount",
-                  "conditionalFormatCount"
+                  "conditionalFormatCount",
+                  "tables"
                 ],
                 "additionalProperties": false
               }

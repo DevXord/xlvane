@@ -2,9 +2,11 @@ import type { DefinedName } from './defined-names';
 import { isAppPropertiesRel, isCorePropertiesRel, parseAppProperties, parseCoreProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { isUnusualTarget, type Hyperlink } from './hyperlinks';
+import { readSheetDrawing, type MediaCache, type SheetImage, type WorkbookImage } from './images';
 import { DEFAULT_PAGE_SETUP, parsePrintArea, parsePrintTitles, type HeaderFooter, type PageSetup, type SheetProtection, type WorkbookProtection } from './printing';
 import { resolveLimits, type ReadLimits } from './limits';
 import { parseComments, THREADED_COMMENTS_REL, type Note } from './notes';
+import { MAX_TABLES_PER_SHEET, parseTable, type TableDefinition } from './tables';
 import type { ConditionalFormat, DataValidation } from './sheet-rules';
 import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetState, SheetView, Workbook, WorkbookFormat } from './model';
 import type { Color } from './style';
@@ -55,6 +57,11 @@ const FORMATS: ReadonlyMap<string, WorkbookFormat> = new Map([
 
 class ReadSheet implements Sheet {
   private sortedRows: (readonly Cell[])[] | null = null;
+  /** Pictures of the sheet's drawing and its background image (TD-30 … TD-39). */
+  images: readonly SheetImage[] = [];
+  backgroundImage: WorkbookImage | null = null;
+  /** Tables of the sheet (TD-01). */
+  tables: readonly TableDefinition[] = [];
 
   constructor(
     readonly name: string,
@@ -169,6 +176,9 @@ class ReadSheet implements Sheet {
 }
 
 class ReadWorkbook implements Workbook {
+  /** Image parts used by pictures and backgrounds, each once (TD-31). */
+  images: readonly WorkbookImage[] = [];
+
   constructor(
     readonly sheets: readonly Sheet[],
     readonly dateSystem: '1900' | '1904',
@@ -258,6 +268,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   const book = analyzeWorkbook(pkg, limits, warnings);
   const budget = { remaining: limits.maxCells, sharedText: limits.maxSharedStringChars };
   const formatCache = new Map<number, NumberFormat>();
+  const media: MediaCache = new Map();
   const sheets = book.sheets.map((entry): Sheet => {
     let data: WorksheetData | null = null;
     if (entry.kind === 'worksheet' && entry.part !== null) {
@@ -278,9 +289,18 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     const links = data === null || entry.part === null ? [] : resolveHyperlinks(pkg, entry.part, entry.name, data, warnings);
     const notes = data === null || entry.part === null ? [] : readNotes(pkg, entry.part, entry.name, limits, warnings);
     if (data !== null) attachNotes(data.rows, notes);
-    return new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links, notes, book.definedNames);
+    const sheet = new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links, notes, book.definedNames);
+    if (data !== null && entry.part !== null) sheet.tables = readTables(pkg, entry.part, entry.name, limits, warnings);
+    if (data !== null && entry.part !== null) {
+      const drawing = readSheetDrawing(pkg, entry.part, entry.name, { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null }, { limits, warnings }, media);
+      sheet.images = drawing.images;
+      sheet.backgroundImage = drawing.background;
+    }
+    return sheet;
   });
-  return new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection);
+  const workbook = new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection);
+  workbook.images = [...media.values()].filter((m): m is WorkbookImage => m !== null);
+  return workbook;
 }
 
 /**
@@ -355,6 +375,30 @@ export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: 
     return [];
   }
   return parseComments(xml, { part: rel.target, sheet, limits, warnings });
+}
+
+/**
+ * The tables of a worksheet: the Table Definition parts named by the sheet's internal `table`
+ * relationships (Part 1 §12.3.21, §18.3.1.94; TD-01), in relationship order. A missing or
+ * invalid part gives a warning, never an error.
+ */
+export function readTables(pkg: OpcPackage, part: string, sheet: string, limits: ReadLimits, warnings: WarningCollector): TableDefinition[] {
+  const tables: TableDefinition[] = [];
+  for (const rel of pkg.relationships(part)) {
+    if (rel.external || classifyRelationship(rel.type)?.name !== 'table') continue;
+    if (tables.length >= MAX_TABLES_PER_SHEET) {
+      warnings.add('XLV_W_INVALID_VALUE', `The sheet has more than ${String(MAX_TABLES_PER_SHEET)} tables; the rest are not read.`, { part, sheet });
+      break;
+    }
+    const xml = pkg.readXml(rel.target);
+    if (xml === undefined) {
+      warnings.add('XLV_W_PART_MISSING', 'The sheet refers to a table part that does not exist; that table is not read.', { part: rel.target, sheet });
+      continue;
+    }
+    const table = parseTable(xml, { part: rel.target, sheet, limits, warnings });
+    if (table !== null) tables.push(table);
+  }
+  return tables;
 }
 
 /** Sets `note` on the existing cells that have one (the first note of a cell wins). */

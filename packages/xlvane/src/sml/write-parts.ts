@@ -8,6 +8,7 @@ import type { NormalizedHyperlink } from '../hyperlinks';
 import { printXml, sheetProtectionXml, workbookProtectionXml, type NormalizedWorkbookProtection, type SheetPrintData } from '../printing';
 import { X14_CF_URI, X14_ID_URI, X14_NS, XM_NS, type CfValue, type DataValidation, type StoredCfRule, type StoredConditionalFormat } from '../sheet-rules';
 import { COMMENTS_CONTENT_TYPE, VML_CONTENT_TYPE } from '../notes';
+import { TABLE_CONTENT_TYPE, tablePartName, tableXml, type NormalizedTable } from '../tables';
 import {
   APP_PROPERTIES_CONTENT_TYPE,
   APP_PROPERTIES_PART,
@@ -22,6 +23,7 @@ import {
 import type { DateSystem, SheetState, SheetView } from '../model';
 import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
+import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ImageFormat, type ResolvedImage } from '../images';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
 import { CONTENT_TYPES_NS, PACKAGE_REL_NS, REL_NS, SML_NS } from './namespaces';
@@ -53,6 +55,12 @@ export interface WriteSheetData {
   readonly dataValidations?: readonly DataValidation[];
   /** Protection, page setup, headers and footers, page breaks (SR-20 … SR-28); absent for none. */
   readonly print?: SheetPrintData;
+  /** Tables in the order they were added (TD-01). */
+  readonly tables?: readonly NormalizedTable[];
+  /** Pictures with resolved anchors (TD-35). */
+  readonly images?: readonly ResolvedImage[];
+  /** Background image (index into `WritePackageInput.images`), or `null`. */
+  readonly background?: number | null;
 }
 
 /** Everything needed to write a package. */
@@ -68,6 +76,8 @@ export interface WritePackageInput {
   readonly dxfs?: readonly NormalizedStyle[];
   /** `workbookProtection` (SR-22, D-C08). */
   readonly workbookProtection?: NormalizedWorkbookProtection | null;
+  /** Images added with `NewWorkbook.addImage`, by number (TD-31). */
+  readonly images?: readonly { readonly bytes: Uint8Array; readonly format: ImageFormat }[];
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -512,6 +522,19 @@ export function sheetRelsPartName(n: number): string {
   return `xl/worksheets/_rels/sheet${String(n)}.xml.rels`;
 }
 
+/**
+ * The Table Definition parts of one worksheet and its `tableParts` element (written last before
+ * `extLst`, CT_Worksheet sml.xsd T2210; TD-02). Tables are numbered across the workbook from
+ * `first` (1-based): that number is both the part name and the table `id`, unique per workbook
+ * (Part 1 §18.5.1.2). Each part is the target of a `table` relationship of the sheet.
+ */
+export function tableParts(tables: readonly NormalizedTable[], first: number, rels: SheetRels): { readonly element: string; readonly parts: readonly { readonly name: string; readonly xml: string }[] } {
+  if (tables.length === 0) return { element: '', parts: [] };
+  const parts = tables.map((t, i) => ({ name: tablePartName(first + i), xml: tableXml(t, first + i) }));
+  const ids = parts.map((p) => rels.add('table', `../tables/${p.name.slice('xl/tables/'.length)}`));
+  return { element: `<tableParts${attr('count', ids.length)}>${ids.map((id) => `<tablePart${attr('r:id', id)}/>`).join('')}</tableParts>`, parts };
+}
+
 // ---------------------------------------------------------------------------------------------
 // Conditional formatting and data validation (SR-01 … SR-16)
 
@@ -874,12 +897,22 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const sheetRels = input.sheets.map(() => new SheetRels());
   const notes: (NoteParts | null)[] = [];
   let block = 1;
+  const tables: { readonly name: string; readonly xml: string }[] = [];
+  let tableCount = 0;
+  const media = new MediaParts(input.images ?? []);
+  const drawings: { readonly name: string; readonly xml: string; readonly relsName: string; readonly rels: string }[] = [];
   const sheetParts = input.sheets.map((sheet, i) => {
     const rels = sheetRels[i]!;
     const parts = noteParts(sheet.notes ?? [], i + 1, rels, block);
     notes.push(parts);
     if (parts !== null) block += parts.blocks;
-    return sheetXml(sheet, i === active, xfOf, sst, rels, parts?.legacyDrawing, i + 1);
+    const drawing = drawingParts(sheet.images ?? [], sheet.background ?? null, media, drawings.length + 1, rels);
+    if (drawing.part !== null) drawings.push(drawing.part);
+    const sheetTables = tableParts(sheet.tables ?? [], tableCount + 1, rels);
+    tableCount += sheetTables.parts.length;
+    tables.push(...sheetTables.parts);
+    // CT_Worksheet: drawing, legacyDrawing, …, picture, …, tableParts (TD-34).
+    return sheetXml(sheet, i === active, xfOf, sst, rels, drawing.drawing + (parts?.legacyDrawing ?? '') + drawing.picture + sheetTables.element, i + 1);
   });
 
   const n = input.sheets.length;
@@ -889,7 +922,12 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const app = appPropertiesXml(input.properties ?? {}, input.sheets.map((sheet) => sheet.name), nameTitles(input.definedNames ?? []));
   const rootRels = rootRelsXml(core !== null, app !== null);
   const noteSheets = notes.flatMap((p, i) => (p === null ? [] : [i + 1]));
-  const types = contentTypesXml(n, true, core !== null, app !== null, noteSheets);
+  const mediaEntries = media.entries();
+  const types = contentTypesXml(n, true, core !== null, app !== null, noteSheets, [
+    ...tables.map((t) => [t.name, TABLE_CONTENT_TYPE] as const),
+    ...drawings.map((d) => [d.name, DRAWING_CONTENT_TYPE] as const),
+    ...mediaEntries.map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as ImageFormat]] as const),
+  ]);
 
   const entries: ZipWriteEntry[] = [
     { name: '[Content_Types].xml', data: encoder.encode(types) },
@@ -906,6 +944,9 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     const parts = notes[i];
     if (parts) entries.push({ name: parts.comments.name, data: encoder.encode(parts.comments.xml) }, { name: parts.vml.name, data: encoder.encode(parts.vml.xml) });
   });
+  for (const t of tables) entries.push({ name: t.name, data: encoder.encode(t.xml) });
+  for (const d of drawings) entries.push({ name: d.name, data: encoder.encode(d.xml) }, { name: d.relsName, data: encoder.encode(d.rels) });
+  entries.push(...mediaEntries);
   if (core !== null) entries.push({ name: CORE_PROPERTIES_PART, data: encoder.encode(core) });
   if (app !== null) entries.push({ name: APP_PROPERTIES_PART, data: encoder.encode(app) });
   return writeZip(entries);
@@ -992,7 +1033,14 @@ export function rootRelsXml(coreProperties = false, appProperties = false): stri
  * The Media Types stream (W2-30). `noteSheets` lists the worksheets (1-based) that have notes:
  * each gets an Override for its Comments part, and the VML parts are covered by a `vml` Default.
  */
-export function contentTypesXml(sheetCount: number, sharedStrings: boolean, coreProperties = false, appProperties = false, noteSheets: readonly number[] = []): string {
+export function contentTypesXml(
+  sheetCount: number,
+  sharedStrings: boolean,
+  coreProperties = false,
+  appProperties = false,
+  noteSheets: readonly number[] = [],
+  overrides: readonly (readonly [part: string, contentType: string])[] = [],
+): string {
   let types = `${XML_DECL}<Types xmlns="${CONTENT_TYPES_NS}">`;
   types += '<Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>';
   types += '<Default Extension="xml" ContentType="application/xml"/>';
@@ -1004,6 +1052,7 @@ export function contentTypesXml(sheetCount: number, sharedStrings: boolean, core
   if (sharedStrings) types += `<Override PartName="/xl/sharedStrings.xml" ContentType="${CT_BASE}sharedStrings+xml"/>`;
   if (coreProperties) types += `<Override PartName="/${CORE_PROPERTIES_PART}" ContentType="${CORE_PROPERTIES_CONTENT_TYPE}"/>`;
   if (appProperties) types += `<Override PartName="/${APP_PROPERTIES_PART}" ContentType="${APP_PROPERTIES_CONTENT_TYPE}"/>`;
+  for (const [part, type] of overrides) types += `<Override${attr('PartName', `/${part}`)}${attr('ContentType', type)}/>`;
   return `${types}</Types>`;
 }
 

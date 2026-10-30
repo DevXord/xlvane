@@ -52,12 +52,15 @@
 | `hyperlinkCount` | number | hyperlinks of the sheet (`Sheet.hyperlinks`) |
 | `hyperlinks` | object[] | up to ten of them: `ref`, `target` (external URL or path as stored, or `null`), `location` (place in the workbook, or `null`); targets are never opened |
 | `noteCount` | number | notes (comments) of the sheet (`Sheet.notes`) |
+| `imageCount` | number | pictures of the sheet's drawing (`Sheet.images`); charts and shapes are not counted |
+| `images` | array | up to 10 pictures: `cell` of the top-left corner (`null` for an absolute position) and `format` (`png`, `jpeg`, `gif`, or `null` for other formats) |
 | `notes` | string[] | up to ten cells that have a note |
 | `protected` | boolean | the sheet is protected (`Sheet.protection.sheet`) |
 | `printArea` | string[] \| null | the print area (`Sheet.printArea`), at most ten ranges |
 | `pageBreakCount` | number | manual page breaks, rows and columns together (`Sheet.pageBreaks`) |
 | `dataValidationCount` | number | data validation rules (`Sheet.dataValidations`) |
 | `conditionalFormatCount` | number | conditional formatting rules over all ranges (`Sheet.conditionalFormats`) |
+| `tables` | array | tables of the sheet (`Sheet.tables`): `name` (the name used in formulas), `ref` (header and totals rows included) and `columns` (column names); at most 20 tables and 50 columns each |
 
 **Header detection.** Among the first `headerScanRows` non-empty rows, the header row is the first one whose cells are all distinct, non-blank strings and cover at least half of the used width. The confidence is `"high"` when the next non-empty row contains a value that is not a string (number, date, boolean or error), otherwise `"low"`. This is a heuristic; check `confidence` before relying on it.
 
@@ -116,12 +119,15 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
       "hyperlinkCount": 0,
       "hyperlinks": [],
       "noteCount": 0,
+      "imageCount": 0,
+      "images": [],
       "notes": [],
       "protected": false,
       "printArea": null,
       "pageBreakCount": 0,
       "dataValidationCount": 0,
       "conditionalFormatCount": 0,
+      "tables": [],
       "rowCount": 3,
       "columnCount": 3,
       "headerRow": { "row": 1, "confidence": "high" },

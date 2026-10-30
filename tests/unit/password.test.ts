@@ -136,7 +136,9 @@ describe('protecting with a password', () => {
     );
     expect(strFromU8(streamed['xl/worksheets/sheet1.xml']!)).toContain(`hashValue="${hash.hashValue}"`);
     expect(strFromU8(streamed['xl/workbook.xml']!)).toContain('<workbookProtection lockStructure="1" workbookAlgorithmName="SHA-512"');
-  });
+    // Sheet T uses the default 100,000 iterations, hashed in plain JavaScript several times here,
+    // so this test needs more than the default 5 s when the whole suite runs in parallel.
+  }, 60_000);
 
   it('refuses malformed verifiers and removes workbook protection with null', () => {
     const sheet = createWorkbook().addSheet('S');

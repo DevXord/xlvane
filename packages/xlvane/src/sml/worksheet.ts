@@ -79,6 +79,9 @@ export interface WorksheetData {
   readonly conditionalFormats: ConditionalFormat[];
   /** `dataValidations/dataValidation` in file order (SR-01 … SR-06). */
   readonly dataValidations: DataValidation[];
+  /** `r:id` of the `drawing` and `picture` elements (TD-30), resolved by the caller. */
+  readonly drawingRelId?: string | null;
+  readonly pictureRelId?: string | null;
 }
 
 /** The view of a sheet without a `sheetView`, from the defaults of CT_SheetView (W2-51). */
@@ -193,6 +196,8 @@ export function createWorksheetParser(
   let tabColor: Color | null = null;
   let view: SheetView = DEFAULT_SHEET_VIEW;
   const hyperlinks: RawHyperlink[] = [];
+  let drawingRelId: string | null = null;
+  let pictureRelId: string | null = null;
   const print = createPrintCollector((message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
   const rules = createRuleCollector({
     ns: () => ns ?? SML_NS.transitional,
@@ -500,6 +505,9 @@ export function createWorksheetParser(
           if (range === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The hyperlink range "${ref.slice(0, 40)}" is not a valid range; the link is skipped.`, loc());
           else if (hyperlinks.length >= MAX_HYPERLINKS) ctx.warnings.add('XLV_W_INVALID_VALUE', `The sheet has more than ${String(MAX_HYPERLINKS)} hyperlinks; the rest are skipped.`, loc());
           else hyperlinks.push({ ref: formatRange(range), relId: attrs.get(relIdKey) ?? null, location: text('location'), tooltip: text('tooltip'), display: text('display') });
+        } else if (depth === 2 && (local === 'drawing' || local === 'picture')) {
+          if (local === 'drawing') drawingRelId ??= attrs.get(relIdKey) ?? null;
+          else pictureRelId ??= attrs.get(relIdKey) ?? null;
         } else if (depth === 2 && local === 'autoFilter') {
           const ref = attrs.get('ref');
           const range = ref === undefined ? null : parseRange(ref);
@@ -638,7 +646,7 @@ export function createWorksheetParser(
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
     else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
-    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, print: print.result(), ...rules.result() };
+    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
   };
   return { handler, finish };
 }

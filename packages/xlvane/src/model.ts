@@ -3,9 +3,11 @@ import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import type { XlvWarning } from './errors';
 import type { Hyperlink } from './hyperlinks';
+import type { SheetImage, WorkbookImage } from './images';
 import type { HeaderFooter, PageSetup, SheetProtection, WorkbookProtection } from './printing';
 import type { Note } from './notes';
 import type { ConditionalFormat, DataValidation } from './sheet-rules';
+import type { TableDefinition } from './tables';
 import type { CellStyle, Color, FontStyle } from './style';
 
 /**
@@ -372,6 +374,10 @@ export interface Sheet {
   readonly hyperlinks: readonly Hyperlink[];
   /** Notes (comments) of the sheet, in file order (see `Note`). */
   readonly notes: readonly Note[];
+  /** Pictures of the sheet's drawing, in file order (see `SheetImage`); charts and shapes are not read. */
+  readonly images: readonly SheetImage[];
+  /** The background image of the sheet (`picture` element), or `null`. */
+  readonly backgroundImage: WorkbookImage | null;
   /** Colour of the sheet tab (`sheetPr/tabColor`), or `null`. */
   readonly tabColor: Color | null;
   /** Display settings of the sheet's first view. */
@@ -395,6 +401,8 @@ export interface Sheet {
   readonly printArea: readonly string[] | null;
   /** Rows (`"1:2"`) and columns (`"A:B"`) repeated on each printed page, or `null`. */
   readonly printTitles: { readonly rows: string | null; readonly columns: string | null } | null;
+  /** Tables of the sheet (see `TableDefinition`), in the order of the sheet's relationships. */
+  readonly tables: readonly TableDefinition[];
   /** Height and visibility of a row (1-based), or `undefined` if the file sets neither. */
   rowInfo(row: number): RowInfo | undefined;
   /** Returns the cell at an A1-style reference, or `undefined` if the file has none there. */
@@ -434,6 +442,8 @@ export interface Workbook {
   readonly definedNames: readonly DefinedName[];
   /** `workbookProtection` of the workbook, or `null` (see `WorkbookProtection`). */
   readonly protection: WorkbookProtection | null;
+  /** The images used by pictures and sheet backgrounds, each once (see `WorkbookImage`). */
+  readonly images: readonly WorkbookImage[];
   /** Returns the sheet with this name; throws `XLV_E_SHEET_NOT_FOUND` if there is none. */
   getSheet(name: string): Sheet;
 }

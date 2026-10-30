@@ -131,6 +131,8 @@ describe('corpus: Apache POI', () => {
   it('readable files: inserting and deleting a row gives the original back, or a refusal', { timeout: 600_000 }, async () => {
     const problems: string[] = [];
     let checked = 0;
+    let withTables = 0;
+    let withImages = 0;
     for (const name of files) {
       const bytes = readFileSync(new URL(name, dir));
       const { workbook } = outcome(bytes);
@@ -144,6 +146,14 @@ describe('corpus: Apache POI', () => {
         const changes = d.sheets.flatMap((s) => s.cells.map((c) => `${s.name}!${c.ref}:${c.kind}`));
         // Reversed ranges such as O2:O1 come back written in order (O1:O2, R-15).
         if (!d.equal && !(name === 'bug60858.xlsx' && changes.join() === 'Arbeitszeitcheck_2.3!F2:changed,Arbeitszeitcheck_2.3!G2:changed')) problems.push(`${name}: ${changes.slice(0, 3).join(', ')}`);
+        // Tables move back to where they were (TD-11).
+        const tables = (w: Workbook): string => JSON.stringify(w.sheets.map((s) => s.tables));
+        if (tables(readWorkbook(back)) !== tables(workbook)) problems.push(`${name}: tables differ after insert and delete`);
+        if (workbook.sheets.some((s) => s.tables.length > 0)) withTables++;
+        // Pictures move back to where they were (TD-38).
+        const images = (w: Workbook): string => JSON.stringify(w.sheets.map((s) => s.images.map((i) => i.anchor)));
+        if (images(readWorkbook(back)) !== images(workbook)) problems.push(`${name}: pictures differ after insert and delete`);
+        if (sheet.images.length > 0) withImages++;
         checked++;
       } catch (error) {
         const code = error instanceof XlvError ? error.code : 'CRASH';
@@ -151,7 +161,10 @@ describe('corpus: Apache POI', () => {
       }
     }
     expect(problems).toEqual([]);
-    // 223 files on 2026-10-30; the others have tables, drawings or similar parts (D-B04).
-    expect(checked).toBeGreaterThan(200);
+    // 223 files on 2026-10-30 before tables could move (D-B04); with tables (D-D02) more are checked.
+    expect(checked).toBeGreaterThan(220);
+    expect(withTables).toBeGreaterThan(10);
+    // Sheets with pictures only (no charts or shapes) are moved too (D-D03).
+    expect(withImages).toBeGreaterThan(0);
   });
 });

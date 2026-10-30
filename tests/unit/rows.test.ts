@@ -122,7 +122,14 @@ describe('insertRows', () => {
   });
 
   it('refuses tables, drawings and formulas it cannot adjust', () => {
-    const drawing = buildXlsx({ sheets: [{ name: 'S', data: row(1, c('A1', 1)), after: '<drawing r:id="rId1"/>' }] });
+    // A drawing with a chart (graphicFrame); drawings with pictures only are moved (images.test.ts).
+    const drawing = buildXlsx({
+      sheets: [{ name: 'S', data: row(1, c('A1', 1)), after: '<drawing r:id="rId1"/>' }],
+      extraParts: {
+        'xl/worksheets/_rels/sheet1.xml.rels': '<?xml version="1.0"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/drawing" Target="../drawings/drawing1.xml"/></Relationships>',
+        'xl/drawings/drawing1.xml': '<xdr:wsDr xmlns:xdr="http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing"><xdr:absoluteAnchor><xdr:pos x="0" y="0"/><xdr:ext cx="1" cy="1"/><xdr:graphicFrame/><xdr:clientData/></xdr:absoluteAnchor></xdr:wsDr>',
+      },
+    });
     expect(codeOf(() => insertRows(drawing, { sheet: 'S', at: 1 }))).toBe('XLV_E_NOT_SUPPORTED');
     const spill = buildXlsx({ sheets: [{ name: 'S', data: row(1, '<c r="A1"><f>@B1:B3</f></c>') }] });
     expect(codeOf(() => insertRows(spill, { sheet: 'S', at: 1 }))).toBe('XLV_E_NOT_SUPPORTED');
@@ -173,5 +180,43 @@ describe('deleteRows', () => {
       expect([...b.getSheet(name).cells()].map((x) => [x.ref, x.value, x.formula?.text ?? null])).toEqual([...a.getSheet(name).cells()].map((x) => [x.ref, x.value, x.formula?.text ?? null]));
     }
     expect(b.definedNames).toEqual(a.definedNames);
+  });
+});
+
+describe('tables move with their rows (TD-11)', () => {
+  function withTable(): Uint8Array {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    s.set('A1', 'title');
+    s.addTable({
+      name: 'Sales',
+      ref: 'A3',
+      totalsRow: true,
+      columns: [{ name: 'Region', totalsRowLabel: 'Total' }, { name: 'Revenue', totalsRowFunction: 'sum' }, { name: 'Twice', calculatedColumnFormula: 'B4*2' }],
+      rows: [['North', 1], ['South', 2], ['East', 3]],
+    });
+    wb.addSheet('Other').set('A1', { formula: 'SUM(S!B4:B6)' });
+    return writeWorkbook(wb);
+  }
+
+  it('moves a table below inserted rows and grows it for rows inserted inside', () => {
+    const above = insertRows(withTable(), { sheet: 'S', at: 2, count: 2 }).bytes;
+    const t = readWorkbook(above).getSheet('S').tables[0];
+    expect([t?.ref, t?.autoFilter, t?.columns[2]?.calculatedColumnFormula]).toEqual(['A5:C9', 'A5:C8', 'B6*2']);
+    const inside = insertRows(withTable(), { sheet: 'S', at: 5 }).bytes;
+    const g = readWorkbook(inside).getSheet('S').tables[0];
+    expect([g?.ref, g?.autoFilter]).toEqual(['A3:C8', 'A3:C7']);
+    expect(readWorkbook(inside).getSheet('Other').cell('A1')?.formula?.text).toBe('SUM(S!B4:B7)');
+    expect(part(inside, 'xl/tables/table1.xml')).toContain('<calculatedColumnFormula>B4*2</calculatedColumnFormula>');
+  });
+
+  it('shrinks a table when data rows are deleted and refuses to cut its header, totals or all data rows', () => {
+    const bytes = withTable();
+    const t = readWorkbook(deleteRows(bytes, { sheet: 'S', at: 5 }).bytes).getSheet('S').tables[0];
+    expect([t?.ref, t?.autoFilter]).toEqual(['A3:C6', 'A3:C5']);
+    expect(readWorkbook(deleteRows(bytes, { sheet: 'S', at: 1 }).bytes).getSheet('S').tables[0]?.ref).toBe('A2:C6');
+    expect(codeOf(() => deleteRows(bytes, { sheet: 'S', at: 3 }))).toBe('XLV_E_NOT_SUPPORTED');
+    expect(codeOf(() => deleteRows(bytes, { sheet: 'S', at: 7 }))).toBe('XLV_E_NOT_SUPPORTED');
+    expect(codeOf(() => deleteRows(bytes, { sheet: 'S', at: 4, count: 3 }))).toBe('XLV_E_NOT_SUPPORTED');
   });
 });

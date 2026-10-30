@@ -538,6 +538,12 @@ Phase C brought the library to 171.1 kB of the 175 kB budget. The maintainer's r
 
 **Addendum (2026-10-30):** the maintainer raised the library budget further to 300 kB. The CLI budget stays 40 kB.
 
+### D-D02 Tables (2026-10-30)
+xlvane reads and writes worksheet tables (ECMA-376 Part 1 §18.5, §12.3.21; TD-01 … TD-12). `addTable` writes the header, data and totals cells and the Table Definition part; totals use `SUBTOTAL` with the function numbers of [MS-OI29500] §2.1.1094, written as Excel writes them; the autofilter covers the header and data rows, as in the files Excel saved in the POI corpus; ids and part numbers are unique across the workbook. Names follow the defined-name rules (Part 1 §18.5.1.2 → §18.17.2.5; [MS-OI29500] §2.1.680) and are unique among tables and defined names, ignoring case; tables must not overlap other tables or merged cells; violations throw `XLV_E_INVALID_TABLE`. Only the 60 built-in table styles can be named; defaults follow exceljs (`TableStyleMedium2`, no stripes). The reader exposes `Sheet.tables`, tolerating broken parts with warnings, and `readTable` reads a table by name (`XLV_E_TABLE_NOT_FOUND` lists the names). `insertRows`/`deleteRows` move, grow and shrink tables like ranges (D-B01) and adjust their formulas; deleting a header row, totals row or all data rows is refused. The streaming writer takes tables with their whole range; the caller streams the cells.
+
+### D-D03 Images (2026-10-30)
+xlvane reads pictures from a worksheet's Drawings part (Part 1 §12.3.8, §20.5) as `Sheet.images`: each with its anchor in EMU and the corner cells, description, click target (text only, never opened) and image part (`WorkbookImage`, each once in `Workbook.images`); the sheet background (`picture`) is `Sheet.backgroundImage`. Other drawing objects (charts, shapes, groups) are not modelled: `XLV_W_DRAWING_CONTENT_NOT_READ` reports them and `editCells` keeps them unchanged. By the maintainer's decision xlvane writes only PNG, JPEG and GIF, recognised by their first bytes (signatures observed in corpus files; the format specifications were not reachable); each image is stored once with one relationship per drawing, without `a16:creationId` (not described by the documents). Anchors: range, two corners or corner plus size; pixels at 96 per inch (a convention the documents do not give; the same as exceljs); fractional positions use the sheet's column widths and row heights (PROVISIONAL). `insertRows`/`deleteRows` move pictures with their rows; a deletion that cuts a picture, and drawings with other objects, are refused. LibreOffice 24.2.7.2 keeps the pictures byte for byte with description and `editAs`. Facts TD-30 … TD-39.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -564,6 +570,7 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/formulas.md | F2-* | formula tokenizer for shared formulas; checked against ECMA-376 Part 1 §18.17, [MS-OI29500] and [MS-XLSX] §2.2.2 (D-1102, D-1104) |
 | docs/facts/ref-adjust.md | R-* | reference adjustment on insert/delete, observed in LibreOffice 24.2.7.2 (D-B01) |
 | docs/facts/sheet-rules.md | SR-* | data validation, conditional formatting, dxfs, protection, printing (REPORT-3; D-C01 … D-C04) |
+| docs/facts/tables-drawings.md | TD-* | tables, drawings and pictures (REPORT-3; D-D02, D-D03) |
 | docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |
 
 ### F-NODE-04 … F-NODE-05

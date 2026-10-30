@@ -140,6 +140,10 @@ export interface InspectSheet {
   readonly noteCount: number;
   /** Up to ten cells that have a note. */
   readonly notes: readonly string[];
+  /** Number of pictures of the sheet's drawing (`Sheet.images`). */
+  readonly imageCount: number;
+  /** Up to ten pictures: the cell of the top-left corner (or `null` for an absolute position) and the image format. */
+  readonly images: readonly { readonly cell: string | null; readonly format: 'png' | 'jpeg' | 'gif' | null }[];
   /** `true` when the sheet is protected (`Sheet.protection.sheet`). */
   readonly protected: boolean;
   /** The print area (`Sheet.printArea`), or `null`. */
@@ -150,6 +154,8 @@ export interface InspectSheet {
   readonly dataValidationCount: number;
   /** Number of conditional formatting rules, over all ranges (`Sheet.conditionalFormats`). */
   readonly conditionalFormatCount: number;
+  /** Tables of the sheet (`Sheet.tables`): name, range and column names; at most 20 tables and 50 columns each. */
+  readonly tables: readonly { readonly name: string; readonly ref: string; readonly columns: readonly string[] }[];
 }
 
 /**
@@ -389,11 +395,14 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     hyperlinks: sheet.hyperlinks.slice(0, MAX_HYPERLINK_SAMPLES).map((l) => ({ ref: l.ref, target: l.target, location: l.location })),
     noteCount: sheet.notes.length,
     notes: sheet.notes.slice(0, MAX_HYPERLINK_SAMPLES).map((n) => n.ref),
+    imageCount: sheet.images.length,
+    images: sheet.images.slice(0, MAX_HYPERLINK_SAMPLES).map((i) => ({ cell: i.anchor.type === 'absolute' ? null : i.anchor.from.cell, format: i.image?.format ?? null })),
     protected: sheet.protection?.sheet === true,
     printArea: sheet.printArea === null ? null : sheet.printArea.slice(0, MAX_HYPERLINK_SAMPLES),
     pageBreakCount: sheet.pageBreaks.rows.length + sheet.pageBreaks.columns.length,
     dataValidationCount: sheet.dataValidations.length,
     conditionalFormatCount: sheet.conditionalFormats.reduce((n, f) => n + f.rules.length, 0),
+    tables: sheet.tables.slice(0, 20).map((t) => ({ name: t.displayName, ref: t.ref, columns: t.columns.slice(0, 50).map((c) => c.name) })),
   };
   if (empty) {
     return { ...base, rowCount: 0, columnCount: 0, headerRow: null, columns: [], columnsTruncated: false };

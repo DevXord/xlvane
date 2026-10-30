@@ -7,6 +7,7 @@ import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
 import { printNames, printXml, sheetProtectionXml, type HeaderFooter, type PageBreaks, type PageSetupOptions, type PrintTitles, type SheetProtectionOptions, type WorkbookProtectionOptions } from './printing';
 import type { DateSystem, SheetState } from './model';
+import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, metricsOf, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions } from './images';
 import type { NoteInput } from './notes';
 import type { ConditionalFormatRuleInput, DataValidationRule } from './sheet-rules';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
@@ -28,9 +29,11 @@ import {
   sheetRelsPartName,
   workbookRelsXml,
   workbookXml,
+  tableParts,
 } from './sml/write-parts';
 import { normalizeStyle, type CellStyle, type Color, type NormalizedStyle } from './style';
 import type { TableColumnSpec } from './table';
+import { normalizeTable, TABLE_CONTENT_TYPE, type TableInput } from './tables';
 import { readOptions } from './util/options';
 import {
   convertCellInput,
@@ -124,6 +127,20 @@ export interface StreamSheetSpec {
   readonly dataValidations?: readonly (DataValidationRule & { readonly sqref: string })[];
   /** Conditional formats, each a range with its rules, as for `NewSheet.conditionalFormat`. */
   readonly conditionalFormats?: readonly { readonly sqref: string; readonly rules: readonly ConditionalFormatRuleInput[] }[];
+  /**
+   * Tables, as for `NewSheet.addTable` but with the whole range in `ref` and no `rows`: the header,
+   * data and totals values are streamed as ordinary rows (the header cells must hold the column
+   * names; [MS-OI29500] §2.1.681 i).
+   */
+  readonly tables?: readonly Omit<TableInput, 'rows'>[];
+  /**
+   * Pictures, as for `NewSheet.addImage`: `image` is a position in
+   * `WriteWorkbookStreamOptions.images`. Fractional row positions assume the default row height,
+   * because the rows are written before the drawing.
+   */
+  readonly images?: readonly (ImageOptions & { readonly image: number; readonly anchor: ImageAnchorInput })[];
+  /** Background image (a position in `WriteWorkbookStreamOptions.images`), as for `NewSheet.background`. */
+  readonly background?: number;
   /** The rows, from row 1. Any iterable or async iterable (arrays, generators, streams of rows). */
   readonly rows: Iterable<StreamRowInput> | AsyncIterable<StreamRowInput>;
 }
@@ -161,6 +178,8 @@ export interface WriteWorkbookStreamOptions {
   readonly definedNames?: readonly StreamDefinedName[];
   /** Workbook protection, as for `NewWorkbook.protect`. */
   readonly protection?: WorkbookProtectionOptions;
+  /** Image files (PNG, JPEG or GIF bytes) used by the sheets' `images` and `background`, by position. */
+  readonly images?: readonly Uint8Array[];
 }
 
 /**
@@ -193,6 +212,10 @@ interface PreparedSheet {
   readonly rels: SheetRels;
   /** The note parts, known when the sheet has been written. */
   notes: NoteParts | null;
+  /** The Table Definition parts, known when the sheet has been written. */
+  tables: readonly { readonly name: string; readonly xml: string }[];
+  /** The Drawings part, known when the sheet has been written. */
+  drawing: { readonly name: string; readonly xml: string; readonly relsName: string; readonly rels: string } | null;
 }
 
 function isIterable(value: unknown): value is Iterable<unknown> | AsyncIterable<unknown> {
@@ -228,13 +251,17 @@ async function* iterate<T>(source: Iterable<T> | AsyncIterable<T>): AsyncGenerat
  * ```
  */
 export function writeWorkbookStream(options: WriteWorkbookStreamOptions): ReadableStream<Uint8Array> {
-  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection'], 'writeWorkbookStream options');
+  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection', 'images'], 'writeWorkbookStream options');
   const dateSystem = o.get('dateSystem');
   const book = createWorkbook({
     ...(dateSystem === undefined ? {} : { dateSystem: dateSystem as DateSystem }),
     ...(o.has('properties') ? { properties: o.get('properties') as WorkbookProperties } : {}),
   });
   if (o.has('protection')) book.protect(o.get('protection') as WorkbookProtectionOptions);
+  const imageInput = o.get('images') ?? [];
+  if (!Array.isArray(imageInput)) throw new XlvError('XLV_E_INVALID_OPTION', 'The option "images" must be an array of image files.', { hint: 'For example images: [pngBytes], then images: [{ image: 0, anchor: "B2:D6" }] on a sheet.', details: { option: 'images' } });
+  for (const bytes of imageInput) book.addImage(bytes as Uint8Array);
+  const media = new MediaParts(book.imageList());
   const core = corePropertiesXml(book.properties);
   const rawNames = o.get('definedNames') ?? [];
   if (!Array.isArray(rawNames)) {
@@ -263,7 +290,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
   const prepare = (raw: unknown, i: number): PreparedSheet => {
-    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'rows'], `sheets[${String(i)}]`);
+    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
     const sheet = book.addSheet(s.get('name') as string, state === undefined ? undefined : { state: state as SheetState });
     const columns = s.get('columns');
@@ -301,6 +328,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       const c = readOptions(v, ['sqref', 'rules'], `sheets[${String(i)}].conditionalFormats`);
       sheet.conditionalFormat(c.get('sqref') as string, c.get('rules') as ConditionalFormatRuleInput[]);
     }
+    for (const v of listOf('tables', '{ name: "Sales", ref: "A1:B10", columns: [{ name: "Region" }, { name: "Revenue" }] }')) {
+      const t = normalizeTable(v, sheet.name, true);
+      book.checkTable(t, sheet);
+      sheet.tableList.push(t);
+    }
     const merges = s.get('merges');
     if (merges !== undefined) {
       if (!Array.isArray(merges)) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].merges must be an array of ranges.`, { hint: 'For example merges: ["A1:C1"].', details: { option: 'merges' } });
@@ -326,7 +358,12 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
         sheet.link(ref as string, target);
       }
     }
-    return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null, rels: new SheetRels(), notes: null };
+    for (const v of listOf('images', '{ image: 0, anchor: "B2:D6" }')) {
+      const { image, anchor, ...options } = v as { image?: unknown; anchor?: unknown };
+      sheet.addImage(image as number, anchor as ImageAnchorInput, options);
+    }
+    if (s.has('background')) sheet.background(s.get('background') as number);
+    return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null, rels: new SheetRels(), notes: null, tables: [], drawing: null };
   };
   const noVisibleSheet = (): XlvError =>
     new XlvError('XLV_E_INVALID_INPUT', 'All sheets of the workbook are hidden.', { hint: 'A workbook needs at least one visible sheet.' });
@@ -445,10 +482,22 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     p.sheet.noteMap.clear();
     if (p.notes !== null) shapeBlock += p.notes.blocks;
     const rules = sheetRulesXml({ conditionalFormats: p.sheet.conditionalList, dataValidations: p.sheet.validationList }, n);
+    const drawing = drawingParts(
+      p.sheet.imageList.map((i) => resolveImage(i, metricsOf(p.sheet.columnMap, p.sheet.rowMap))),
+      p.sheet.backgroundImage,
+      media,
+      ++drawingCount,
+      p.rels,
+    );
+    if (drawing.part === null) drawingCount--;
+    p.drawing = drawing.part;
+    const sheetTables = tableParts(p.sheet.tableList, tableCount + 1, p.rels);
+    tableCount += sheetTables.parts.length;
+    p.tables = sheetTables.parts;
     buffer += sheetTail(
       p.filterRange,
       p.sheet.mergeList,
-      rules.main + hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + printXml(p.sheet.print) + (p.notes?.legacyDrawing ?? '') + rules.ext,
+      rules.main + hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + printXml(p.sheet.print) + drawing.drawing + (p.notes?.legacyDrawing ?? '') + drawing.picture + sheetTables.element + rules.ext,
       sheetProtectionXml(p.sheet.print.protection),
     );
     yield encoder.encode(buffer);
@@ -461,6 +510,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     yield { name: parts.comments.name, data: encoder.encode(parts.comments.xml) };
     yield { name: parts.vml.name, data: encoder.encode(parts.vml.xml) };
   }
+  /** Tables are numbered across the workbook (TD-02). */
+  let tableCount = 0;
+  /** Drawings parts are numbered across the workbook (TD-35). */
+  let drawingCount = 0;
+  const tableTypes = (): (readonly [string, string])[] => prepared.flatMap((p) => p.tables.map((t) => [t.name, TABLE_CONTENT_TYPE] as const));
   const noteSheets = (): number[] => prepared.flatMap((p, i) => (p.notes === null ? [] : [i + 1]));
 
   /**
@@ -510,14 +564,25 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       // The ZIP stream reads an entry's data completely before it asks for the next entry, so the
       // sheet has been written (and its notes and relationships are known) by now.
       yield* noteEntries(p);
+      for (const t of p.tables) yield { name: t.name, data: encoder.encode(t.xml) };
+      if (p.drawing !== null) {
+        yield { name: p.drawing.name, data: encoder.encode(p.drawing.xml) };
+        yield { name: p.drawing.relsName, data: encoder.encode(p.drawing.rels) };
+      }
       yield* sheetRelsEntry(p, n);
     }
     if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
     if (!selected) throw noVisibleSheet();
     if (dynamic) addNames();
     const app = appXml() !== null;
-    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app, noteSheets())) };
+    const overrides = [
+      ...tableTypes(),
+      ...prepared.flatMap((p) => (p.drawing === null ? [] : [[p.drawing.name, DRAWING_CONTENT_TYPE] as const])),
+      ...media.entries().map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as ImageFormat]] as const),
+    ];
+    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app, noteSheets(), overrides)) };
     yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null, app)) };
+    yield* media.entries();
     yield* closingParts();
   }
   return createZipStream(entries());

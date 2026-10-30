@@ -8,6 +8,7 @@ import { columnLetters, formatCellRef, MAX_COLUMNS, MAX_ROWS, parseRange, type C
 import type { StandardSchemaV1 } from './standard-schema';
 import type { CellStyle } from './style';
 import { booleanOption, oneOfOption, openInput, readOptions } from './util/options';
+import { suggest } from './util/suggest';
 import { createWorkbook, writeWorkbook, type NewWorkbook } from './write';
 import type { DateSystem } from './model';
 
@@ -50,6 +51,11 @@ export type TableRow = Record<string, TableValue>;
 export interface ReadTableOptions<S extends StandardSchemaV1 | undefined = undefined> {
   /** Sheet name (exact). Default: the first visible worksheet. */
   readonly sheet?: string;
+  /**
+   * Read a table (Part 1 §18.5) by its name, ignoring case: its data rows, keyed by its header
+   * row; the totals row is left out. Cannot be combined with `sheet`, `header` or `range`.
+   */
+  readonly table?: string;
   /**
    * Where the header row is: `"auto"` (default) detects it like `inspect()`; a number is the
    * 1-based row; `false` means no header, and keys are the column letters.
@@ -142,7 +148,7 @@ export interface TableResult<Row> {
   readonly issues: TableIssue[];
 }
 
-const READ_OPTIONS = ['sheet', 'header', 'range', 'schema', 'dates', 'skipEmptyRows', 'limits'];
+const READ_OPTIONS = ['sheet', 'table', 'header', 'range', 'schema', 'dates', 'skipEmptyRows', 'limits'];
 const HEADER_SCAN_ROWS = 20;
 
 interface PreparedTable {
@@ -209,14 +215,46 @@ function headerText(cell: Cell | undefined): string | null {
   return String(v);
 }
 
+/**
+ * The sheet, range (header and data rows) and header row of the table named by the option
+ * `table`, or `null` without it (TD-12).
+ */
+function pickTable(workbook: Workbook, o: Map<string, unknown>): { sheet: Sheet; range: string; headerRow: number | null } | null {
+  const name = o.get('table');
+  if (name === undefined) return null;
+  if (typeof name !== 'string') throw new XlvError('XLV_E_INVALID_OPTION', 'The option "table" must be a table name.', { hint: "For example { table: 'Sales' }.", details: { option: 'table' } });
+  for (const key of ['sheet', 'header', 'range']) {
+    if (o.get(key) !== undefined) {
+      throw new XlvError('XLV_E_INVALID_OPTION', `The options "table" and "${key}" cannot be used together.`, { hint: 'A table already fixes its sheet, range and header row; leave the other option out.', details: { option: key } });
+    }
+  }
+  const all = workbook.sheets.flatMap((sheet) => sheet.tables.map((t) => ({ sheet, t })));
+  const lower = name.toLowerCase();
+  const found = all.find(({ t }) => t.displayName.toLowerCase() === lower || t.name.toLowerCase() === lower);
+  if (found === undefined) {
+    const names = all.map(({ t }) => t.displayName);
+    const close = suggest(name, names)[0];
+    throw new XlvError('XLV_E_TABLE_NOT_FOUND', `The workbook has no table named "${name.slice(0, 60)}".`, {
+      hint: names.length === 0 ? 'The workbook has no tables; read a sheet with { sheet } instead.' : `${close === undefined ? '' : `Did you mean "${close}"? `}Tables: ${names.slice(0, 20).map((n) => `"${n}"`).join(', ')}.`,
+      details: { table: name.slice(0, 60), available: names.slice(0, 50) },
+    });
+  }
+  const r = parseRange(found.t.ref);
+  if (r === null) throw new XlvError('XLV_E_TABLE_NOT_FOUND', `Table "${name.slice(0, 60)}" has no valid range.`, { hint: 'Open and re-save the file in a spreadsheet application.', details: { table: name.slice(0, 60) } });
+  const end = r.end.row - found.t.totalsRowCount;
+  const range = `${formatCellRef(r.start.row, r.start.col)}:${formatCellRef(Math.max(end, r.start.row), r.end.col)}`;
+  return { sheet: found.sheet, range, headerRow: found.t.headerRowCount > 0 ? r.start.row : null };
+}
+
 function prepare(input: unknown, options: unknown): PreparedTable {
   const o = readOptions(options, READ_OPTIONS, 'readTable options');
   const workbook = openInput(input, o.get('limits'));
-  const sheet = pickSheet(workbook, o.get('sheet'));
+  const table = pickTable(workbook, o);
+  const sheet = table?.sheet ?? pickSheet(workbook, o.get('sheet'));
   const schema = checkSchema(o.get('schema'));
   const dates = oneOfOption('dates', o.get('dates'), ['date', 'iso'], 'date');
   const skipEmpty = booleanOption('skipEmptyRows', o.get('skipEmptyRows'), true);
-  const headerOption = o.get('header') ?? 'auto';
+  const headerOption = table !== null ? (table.headerRow ?? false) : (o.get('header') ?? 'auto');
   if (headerOption !== 'auto' && headerOption !== false && !(typeof headerOption === 'number' && Number.isInteger(headerOption) && headerOption >= 1 && headerOption <= MAX_ROWS)) {
     throw new XlvError('XLV_E_INVALID_OPTION', 'The option "header" must be "auto", a row number or false.', {
       hint: 'Use header: "auto" to detect the header row, header: 3 for row 3, or header: false for no header.',
@@ -226,7 +264,7 @@ function prepare(input: unknown, options: unknown): PreparedTable {
 
   // Cells by row, limited to the requested range.
   let range: CellRange | null = null;
-  const rawRange = o.get('range');
+  const rawRange = table !== null ? table.range : o.get('range');
   if (rawRange !== undefined) {
     range = typeof rawRange === 'string' ? parseRange(rawRange) : null;
     if (range === null) {
