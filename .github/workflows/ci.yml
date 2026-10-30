@@ -1,5 +1,7 @@
 # Tests on Node.js 22, 24 and 26 (docs/decisions.md D-007), including the LibreOffice check of
-# written files (D-209). Actions are pinned to commit SHAs (D-210); the comment gives the tag.
+# written files (D-209), and the portable smoke bundle in Bun, Deno, Chromium and workerd
+# (Cloudflare Workers) (D-904, D-905). Actions are pinned to commit SHAs (D-210); the comment
+# gives the tag.
 name: CI
 
 on:
@@ -32,3 +34,21 @@ jobs:
         env:
           XLV_REQUIRE_LIBREOFFICE: '1'
       - run: npm run check:pkg
+
+  runtimes:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: '24'
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: '1.4.4'
+      # Deno and workerd come from the root devDependencies (npm packages deno and workerd).
+      - run: npm ci
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+      - run: npm run test:runtimes
