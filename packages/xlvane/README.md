@@ -157,6 +157,24 @@ const fromData = fromJSON([{ sku: 'A-1', stock: 12 }]);
 - `fromCSV` never creates formulas. It converts plain numbers, booleans and ISO dates (`types: "infer"`); numbers with leading zeros or more than 15 digits stay text.
 - Shared formulas are translated to each cell when reading. If a formula cannot be translated safely, its `formula.text` is `null` and the reader reports `XLV_W_SHARED_FORMULA_NOT_EXPANDED`.
 
+### Inserting and deleting rows
+
+```ts
+import { insertRows, deleteRows } from 'xlvane';
+
+declare const bytes: Uint8Array;
+// Two rows before row 5 of "Orders", formatted like row 4.
+const { bytes: wider } = insertRows(bytes, { sheet: 'Orders', at: 5, count: 2, style: 'above' });
+// Rows 10 to 12 of "Orders".
+const { bytes: shorter } = deleteRows(wider, { sheet: 'Orders', at: 10, count: 3 });
+```
+
+- Like `editCells`, they change an existing file in place and keep every other part as it was.
+- References follow the rows as in a spreadsheet application: formulas on every sheet, merged cells, hyperlinks, notes, the autofilter, conditional formats, data validation, page breaks and defined names. A range grows when rows are inserted inside it and shrinks when some of its rows are deleted; a reference whose cells are all deleted becomes `#REF!`. The rules are in docs/facts/ref-adjust.md (observed in LibreOffice; not yet checked against Excel).
+- Sheets with tables, pictures, charts, pivot tables or form controls, and formulas xlvane cannot rewrite safely (for example 3-D references such as `Jan:Mar!A1` that include the sheet), are refused with `XLV_E_NOT_SUPPORTED`. Data that would be pushed past row 1048576 gives `XLV_E_LIMIT_EXCEEDED`.
+- Sheet views (selection, frozen panes) are not changed.
+- `adjustFormula` and `adjustRange` apply the same rules to formula text you hold yourself.
+
 ## Large files: streaming
 
 ```ts

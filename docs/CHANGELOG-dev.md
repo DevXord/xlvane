@@ -2,6 +2,14 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase B: row and column operations (2026-10-30)
+
+- **Reference engine** (D-B01, D-B02): `adjustFormula`, `adjustRange` and `shiftFormula` are public; rules R-01 … R-17 observed in LibreOffice 24.2.7.2 (Microsoft's documentation was not reachable from the session).
+- **@xlvane/exceljs** (D-B03): `insertRow(s)`, `spliceRows`, `duplicateRow`, `spliceColumns`, `row.splice`, `addRow(values, 'i')`, moving formulas, merges, notes, links, autofilter and names like a spreadsheet application; `XLV_E_INVALID_ARGUMENT` for arguments exceljs corrupts data with.
+- **Independent review**: 8 confirmed bugs fixed with regression tests (D-B01/D-B03 addenda).
+- **Core** (D-B04): surgical `insertRows` / `deleteRows` on existing files; **CLI** (D-B05): `xlvane edit --insert-rows / --delete-rows`.
+- **Research for phases C and D** done; third local review prompt prepared.
+
 ## Phase A2: hyperlinks, notes, views, app.xml (2026-10-30)
 
 - **Sources:** second local review report (ECMA-376 Part 1 §18.3.1.47/48, §18.7, §12.3.3, §18.3.1.13/66/82/87/93, §22.2, §15.2.12; Part 4 §8.2, §19.4; [MS-OI29500]; [MS-XLSX]).

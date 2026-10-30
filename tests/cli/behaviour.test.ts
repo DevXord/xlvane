@@ -137,6 +137,36 @@ describe('edit', () => {
   });
 });
 
+describe('edit: rows', () => {
+  it('inserts and deletes rows and moves formulas and names with them', async () => {
+    await withFixtures(async (dir) => {
+      const r = await cli(['edit', 'report.xlsx', '--sheet', 'Sales', '--insert-rows', '3', '--count', '2', '--insert-style', 'above', '-o', 'more.xlsx'], { cwd: dir });
+      expect(r.code).toBe(0);
+      expect(r.stdout).toContain('Inserted 2 rows before row 3 of "Sales".');
+      const more = readWorkbook(await readFile(join(dir, 'more.xlsx')));
+      expect(more.getSheet('Sales').cell('A5')?.value).toBe('South');
+      expect(more.getSheet('Sales').cell('B6')?.formula?.text).toBe('SUM(B2:B5)');
+      expect(more.definedNames.find((n) => n.name === 'Total')?.refersTo).toBe('Sales!$B$6');
+      const back = await cli(['edit', 'more.xlsx', '--sheet', 'Sales', '--delete-rows', '3:4', '--json', '-o', 'back.xlsx'], { cwd: dir });
+      const doc = JSON.parse(back.stdout) as { result: { rowsDeleted: number; rowSheet: string } };
+      expect([doc.result.rowsDeleted, doc.result.rowSheet]).toEqual([2, 'Sales']);
+      expect(readWorkbook(await readFile(join(dir, 'back.xlsx'))).getSheet('Sales').cell('B4')?.formula?.text).toBe('SUM(B2:B3)');
+    });
+  });
+
+  it('applies row changes before --set and needs --sheet', async () => {
+    await withFixtures(async (dir) => {
+      const r = await cli(['edit', 'report.xlsx', '--sheet', 'Sales', '--insert-rows', '2', '--set', 'A2=New', '-o', 'out.xlsx'], { cwd: dir });
+      expect(r.code).toBe(0);
+      const s = readWorkbook(await readFile(join(dir, 'out.xlsx'))).getSheet('Sales');
+      expect([s.cell('A2')?.value, s.cell('A3')?.value]).toEqual(['New', 'North']);
+      expect((await cli(['edit', 'report.xlsx', '--delete-rows', '2', '-o', 'x.xlsx'], { cwd: dir })).code).toBe(2);
+      expect((await cli(['edit', 'report.xlsx', '--sheet', 'Sales', '--delete-rows', '3:2', '-o', 'x.xlsx'], { cwd: dir })).code).toBe(2);
+      expect((await cli(['edit', 'report.xlsx', '--sheet', 'Sales', '--count', '2', '--set', 'A1=x', '-o', 'x.xlsx'], { cwd: dir })).code).toBe(2);
+    });
+  });
+});
+
 describe('validate', () => {
   it('names the cell of each problem and counts warnings only with --strict', async () => {
     await withFixtures(async (dir) => {

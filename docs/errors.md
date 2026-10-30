@@ -168,7 +168,9 @@ The CSV text given to `fromCSV` has a quoted field that is never closed, text ri
 
 ### XLV_E_NOT_SUPPORTED
 `@xlvane/exceljs` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, conditional formatting, data validation, notes, CSV, protection or `insertRow`. `details.feature` names it. The error is thrown where the feature is used, so nothing is dropped silently.
-**Fix:** see docs/exceljs-compat.md for the supported subset; remove the call, or keep using exceljs for files that need the feature.
+`insertRows` and `deleteRows` (and `xlvane edit --insert-rows` / `--delete-rows`) also throw it when the sheet has content whose cell references xlvane cannot move yet: tables, pictures and charts (drawings), pivot tables, form controls, embedded objects, threaded comments, extended content such as data bars or sparklines, a chart or pivot cache elsewhere that names the sheet, a data table, an array formula the change would split, or a formula or defined name that cannot be adjusted safely (for example a 3-D reference such as `Jan:Mar!A1` that includes the sheet, D-B01). The message names the part or the cell, and `details` gives the element, relationship type or formula.
+**Fix:** for `@xlvane/exceljs`, see docs/exceljs-compat.md for the supported subset; remove the call, or keep using exceljs for files that need the feature.
+For `insertRows`/`deleteRows`, insert or delete the rows in a spreadsheet application, or remove the named content first.
 
 ### XLV_E_USAGE
 The `xlvane` command line was used incorrectly: an unknown command or option, a missing or extra argument, an option without its value, or an option value that is not allowed. `details` names the command and the option or argument; `details.suggestions` lists close matches ("Did you mean ...?"). Exit code 2.

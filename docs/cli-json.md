@@ -61,7 +61,7 @@ The error envelope is defined in [cli-json/common.schema.json](cli-json/common.s
 | `read` | [cli-json/read.schema.json](cli-json/read.schema.json) | `sheet`, `headerRow`, `range`, `columns` (`key`, `header`, `letter`), `rows` (objects keyed by column key; dates as ISO 8601 strings in UTC), `rowNumbers`, `totalRows`, `truncated`. Without `--limit` every row is included. |
 | `convert` | [cli-json/convert.schema.json](cli-json/convert.schema.json) | `input`, `output`, `from`, `to`, `bytes`, `written` (`false` with `--dry-run`), `replaced`. |
 | `create` | [cli-json/create.schema.json](cli-json/create.schema.json) | Same as `convert`. |
-| `edit` | [cli-json/edit.schema.json](cli-json/edit.schema.json) | `input`, `output`, `cellsSet`, `rowsAppended`, `appendSheet`, `warnings`, `bytes`, `written`, `replaced`. |
+| `edit` | [cli-json/edit.schema.json](cli-json/edit.schema.json) | `input`, `output`, `rowsInserted`, `rowsDeleted`, `rowSheet` (the sheet of the row options, or `null`), `cellsSet`, `rowsAppended`, `appendSheet`, `warnings`, `bytes`, `written`, `replaced`. |
 | `diff` | [cli-json/diff.schema.json](cli-json/diff.schema.json) | The `diff()` result: `equal`, `sheetsAdded`, `sheetsRemoved`, `sheets` (cell changes with `before` and `after`), `summary`. Every change is included. |
 | `validate` | [cli-json/validate.schema.json](cli-json/validate.schema.json) | `file`, `ok`, `sheet`, `rowsChecked`, `problems` (`kind`, `column`, `cell`, `row`, `message`), `warnings`. |
 | `migrate` | [cli-json/migrate.schema.json](cli-json/migrate.schema.json) | `directory`, `packageJson`, `changes` (`section`, `from`, `to`), `alreadyMigrated`, `enginesNode`, `filesScanned`, `scanLimited`, `findings` (`file`, `line`, `column`, `api`, `status`), `written`. |

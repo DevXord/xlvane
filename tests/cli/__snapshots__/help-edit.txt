@@ -1,37 +1,46 @@
-xlvane edit — Change cells or append rows, keeping everything else
+xlvane edit — Change cells, insert, delete or append rows, keeping everything else
 
 Usage:
-  xlvane edit <file> (--set <Sheet!A1=value>... | --append <rows.json>) [options]
+  xlvane edit <file> (--set <Sheet!A1=value>... | --append <rows.json> | --insert-rows <row> | --delete-rows <row[:row]>) [options]
 
-Changes cells and appends rows in an existing file while keeping the rest of it
-(styles, formulas, charts, other sheets) as it is. Values in --set are typed
-like CSV fields: numbers, true/false and ISO 8601 dates are recognised, "=..."
-is a formula, a leading apostrophe keeps the text as typed, and an empty value
-clears the cell. xlvane does not calculate formulas; the edited file asks
-spreadsheet programs to recalculate them when it is opened. The result goes to
---output, or replaces the input with --force.
+Changes cells, and inserts, deletes or appends rows, in an existing file while
+keeping the rest of it (styles, formulas, charts, other sheets) as it is. Values
+in --set are typed like CSV fields: numbers, true/false and ISO 8601 dates are
+recognised, "=..." is a formula, a leading apostrophe keeps the text as typed,
+and an empty value clears the cell. xlvane does not calculate formulas; the
+edited file asks spreadsheet programs to recalculate them when it is opened.
+Rows inserted with --insert-rows or deleted with --delete-rows move the rows
+below, and formulas on every sheet, merged cells, hyperlinks, notes, conditional
+formats, data validation and defined names follow them; sheets with tables,
+pictures or charts are refused. Row changes are applied first, then --set, then
+--append, so cell addresses in --set refer to the rows after the change. The
+result goes to --output, or replaces the input with --force.
 
 Options:
-      --set <Sheet!A1=value>  Set a cell (repeatable)
-      --append <rows.json>    Append the rows of a JSON array below the last row
-      --sheet <name>          Sheet for --set without a sheet name, and for --append
-  -o, --output <path>         Write the result to a new file
-      --force                 Replace the output file if it exists
-      --dry-run               Show what would be written, without writing
-      --json                  Print one JSON document to stdout (docs/cli-json.md)
-  -q, --quiet                 Print only results and errors
-      --verbose               Print more detail, including stack traces of internal errors
-  -h, --help                  Show help for the command
+      --set <Sheet!A1=value>             Set a cell (repeatable)
+      --append <rows.json>               Append the rows of a JSON array below the last row
+      --insert-rows <row>                Insert empty rows before this row (needs --sheet)
+      --count <n>                        How many rows --insert-rows inserts (default 1)
+      --insert-style <above|below|none>  Format new rows like the row above or below (default none)
+      --delete-rows <row[:row]>          Delete these rows (needs --sheet)
+      --sheet <name>                     Sheet for --set without a sheet name, --append and the row options
+  -o, --output <path>                    Write the result to a new file
+      --force                            Replace the output file if it exists
+      --dry-run                          Show what would be written, without writing
+      --json                             Print one JSON document to stdout (docs/cli-json.md)
+  -q, --quiet                            Print only results and errors
+      --verbose                          Print more detail, including stack traces of internal errors
+  -h, --help                             Show help for the command
 
 Examples:
   xlvane edit report.xlsx --set "Sales!B2=1250" -o updated.xlsx
       Set one cell and write a new file
-  xlvane edit report.xlsx --sheet Sales --set B3=990 --set "C3==B3*2" --force
-      Set a value and a formula in place
   xlvane edit report.xlsx --append rows.json --sheet Sales -o more.xlsx
       Append rows; object keys are matched to the header row
-  xlvane edit report.xlsx --set "Sales!A2=North-East" --dry-run
-      Check the edit without writing
+  xlvane edit report.xlsx --sheet Sales --insert-rows 5 --count 2 --insert-style above -o more.xlsx
+      Insert two rows before row 5, formatted like row 4
+  xlvane edit report.xlsx --sheet Sales --delete-rows 5:6 --force
+      Delete rows 5 and 6 in place
 
 Exit codes: 0 success, 2 usage error, 3 input or file error.
 Related: xlvane create, xlvane diff

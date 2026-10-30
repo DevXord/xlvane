@@ -133,7 +133,7 @@ Code:  XLV_E_FILE_EXISTS (https://github.com/DevXord/xlvane/blob/main/docs/error
 
 ## edit without changes
 $ xlvane edit report.xlsx -o x.xlsx
-Error: "xlvane edit" needs --set or --append.
+Error: "xlvane edit" needs --set, --append, --insert-rows or --delete-rows.
 Where: command line
 Fix:   For example: xlvane edit report.xlsx --set "Sales!B2=1250" -o updated.xlsx
 Code:  XLV_E_USAGE (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#xlv_e_usage)

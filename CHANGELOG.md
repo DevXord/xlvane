@@ -18,6 +18,7 @@ First release of `xlvane` and `@xlvane/exceljs`.
   - `readTable` with Standard Schema validation, `writeTable`;
   - `toCSV`/`fromCSV` with CSV-injection escaping, `toJSON`/`fromJSON`;
   - `editCells`/`appendRows`, which keep everything else in the file unchanged;
+  - `insertRows`/`deleteRows`, which move formulas, merged cells, links, notes, conditional formats, data validation and defined names with the rows (`xlvane edit --insert-rows` / `--delete-rows`); `adjustFormula`/`adjustRange` for formula text;
   - `diff`.
 - **Streaming**: `openWorkbookStream`, `writeWorkbookStream`, `readTableStream`, `writeTableStream`.
 - **Node.js helpers** in `xlvane/node`.

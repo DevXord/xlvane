@@ -96,6 +96,18 @@ out.addSheet('Data').tabColor('FF0070C0').set('A1', 'Docs').link('A1', { url: 'h
 
 Link targets are never opened. Notes are written hidden and need no cell value. `editCells` keeps existing links and notes but cannot add new ones.
 
+### Inserting and deleting rows
+
+```ts
+import { deleteRows, insertRows } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const { bytes: wider } = insertRows(bytes, { sheet: 'Sales', at: 5, count: 2, style: 'above' });
+const { bytes: shorter } = deleteRows(wider, { sheet: 'Sales', at: 5, count: 2 });
+```
+
+Formulas on every sheet, merged cells, links, notes, conditional formats, data validation and defined names follow the rows; references to deleted cells become `#REF!`. Sheets with tables, pictures or charts are refused with `XLV_E_NOT_SUPPORTED`.
+
 `inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount`, `styledColumns`, `hyperlinkCount` and `noteCount`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
 
 In Node.js, `xlvane/node` adds `readWorkbookFile`, `inspectFile` and `writeWorkbookFile` (which never replaces an existing file unless `{ overwrite: true }` is passed). `toCSV`, `fromCSV`, `toJSON` and `fromJSON` convert tables. For very large files use `openWorkbookStream` and `writeWorkbookStream`.
@@ -110,6 +122,7 @@ xlvane read report.xlsx --sheet Sales --limit 20  # a sheet as a table
 xlvane convert report.xlsx sales.csv              # XLSX to CSV/JSON, or CSV/JSON to XLSX
 xlvane create data.json report.xlsx               # a formatted report from JSON or CSV
 xlvane edit report.xlsx --set "Sales!B2=1300" -o updated.xlsx
+xlvane edit report.xlsx --sheet Sales --insert-rows 5 --count 2 -o wider.xlsx
 xlvane diff report.xlsx updated.xlsx              # exit code 1 when they differ
 xlvane validate report.xlsx --columns "Region:string,Revenue:number"
 ```

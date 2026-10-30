@@ -5,7 +5,9 @@
 // - for readable files: inspect works, the streaming reader returns the same cells as the batch
 //   reader, readTable and toCSV work on the first worksheet, and editing one empty cell gives a
 //   file that reads back with exactly that one change according to diff (files whose invalid
-//   cell references were skipped are refused by editCells instead, D-903).
+//   cell references were skipped are refused by editCells instead, D-903);
+// - inserting one row before row 2 of the first worksheet and deleting it again gives a workbook
+//   equal to the original according to diff, or a refusal with XLV_E_NOT_SUPPORTED (D-B04).
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
@@ -17,6 +19,7 @@ import { inspect } from '../../packages/xlvane/src/inspect';
 import type { Cell, Workbook } from '../../packages/xlvane/src/model';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { openWorkbookStream } from '../../packages/xlvane/src/stream-read';
+import { deleteRows, insertRows } from '../../packages/xlvane/src/rows';
 import { readTable } from '../../packages/xlvane/src/table';
 
 const dir = new URL('./poi/', import.meta.url);
@@ -124,5 +127,31 @@ describe('corpus: Apache POI', () => {
       }
     }
     expect(problems).toEqual([]);
+  });
+  it('readable files: inserting and deleting a row gives the original back, or a refusal', { timeout: 600_000 }, async () => {
+    const problems: string[] = [];
+    let checked = 0;
+    for (const name of files) {
+      const bytes = readFileSync(new URL(name, dir));
+      const { workbook } = outcome(bytes);
+      if (!workbook || workbook.warnings.some((w) => w.code === 'XLV_W_INVALID_CELL_REF')) continue;
+      const sheet = workbook.sheets.find((s) => s.kind === 'worksheet');
+      if (!sheet) continue;
+      try {
+        const inserted = insertRows(bytes, { sheet: sheet.name, at: 2 }).bytes;
+        const back = deleteRows(inserted, { sheet: sheet.name, at: 2 }).bytes;
+        const d = diff(workbook, readWorkbook(back));
+        const changes = d.sheets.flatMap((s) => s.cells.map((c) => `${s.name}!${c.ref}:${c.kind}`));
+        // Reversed ranges such as O2:O1 come back written in order (O1:O2, R-15).
+        if (!d.equal && !(name === 'bug60858.xlsx' && changes.join() === 'Arbeitszeitcheck_2.3!F2:changed,Arbeitszeitcheck_2.3!G2:changed')) problems.push(`${name}: ${changes.slice(0, 3).join(', ')}`);
+        checked++;
+      } catch (error) {
+        const code = error instanceof XlvError ? error.code : 'CRASH';
+        if (code !== 'XLV_E_NOT_SUPPORTED') problems.push(`${name}: ${code} ${error instanceof Error ? error.message.slice(0, 160) : String(error)}`);
+      }
+    }
+    expect(problems).toEqual([]);
+    // 223 files on 2026-10-30; the others have tables, drawings or similar parts (D-B04).
+    expect(checked).toBeGreaterThan(200);
   });
 });
