@@ -39,4 +39,4 @@ Identifiers of the form `R`, `C`, `Rn`, `Cn`, `RnCn` (any case) make the formula
 Anything else (unknown characters, unbalanced quotes or brackets, `$` inside a name, `(` after white space following a reference) makes the formula "not shiftable"; its dependents keep `formula.text = null` with `XLV_W_SHARED_FORMULA_NOT_EXPANDED`.
 
 ## To verify
-F2-03 … F2-08 and F2-10, F2-11 against ECMA-376 Part 1 §18.17.2 (syntax), §18.17.2.3 (references), §18.17.2.4/§18.17.2.5 (names, functions) and Part 4 (Transitional additions such as `_xlfn.` prefixes).
+Checked on 2026-10-30: the supplied ECMA-376 Part 4 (5th edition, December 2016) does not define the formula grammar; its §15.9 (printed p.221–222) covers only an attribute synonym of `c` and date representations, and refers to Part 1 for the rest. So F2-03 … F2-08 (spill operator part), F2-10 and F2-11 stay PROVISIONAL until Part 1 is supplied. To check them against ECMA-376 Part 1 §18.17.2 (syntax), §18.17.2.3 (references), §18.17.2.4/§18.17.2.5 (names, functions) and Part 4 (Transitional additions such as `_xlfn.` prefixes).
