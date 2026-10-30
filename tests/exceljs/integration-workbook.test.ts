@@ -6,14 +6,16 @@
 // is written) and expect `topLeftCell` of a split view and `activeCell` to be absent (not
 // written by xlvane);
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
-// unsupported features (createTestBook fixtures, compression options, print titles,
-// data validation, CSV, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; the
+// unsupported features (createTestBook fixtures, compression options, CSV, workbook views,
+// fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; the dataValidations test builds only its
+// own sheet (createTestBook with ['dataValidations'], tests/exceljs/sheet-rules-sheets.ts); the
 // duplicateRow tests build the sheet in memory (the fixture duplicateRowTest.xlsx was not copied)
 // and compare styles by value (xlvane copies styles instead of sharing the object); `equalDate`
 // is compared with getTime(); chai `have.members` is arrayContaining plus the length.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, roundTrip, styles, withTempDir } from './helpers';
+import { dataValidationSheet } from './sheet-rules-sheets';
 import { splicedSheets } from './spliced-sheets';
 
 describe('Workbook', () => {
@@ -55,9 +57,56 @@ describe('Workbook', () => {
       expect(wb2.created.getTime()).toBe(wb.created.getTime());
       expect(wb2.modified.getTime()).toBe(wb.modified.getTime());
     });
-    it.skip('printTitlesRow — not supported: print settings', () => {});
-    it.skip('printTitlesColumn — not supported: print settings', () => {});
-    it.skip('printTitlesRowAndColumn — not supported: print settings', () => {});
+    it('printTitlesRow', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('printHeader');
+      ws.getCell('A1').value = 'This is a header row repeated on every printed page';
+      ws.getCell('B2').value = 'This is a header row too';
+      for (let i = 0; i < 100; i++) ws.addRow(['not header row']);
+      ws.pageSetup.printTitlesRow = '1:2';
+      const ws2 = (await roundTrip(wb)).getWorksheet('printHeader');
+      expect(ws2.pageSetup.printTitlesRow).toBe('1:2');
+      expect(ws2.pageSetup.printTitlesColumn).toBeUndefined();
+    });
+    it('printTitlesColumn', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('printColumn');
+      ws.getCell('A1').value = 'This is a column repeated on every printed page';
+      ws.getCell('A2').value = 'This is a column repeated on every printed page';
+      ws.getCell('B1').value = 'This is a repeated column too';
+      ws.getCell('B2').value = 'This is a repeated column too';
+      ws.getCell('C1').value = 'This is a regular column';
+      ws.getCell('C2').value = 'This is a regular column';
+      ws.getCell('D1').value = 'This is a regular column';
+      ws.getCell('D2').value = 'This is a regular column';
+      // As upstream: a column range given as printTitlesRow is read back as column titles.
+      ws.pageSetup.printTitlesRow = 'A:B';
+      const ws2 = (await roundTrip(wb)).getWorksheet('printColumn');
+      expect(ws2.pageSetup.printTitlesRow).toBeUndefined();
+      expect(ws2.pageSetup.printTitlesColumn).toBe('A:B');
+    });
+    it('printTitlesRowAndColumn', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('printHeaderAndColumn');
+      ws.getCell('A1').value = 'This is a column / row repeated on every printed page';
+      ws.getCell('A2').value = 'This is a column / row repeated on every printed page';
+      ws.getCell('B1').value = 'This is a repeated column / row too';
+      ws.getCell('B2').value = 'This is a repeated column / row too';
+      ws.getCell('C1').value = 'This is a regular column, repeated row';
+      ws.getCell('C2').value = 'This is a regular column, repeated row';
+      ws.getCell('D1').value = 'This is a regular column, repeated row';
+      ws.getCell('D2').value = 'This is a regular column, repeated row';
+      ws.getCell('A3').value = 'This is a repeated column';
+      ws.getCell('B3').value = 'This is a repeated column';
+      ws.getCell('C3').value = 'This is a regular column / row';
+      ws.getCell('D3').value = 'This is a regular column / row';
+      ws.pageSetup.printTitlesColumn = 'A:B';
+      ws.pageSetup.printTitlesRow = '1:2';
+      for (let i = 0; i < 100; i++) ws.addRow(['repeated column, not repeated row', 'repeated column, not repeated row', 'no repeat', 'no repeat']);
+      const ws2 = (await roundTrip(wb)).getWorksheet('printHeaderAndColumn');
+      expect(ws2.pageSetup.printTitlesRow).toBe('1:2');
+      expect(ws2.pageSetup.printTitlesColumn).toBe('A:B');
+    });
     it.skip('shared formula — not supported: fillFormula', () => {});
 
     it('auto filter', async () => {
@@ -130,7 +179,11 @@ describe('Workbook', () => {
       expect(ws2.getCell('A3').value).toBe('Baz');
     });
 
-    it.skip('dataValidations — not supported: data validation', () => {});
+    it('dataValidations', async () => {
+      const wb = new ExcelJS.Workbook();
+      dataValidationSheet.addSheet(wb);
+      dataValidationSheet.checkSheet(await roundTrip(wb));
+    });
 
     it('empty string', async () => {
       const wb = new ExcelJS.Workbook();

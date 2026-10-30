@@ -3,15 +3,16 @@
 // files go to a temporary directory; cells are added with `addRow` instead of
 // `worksheet.getCell` (the streaming worksheet subset is `addRow`, row style setters and
 // `commit`); fonts without `family`/`outline`; the row style read-back is removed (no row
-// default styles after reading, docs/decisions.md D-206); notes and conditional formatting
-// expect XLV_E_NOT_SUPPORTED (conditional formatting); notes read back without the font
+// default styles after reading, docs/decisions.md D-206); the data validation and conditional
+// formatting tests build only their own sheet (tests/exceljs/sheet-rules-sheets.ts) and #1814
+// expects the dxf number format as a code string; notes read back without the font
 // properties family/scheme and without the box settings margins, protection, editAs (D-A14);
-// tests that need createTestBook, shared formulas, data
-// validation, images or zip options are skipped. One test added: names changed after the
+// tests that need createTestBook, shared formulas, images or zip options are skipped. One test added: names changed after the
 // first committed row.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, styles, withTempDir } from './helpers';
+import { conditionalFormattingSheet, conditionalFormattings, dataValidationSheet } from './sheet-rules-sheets';
 
 // types/node-modules.d.ts declares only the node:fs members the project uses; createWriteStream
 // is https://nodejs.org/api/fs.html#fscreatewritestreampath-options.
@@ -204,7 +205,15 @@ describe('WorkbookWriter', () => {
       });
     });
 
-    it.skip('serializes and deserializes dataValidations — not supported: data validation', () => {});
+    it('serializes and deserializes dataValidations', async () => {
+      await withTempDir(async (dir) => {
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename });
+        dataValidationSheet.addSheet(wb);
+        await wb.commit();
+        dataValidationSheet.checkSheet(await readBack(filename));
+      });
+    });
     it.skip('with zip compression option — not supported: zip compression options', () => {});
 
     for (const [title, box] of [
@@ -234,20 +243,31 @@ describe('WorkbookWriter', () => {
     it.skip('with background image — not supported: images', () => {});
     it.skip('with background image where worksheet is commited in advance — not supported: images', () => {});
 
-    it('with conditional formatting — not supported: conditional formatting', async () => {
+    it('with conditional formatting', async () => {
       await withTempDir(async (dir) => {
-        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 'wb.test.xlsx') });
-        const ws = wb.addWorksheet('Hello');
-        await expectNotSupported(() =>
-          ws.addConditionalFormatting({
-            ref: 'A1:B2',
-            rules: [{ type: 'expression', formulae: ['A1>1'], style: { font: { bold: true } } }],
-          }),
-        );
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true, useSharedStrings: true });
+        conditionalFormattingSheet.addSheet(wb);
+        await wb.commit();
+        conditionalFormattingSheet.checkSheet(await readBack(filename));
       });
     });
 
-    it.skip('with conditional formatting that contains numFmt (#1814) — not supported: conditional formatting', () => {});
+    it('with conditional formatting that contains numFmt (#1814)', async () => {
+      await withTempDir(async (dir) => {
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb1 = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true });
+        const ws1 = wb1.addWorksheet('conditionalFormatting');
+        ws1.addConditionalFormatting(conditionalFormattings.abbreviation);
+        await wb1.commit();
+        const [cf2] = (await readBack(filename)).getWorksheet('conditionalFormatting').conditionalFormattings;
+        // xlvane: the number format reads back as its format code, as cell styles do; exceljs
+        // gives an object { id, formatCode } here (X4-17).
+        cf2.rules.forEach((rule: any, i: number) => {
+          expect(rule.style.numFmt).toBe(conditionalFormattings.abbreviation.rules[i].style.numFmt);
+        });
+      });
+    });
   });
 });
 

@@ -71,6 +71,20 @@ export function moveSpan(lo: number, hi: number, c: SpliceChange): [number, numb
   return c.axis === 'row' ? [Number(m[2]), Number(m[4])] : [number(m[1] ?? ''), number(m[3] ?? '')];
 }
 
+/**
+ * A range list (`A1:B5 D2`) after the splice, by the rules of xlvane's `adjustRange`; `null`
+ * when nothing of it is left. Used for data validations and conditional formats, which exceljs
+ * leaves where they were (X4-15).
+ */
+export function moveSqref(sqref: string, c: SpliceChange): string | null {
+  let text: string | null = sqref;
+  for (const step of engineChanges(c)) {
+    text = adjustRange(text, { sheet: c.sheet, axis: c.axis, at: step.at, count: step.count });
+    if (text === null || text === '') return null;
+  }
+  return text;
+}
+
 /** Throws XLV_E_INVALID_ARGUMENT for an argument exceljs would accept and corrupt data with. */
 export function invalidArgument(method: string, name: string, value: unknown, hint: string): never {
   const shown = typeof value === 'string' ? `"${value.slice(0, 40)}"` : String(value).slice(0, 40);

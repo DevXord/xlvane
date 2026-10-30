@@ -1,0 +1,252 @@
+// xlvane-specific tests of phase C1 in @xlvane/exceljs: data validations, conditional
+// formatting, sheet protection and printing (D-C06; docs/facts/exceljs.md X4-16 … X4-19). Where
+// exceljs writes data the specification or Excel rejects, xlvane writes valid data; the
+// differences are listed in docs/exceljs-compat.md.
+import { join } from 'node:path';
+import { strFromU8, unzipSync } from 'fflate';
+import { describe, expect, it } from 'vitest';
+import { readWorkbook } from '../../packages/xlvane/src/read';
+import { ExcelJS, expectNotSupported, roundTrip, withTempDir } from './helpers';
+
+async function bytesOf(wb: any): Promise<Uint8Array> {
+  return new Uint8Array(await wb.xlsx.writeBuffer());
+}
+
+async function sheetXml(wb: any, n = 1): Promise<string> {
+  return strFromU8(unzipSync(await bytesOf(wb))[`xl/worksheets/sheet${String(n)}.xml`]!);
+}
+
+describe('data validations', () => {
+  it('remove() deletes the validation (exceljs leaves an empty entry and writes a validation without a type)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Form');
+    ws.dataValidations.add('A1', { type: 'whole', operator: 'greaterThan', formulae: [0] });
+    ws.dataValidations.add('G1', { type: 'whole', operator: 'greaterThan', formulae: [0] });
+    ws.dataValidations.remove('G1');
+    expect(Object.keys(ws.dataValidations.model)).toEqual(['A1']);
+    const xml = await sheetXml(wb);
+    expect(xml.match(/<dataValidation /g)).toHaveLength(1);
+    expect(xml).toContain('sqref="A1"');
+  });
+
+  it('finds the validation of a cell inside a range rule, also after reading', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Form');
+    ws.dataValidations.add('B2:B20', { type: 'list', allowBlank: true, formulae: ['"Yes,No"'] });
+    expect(ws.getCell('B7').dataValidation).toEqual({ type: 'list', allowBlank: true, formulae: ['"Yes,No"'] });
+    expect(ws.getCell('C7').dataValidation).toBeUndefined();
+    const ws2 = (await roundTrip(wb)).getWorksheet('Form');
+    expect(ws2.getCell('B20').dataValidation).toEqual({ type: 'list', allowBlank: true, formulae: ['"Yes,No"'] });
+  });
+
+  it('writes equal validations of single cells as ranges that do not overlap', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Form');
+    const rule = { type: 'whole', operator: 'greaterThan', formulae: [0] };
+    // exceljs writes A2:B2 and B1:B2 for these (X4-16).
+    for (const a of ['A2', 'B1', 'B2']) ws.getCell(a).dataValidation = { ...rule };
+    const xml = await sheetXml(wb);
+    const sqref = /<dataValidation [^>]*sqref="([^"]+)"/.exec(xml)![1];
+    expect(sqref).toBe('B1:B2 A2');
+  });
+
+  it('keeps whole-column rules as one range when reading', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Form');
+    ws.dataValidations.add('C:C', { type: 'textLength', operator: 'lessThanOrEqual', formulae: [10] });
+    const ws2 = (await roundTrip(wb)).getWorksheet('Form');
+    expect(Object.keys(ws2.dataValidations.model)).toEqual(['C1:C1048576']);
+    expect(ws2.getCell('C500000').dataValidation).toEqual({ type: 'textLength', operator: 'lessThanOrEqual', formulae: [10] });
+  });
+
+  it('follows rows that are inserted above it', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('Form');
+    ws.getCell('A1').value = 'x';
+    ws.dataValidations.add('B2:B4', { type: 'list', formulae: ['"a,b"'] });
+    ws.insertRow(1, ['new']);
+    expect(Object.keys(ws.dataValidations.model)).toEqual(['B3:B5']);
+  });
+});
+
+describe('conditional formatting', () => {
+  it('escapes quotes in the text of a containsText rule (exceljs writes them as they are)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('CF');
+    ws.addConditionalFormatting({ ref: 'B2:B9', rules: [{ type: 'containsText', operator: 'containsText', text: 'say "hi"', style: { font: { bold: true } } }] });
+    const xml = await sheetXml(wb);
+    expect(xml).toContain('<formula>NOT(ISERROR(SEARCH("say ""hi""",B2)))</formula>');
+    expect(xml).toMatch(/type="containsText"[^>]*operator="containsText"[^>]*text="say &quot;hi&quot;"/);
+    const [cf] = (await roundTrip(wb)).getWorksheet('CF').conditionalFormattings;
+    expect(cf.rules[0]).toMatchObject({ type: 'containsText', operator: 'containsText', text: 'say "hi"', style: { font: { bold: true } } });
+  });
+
+  it('generates the formulas of blank, error and timePeriod rules as exceljs does', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('CF');
+    ws.addConditionalFormatting({
+      ref: 'C3:C9',
+      rules: [
+        { type: 'containsText', operator: 'containsBlanks', style: { font: { italic: true } } },
+        { type: 'containsText', operator: 'notContainsErrors', style: { font: { italic: true } } },
+        { type: 'timePeriod', timePeriod: 'today', style: { font: { bold: true } } },
+      ],
+    });
+    const xml = await sheetXml(wb);
+    expect(xml).toContain('<formula>LEN(TRIM(C3))=0</formula>');
+    expect(xml).toContain('<formula>NOT(ISERROR(C3))</formula>');
+    expect(xml).toContain('<formula>FLOOR(C3,1)=TODAY()</formula>');
+  });
+
+  it('gives rules without a priority unique priorities (exceljs repeats the highest one)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('CF');
+    ws.addConditionalFormatting({ ref: 'A1:A9', rules: [{ type: 'expression', priority: 3, formulae: ['A1>1'], style: { font: { bold: true } } }] });
+    ws.addConditionalFormatting({ ref: 'B1:B9', rules: [{ type: 'expression', formulae: ['B1>1'], style: { font: { bold: true } } }] });
+    const xml = await sheetXml(wb);
+    const priorities = [...xml.matchAll(/priority="(\d+)"/g)].map((m) => m[1]);
+    expect(new Set(priorities).size).toBe(priorities.length);
+  });
+
+  it('reads colour scales and icon sets back as exceljs gives them', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('CF');
+    ws.addConditionalFormatting({
+      ref: 'A1:A10',
+      rules: [
+        { type: 'colorScale', cfvo: [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }], color: [{ argb: 'FFF8696B' }, { argb: 'FFFFEB84' }, { argb: 'FF63BE7B' }] },
+        { type: 'iconSet', iconSet: '3Arrows', cfvo: [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] },
+      ],
+    });
+    const [cf] = (await roundTrip(wb)).getWorksheet('CF').conditionalFormattings;
+    expect(cf.ref).toBe('A1:A10');
+    expect(cf.rules[0]).toMatchObject({ type: 'colorScale', cfvo: [{ type: 'min' }, { type: 'percentile', value: 50 }, { type: 'max' }], color: [{ argb: 'FFF8696B' }, { argb: 'FFFFEB84' }, { argb: 'FF63BE7B' }] });
+    expect(cf.rules[1]).toMatchObject({ type: 'iconSet', iconSet: '3Arrows', reverse: false, showValue: true });
+  });
+
+  it('refuses the x14 data bar and icon sets until they are supported', async () => {
+    const make = (rule: any) => {
+      const wb = new ExcelJS.Workbook();
+      wb.addWorksheet('CF').addConditionalFormatting({ ref: 'A1:A9', rules: [rule] });
+      return wb;
+    };
+    await expectNotSupported(() => bytesOf(make({ type: 'dataBar', cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } })));
+    await expectNotSupported(() => bytesOf(make({ type: 'iconSet', iconSet: '3Stars', cfvo: [{ type: 'percent', value: 0 }, { type: 'percent', value: 33 }, { type: 'percent', value: 67 }] })));
+    const bar = await bytesOf(make({ type: 'dataBar', gradient: true, cfvo: [{ type: 'min' }, { type: 'max' }], color: { argb: 'FF638EC6' } }));
+    expect(readWorkbook(bar).getSheet('CF').conditionalFormats[0]!.rules[0]!.type).toBe('dataBar');
+  });
+
+  it('removeConditionalFormatting takes an index, a filter or nothing (lib/doc/worksheet.js L815)', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('CF');
+    for (const ref of ['A1', 'B1', 'C1']) ws.addConditionalFormatting({ ref, rules: [{ type: 'expression', formulae: ['TRUE'] }] });
+    ws.removeConditionalFormatting(0);
+    expect(ws.conditionalFormattings.map((c: any) => c.ref)).toEqual(['B1', 'C1']);
+    ws.removeConditionalFormatting((c: any) => c.ref !== 'C1');
+    expect(ws.conditionalFormattings.map((c: any) => c.ref)).toEqual(['B1']);
+    ws.removeConditionalFormatting();
+    expect(ws.conditionalFormattings).toEqual([]);
+  });
+});
+
+describe('sheet protection', () => {
+  it('maps exceljs options (what users may do) to the attributes (what is locked)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Locked');
+    await ws.protect('', { formatCells: true, sort: true, selectLockedCells: false, objects: false });
+    const xml = await sheetXml(wb);
+    const tag = /<sheetProtection [^>]*\/>/.exec(xml)![0];
+    expect(tag).toContain('sheet="1"');
+    expect(tag).toContain('formatCells="0"');
+    expect(tag).toContain('sort="0"');
+    expect(tag).toContain('selectLockedCells="1"');
+    expect(tag).toContain('objects="1"');
+    const ws2 = (await roundTrip(wb)).getWorksheet('Locked');
+    expect(ws2.sheetProtection).toEqual({ sheet: true, formatCells: true, sort: true, selectLockedCells: false, objects: false });
+  });
+
+  it('rejects a password until password hashing is supported, and unprotect() removes the protection', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Locked');
+    await expectNotSupported(() => ws.protect('secret', {}));
+    await ws.protect();
+    ws.unprotect();
+    expect(await sheetXml(wb)).not.toContain('<sheetProtection');
+  });
+});
+
+describe('page setup and printing', () => {
+  it('writes the exceljs default margins and page setup', async () => {
+    const xml = await sheetXml((() => {
+      const wb = new ExcelJS.Workbook();
+      wb.addWorksheet('Print').getCell('A1').value = 1;
+      return wb;
+    })());
+    expect(xml).toContain('<pageMargins left="0.7" right="0.7" top="0.75" bottom="0.75" header="0.3" footer="0.3"/>');
+    expect(xml).toMatch(/<pageSetup [^>]*orientation="portrait"/);
+  });
+
+  it('round-trips orientation, paper, fit to page, comments ("asDisplyed", exceljs spelling) and print area', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet("Bob's Sheet", { pageSetup: { orientation: 'landscape', paperSize: 9, fitToWidth: 1, fitToHeight: 0 } });
+    ws.getCell('A1').value = 1;
+    ws.pageSetup.cellComments = 'asDisplyed';
+    ws.pageSetup.printArea = 'A1:G20&&I1:J5';
+    ws.pageSetup.showGridLines = true;
+    const bytes = await bytesOf(wb);
+    const xml = strFromU8(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
+    expect(xml).toMatch(/<pageSetup [^>]*cellComments="asDisplayed"/);
+    expect(xml).toContain('<printOptions gridLines="1"/>');
+    // An apostrophe in the sheet name is doubled (exceljs writes the name as it is, X4-19).
+    expect(strFromU8(unzipSync(bytes)['xl/workbook.xml']!)).toContain("'Bob''s Sheet'!$A$1:$G$20,'Bob''s Sheet'!$I$1:$J$5");
+    const wb2 = new ExcelJS.Workbook();
+    await wb2.xlsx.load(bytes);
+    const ps = wb2.getWorksheet("Bob's Sheet").pageSetup;
+    expect(ps).toMatchObject({ orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, cellComments: 'asDisplayed', showGridLines: true, printArea: 'A1:G20&&I1:J5' });
+    expect(wb2.definedNames.model).toEqual([]);
+  });
+
+  it('round-trips headers, footers and row breaks (exceljs drops row breaks when reading)', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Print', { headerFooter: { oddHeader: '&CReport', oddFooter: '&RPage &P of &N' } });
+    for (let i = 1; i <= 40; i++) ws.addRow([i]);
+    ws.getRow(20).addPageBreak();
+    const xml = await sheetXml(wb);
+    expect(xml).toContain('<brk id="20" max="16383" man="1"/>');
+    const ws2 = (await roundTrip(wb)).getWorksheet('Print');
+    expect(ws2.headerFooter).toEqual({ oddHeader: '&CReport', oddFooter: '&RPage &P of &N' });
+    expect(ws2.rowBreaks).toEqual([{ id: 20, max: 16383, man: 1 }]);
+  });
+});
+
+describe('streamed worksheets', () => {
+  it('write validations, conditional formats, protection and page setup set before the first committed row', async () => {
+    await withTempDir(async (dir) => {
+      const filename = join(dir, 'wb.test.xlsx');
+      const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true });
+      const ws = wb.addWorksheet('Data', { pageSetup: { orientation: 'landscape' } });
+      ws.dataValidations.add('A2:A100', { type: 'whole', operator: 'greaterThan', formulae: [0] });
+      ws.addConditionalFormatting({ ref: 'A2:A100', rules: [{ type: 'cellIs', operator: 'greaterThan', formulae: [100], style: { font: { bold: true } } }] });
+      await ws.protect('', { sort: true });
+      ws.addRow(['n']).commit();
+      ws.addRow([5]).commit();
+      ws.commit();
+      await wb.commit();
+      const wb2 = new ExcelJS.Workbook();
+      await wb2.xlsx.readFile(filename);
+      const ws2 = wb2.getWorksheet('Data');
+      expect(ws2.getCell('A50').dataValidation).toMatchObject({ type: 'whole', operator: 'greaterThan', formulae: [0] });
+      expect(ws2.conditionalFormattings[0].rules[0]).toMatchObject({ type: 'cellIs', operator: 'greaterThan', formulae: ['100'] });
+      expect(ws2.sheetProtection).toEqual({ sheet: true, sort: true });
+      expect(ws2.pageSetup.orientation).toBe('landscape');
+    });
+  });
+
+  it('refuse changes made after rows were committed', async () => {
+    await withTempDir(async (dir) => {
+      const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 'wb.test.xlsx') });
+      const ws = wb.addWorksheet('Data');
+      ws.addRow([1]).commit();
+      ws.dataValidations.add('A1', { type: 'whole', operator: 'greaterThan', formulae: [0] });
+      await expectNotSupported(() => ws.commit());
+    });
+  });
+});

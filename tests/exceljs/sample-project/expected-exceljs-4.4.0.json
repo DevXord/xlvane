@@ -419,6 +419,77 @@
       "C7"
     ]
   },
+  "rules": {
+    "b3validation": {
+      "type": "list",
+      "formulae": [
+        "\"Tea,Coffee,Cocoa\""
+      ],
+      "allowBlank": true
+    },
+    "c2validation": {
+      "type": "decimal",
+      "formulae": [
+        0,
+        1000
+      ],
+      "showErrorMessage": true,
+      "operator": "between",
+      "error": "Use 0 to 1000"
+    },
+    "conditional": [
+      {
+        "ref": "C2:C4",
+        "rules": [
+          {
+            "type": "cellIs",
+            "operator": "greaterThan",
+            "priority": 1,
+            "formulae": [
+              "15"
+            ],
+            "bold": true,
+            "italic": null
+          },
+          {
+            "type": "expression",
+            "operator": null,
+            "priority": 2,
+            "formulae": [
+              "$C2<10"
+            ],
+            "bold": null,
+            "italic": true
+          }
+        ]
+      }
+    ],
+    "protection": {
+      "sheet": true,
+      "sort": true,
+      "autoFilter": true
+    },
+    "page": {
+      "orientation": "landscape",
+      "paperSize": 9,
+      "margins": {
+        "left": 0.5,
+        "right": 0.5,
+        "top": 1,
+        "bottom": 1,
+        "header": 0.4,
+        "footer": 0.4
+      },
+      "printArea": "A1:D7",
+      "printTitlesRow": "1:1"
+    },
+    "header": "&CSales report",
+    "footer": "&RPage &P of &N",
+    "names": [
+      "firstAmount",
+      "amounts"
+    ]
+  },
   "links": {
     "a10": {
       "text": "Price list",

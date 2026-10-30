@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, styleIn, valueIn } from './convert';
+import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, sheetRulesIn, styleIn, valueIn } from './convert';
 import type { DefinedNames } from './defined-names';
 import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
@@ -149,6 +149,7 @@ export class WorksheetWriter extends Worksheet {
       ...(layout.tabColor !== undefined ? { tabColor: layout.tabColor } : {}),
       ...(filter ? { autoFilter: filter } : {}),
       merges: [...this._merges.values()].map((m) => `${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`),
+      ...sheetRulesSpec(this),
     };
   }
 
@@ -230,7 +231,7 @@ export class WorksheetWriter extends Worksheet {
     // The sheet layout (columns, views, autoFilter, merges, name, state) is written before the
     // rows, so a change made after the first committed row cannot be written (D-507).
     if (JSON.stringify(this.currentLayout()) !== this.layout) {
-      const error = notSupportedLater(`Changing the layout of streamed worksheet "${this.name}" (columns, views, autoFilter, merges) after rows were committed`);
+      const error = notSupportedLater(`Changing the layout of streamed worksheet "${this.name}" (columns, views, autoFilter, merges, validations, conditional formats, protection, page setup) after rows were committed`);
       this.rowsOut.fail(error);
       throw error;
     }
@@ -365,6 +366,21 @@ export class WorkbookWriter {
     this.sheets.close();
     await done;
   }
+}
+
+/** The validations, conditional formats, protection and printing of a streamed worksheet (D-C06). */
+function sheetRulesSpec(ws: Worksheet): Partial<StreamSheetSpec> {
+  const r = sheetRulesIn(ws);
+  return {
+    ...(r.dataValidations.length > 0 ? { dataValidations: r.dataValidations.map((v) => ({ ...v.rule, sqref: v.sqref })) } : {}),
+    ...(r.conditionalFormats.length > 0 ? { conditionalFormats: r.conditionalFormats } : {}),
+    ...(r.protect ? { protect: r.protect } : {}),
+    pageSetup: r.pageSetup,
+    ...(r.headerFooter ? { headerFooter: r.headerFooter } : {}),
+    ...(r.pageBreaks.length > 0 ? { pageBreaks: { rows: r.pageBreaks } } : {}),
+    ...(r.printArea ? { printArea: r.printArea } : {}),
+    ...(r.printTitles ? { printTitles: r.printTitles } : {}),
+  };
 }
 
 function notSupportedLater(feature: string): Error {

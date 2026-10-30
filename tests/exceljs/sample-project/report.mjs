@@ -50,6 +50,25 @@ export async function run(ExcelJS, Workbook, dir) {
   sheet.getCell('A12').value = { text: 'Go to total', hyperlink: '#Sales!C5' };
   sheet.getCell('A5').note = 'Checked by finance';
   sheet.getCell('B4').note = { texts: [{ font: { bold: true }, text: 'Cocoa' }, { text: ' is new this year' }] };
+  // Data validation, conditional formatting, protection and printing (no password: xlvane
+  // does not hash passwords yet).
+  for (const a of ['B2', 'B3', 'B4']) sheet.getCell(a).dataValidation = { type: 'list', allowBlank: true, formulae: ['"Tea,Coffee,Cocoa"'] };
+  sheet.getCell('C2').dataValidation = { type: 'decimal', operator: 'between', showErrorMessage: true, error: 'Use 0 to 1000', formulae: [0, 1000] };
+  sheet.addConditionalFormatting({
+    ref: 'C2:C4',
+    rules: [
+      { type: 'cellIs', operator: 'greaterThan', priority: 1, formulae: [15], style: { font: { bold: true } } },
+      { type: 'expression', priority: 2, formulae: ['$C2<10'], style: { font: { italic: true } } },
+    ],
+  });
+  await sheet.protect('', { sort: true, autoFilter: true, selectLockedCells: true, selectUnlockedCells: true });
+  sheet.pageSetup.orientation = 'landscape';
+  sheet.pageSetup.paperSize = 9;
+  sheet.pageSetup.margins = { left: 0.5, right: 0.5, top: 1, bottom: 1, header: 0.4, footer: 0.4 };
+  sheet.pageSetup.printArea = 'A1:D7';
+  sheet.pageSetup.printTitlesRow = '1:1';
+  sheet.headerFooter.oddHeader = '&CSales report';
+  sheet.headerFooter.oddFooter = '&RPage &P of &N';
   // Row and column edits on plain values (no formulas, merges, notes or names: exceljs 4.4.0 does
   // not move those, xlvane does, docs/exceljs-compat.md).
   const edits = workbook.addWorksheet('Edits');
@@ -127,6 +146,25 @@ export async function run(ExcelJS, Workbook, dir) {
     view: { state: view.state ?? null, zoomScale: view.zoomScale ?? null, showGridLines: view.showGridLines ?? null, topLeftCell: view.topLeftCell ?? null },
     notes: { a5: ws.getCell('A5').note ?? null, b4texts: ws.getCell('B4').note?.texts ?? null, a1: ws.getCell('A1').note ?? null },
     edits: { rows: editRows, bold: editBold },
+    rules: {
+      b3validation: ws.getCell('B3').dataValidation ?? null,
+      c2validation: ws.getCell('C2').dataValidation ?? null,
+      conditional: ws.conditionalFormattings.map((cf) => ({
+        ref: cf.ref,
+        rules: cf.rules.map((r) => ({ type: r.type, operator: r.operator ?? null, priority: r.priority, formulae: r.formulae ?? null, bold: r.style?.font?.bold ?? null, italic: r.style?.font?.italic ?? null })),
+      })),
+      protection: ws.sheetProtection ?? null,
+      page: {
+        orientation: ws.pageSetup.orientation ?? null,
+        paperSize: ws.pageSetup.paperSize ?? null,
+        margins: ws.pageSetup.margins ?? null,
+        printArea: ws.pageSetup.printArea ?? null,
+        printTitlesRow: ws.pageSetup.printTitlesRow ?? null,
+      },
+      header: ws.headerFooter?.oddHeader ?? null,
+      footer: ws.headerFooter?.oddFooter ?? null,
+      names: read.definedNames.model.map((d) => d.name),
+    },
     links: {
       a10: ws.getCell('A10').value,
       a10type: ws.getCell('A10').type,

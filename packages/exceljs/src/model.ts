@@ -3,8 +3,9 @@
 // writing go through xlvane (convert.ts).
 import { XlvError } from 'xlvane';
 import type { DefinedNames } from './defined-names';
-import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, movePosition, type SpliceChange } from './splice';
-import type { Alignment, Borders, CellValue, ColumnDefn, Comment, Fill, Font, Style, WorksheetOptions, WorksheetView } from './types';
+import { DataValidations, defaultHeaderFooter, defaultPageSetup } from './sheet-rules';
+import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, moveSqref, movePosition, type SpliceChange } from './splice';
+import type { Alignment, Borders, CellValue, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
 
 /**
  * Value types, as in exceljs `lib/doc/enums.js` (ValueType).
@@ -347,11 +348,13 @@ export class Cell {
     }
     this._note = v;
   }
-  get dataValidation(): undefined {
-    return undefined;
+  /** The data validation of this cell: its own, or that of a range containing it (`worksheet.dataValidations`). */
+  get dataValidation(): DataValidation | undefined {
+    return this.worksheet.dataValidations.find(this.address);
   }
-  set dataValidation(_v: unknown) {
-    notSupported('Data validation');
+  set dataValidation(v: DataValidation | undefined) {
+    if (v === undefined || v === null) this.worksheet.dataValidations.remove(this.address);
+    else this.worksheet.dataValidations.add(this.address, v);
   }
   /** The link target of a `{ text, hyperlink }` value, as exceljs `cell.hyperlink` (lib/doc/cell.js L201). */
   get hyperlink(): string | undefined {
@@ -650,8 +653,16 @@ export class Row {
     this._cells = next;
   }
 
-  addPageBreak(): void {
-    notSupported('Page breaks');
+  /**
+   * Adds a manual page break after this row, as exceljs (lib/doc/row.js L150–162). The column
+   * limits `lft`/`rght` are kept on the break; Office ignores them ([MS-OI29500] §2.1.589 b).
+   */
+  addPageBreak(lft?: number, rght?: number): void {
+    const left = Math.max(0, (lft ?? 0) - 1) || 0;
+    const right = Math.max(0, (rght ?? 0) - 1) || 16383;
+    const pb: RowBreak = { id: this._number, max: right, man: 1 };
+    if (left) pb.min = left;
+    this.worksheet.rowBreaks.push(pb);
   }
 }
 
@@ -850,6 +861,18 @@ export class Worksheet {
   views: WorksheetView[];
   autoFilter: string | { from: string | { row: number; column: number }; to: string | { row: number; column: number } } | null = null;
   properties: Record<string, unknown>;
+  /** Printing settings, with the defaults of exceljs (lib/doc/worksheet.js L64–90). */
+  pageSetup: PageSetup;
+  /** Headers and footers, with the defaults of exceljs. */
+  headerFooter: HeaderFooter;
+  /** Manual row breaks (`row.addPageBreak()`). */
+  rowBreaks: RowBreak[] = [];
+  /** Data validations by cell address or range. */
+  dataValidations: DataValidations = new DataValidations();
+  /** Conditional formats, in the order they were added. */
+  conditionalFormattings: ConditionalFormattingOptions[] = [];
+  /** The protection set by `protect()`, or `null`. */
+  sheetProtection: (Partial<WorksheetProtection> & { sheet?: boolean; [key: string]: unknown }) | null = null;
   /** @internal */
   _rows: (Row | undefined)[] = [];
   /** @internal */
@@ -870,8 +893,8 @@ export class Worksheet {
     this.state = options?.state ?? 'visible';
     this.views = options?.views ? [...options.views] : [];
     this.properties = { ...(options?.properties as Record<string, unknown> | undefined) };
-    if (options?.pageSetup !== undefined) notSupported('Worksheet page setup');
-    if (options?.headerFooter !== undefined) notSupported('Worksheet header and footer');
+    this.pageSetup = defaultPageSetup(options?.pageSetup);
+    this.headerFooter = defaultHeaderFooter(options?.headerFooter);
     this.name = name ?? `sheet${String(id)}`;
   }
 
@@ -1311,6 +1334,17 @@ export class Worksheet {
         }
       }
     }
+    // Data validations and conditional formats follow their cells, as merges do (exceljs leaves them; X4-15).
+    const validations: Record<string, DataValidation | undefined> = {};
+    for (const [key, v] of Object.entries(this.dataValidations.model)) {
+      const next = v === undefined ? null : moveSqref(key, change);
+      if (next !== null) validations[next] = v;
+    }
+    this.dataValidations.model = validations;
+    this.conditionalFormattings = this.conditionalFormattings.flatMap((cf) => {
+      const ref = moveSqref(cf.ref, change);
+      return ref === null ? [] : [{ ...cf, ref }];
+    });
     for (const [cell, text] of formulas) {
       const v = cell.value;
       if (v !== null && typeof v === 'object' && !(v instanceof Date)) cell.value = { ...(v as Record<string, unknown>), formula: text } as CellValue;
@@ -1446,6 +1480,46 @@ export class Worksheet {
     return this._merges.size > 0;
   }
 
+  // ---- conditional formatting and protection --------------------------------------------------
+
+  /** Adds conditional formatting for a range (exceljs `addConditionalFormatting`). */
+  addConditionalFormatting(cf: ConditionalFormattingOptions): void {
+    this.conditionalFormattings.push(cf);
+  }
+
+  /**
+   * Removes conditional formatting: the entry at an index, the entries a filter function rejects,
+   * or all of them for any other argument (lib/doc/worksheet.js L815–822).
+   */
+  removeConditionalFormatting(filter?: number | ((cf: ConditionalFormattingOptions, index: number) => boolean)): void {
+    if (typeof filter === 'number') this.conditionalFormattings.splice(filter, 1);
+    else if (typeof filter === 'function') this.conditionalFormattings = this.conditionalFormattings.filter(filter);
+    else this.conditionalFormattings = [];
+  }
+
+  /**
+   * Protects the sheet (exceljs `protect`). Options say what users may still do
+   * (`formatCells: true` allows formatting). A password is not supported yet: the password hash
+   * comes with phase C2, and the call rejects with `XLV_E_NOT_SUPPORTED`.
+   */
+  protect(password?: string, options?: Partial<WorksheetProtection>): Promise<void> {
+    return new Promise((resolve) => {
+      if (password) notSupported('A password for worksheet.protect() (the password hash comes in a later version)');
+      const protection: Record<string, unknown> = { sheet: true };
+      if (options) {
+        Object.assign(protection, options);
+        delete protection['spinCount'];
+      }
+      this.sheetProtection = protection;
+      resolve();
+    });
+  }
+
+  /** Removes the protection. */
+  unprotect(): void {
+    this.sheetProtection = null;
+  }
+
   // ---- features not supported ------------------------------------------------------------------
 
   addImage(): never {
@@ -1456,15 +1530,6 @@ export class Worksheet {
   }
   addTable(): never {
     return notSupported('Tables (worksheet.addTable)');
-  }
-  addConditionalFormatting(): never {
-    return notSupported('Conditional formatting');
-  }
-  protect(): never {
-    return notSupported('Worksheet protection');
-  }
-  get dataValidations(): never {
-    return notSupported('Data validation');
   }
 }
 

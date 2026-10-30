@@ -4,7 +4,8 @@ import { XlvError, writeWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
 import { colorOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { DefinedNames, extractRanges } from './defined-names';
 import { notSupported, Worksheet } from './model';
-import type { CellValue, WorksheetOptions } from './types';
+import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
+import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
 
 /** Node.js Buffer, when available, so `writeBuffer()` returns what exceljs returns there. */
 interface BufferCtor {
@@ -268,9 +269,9 @@ export class Workbook {
     // xlsx.js L348–349: company and manager come from docProps/app.xml (X4-13).
     this.company = p.company;
     this.manager = p.manager;
-    // Print areas and titles become pageSetup in exceljs (workbook-xform.js L187), which is not
-    // supported; other built-in names are written by xlvane itself (autofilter). The scope
-    // (localSheetId) is dropped, as in exceljs.
+    // Print areas and titles become pageSetup in exceljs (workbook-xform.js L187; read from
+    // Sheet.printArea / printTitles below); other built-in names are written by xlvane itself
+    // (autofilter). The scope (localSheetId) is dropped, as in exceljs.
     this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet') continue;
@@ -317,6 +318,13 @@ export class Workbook {
       const tab = colorOut(s.tabColor ?? undefined);
       if (tab) ws.properties['tabColor'] = tab;
       if (s.autoFilter) ws.autoFilter = s.autoFilter;
+      // Validations, conditional formats, protection and printing (X4-16 … X4-19; D-C06).
+      ws.dataValidations.model = dataValidationsOut(s.dataValidations, read.dateSystem === '1904');
+      ws.conditionalFormattings = conditionalFormatsOut(s.conditionalFormats);
+      ws.sheetProtection = s.protection ? protectionOut(s.protection) : null;
+      ws.pageSetup = pageSetupOut(s.pageSetup, s.printArea, s.printTitles);
+      ws.headerFooter = headerFooterOut(s.headerFooter) as HeaderFooter;
+      ws.rowBreaks = rowBreaksOut(s.pageBreaks.rows);
     }
   }
 }

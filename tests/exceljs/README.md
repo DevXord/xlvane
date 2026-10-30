@@ -47,10 +47,10 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 | `worksheet-merge.test.ts` | `spec/unit/doc/worksheet.merge.spec.js` | 7 (2 added) | 0 |
 | `worksheet-values.test.ts` | `spec/unit/doc/worksheet.values.spec.js` and `spec/utils/test-spliced-sheet.js` (as `spliced-sheets.ts`) | 38 | 2 |
 | `defined-names.test.ts` | `spec/unit/doc/defined-names.spec.js` | 8 (2 added) | 0 |
-| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` | 23 (1 added) | 13 |
+| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` and `spec/utils/test-data-validation-sheet.js` (as `sheet-rules-sheets.ts`) | 27 (1 added) | 9 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 19 | 4 |
 | `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
-| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js` | 14 (3 added) | 8 |
+| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/utils/test-data-validation-sheet.js` and `spec/utils/test-conditional-formatting-sheet.js` (as `sheet-rules-sheets.ts`) | 16 (3 added) | 6 |
 | `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 2 (added, not upstream) | 29 |
 
 "Passing" includes tests that expect `XLV_E_NOT_SUPPORTED` for an unsupported feature.
@@ -60,15 +60,21 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 Each skipped test names its reason in the title. The reasons are:
 
 - **Unsupported features** (they throw `XLV_E_NOT_SUPPORTED`; where cheap, one test checks that):
-  images, conditional formatting, data validation, CSV, print settings, shared-formula filling,
-  zip compression options and workbook views.
+  images, CSV, shared-formula filling, zip compression options and workbook views.
+- **Data validation, conditional formatting and printing** (phase C1):
+  `spec/utils/test-data-validation-sheet.js`, `spec/utils/test-conditional-formatting-sheet.js` and
+  their data `spec/utils/data/data-validations.json` and `conditional-formatting.json` were
+  downloaded once from the exceljs repository at tag v4.4.0 and ported as `sheet-rules-sheets.ts`.
+  Two validations of the data are changed in place and marked `xlvane:` (an `errorStyle` that is not
+  a schema value, a decimal validation without bounds). The #1814 test expects the number format
+  of a rule as a code string. `sheet-rules.test.ts` adds xlvane tests for the differences.
 - **Row and column splicing** (phase B): `spec/utils/test-spliced-sheet.js` was downloaded once
   from the exceljs repository at tag v4.4.0 and ported as `spliced-sheets.ts`. Where xlvane moves
   something as a spreadsheet application does and exceljs does not (cells inserted inside a
   defined name join it), the expectation is changed in place and marked `xlvane:`. The
   duplicateRow integration tests build their sheet in memory instead of reading
-  `duplicateRowTest.xlsx`, and compare styles by value (xlvane copies styles). Formula rewriting
-  waits for the reference engine (`splice.test.ts`, `it.todo`).
+  `duplicateRowTest.xlsx`, and compare styles by value (xlvane copies styles). Formulas follow
+  through xlvane's reference engine (`splice.test.ts`).
 - **Internal API**: tests of internal classes and fields (`new Cell`, `Column.toModel`,
   `row.model`, `_upgradeToHyperlink`, `effectiveType`, sheet mocks) are skipped or rewritten
   with the public API.

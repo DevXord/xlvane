@@ -25,13 +25,21 @@ export type {
   Color,
   Comment,
   ColumnDefn,
+  ConditionalFormattingOptions,
+  ConditionalFormattingRule,
+  DataValidation,
   Fill,
   FillPatterns,
   Font,
+  HeaderFooter,
+  PageSetup,
+  RowBreak,
   Style,
   WorksheetOptions,
+  WorksheetProtection,
   WorksheetView,
 } from './types';
+export { DataValidations } from './sheet-rules';
 
 /**
  * The streaming API, as `ExcelJS.stream`.

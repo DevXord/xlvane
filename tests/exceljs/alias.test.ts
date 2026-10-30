@@ -86,7 +86,15 @@ describe('exceljs alias: code written for exceljs runs unchanged', () => {
       ['_xlnm._FilterDatabase', "'Sales'!$A$1:$D$4"],
       ['firstAmount', 'Sales!$C$2'],
       ['amounts', 'Sales!$C$2:$C$4'],
+      ['_xlnm.Print_Area', "'Sales'!$A$1:$D$7"],
+      ['_xlnm.Print_Titles', "'Sales'!$1:$1"],
     ]);
+    // Phase C1: validations, conditional formats, protection and printing.
+    expect(s.dataValidations.map((d) => [d.sqref, d.type])).toEqual(expect.arrayContaining([['B2:B4', 'list'], ['C2', 'decimal']]));
+    expect(s.conditionalFormats[0]?.rules.map((r) => [r.type, r.priority])).toEqual([['cellIs', 1], ['expression', 2]]);
+    expect(s.protection).toMatchObject({ sheet: true, sort: false, autoFilter: false, selectLockedCells: false });
+    expect(s.pageSetup).toMatchObject({ orientation: 'landscape', paperSize: 9 });
+    expect(s.printArea).toEqual(['A1:D7']);
     const log = readWorkbook(await readFile(join(dir, 'out/streamed.xlsx'))).getSheet('Log');
     expect(log.cellCount).toBe(2002);
     expect(log.cell('B1001')?.value).toBe(1_000_000);

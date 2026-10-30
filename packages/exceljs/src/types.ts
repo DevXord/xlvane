@@ -283,7 +283,7 @@ export interface WorksheetView {
 }
 
 /**
- * Options for `workbook.addWorksheet()`. `pageSetup` and `headerFooter` are not supported.
+ * Options for `workbook.addWorksheet()`, as in exceljs (index.d.ts `AddWorksheetOptions`).
  *
  * @example
  * ```ts
@@ -296,8 +296,8 @@ export interface WorksheetOptions {
   state?: 'visible' | 'hidden' | 'veryHidden';
   views?: WorksheetView[];
   properties?: Record<string, unknown>;
-  pageSetup?: unknown;
-  headerFooter?: unknown;
+  pageSetup?: Partial<PageSetup>;
+  headerFooter?: Partial<HeaderFooter>;
 }
 
 /**
@@ -317,4 +317,178 @@ export interface Comment {
   margins?: { insetmode?: 'auto' | 'custom'; inset?: number[] };
   protection?: { locked?: 'True' | 'False'; lockText?: 'True' | 'False' };
   editAs?: 'twoCells' | 'oneCells' | 'absolute';
+}
+
+/**
+ * A data validation (`cell.dataValidation`, `worksheet.dataValidations`), as in exceljs
+ * (index.d.ts `DataValidation`). `'any'` is a validation that only shows its input message.
+ * `formulae` are formulas (`'"Yes,No"'` for a literal list, `'$D$1:$D$9'` for a range), numbers or
+ * dates; reading gives numbers for whole, decimal and textLength validations and dates for date
+ * validations, as exceljs does.
+ *
+ * @example
+ * ```ts
+ * import type { DataValidation } from '@xlvane/exceljs';
+ *
+ * const rule: DataValidation = { type: 'whole', operator: 'between', allowBlank: true, formulae: [1, 10], showErrorMessage: true, error: '1 to 10' };
+ * ```
+ */
+export interface DataValidation {
+  type: 'list' | 'whole' | 'decimal' | 'date' | 'time' | 'textLength' | 'custom' | 'any';
+  formulae?: unknown[];
+  allowBlank?: boolean;
+  operator?: 'between' | 'notBetween' | 'equal' | 'notEqual' | 'greaterThan' | 'lessThan' | 'greaterThanOrEqual' | 'lessThanOrEqual';
+  error?: string;
+  errorTitle?: string;
+  errorStyle?: 'stop' | 'warning' | 'information';
+  prompt?: string;
+  promptTitle?: string;
+  showErrorMessage?: boolean;
+  showInputMessage?: boolean;
+}
+
+/**
+ * A conditional formatting rule, as in exceljs (index.d.ts `ConditionalFormattingRule`): the
+ * rule type with its own properties (`formulae`, `operator`, `rank`, `cfvo`, `color`, `iconSet`,
+ * `text`, `timePeriod`, …) and the `style` applied where the rule is true.
+ *
+ * @example
+ * ```ts
+ * import type { ConditionalFormattingRule } from '@xlvane/exceljs';
+ *
+ * const rule: ConditionalFormattingRule = { type: 'cellIs', operator: 'greaterThan', formulae: [100], style: { font: { bold: true } } };
+ * ```
+ */
+export interface ConditionalFormattingRule {
+  type: 'expression' | 'cellIs' | 'top10' | 'aboveAverage' | 'colorScale' | 'iconSet' | 'containsText' | 'timePeriod' | 'dataBar';
+  priority?: number;
+  style?: Style;
+  [key: string]: unknown;
+}
+
+/**
+ * The argument of `worksheet.addConditionalFormatting()`: the range and its rules.
+ *
+ * @example
+ * ```ts
+ * import type { ConditionalFormattingOptions } from '@xlvane/exceljs';
+ *
+ * const cf: ConditionalFormattingOptions = { ref: 'B2:B20', rules: [{ type: 'top10', rank: 3, style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFFC7CE' } } } }] };
+ * ```
+ */
+export interface ConditionalFormattingOptions {
+  ref: string;
+  rules: ConditionalFormattingRule[];
+}
+
+/**
+ * Page setup of a worksheet (`worksheet.pageSetup`), as in exceljs (index.d.ts `PageSetup`).
+ * `printArea` (several areas joined by `&&`), `printTitlesRow` (`'1:2'`) and `printTitlesColumn`
+ * (`'A:B'`) are stored as the built-in names Excel uses.
+ *
+ * @example
+ * ```ts
+ * import type { PageSetup } from '@xlvane/exceljs';
+ *
+ * const setup: Partial<PageSetup> = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printArea: 'A1:G40' };
+ * ```
+ */
+export interface PageSetup {
+  margins?: { left: number; right: number; top: number; bottom: number; header: number; footer: number } | undefined;
+  orientation?: 'portrait' | 'landscape' | undefined;
+  horizontalDpi?: number | undefined;
+  verticalDpi?: number | undefined;
+  fitToPage?: boolean | undefined;
+  pageOrder?: 'downThenOver' | 'overThenDown' | undefined;
+  blackAndWhite?: boolean | undefined;
+  draft?: boolean | undefined;
+  cellComments?: 'atEnd' | 'asDisplayed' | 'asDisplyed' | 'None' | undefined;
+  errors?: 'dash' | 'blank' | 'NA' | 'displayed' | undefined;
+  scale?: number | undefined;
+  fitToWidth?: number | undefined;
+  fitToHeight?: number | undefined;
+  paperSize?: number | undefined;
+  showRowColHeaders?: boolean | undefined;
+  showGridLines?: boolean | undefined;
+  firstPageNumber?: number | undefined;
+  useFirstPageNumber?: boolean | undefined;
+  usePrinterDefaults?: boolean | undefined;
+  copies?: number | undefined;
+  horizontalCentered?: boolean | undefined;
+  verticalCentered?: boolean | undefined;
+  rowBreaks?: unknown | undefined;
+  colBreaks?: unknown | undefined;
+  printArea?: string | undefined;
+  printTitlesRow?: string | undefined;
+  printTitlesColumn?: string | undefined;
+}
+
+/**
+ * Headers and footers of a worksheet (`worksheet.headerFooter`), as in exceljs (index.d.ts
+ * `HeaderFooter`). The texts use Excel's codes (`&C` centre section, `&P` page number, …).
+ *
+ * @example
+ * ```ts
+ * import type { HeaderFooter } from '@xlvane/exceljs';
+ *
+ * const hf: HeaderFooter = { oddHeader: '&CQuarterly report', oddFooter: '&RPage &P of &N' };
+ * ```
+ */
+export interface HeaderFooter {
+  differentFirst?: boolean;
+  differentOddEven?: boolean;
+  oddHeader?: string | null;
+  oddFooter?: string | null;
+  evenHeader?: string | null;
+  evenFooter?: string | null;
+  firstHeader?: string | null;
+  firstFooter?: string | null;
+}
+
+/**
+ * A manual row break (`worksheet.rowBreaks`), as `row.addPageBreak()` stores it in exceljs:
+ * the page ends after row `id`.
+ *
+ * @example
+ * ```ts
+ * import type { RowBreak } from '@xlvane/exceljs';
+ *
+ * const pageEndsAfterRow20: RowBreak = { id: 20, max: 16383, man: 1 };
+ * ```
+ */
+export interface RowBreak {
+  id: number;
+  max?: number;
+  min?: number;
+  man?: number;
+}
+
+/**
+ * Options of `worksheet.protect()`, as in exceljs (index.d.ts `WorksheetProtection`): `true`
+ * allows users to do the action on the protected sheet.
+ *
+ * @example
+ * ```ts
+ * import type { WorksheetProtection } from '@xlvane/exceljs';
+ *
+ * const options: Partial<WorksheetProtection> = { formatCells: true, sort: true, autoFilter: true };
+ * ```
+ */
+export interface WorksheetProtection {
+  objects: boolean;
+  scenarios: boolean;
+  selectLockedCells: boolean;
+  selectUnlockedCells: boolean;
+  formatCells: boolean;
+  formatColumns: boolean;
+  formatRows: boolean;
+  insertColumns: boolean;
+  insertRows: boolean;
+  insertHyperlinks: boolean;
+  deleteColumns: boolean;
+  deleteRows: boolean;
+  sort: boolean;
+  autoFilter: boolean;
+  pivotTables: boolean;
+  spinCount: number;
 }

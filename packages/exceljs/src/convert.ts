@@ -4,6 +4,12 @@ import {
   readWorkbook,
   type CellInput,
   type CellStyle,
+  type ConditionalFormatRuleInput,
+  type DataValidationRule,
+  type HeaderFooter as XlvHeaderFooter,
+  type PageSetupOptions,
+  type PrintTitles,
+  type SheetProtectionFlags,
   type Color as XlvColor,
   type ColumnOptions,
   type FontStyle,
@@ -19,6 +25,7 @@ import {
   type WorkbookProperties,
 } from 'xlvane';
 import { columnLetter, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
+import { conditionalFormatsIn, dataValidationsIn, headerFooterIn, pageSetupIn, protectionIn, rowBreaksIn } from './sheet-rules';
 import type { Alignment, Borders, CellValue, Color, Comment, Fill, Font, Style, WorksheetView } from './types';
 
 /**
@@ -69,6 +76,12 @@ function colorIn(c: Partial<Color> | undefined, where: string): XlvColor | undef
   if (typeof c.indexed === 'number') return { indexed: c.indexed };
   if (Object.keys(c).length === 0) return undefined;
   return notSupported(`The colour ${JSON.stringify(c).slice(0, 60)} in ${where}`);
+}
+
+/** A colour of a conditional format or another setting given as an exceljs colour object. */
+export function colorInFor(c: unknown, where: string): XlvColor {
+  const out = colorIn(c as Partial<Color> | undefined, where);
+  return out === undefined ? notSupported(`A missing or empty colour in ${where}`) : out;
 }
 
 function fontIn(f: Partial<Font> | undefined): CellStyle['font'] {
@@ -342,10 +355,47 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
     if (layout.tabColor !== undefined) sheet.tabColor(layout.tabColor);
     const filter = autoFilterRange(ws.autoFilter);
     if (filter) sheet.autoFilter(filter);
+    const rules = sheetRulesIn(ws);
+    for (const v of rules.dataValidations) sheet.validate(v.sqref, v.rule);
+    for (const cf of rules.conditionalFormats) sheet.conditionalFormat(cf.sqref, cf.rules);
+    if (rules.protect) sheet.protect(rules.protect);
+    sheet.pageSetup(rules.pageSetup);
+    if (rules.headerFooter) sheet.headerFooter(rules.headerFooter);
+    if (rules.pageBreaks.length > 0) sheet.pageBreaks({ rows: rules.pageBreaks });
+    if (rules.printArea) sheet.printArea(rules.printArea);
+    if (rules.printTitles) sheet.printTitles(rules.printTitles);
   }
   // exceljs writes each name's ranges joined by commas, without a sheet scope (defined-name-xform.js L5).
   for (const d of meta.definedNames ?? []) book.defineName(d.name, d.ranges.join(','));
   return book;
+}
+
+/**
+ * The validations, conditional formats, protection and printing settings of a worksheet in the
+ * form of the core API (D-C06). exceljs always writes page margins and page setup
+ * (worksheet-xform.js L337–339), so `pageSetup` is always given.
+ */
+export function sheetRulesIn(ws: Worksheet): {
+  dataValidations: { sqref: string; rule: DataValidationRule }[];
+  conditionalFormats: { sqref: string; rules: ConditionalFormatRuleInput[] }[];
+  protect: SheetProtectionFlags | null;
+  pageSetup: PageSetupOptions;
+  headerFooter: XlvHeaderFooter | null;
+  pageBreaks: number[];
+  printArea: string[] | null;
+  printTitles: PrintTitles | null;
+} {
+  const page = pageSetupIn(ws.pageSetup);
+  return {
+    dataValidations: dataValidationsIn(ws.dataValidations),
+    conditionalFormats: conditionalFormatsIn(ws.conditionalFormattings),
+    protect: ws.sheetProtection ? protectionIn(ws.sheetProtection) : null,
+    pageSetup: page.options,
+    headerFooter: headerFooterIn(ws.headerFooter),
+    pageBreaks: rowBreaksIn(ws.rowBreaks),
+    printArea: page.printArea,
+    printTitles: page.printTitles,
+  };
 }
 
 function refOf(x: string | { row: number; column: number }): string {
