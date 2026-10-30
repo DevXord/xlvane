@@ -408,6 +408,11 @@ Following the npm documentation's recommendation for the strongest setup (F-NPM-
 ### D-1004 First release bootstrap (2026-10-30)
 A trusted publisher is configured in the settings of an existing package, so docs/RELEASING.md first stages both packages from the maintainer's machine (which creates them with the public placeholder `0.0.0-stage`), rejects those stages (no provenance), configures the trusted publisher and re-runs the publish job. Not documented by npm and so marked in RELEASING.md: whether a rejected staged version can be staged again.
 
+## Decisions: review with the supplied standards (after phase 10)
+
+### D-1104 New sources and the local review report (2026-10-30)
+The maintainer supplied, in a folder on their machine, ECMA-376 Part 1 (5th edition, 2016, with its supporting archives), Parts 2–4, [MS-OI29500] revision 25.0 (2026-08-18), [MS-XLSX] revision 30.0 (2026-10-16), [MS-OFFMACRO2] revision 8.0 (2024-08-20), [MS-OE376] and other [MS-*] documents not related to SpreadsheetML. A local Claude Code session read them and wrote a report for the cloud session (quotes limited to what each fact needs; locators: section, printed page, and `pdftotext -layout` line numbers for Part 1, which match those already used in ecma-376.md). The documents are not in the repository. With the report the facts in docs/facts were updated: confirmed facts cite the document, section and page; facts the documents contradict are listed in D-1101 and D-1102 with the code changes they caused; facts not found stay PROVISIONAL with the searches made. [MS-XLSX] §2.2.2 (Excel's formula grammar for files, an ABNF) is a new source for docs/facts/formulas.md, next to ECMA-376 Part 1 §18.17 and [MS-OI29500] §2.1.859–§2.1.873 and §3.2.3.1. The maintainer's files from Excel, Google Sheets and Numbers (tests/corpus/REQUESTED.md) were not in the folder.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await

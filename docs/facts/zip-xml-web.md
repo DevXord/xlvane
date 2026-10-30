@@ -539,12 +539,14 @@ Raw copies of the web pages are in `scratchpad/web/`, and plain-text conversions
 - **Source:** [MS-OFFMACRO2] §2.2.1.3 "VBA Project" (Macro-enabled SpreadsheetML; Last updated 2019-02-14), https://learn.microsoft.com/en-us/openspecs/office_standards/ms-offmacro2/1527aa6b-c091-435f-86b3-1413abe8f8f4
 - **Anchor:** "Source Relationship: http://schemas.microsoft.com/office/2006/relationships/vbaProject"
 - **Notes:** To detect macros, check both the rel type in `xl/_rels/workbook.xml.rels` and the content type in `[Content_Types].xml`. Treat either one as "has VBA" (*recommendation*).
+**Checked 2026-10-30 (D-1104):** [MS-OFFMACRO2] rev. 8.0 (2024-08-20) §2.2.1.3, p.15–16 — confirmed from the PDF.
 
 ### W-09 — [MS-OFFMACRO2] Macro-enabled workbook content type
 - **Fact:** Workbook part (macro-enabled): Content Types **`application/vnd.ms-excel.sheet.macroEnabled.main+xml`** and **`application/vnd.ms-excel.template.macroEnabled.main+xml`**. Root Namespace `http://schemas.openxmlformats.org/spreadsheetml/2006/main`. Source Relationship `http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument`. The part is modified from ISO/IEC 29500-1:2016 Part 1 §12.3.23. It may have an **implicit** relationship to the VBA Project, Macro Sheet and International Macro Sheet parts.
 - **Source:** [MS-OFFMACRO2] §2.2.1.4 "Workbook" (Last updated 2021-08-17), https://learn.microsoft.com/en-us/openspecs/office_standards/ms-offmacro2/fa1f6007-088f-4f54-ba65-83b5a9d635a6
 - **Anchor:** "application/vnd.ms-excel.sheet.macroEnabled.main+xml"
 - **Notes:** The root namespace is the same as a normal workbook, so only the content type (and the presence of VBA or macrosheet parts) tells .xlsm from .xlsx.
+**Checked 2026-10-30 (D-1104):** [MS-OFFMACRO2] rev. 8.0 §2.2.1.4, p.16 — confirmed from the PDF.
 
 ### W-10 — [MS-OFFMACRO2] Excel 4.0 (XLM) macro sheet parts
 - **Fact:**
@@ -553,6 +555,7 @@ Raw copies of the web pages are in `scratchpad/web/`, and plain-text conversions
 - **Source:** [MS-OFFMACRO2] §2.2.1.2 "Macro Sheet", https://learn.microsoft.com/en-us/openspecs/office_standards/ms-offmacro2/1de8055f-535b-4ebc-ba18-8d25e2986c89. §2.2.1.1 "International Macro Sheet" (Last updated 2019-02-14), …/5623d7b1-eb7c-4347-9bb8-cdbfa1b79e19.
 - **Anchor:** "application/vnd.ms-excel.macrosheet+xml"
 - **Notes:** **Inconsistency in the source:** §2.2.1.4 (Workbook) says the Workbook may have an *implicit* relationship to Macro Sheet parts, while §2.2.1.2 (Macro Sheet) says the macro sheet MUST be the target of an *explicit* relationship from the Workbook. XLM macros carry no VBA part, so a "macro present" check that looks only for vbaProject misses them.
+**Checked 2026-10-30 (D-1104):** [MS-OFFMACRO2] rev. 8.0 §2.2.1.1–§2.2.1.2, p.14–15 — confirmed from the PDF (the explicit/implicit relationship inconsistency is in the PDF too).
 
 ### W-11 — RFC 1952 CRC-32 (supplementary, to fill the APPNOTE gap)
 - **Fact:** The gzip CRC32 field holds a CRC of the **uncompressed data**, computed with the CRC-32 algorithm of ISO 3309 and ITU-T V.42 §8.1.1.6.2. The §8 sample code builds its table with `c = 0xedb88320L ^ (c >> 1)` and applies pre- and post-conditioning with all ones.

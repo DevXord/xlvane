@@ -238,6 +238,7 @@
   - Transitional states 1900-01-01 = 1 and 9999-12-31 = 2,958,465.
   - The extra day is consistent with a phantom 1900-02-29 being counted somewhere in the Transitional 1900 system, but the spec never says so.
   - Strict has no such day (E-14).
+**Checked 2026-10-30 (D-1104):** still not found: ECMA-376 Part 1, 5th ed. (2016), Part 4, [MS-OI29500] rev. 25.0 (2026-08-18), [MS-OE376] and [MS-XLSX] rev. 30.0 (2026-10-16) were searched for `1900` and `leap`.
 
 ### E-17 — Time fraction (Part 1 §18.17.4.2)
 - **Fact:** Time of day is a serial in [0, 1): 0 is 00:00:00 and 0.99999999 is 23:59:59.
@@ -299,6 +300,7 @@
   - Part 1 §18.3.1.4 c (Cell), p.1593–1594, L75005–75085 (raw-checked, PDF p.1603–1604).
   - `xsd-strict/sml.xsd` CT_Cell L2256–2269.
 - **Strict/Transitional:** Identical (`xsd-trans/sml.xsd` L2274).
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.590 a, b, f, g (P1 §18.3.1.4 c), p.251: Office treats `cm` and `vm` as one-based indexes (P1 says zero-based); `s` indexes cellXfs, 0 … 65490.
 
 ### E-21 — ST_CellType values and meaning
 - **Fact (Strict):**
@@ -344,6 +346,7 @@
   - Part 1 §18.3.1.96 v (Cell Value), p.1707–1708, L80654–80700.
   - §18.17.6.6 Value Representation, p.2070, L97802–97811.
   - `xsd-strict/sml.xsd` CT_Cell L2259.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.660 a, b (P1 §18.3.1.96 v), p.286: `v` at most 32767 characters; Boolean `1`/`0`; error cells hold one of `#NULL!`, `#DIV/0!`, `#VALUE!`, `#REF!`, `#NAME?`, `#NUM!`, `#N/A`.
 
 ### E-24 — `row` element: is `r` required?
 - **Fact:** `row@r` is `xsd:unsignedInt` and **optional**; it is the row index. Other attributes:
@@ -363,6 +366,7 @@
   - No rule for deriving a cell's position when `c@r` (or `row@r`) is omitted.
   - Searched Part 1 L74800–81000 and Annex L for: "ascending", "sorted order", "increasing order", "order of rows", "rows shall", "cells shall be", "omitted", "not present", "row-major".
   - The examples always show ascending order with explicit `r`, but that is never stated normatively.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.590 c, p.251: a cell without `r` is in the column one greater than the previous cell of the row, the first such cell in column 1. §2.1.644 a, p.279: `row@r` 1 … 1048576, non-decreasing.
 
 ### E-26 — `f` (Formula) attributes
 - **Fact:** The content type is `ST_Formula` (a restriction of `ST_Xstring`). CT_CellFormula attributes:
@@ -385,6 +389,7 @@
   - Part 1 §18.3.1.40 f (Formula), p.1630–1633, L76864–77038 (raw-checked, PDF p.1641–1643).
   - `xsd-strict/sml.xsd` CT_CellFormula L2730–2747; ST_Formula L213.
 - **Strict/Transitional:** Identical (`xsd-trans/sml.xsd` L2751).
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.620 b, e, h (P1 §18.3.1.40 f), p.260–261: `bx` must be false; `t="array"` marks array formulas and `aca` is ignored otherwise; `si` is required with `t="shared"` and ignored otherwise.
 
 ### E-27 — ST_CellFormulaType
 - **Fact:** The values are:
@@ -437,6 +442,7 @@
   - §18.4.4 r, p.1722, L81397; §18.4.8 si, p.1724, L81475; §18.4.9 sst, p.1724, L81486; §18.4.12 t, p.1725, L81552.
   - `xsd-strict/sml.xsd` L1776–1784.
 - **Strict/Transitional:** Identical.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.675 a–c, §2.1.678 b, p.289–290: `t` at most 32767 characters; at most 32767 `r` and `rPh`.
 
 ### E-31 — `rPh` (phonetic run): is its text part of the value?
 - **Fact:** `rPh` is a run of text that shows a phonetic hint for East Asian pronunciation, displayed across the top of the cell.

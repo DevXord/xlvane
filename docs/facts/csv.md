@@ -2,7 +2,7 @@
 
 Ids are cited from `packages/xlvane/src/csv.ts`, `table.ts` and `standard-schema.ts`.
 
-**Status (2026-10-30).** RFC 4180 could not be downloaded in the cloud session (rfc-editor.org and ietf.org were refused by the network proxy); the maintainer will supply it. Facts marked **PROVISIONAL** describe what the code assumes and must be checked against RFC 4180 when it is available.
+**Status (2026-10-30).** RFC 4180 could not be downloaded in the cloud session (rfc-editor.org and ietf.org were refused by the network proxy); the maintainer will supply it. Facts that were marked PROVISIONAL were checked against RFC 4180 when the maintainer supplied it (update below); none is open.
 
 **Update (2026-10-30).** The maintainer supplied the full text of RFC 4180 (Y. Shafranovich, "Common Format and MIME Type for Comma-Separated Values (CSV) Files", October 2005, Informational) in the session; CSV-01 … CSV-04 are checked against it (S-RFC). The ECMA-376 archives (Parts 2, 3 and 4) do not cover CSV.
 
