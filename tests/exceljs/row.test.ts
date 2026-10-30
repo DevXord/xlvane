@@ -1,8 +1,8 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/row.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
 // changes: Mocha/Chai → Vitest; the internal sheet mock (`createSheetMock`, `addColumn`) is
 // replaced by a real worksheet and `ws.getColumn(n).key = …`; `row.hasValues`, `row.dimensions`
-// and `row.model` (internal model) assertions are skipped; `row.splice` tests expect
-// XLV_E_NOT_SUPPORTED (row splicing is not supported).
+// and `row.model` (internal model) assertions are skipped. The `row.splice` tests are ported in
+// full (phase B).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
 
@@ -91,14 +91,101 @@ describe('Row', () => {
   });
 
   describe('Splice', () => {
-    it('remove only — not supported: row.splice', async () => {
+    it('remove only', () => {
       const row = sheet().getRow(1);
       row.getCell(2).value = 2;
-      await expectNotSupported(() => row.splice(3, 3));
+      row.getCell(3).value = 3;
+      row.getCell(5).value = 5;
+      row.getCell(7).value = 7;
+      row.getCell(11).value = 'eleven';
+      row.getCell(13).value = 13;
+
+      row.splice(3, 3);
+      expect(row.getCell(2).value).toBe(2);
+      expect(row.getCell(2).type).toBe(ExcelJS.ValueType.Number);
+      expect(row.getCell(2).address).toBe('B1');
+      expect(row.getCell(4).value).toBe(7);
+      expect(row.getCell(4).type).toBe(ExcelJS.ValueType.Number);
+      expect(row.getCell(4).address).toBe('D1');
+      expect(row.getCell(8).value).toBe('eleven');
+      expect(row.getCell(8).type).toBe(ExcelJS.ValueType.String);
+      expect(row.getCell(8).address).toBe('H1');
     });
-    for (const name of ['remove to end', 'remove almost to end', 'remove past end', 'remove and insert fewer', 'remove and insert replacements', 'remove and insert more']) {
-      it.skip(`${name} — not supported: row.splice`, () => {});
-    }
+
+    it('remove to end', () => {
+      const row = sheet().getRow(1);
+      for (let i = 1; i <= 5; i++) row.getCell(i).value = i;
+      row.splice(4, 2);
+      expect(row.getCell(1).value).toBe(1);
+      expect(row.getCell(2).value).toBe(2);
+      expect(row.getCell(3).value).toBe(3);
+      expect(row.getCell(4).value).toBeNull();
+      expect(row.getCell(5).value).toBeNull();
+      expect(row.getCell(6).value).toBeNull();
+    });
+
+    it('remove almost to end', () => {
+      const row = sheet().getRow(1);
+      for (let i = 1; i <= 6; i++) row.getCell(i).value = i;
+      row.splice(4, 2);
+      expect(row.getCell(1).value).toBe(1);
+      expect(row.getCell(2).value).toBe(2);
+      expect(row.getCell(3).value).toBe(3);
+      expect(row.getCell(4).value).toBe(6);
+      expect(row.getCell(5).value).toBeNull();
+      expect(row.getCell(6).value).toBeNull();
+    });
+
+    it('remove past end', () => {
+      const row = sheet().getRow(1);
+      for (let i = 1; i <= 6; i++) row.getCell(i).value = i;
+      row.splice(4, 4);
+      expect(row.getCell(1).value).toBe(1);
+      expect(row.getCell(2).value).toBe(2);
+      expect(row.getCell(3).value).toBe(3);
+      for (let i = 4; i <= 8; i++) expect(row.getCell(i).value).toBeNull();
+    });
+
+    it('remove and insert fewer', () => {
+      const row = sheet().getRow(1);
+      row.values = [1, 2, 3, 4, 5, 6, 7, 8];
+      row.splice(4, 3, 'four', 'five');
+      expect(row.values).toEqual([, 1, 2, 3, 'four', 'five', 7, 8]);
+    });
+
+    it('remove and insert replacements', () => {
+      const row = sheet().getRow(1);
+      row.values = [1, 2, 3, 4, 5, 6, 7, 8];
+      row.splice(4, 3, 'four', 'five', 'six');
+      expect(row.values).toEqual([, 1, 2, 3, 'four', 'five', 'six', 7, 8]);
+    });
+
+    it('remove and insert more', () => {
+      const row = sheet().getRow(1);
+      row.values = [1, 2, 3, 4, 5, 6, 7, 8];
+      row.splice(4, 3, 'four', 'five', 'six', 'six and a half');
+      expect(row.values).toEqual([, 1, 2, 3, 'four', 'five', 'six', 'six and a half', 7, 8]);
+    });
+
+    // xlvane additions (phase B, D-B03).
+    it('moves notes and styles with their cells', () => {
+      const row = sheet().getRow(1);
+      row.values = [1, 2, 3];
+      row.getCell(2).note = 'two';
+      row.getCell(3).font = { bold: true };
+      row.splice(1, 1);
+      expect(row.getCell(1).note).toBe('two');
+      expect(row.getCell(2).font).toEqual({ bold: true });
+      expect(row.getCell(3).note).toBeUndefined();
+    });
+
+    it('refuses a row that crosses a merged range, and invalid arguments', async () => {
+      const ws = sheet();
+      ws.mergeCells('C1:D2');
+      await expectNotSupported(() => ws.getRow(1).splice(2, 1));
+      expect(() => ws.getRow(3).splice(0, 1)).toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_ARGUMENT' }));
+      expect(() => ws.getRow(3).splice(1, -1)).toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_ARGUMENT' }));
+    });
   });
 
   it('iterates over cells', () => {

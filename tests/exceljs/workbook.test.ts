@@ -1,10 +1,10 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/workbook.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
 // changes: Mocha/Chai → Vitest; `verquire('exceljs')` → @xlvane/exceljs; data validation
 // removed from the helper workbook (not supported); the
-// model-serialisation test stays skipped as upstream; `duplicateRow` tests expect
-// XLV_E_NOT_SUPPORTED; the rich-text fonts are written with spread objects (same values).
+// model-serialisation test stays skipped as upstream; the `duplicateRow` tests are ported in
+// full (phase B); the rich-text fonts are written with spread objects (same values).
 import { describe, expect, it } from 'vitest';
-import { ExcelJS, expectNotSupported } from './helpers';
+import { ExcelJS, expectNotSupported, styles } from './helpers';
 
 function createSimpleWorkbook() {
   const wb = new ExcelJS.Workbook();
@@ -94,16 +94,94 @@ describe('Workbook', () => {
   });
 
   describe('duplicateRows', () => {
-    it('inserts duplicates — not supported: duplicateRow', async () => {
+    const twoRows = () => {
       const ws = new ExcelJS.Workbook().addWorksheet('blort');
       ws.getCell('A1').value = '1.1';
-      await expectNotSupported(() => ws.duplicateRow(1, 2, true));
+      ws.getCell('A1').font = styles.fonts.arialBlackUI14;
+      ws.getCell('B1').value = '1.2';
+      ws.getCell('B1').font = styles.fonts.comicSansUdB16;
+      ws.getCell('C1').value = '1.3';
+      ws.getCell('C1').fill = styles.fills.redDarkVertical;
+      ws.getRow(1).numFmt = styles.numFmts.numFmt1;
+      ws.getCell('A2').value = '2.1';
+      ws.getCell('A2').alignment = styles.namedAlignments.topLeft;
+      ws.getCell('B2').value = '2.2';
+      ws.getCell('B2').alignment = styles.namedAlignments.middleCentre;
+      ws.getCell('C2').value = '2.3';
+      ws.getCell('C2').alignment = styles.namedAlignments.bottomRight;
+      ws.getRow(2).numFmt = styles.numFmts.numFmt2;
+      return ws;
+    };
+
+    it('inserts duplicates', () => {
+      const ws = twoRows();
+      ws.duplicateRow(1, 2, true);
+      expect(ws.getRow(1).values).toEqual([, '1.1', '1.2', '1.3']);
+      expect(ws.getRow(2).values).toEqual([, '1.1', '1.2', '1.3']);
+      expect(ws.getRow(3).values).toEqual([, '1.1', '1.2', '1.3']);
+      expect(ws.getRow(4).values).toEqual([, '2.1', '2.2', '2.3']);
+      for (let i = 1; i <= 3; i++) {
+        expect(ws.getCell(`A${String(i)}`).font).toEqual(styles.fonts.arialBlackUI14);
+        expect(ws.getCell(`B${String(i)}`).font).toEqual(styles.fonts.comicSansUdB16);
+        expect(ws.getCell(`C${String(i)}`).fill).toEqual(styles.fills.redDarkVertical);
+      }
+      expect(ws.getCell('A4').alignment).toEqual(styles.namedAlignments.topLeft);
+      expect(ws.getCell('B4').alignment).toEqual(styles.namedAlignments.middleCentre);
+      expect(ws.getCell('C4').alignment).toEqual(styles.namedAlignments.bottomRight);
+      expect(ws.getRow(1).numFmt).toBe(styles.numFmts.numFmt1);
+      expect(ws.getRow(2).numFmt).toBe(styles.numFmts.numFmt1);
+      expect(ws.getRow(3).numFmt).toBe(styles.numFmts.numFmt1);
+      expect(ws.getRow(4).numFmt).toBe(styles.numFmts.numFmt2);
     });
 
-    it('overwrites with duplicates — not supported: duplicateRow', async () => {
+    it('overwrites with duplicates', () => {
+      const ws = twoRows();
+      ws.getCell('A3').value = '3.1';
+      ws.getCell('A3').fill = styles.fills.redGreenDarkTrellis;
+      ws.getCell('B3').value = '3.2';
+      ws.getCell('B3').fill = styles.fills.blueWhiteHGrad;
+      ws.getCell('C3').value = '3.3';
+      ws.getCell('C3').fill = styles.fills.rgbPathGrad;
+      ws.getRow(3).font = styles.fonts.broadwayRedOutline20;
+      ws.duplicateRow(1, 1, false);
+      expect(ws.getRow(1).values).toEqual([, '1.1', '1.2', '1.3']);
+      expect(ws.getRow(2).values).toEqual([, '1.1', '1.2', '1.3']);
+      expect(ws.getRow(3).values).toEqual([, '3.1', '3.2', '3.3']);
+      for (let i = 1; i <= 2; i++) {
+        expect(ws.getCell(`A${String(i)}`).font).toEqual(styles.fonts.arialBlackUI14);
+        expect(ws.getCell(`A${String(i)}`).alignment).toBeUndefined();
+        expect(ws.getCell(`B${String(i)}`).font).toEqual(styles.fonts.comicSansUdB16);
+        expect(ws.getCell(`B${String(i)}`).alignment).toBeUndefined();
+        expect(ws.getCell(`C${String(i)}`).fill).toEqual(styles.fills.redDarkVertical);
+        expect(ws.getCell(`C${String(i)}`).alignment).toBeUndefined();
+      }
+      expect(ws.getRow(1).numFmt).toBe(styles.numFmts.numFmt1);
+      expect(ws.getRow(2).numFmt).toBe(styles.numFmts.numFmt1);
+      expect(ws.getRow(3).numFmt).toBeUndefined();
+      expect(ws.getRow(3).font).toEqual(styles.fonts.broadwayRedOutline20);
+    });
+
+    // xlvane additions (phase B, D-B03).
+    it('copies styles instead of sharing them, and copies merged ranges inside the row', () => {
       const ws = new ExcelJS.Workbook().addWorksheet('blort');
-      ws.getCell('A1').value = '1.1';
-      await expectNotSupported(() => ws.duplicateRow(1, 1, false));
+      ws.getCell('A1').value = 'a';
+      ws.getCell('A1').font = { bold: true };
+      ws.mergeCells('A1:B1');
+      ws.duplicateRow(1, 1, true);
+      ws.getCell('A2').font.italic = true;
+      expect(ws.getCell('A1').font).toEqual({ bold: true });
+      expect(ws.getCell('B2').master.address).toBe('A2');
+      expect(ws.getCell('A2').value).toBe('a');
+    });
+
+    it('refuses arguments exceljs would corrupt data with', () => {
+      const ws = new ExcelJS.Workbook().addWorksheet('blort');
+      ws.getCell('A1').value = 1;
+      for (const call of [() => ws.duplicateRow(9, 1, true), () => ws.duplicateRow(1, -1, true), () => ws.duplicateRow(1), () => ws.insertRow(0, [1]), () => ws.insertRow('2', [1]), () => ws.insertRows(2), () => ws.spliceRows(2, -1), () => ws.spliceColumns(0, 1)]) {
+        expect(call).toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_ARGUMENT' }));
+      }
+      expect(ws.getCell('A1').value).toBe(1);
+      expect(ws.rowCount).toBe(1);
     });
   });
 });

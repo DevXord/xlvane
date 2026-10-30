@@ -50,6 +50,17 @@ export async function run(ExcelJS, Workbook, dir) {
   sheet.getCell('A12').value = { text: 'Go to total', hyperlink: '#Sales!C5' };
   sheet.getCell('A5').note = 'Checked by finance';
   sheet.getCell('B4').note = { texts: [{ font: { bold: true }, text: 'Cocoa' }, { text: ' is new this year' }] };
+  // Row and column edits on plain values (no formulas, merges, notes or names: exceljs 4.4.0 does
+  // not move those, xlvane does, docs/exceljs-compat.md).
+  const edits = workbook.addWorksheet('Edits');
+  for (let n = 1; n <= 6; n++) edits.addRow([`r${n}`, n]);
+  edits.getRow(2).font = { bold: true };
+  edits.insertRow(3, ['inserted', 0], 'i');
+  edits.spliceRows(5, 1);
+  edits.duplicateRow(1, 2, true);
+  edits.spliceColumns(2, 0, ['c1', 'c2', 'c3']);
+  edits.insertRows(2, [['a', 'b'], ['c', 'd']]);
+  edits.getRow(1).splice(1, 1);
   await workbook.xlsx.writeFile(path);
 
   // --- read it back ---
@@ -78,6 +89,15 @@ export async function run(ExcelJS, Workbook, dir) {
   await readStreamed.xlsx.readFile(streamPath);
   const log = readStreamed.getWorksheet('Log');
 
+  const readEdits = read.getWorksheet('Edits');
+  const editRows = [];
+  const editBold = [];
+  readEdits.eachRow((row, rowNumber) => {
+    editRows.push([rowNumber, row.values.slice(1)]);
+    row.eachCell((cell) => {
+      if (cell.font?.bold) editBold.push(cell.address);
+    });
+  });
   return {
     sheetNames: read.worksheets.map((w) => w.name),
     rowCount: ws.rowCount,
@@ -106,6 +126,7 @@ export async function run(ExcelJS, Workbook, dir) {
     tabColor: ws.properties.tabColor ?? null,
     view: { state: view.state ?? null, zoomScale: view.zoomScale ?? null, showGridLines: view.showGridLines ?? null, topLeftCell: view.topLeftCell ?? null },
     notes: { a5: ws.getCell('A5').note ?? null, b4texts: ws.getCell('B4').note?.texts ?? null, a1: ws.getCell('A1').note ?? null },
+    edits: { rows: editRows, bold: editBold },
     links: {
       a10: ws.getCell('A10').value,
       a10type: ws.getCell('A10').type,

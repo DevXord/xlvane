@@ -157,6 +157,24 @@ export class WorksheetWriter extends Worksheet {
     super.mergeCells(...args);
   }
 
+  // exceljs's streaming WorksheetWriter has none of these methods (lib/stream/xlsx/worksheet-writer.js,
+  // X4-15); committed rows are already written, so rows and columns cannot move.
+  override spliceRows(): void {
+    notSupported('worksheet.spliceRows() on a streamed worksheet');
+  }
+  override insertRow(): Row {
+    return notSupported('worksheet.insertRow() on a streamed worksheet');
+  }
+  override insertRows(): Row[] | undefined {
+    return notSupported('worksheet.insertRows() on a streamed worksheet');
+  }
+  override duplicateRow(): void {
+    notSupported('worksheet.duplicateRow() on a streamed worksheet');
+  }
+  override spliceColumns(): void {
+    notSupported('worksheet.spliceColumns() on a streamed worksheet');
+  }
+
   /** @internal Writes every row up to `row` and drops it from memory. */
   override _commitRow(row: Row): void {
     this.writer._start(this);

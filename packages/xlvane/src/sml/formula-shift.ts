@@ -457,7 +457,15 @@ export function compileFormula(text: string): CompiledFormula | null {
  * Moves a formula by `dRow` rows and `dCol` columns: relative parts of A1 references change,
  * `$`-marked parts, strings, names, functions, numbers and structured references do not.
  * Returns `null` if the text cannot be classified with confidence or a reference would leave
- * A1:XFD1048576.
+ * A1:XFD1048576. This is how a formula changes when it is copied to another cell; to adjust
+ * formulas for inserted or deleted rows or columns use `adjustFormula`.
+ *
+ * @example
+ * ```ts
+ * import { shiftFormula } from 'xlvane';
+ *
+ * console.log(shiftFormula('SUM(A1:A3)*$B$1', 2, 1)); // "SUM(B3:B5)*$B$1"
+ * ```
  */
 export function shiftFormula(text: string, dRow: number, dCol: number): string | null {
   const compiled = compileFormula(text);

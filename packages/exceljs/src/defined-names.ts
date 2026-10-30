@@ -323,6 +323,29 @@ export class DefinedNames {
     }
   }
 
+  /**
+   * xlvane addition: after `numInsert` rows (or columns) were inserted at `start`, adds the
+   * inserted cells to every name that has cells on both sides of them in the same column (or row),
+   * so a named range grows as in a spreadsheet application. exceljs leaves a gap (X4-15).
+   */
+  fillInserted(sheetName: string | undefined, axis: 'row' | 'col', start: number, numInsert: number): void {
+    if (numInsert <= 0) return;
+    for (const matrix of this.matrixMap.values()) {
+      const lines = new Set<number>();
+      matrix.forEachInSheet(sheetName, (_cell, row, col) => {
+        if ((axis === 'row' ? row : col) === start - 1) lines.add(axis === 'row' ? col : row);
+      });
+      for (const line of lines) {
+        const after = axis === 'row' ? matrix.findCellAt(sheetName, start + numInsert, line) : matrix.findCellAt(sheetName, line, start + numInsert);
+        if (!after) continue;
+        for (let i = start; i < start + numInsert; i++) {
+          if (axis === 'row') matrix.getCellAt(sheetName, i, line);
+          else matrix.getCellAt(sheetName, line, i);
+        }
+      }
+    }
+  }
+
   /** The cells of a name grouped into ranges, as exceljs `getRanges` (lib/doc/defined-names.js L125). */
   getRanges(name: string, matrix?: CellMatrix): { name: string; ranges: string[] } {
     const m = matrix ?? this.matrixMap.get(name);

@@ -123,3 +123,4 @@ export {
   type WriteWorkbookStreamOptions,
 } from './stream-write';
 export { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
+export { shiftFormula } from './sml/formula-shift';

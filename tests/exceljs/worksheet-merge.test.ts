@@ -1,8 +1,8 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/worksheet.merge.spec.js (MIT, Copyright (c) 2014-2019
 // Guyon Roche), changes: Mocha/Chai → Vitest; `Dimensions` (internal Range class) replaced by a
 // small loop over the range; the duplicated "does not allow overlapping merges" test is kept
-// once; "preserves merges after row inserts" inspects internal value classes and uses
-// `insertRow`, so it now expects XLV_E_NOT_SUPPORTED.
+// once; "preserves merges after row inserts" inspected internal value classes (`NumberValue`,
+// `MergeValue`) and now checks the same through `type` and `master`.
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, styles } from './helpers';
 
@@ -103,12 +103,58 @@ describe('Worksheet', () => {
       }
     });
 
-    it('preserves merges after row inserts — not supported: insertRow', async () => {
+    it('preserves merges after row inserts', () => {
       const ws = new ExcelJS.Workbook().addWorksheet('testMergeAfterInsert');
       ws.addRow([1, 2]);
       ws.addRow([3, 4]);
       ws.mergeCells('A1:B2');
-      await expectNotSupported(() => ws.insertRow(1, ['Inserted Row Text']));
+      ws.insertRow(1, ['Inserted Row Text']);
+      let nNumberVals = 0;
+      let nMergeVals = 0;
+      for (const r of [ws.getRow(2), ws.getRow(3)]) {
+        for (let c = 1; c <= 2; c++) {
+          const cell = r.getCell(c);
+          if (cell.type === ExcelJS.ValueType.Number) nNumberVals += 1;
+          if (cell.type === ExcelJS.ValueType.Merge && cell.master.address === 'A2') nMergeVals += 1;
+        }
+      }
+      expect(nNumberVals).toBe(1);
+      expect(nMergeVals).toBe(3);
+      expect(ws.getCell('A1').value).toBe('Inserted Row Text');
+      expect(ws.getCell('A1').isMerged).toBe(false);
+    });
+
+    // xlvane additions (phase B, D-B03): merged ranges follow splices as in a spreadsheet application.
+    it('extends a merge when rows are inserted inside it and shrinks it when rows are removed', () => {
+      const ws = new ExcelJS.Workbook().addWorksheet('m');
+      ws.getCell('A1').value = 'top';
+      ws.mergeCells('A1:B3');
+      ws.insertRow(2, ['x']);
+      expect([...ws._merges.values()]).toEqual([{ top: 1, left: 1, bottom: 4, right: 2 }]);
+      expect(ws.getCell('A2').master.address).toBe('A1');
+      expect(ws.getCell('A2').value).toBe('top');
+      ws.spliceRows(2, 2);
+      expect([...ws._merges.values()]).toEqual([{ top: 1, left: 1, bottom: 2, right: 2 }]);
+      // The top-left cell is removed: the remaining range keeps merging, its new master is empty.
+      ws.spliceRows(1, 1);
+      expect([...ws._merges.values()]).toEqual([{ top: 1, left: 1, bottom: 1, right: 2 }]);
+      expect(ws.getCell('A1').value).toBeNull();
+      ws.spliceColumns(2, 1);
+      expect(ws.hasMerges).toBe(false);
+    });
+
+    it('moves merges with spliceColumns and can merge again where a range was', () => {
+      const ws = new ExcelJS.Workbook().addWorksheet('m');
+      ws.getCell('C3').value = 'c';
+      ws.mergeCells('C3:D3');
+      ws.spliceColumns(2, 1);
+      expect([...ws._merges.values()]).toEqual([{ top: 3, left: 2, bottom: 3, right: 3 }]);
+      expect(ws.getCell('B3').value).toBe('c');
+      ws.spliceColumns(1, 0, ['a']);
+      expect(ws.getCell('C3').value).toBe('c');
+      expect(ws.getCell('D3').master.address).toBe('C3');
+      ws.mergeCells('A1:B2');
+      expect(ws._merges.size).toBe(2);
     });
   });
 });

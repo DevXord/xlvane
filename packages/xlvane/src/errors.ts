@@ -14,6 +14,7 @@ const DOCS_URL = 'https://github.com/DevXord/xlvane/blob/main/docs/errors.md';
 export const ERROR_CODES = [
   'XLV_E_INVALID_INPUT',
   'XLV_E_INVALID_OPTION',
+  'XLV_E_INVALID_ARGUMENT',
   'XLV_E_LIMIT_EXCEEDED',
   'XLV_E_NOT_ZIP',
   'XLV_E_UNSUPPORTED_CONTAINER',

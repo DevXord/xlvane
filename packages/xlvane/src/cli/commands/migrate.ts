@@ -20,9 +20,6 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
 const PATTERNS: readonly { readonly api: string; readonly status: 'not supported' | 'partly'; readonly re: RegExp }[] = [
   { api: 'workbook.csv', status: 'not supported', re: /\.csv\s*\.\s*(?:read|write|readFile|writeFile|writeBuffer|load)\b/ },
   { api: 'addImage', status: 'not supported', re: /\.addImage\s*\(/ },
-  { api: 'insertRow / insertRows', status: 'not supported', re: /\.insertRows?\s*\(/ },
-  { api: 'spliceRows', status: 'not supported', re: /\.spliceRows\s*\(/ },
-  { api: 'duplicateRow', status: 'not supported', re: /\.duplicateRow\s*\(/ },
   { api: 'addTable', status: 'not supported', re: /\.addTable\s*\(/ },
   { api: 'addConditionalFormatting', status: 'not supported', re: /\.addConditionalFormatting\s*\(/ },
   { api: 'dataValidations', status: 'not supported', re: /\.dataValidations?\b/ },

@@ -62,6 +62,16 @@ export const styles = {
         { position: 1, color: { argb: 'FFFFFFFF' } },
       ],
     },
+    rgbPathGrad: {
+      type: 'gradient',
+      gradient: 'path',
+      center: { left: 0.5, top: 0.5 },
+      stops: [
+        { position: 0, color: { argb: 'FFFF0000' } },
+        { position: 0.5, color: { argb: 'FF00FF00' } },
+        { position: 1, color: { argb: 'FF0000FF' } },
+      ],
+    },
   },
 } as const;
 

@@ -1,10 +1,11 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/worksheet.values.spec.js (MIT, Copyright (c)
 // 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest; sparse array literals written out
 // explicitly; column `defn` and `headers` assertions removed (multi-row headers are not
-// supported); the Splice tests (`spliceRows`, `spliceColumns`) expect XLV_E_NOT_SUPPORTED;
+// supported); the Splice tests use the ported `test-spliced-sheet.js` (./spliced-sheets.ts);
 // `getSheetValues` and `actualColumnCount` are skipped (outside the supported subset).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
+import { splicedSheets } from './spliced-sheets';
 
 function sparse(entries: Record<number, unknown>): unknown[] {
   const out: unknown[] = [];
@@ -206,30 +207,92 @@ describe('Worksheet', () => {
     });
 
     describe('Splice', () => {
-      it('Rows — not supported: spliceRows', async () => {
-        const ws = new ExcelJS.Workbook().addWorksheet('splice');
-        ws.addRow([1, 2]);
-        await expectNotSupported(() => ws.spliceRows(1, 1));
+      const book = (group: string, name: string) => {
+        const sheet = splicedSheets[group]?.[name];
+        if (!sheet) throw new Error(`no spliced sheet ${group}.${name}`);
+        const wb = new ExcelJS.Workbook();
+        sheet.addSheet(wb);
+        sheet.checkSheet(wb);
+      };
+      describe('Rows', () => {
+        it('Remove only', () => book('rows', 'removeOnly'));
+        it('Remove and insert fewer', () => book('rows', 'insertFewer'));
+        it('Remove and insert same', () => book('rows', 'insertSame'));
+        it('Remove and insert more', () => book('rows', 'insertMore'));
+        it('Remove style', () => book('rows', 'removeStyle'));
+        it('Insert style', () => book('rows', 'insertStyle'));
+        it('Replace style', () => book('rows', 'replaceStyle'));
+        it('Remove defined names', () => book('rows', 'removeDefinedNames'));
+        it('Insert defined names', () => book('rows', 'insertDefinedNames'));
+        it('Replace defined names', () => book('rows', 'replaceDefinedNames'));
       });
-      it('Columns — not supported: spliceColumns', async () => {
-        const ws = new ExcelJS.Workbook().addWorksheet('splice');
-        ws.addRow([1, 2]);
-        await expectNotSupported(() => ws.spliceColumns(1, 1));
+      describe('Columns', () => {
+        it('splices columns', () => book('columns', 'removeOnly'));
+        it('Remove and insert fewer', () => book('columns', 'insertFewer'));
+        it('Remove and insert same', () => book('columns', 'insertSame'));
+        it('Remove and insert more', () => book('columns', 'insertMore'));
+        it('handles column keys', () => {
+          const ws = new ExcelJS.Workbook().addWorksheet('splice-column-insert-fewer');
+          ws.columns = [
+            { key: 'id', width: 10 },
+            { key: 'dob', width: 20 },
+            { key: 'name', width: 30 },
+            { key: 'age', width: 40 },
+          ];
+          const values = [
+            { id: '123', name: 'Jack', dob: new Date(), age: 0 },
+            { id: '124', name: 'Jill', dob: new Date(), age: 0 },
+          ];
+          for (const value of values) ws.addRow(value);
+          ws.spliceColumns(2, 1, ['B1', 'B2'], ['C1', 'C2']);
+          values.forEach((rowValues, index) => {
+            const row = ws.getRow(index + 1);
+            for (const [key, value] of Object.entries(rowValues)) if (key !== 'dob') expect(row.getCell(key).value).toBe(value);
+          });
+          expect(ws.getColumn(1).width).toBe(10);
+          expect(ws.getColumn(2).width).toBeUndefined();
+          expect(ws.getColumn(3).width).toBeUndefined();
+          expect(ws.getColumn(4).width).toBe(30);
+          expect(ws.getColumn(5).width).toBe(40);
+        });
+        const sixColumns = () => {
+          const ws = new ExcelJS.Workbook().addWorksheet('splice-to-end');
+          ws.columns = [1, 2, 3, 4, 5, 6].map((n) => ({ header: `Col-${String(n)}`, width: 10 }));
+          ws.addRow([1, 2, 3, 4, 5, 6]);
+          ws.addRow([1, 2, 3, 4, 5, 6]);
+          return ws;
+        };
+        const expectRows = (ws: any, kept: unknown[]) => {
+          for (let r = 1; r <= 3; r++) {
+            for (let c = 1; c <= 7; c++) {
+              const want = c <= kept.length ? (r === 1 ? (typeof kept[c - 1] === 'number' ? `Col-${String(kept[c - 1])}` : kept[c - 1]) : kept[c - 1]) : null;
+              expect(ws.getCell(r, c).value, `R${String(r)}C${String(c)}`).toBe(want);
+            }
+          }
+          for (let c = 1; c <= 6; c++) expect(ws.getColumn(c).header).toBe(c <= kept.length ? `Col-${String(kept[c - 1])}` : undefined);
+        };
+        it('Splices to end', () => {
+          const ws = sixColumns();
+          ws.spliceColumns(4, 3);
+          expectRows(ws, [1, 2, 3]);
+        });
+        it('Splices past end', () => {
+          const ws = sixColumns();
+          ws.spliceColumns(4, 4);
+          expectRows(ws, [1, 2, 3]);
+        });
+        it('Splices almost to end', () => {
+          const ws = sixColumns();
+          ws.spliceColumns(4, 2);
+          expectRows(ws, [1, 2, 3, 6]);
+        });
+        it('Remove style', () => book('columns', 'removeStyle'));
+        it('Insert style', () => book('columns', 'insertStyle'));
+        it('Replace style', () => book('columns', 'replaceStyle'));
+        it('Remove defined names', () => book('columns', 'removeDefinedNames'));
+        it('Insert defined names', () => book('columns', 'insertDefinedNames'));
+        it('Replace defined names', () => book('columns', 'replaceDefinedNames'));
       });
-      for (const name of [
-        'Rows: Remove and insert fewer',
-        'Rows: Remove and insert same',
-        'Rows: Remove and insert more',
-        'Rows: Remove/Insert/Replace style',
-        'Rows: Remove/Insert/Replace defined names',
-        'Columns: Remove and insert fewer/same/more',
-        'Columns: handles column keys',
-        'Columns: Splices to end, past end, almost to end',
-        'Columns: Remove/Insert/Replace style',
-        'Columns: Remove/Insert/Replace defined names',
-      ]) {
-        it.skip(`${name} — not supported: spliceRows/spliceColumns`, () => {});
-      }
     });
 
     it('iterates over rows', () => {

@@ -7,11 +7,14 @@
 // written by xlvane);
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
 // unsupported features (createTestBook fixtures, compression options, print titles,
-// data validation, CSV, duplicateRow, spliceRows, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; `equalDate`
+// data validation, CSV, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; the
+// duplicateRow tests build the sheet in memory (the fixture duplicateRowTest.xlsx was not copied)
+// and compare styles by value (xlvane copies styles instead of sharing the object); `equalDate`
 // is compared with getTime(); chai `have.members` is arrayContaining plus the length.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, roundTrip, styles, withTempDir } from './helpers';
+import { splicedSheets } from './spliced-sheets';
 
 describe('Workbook', () => {
   describe('Serialise', () => {
@@ -235,14 +238,65 @@ describe('Workbook', () => {
     });
 
     describe('Duplicate Rows', () => {
-      it('Duplicate rows with styles properly — not supported: duplicateRow', async () => {
-        const ws = new ExcelJS.Workbook().addWorksheet('duplicateTest');
+      it('Duplicate rows with styles properly', async () => {
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('duplicateTest');
         ws.getCell('A1').value = 'OneInfo';
-        await expectNotSupported(() => ws.duplicateRow(1, 2, true));
+        ws.getCell('A1').font = styles.roundTripFonts.broadwayRed20;
+        ws.getCell('A2').value = 'TwoInfo';
+        ws.duplicateRow(1, 2);
+        const ws2 = (await roundTrip(wb)).getWorksheet('duplicateTest');
+        expect(ws2.getCell('A2').value).toBe('OneInfo');
+        expect(ws2.getCell('A2').style).toEqual(ws2.getCell('A1').style);
+        expect(ws2.getCell('A3').value).toBe('OneInfo');
+        expect(ws2.getCell('A3').style).toEqual(ws2.getCell('A1').style);
+        expect(ws2.getCell('A4').value).toBeNull();
       });
-      it.skip('Duplicate rows replacing properly — not supported: duplicateRow', () => {});
-      it.skip('Duplicate rows shifting properly — not supported: duplicateRow', () => {});
-      it.skip('Duplicate rows with height properly — not supported: duplicateRow', () => {});
+
+      const four = () => {
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('duplicateTest');
+        ws.getCell('A1').value = 'OneInfo';
+        ws.getCell('A2').value = 'TwoInfo';
+        ws.getCell('A3').value = 'ThreeInfo';
+        ws.getCell('A4').value = 'FourInfo';
+        return { wb, ws };
+      };
+
+      it('Duplicate rows replacing properly', async () => {
+        const { wb, ws } = four();
+        ws.duplicateRow(1, 2, false);
+        const ws2 = (await roundTrip(wb)).getWorksheet('duplicateTest');
+        expect(ws2.getCell('A1').value).toBe('OneInfo');
+        expect(ws2.getCell('A2').value).toBe('OneInfo');
+        expect(ws2.getCell('A3').value).toBe('OneInfo');
+        expect(ws2.getCell('A4').value).toBe('FourInfo');
+      });
+
+      it('Duplicate rows shifting properly', async () => {
+        const { wb, ws } = four();
+        ws.duplicateRow(1, 2, true);
+        const ws2 = (await roundTrip(wb)).getWorksheet('duplicateTest');
+        expect(ws2.getCell('A1').value).toBe('OneInfo');
+        expect(ws2.getCell('A2').value).toBe('OneInfo');
+        expect(ws2.getCell('A3').value).toBe('OneInfo');
+        expect(ws2.getCell('A4').value).toBe('TwoInfo');
+      });
+
+      it('Duplicate rows with height properly', async () => {
+        const wb = new ExcelJS.Workbook();
+        const ws = wb.addWorksheet('duplicateTest');
+        ws.getCell('A1').value = 'OneInfo';
+        ws.getCell('A2').value = 'TwoInfo';
+        ws.getRow(1).height = 25;
+        ws.getRow(2).height = 15;
+        ws.duplicateRow(1, 1, true);
+        const ws2 = (await roundTrip(wb)).getWorksheet('duplicateTest');
+        expect(ws2.getCell('A1').value).toBe('OneInfo');
+        expect(ws2.getCell('A2').value).toBe('OneInfo');
+        expect(ws2.getRow(1).height).toBe(ws2.getRow(2).height);
+        expect(ws2.getRow(1).height).not.toBe(ws2.getRow(3).height);
+      });
     });
 
     describe('Merge Cells', () => {
@@ -289,7 +343,25 @@ describe('Workbook', () => {
     });
   });
 
-  it.skip('spliced meat and ham — not supported: spliceRows', () => {});
+  it('spliced meat and ham', async () => {
+    const sheets: [string, string][] = [
+      ['rows', 'removeOnly'],
+      ['rows', 'insertFewer'],
+      ['rows', 'insertSame'],
+      ['rows', 'insertMore'],
+      ['rows', 'insertStyle'],
+      ['columns', 'removeOnly'],
+      ['columns', 'insertFewer'],
+      ['columns', 'insertSame'],
+      ['columns', 'insertMore'],
+    ];
+    const wb = new ExcelJS.Workbook();
+    for (const [group, name] of sheets) splicedSheets[group]?.[name]?.addSheet(wb);
+    const wb2 = await roundTrip(wb);
+    // Change for xlvane: rows.insertStyle checks a row default style, which xlvane does not write
+    // (D-206, README "What xlvane does not keep"), so it is checked before the round trip.
+    for (const [group, name] of sheets) splicedSheets[group]?.[name]?.checkSheet(name === 'insertStyle' ? wb : wb2);
+  });
 
   it('throws an error when xlsx file not found', async () => {
     const wb = new ExcelJS.Workbook();

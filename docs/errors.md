@@ -16,6 +16,10 @@ The input is not what the function expects: `readWorkbook` and `inspect` accept 
 An option is unknown, has the wrong type or is out of range. The hint lists the known options and suggests the closest name. `details.option` names the option. Ranges checked include the sheet view zoom (10 to 400 percent, ECMA-376 Part 1 §18.3.1.87), a split window that needs a position above 0 in at least one direction ([MS-OI29500] §2.1.640 e), and the document property `appVersion` (one or two digits, a dot, one to four digits, [MS-OI29500] §2.1.1717).
 **Fix:** correct the option name or value.
 
+### XLV_E_INVALID_ARGUMENT
+An argument of a method of `@xlvane/exceljs` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an error: for example `insertRow(0, …)`, a row position given as a string, a negative count in `spliceRows` or `spliceColumns`, `duplicateRow` of a row that does not exist, `insertRows` without an array of values, or rows or columns pushed beyond the sheet (row 1048576, column XFD). `details.method`, `details.argument` and `details.value` name the method, the argument and its value (docs/exceljs-compat.md).
+**Fix:** pass a whole number in the range the hint gives (rows from 1, columns from 1), or remove rows at the end of the sheet before inserting.
+
 ### XLV_E_LIMIT_EXCEEDED
 The file exceeds one of the resource limits (`ReadLimits`): input size, number of ZIP entries, decompressed size of one entry or of all entries, compression ratio, XML nesting depth, attribute count, name or text length, number of elements in a tree-parsed part, or number of cells. `details.limit` names the limit and `details.value` its current value. Sizes are measured on the bytes actually produced by decompression, so a file cannot avoid a limit by declaring false sizes.
 
