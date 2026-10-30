@@ -470,12 +470,30 @@ export interface Sheet {
   readonly tables: readonly TableDefinition[];
   /** Height and visibility of a row (1-based), or `undefined` if the file sets neither. */
   rowInfo(row: number): RowInfo | undefined;
-  /** Returns the cell at an A1-style reference, or `undefined` if the file has none there. */
+  /**
+   * Returns the cell at an A1-style reference, or `undefined` if the file has none there. Cells
+   * with a value or formula only; see `styledCells` for cells that hold only a style.
+   */
   cell(ref: string): Cell | undefined;
   /** Rows in ascending order; each row lists its cells in ascending column order. */
   rows(): IterableIterator<readonly Cell[]>;
-  /** All cells, row by row. */
+  /** All cells with a value or formula, row by row. */
   cells(): IterableIterator<Cell>;
+  /**
+   * Cells that hold only a style (no value, no formula), row by row and in column order: their
+   * `type` is `"empty"` and `value` is `null`. They are kept apart from `cells()`, so tables,
+   * CSV, `inspect` and `diff` see only cells with data (D-E05). They count against
+   * `limits.maxCells` but not against `cellCount`.
+   *
+   * @example
+   * ```ts
+   * import { readWorkbook } from 'xlvane';
+   *
+   * declare const bytes: Uint8Array;
+   * for (const cell of readWorkbook(bytes).sheets[0]?.styledCells() ?? []) console.log(cell.ref, cell.style);
+   * ```
+   */
+  styledCells(): IterableIterator<Cell>;
 }
 
 /**

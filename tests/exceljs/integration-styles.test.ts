@@ -58,7 +58,18 @@ describe('Workbook', () => {
       expect(ws.getCell('A1').value).toEqual(richTextSampleA1);
       expect(ws.getCell('A1').text).toBe(ws.getCell('A2').value);
     });
-    it.skip('null cells retain style — not supported: the reader drops cells without a value', () => {});
+    it('null cells retain style', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('blort');
+      // one value here
+      ws.getCell('B2').value = 'hello';
+      // style here
+      ws.getCell('B4').fill = styles.fills.redDarkVertical;
+      ws.getCell('B4').font = styles.fonts.broadwayRedOutline20;
+      const ws2 = (await roundTrip(wb)).getWorksheet('blort');
+      expect(ws2.getCell('B4').fill).toEqual(styles.fills.redDarkVertical);
+      expect(ws2.getCell('B4').font).toEqual(styles.fonts.broadwayRedOutline20);
+    });
     it.skip('sets row styles — duplicate of spec/integration/worksheet.spec.js, see integration-worksheet.test.ts', () => {});
     it.skip('sets col styles — duplicate of spec/integration/worksheet.spec.js, see integration-worksheet.test.ts', () => {});
   });

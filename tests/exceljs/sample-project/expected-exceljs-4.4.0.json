@@ -60,6 +60,17 @@
       "locked": false,
       "hidden": false
     },
+    "f6styleOnly": {
+      "value": null,
+      "fill": {
+        "type": "pattern",
+        "pattern": "solid",
+        "fgColor": {
+          "argb": "FFFFFF00"
+        }
+      },
+      "bold": true
+    },
     "formulas": [
       [
         "A3",

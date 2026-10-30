@@ -59,6 +59,11 @@ export interface WorksheetData {
   readonly dimension: string | null;
   readonly merges: string[];
   readonly cellCount: number;
+  /**
+   * Cells with a style but no value and no formula (D-E05), kept apart from `rows` so that
+   * every reader of values sees the same cells as before. Row number → (column → cell).
+   */
+  readonly styleOnly: Map<number, Map<number, Cell>>;
   /** `col` elements in file order (W2-03). */
   readonly columns: ColumnInfo[];
   /** Rows with a height or hidden flag (W2-04). */
@@ -183,9 +188,10 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
  */
 export function createWorksheetParser(
   ctx: WorksheetContext,
-  onRow?: (row: number, cells: readonly Cell[], info: RowInfo | undefined) => void,
+  onRow?: (row: number, cells: readonly Cell[], info: RowInfo | undefined, styleOnly: readonly Cell[]) => void,
 ): { handler: XmlHandler; finish(): WorksheetData } {
   const rows = new Map<number, Map<number, Cell>>();
+  const styleOnly = new Map<number, Map<number, Cell>>();
   const merges: string[] = [];
   const formats = ctx.formatCache;
   const path: string[] = [];
@@ -396,7 +402,41 @@ export function createWorksheetParser(
         );
       }
     }
-    if (value === null && formula === null) return;
+    if (value === null && formula === null) {
+      // A cell with only a style keeps its style (D-E05); a cell without one is nothing.
+      if (p.styleIndex === 0) return;
+      if (rows.get(p.row)?.has(p.col) === true) return;
+      let styled = styleOnly.get(p.row);
+      if (styled === undefined) {
+        styled = new Map();
+        styleOnly.set(p.row, styled);
+      }
+      if (!styled.has(p.col) && --ctx.budget.remaining < 0) {
+        throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The workbook has more cells than the limit.', {
+          location: loc(p.ref),
+          hint: `Cells that hold only a style count too. If you trust this file, raise the limit, for example { limits: { maxCells: ${String(ctx.limits.maxCells * 4)} } }.`,
+          details: { limit: 'maxCells', value: ctx.limits.maxCells },
+        });
+      }
+      styled.set(p.col, {
+        ref: p.ref,
+        row: p.row,
+        col: p.col,
+        type: 'empty',
+        value: null,
+        formula: null,
+        styleIndex: p.styleIndex,
+        numFmt: format.code,
+        style: ctx.styles.cellStyle(p.styleIndex, format.code),
+      });
+      return;
+    }
+    // A later definition with a value replaces a style-only one (the last definition is used).
+    const styledRow = styleOnly.get(p.row);
+    if (styledRow?.delete(p.col) === true) {
+      ctx.budget.remaining++;
+      ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
+    }
 
     let rowCells = rows.get(p.row);
     if (rowCells === undefined) {
@@ -441,7 +481,7 @@ export function createWorksheetParser(
     // Row heights are handed on with the row instead of being collected (constant memory).
     const info = rowInfo.get(currentRow);
     rowInfo.delete(currentRow);
-    if (rows.size === 0) return;
+    if (rows.size === 0 && styleOnly.size === 0) return;
     expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
     dependents.length = 0;
     const out: Cell[] = [];
@@ -450,7 +490,13 @@ export function createWorksheetParser(
       if (cells) for (const c of [...cells.keys()].sort((a, b) => a - b)) out.push(cells.get(c) as Cell);
     }
     rows.clear();
-    if (out.length > 0) onRow(currentRow, out, info);
+    const styled: Cell[] = [];
+    for (const r of [...styleOnly.keys()].sort((a, b) => a - b)) {
+      const cells = styleOnly.get(r);
+      if (cells) for (const c of [...cells.keys()].sort((a, b) => a - b)) styled.push(cells.get(c) as Cell);
+    }
+    styleOnly.clear();
+    if (out.length > 0 || styled.length > 0) onRow(currentRow, out, info, styled);
   };
 
   const handler: XmlHandler = {
@@ -668,7 +714,7 @@ export function createWorksheetParser(
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
     else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
-    return { rows, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
+    return { rows, styleOnly, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
   };
   return { handler, finish };
 }

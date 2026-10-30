@@ -53,7 +53,7 @@ Phase D copied `spec/integration/data/image.png` unchanged to `tests/exceljs/dat
 | `defined-names.test.ts` | `spec/unit/doc/defined-names.spec.js` | 8 (2 added) | 0 |
 | `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` and `spec/utils/test-data-validation-sheet.js` (as `sheet-rules-sheets.ts`) | 34 (1 added; 4 compression tests with an own sheet) | 2 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 20 | 3 |
-| `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
+| `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 3 | 2 |
 | `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/utils/test-data-validation-sheet.js` and `spec/utils/test-conditional-formatting-sheet.js` (as `sheet-rules-sheets.ts`) | 18 (3 added; the zip-option test with an own sheet) | 2 |
 | `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 2 (added, not upstream) | 29 |
 | `tables-images.test.ts` | `spec/integration/workbook/images.spec.js` and the two background-image tests of `workbook-xlsx-writer.spec.js` | 16 (8 ported, 8 added) | 0 |
@@ -99,8 +99,7 @@ Each skipped test names its reason in the title. The reasons are:
 - **Fixtures**: `createTestBook`/`checkTestBook` from `spec/utils/index.js` and the sheets they
   combine are not ported; tests based on them (except the compression tests, which write their
   own sheet), and tests reading `spec/integration/data/*` files that were not copied, are skipped.
-- **What xlvane does not keep after writing and reading a file**: cells that have a style but
-  no value, row default styles (docs/decisions.md D-206), sheet views other than the first,
+- **What xlvane does not keep after writing and reading a file**: row default styles (docs/decisions.md D-206), sheet views other than the first,
   `topLeftCell` and `activeCell` of a split view, and 6-digit `argb` colours (read back with
   alpha `FF`). Round-trip tests use one view per worksheet and do not read back row styles.
 - **Messages**: worksheet-name errors are checked with `toThrow()`, without the exceljs message

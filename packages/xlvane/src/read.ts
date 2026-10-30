@@ -177,6 +177,14 @@ class ReadSheet implements Sheet {
   *cells(): IterableIterator<Cell> {
     for (const row of this.rows()) yield* row;
   }
+
+  *styledCells(): IterableIterator<Cell> {
+    const rows = this.data?.styleOnly ?? new Map<number, Map<number, Cell>>();
+    for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+      const cells = rows.get(r) ?? new Map<number, Cell>();
+      for (const c of [...cells.keys()].sort((a, b) => a - b)) yield cells.get(c) as Cell;
+    }
+  }
 }
 
 class ReadWorkbook implements Workbook {

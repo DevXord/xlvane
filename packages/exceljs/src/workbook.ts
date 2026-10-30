@@ -511,6 +511,8 @@ export class Workbook {
         const f = cell.formula;
         if (f && f.kind === 'shared' && f.ref !== null && f.sharedIndex !== null) masters.set(f.sharedIndex, cell.ref);
       }
+      // Cells that hold only a style keep it (D-E05), as exceljs reads them (cell-xform.js).
+      for (const cell of use('sheetData') ? s.styledCells() : []) ws.getCell(cell.row, cell.col).style = styleOut(cell.style, cell.numFmt);
       for (const cell of use('sheetData') ? s.cells() : []) {
         const target = ws.getCell(cell.row, cell.col);
         let value: CellValue;

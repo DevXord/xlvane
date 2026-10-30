@@ -112,6 +112,9 @@ export async function run(ExcelJS, Workbook, dir) {
   extra.getCell('C1').border = { diagonal: { up: true, down: false, style: 'thin', color: { argb: 'FF000000' } } };
   extra.getCell('D1').alignment = { textRotation: -45, shrinkToFit: true, readingOrder: 'rtl' };
   extra.getCell('D1').protection = { locked: false };
+  // A cell with only a style (no value) keeps it after reading.
+  extra.getCell('F6').fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
+  extra.getCell('F6').font = { bold: true };
   extra.fillFormula('A3:B4', 'ROW()*COLUMN()', [[3, 6], [4, 8]]);
   extra.getRow(3).outlineLevel = 1;
   extra.getRow(4).outlineLevel = 2;
@@ -184,6 +187,7 @@ export async function run(ExcelJS, Workbook, dir) {
     c1border: readExtra.getCell('C1').border,
     d1alignment: readExtra.getCell('D1').alignment,
     d1protection: readExtra.getCell('D1').protection ?? null,
+    f6styleOnly: { value: readExtra.getCell('F6').value, fill: readExtra.getCell('F6').fill ?? null, bold: readExtra.getCell('F6').font?.bold ?? null },
     formulas: ['A3', 'B3', 'A4', 'B4'].map((a) => [a, readExtra.getCell(a).value, readExtra.getCell(a).formula ?? null, readExtra.getCell(a).formulaType]),
     outline: { row3: readExtra.getRow(3).outlineLevel, row4: readExtra.getRow(4).outlineLevel, row4collapsed: readExtra.getRow(4).collapsed, colB: readExtra.getColumn(2).outlineLevel, outlineLevelRow: readExtra.properties.outlineLevelRow ?? null },
     bookViews: read.views,

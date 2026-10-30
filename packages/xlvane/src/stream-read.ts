@@ -41,6 +41,11 @@ export interface StreamRow {
   readonly number: number;
   /** Cells with a value or formula, in column order. */
   readonly cells: readonly Cell[];
+  /**
+   * Cells of the row that hold only a style, in column order (see `Sheet.styledCells`, D-E05).
+   * A row may have only such cells; its `cells` is then empty.
+   */
+  readonly styledCells: readonly Cell[];
   /** Row height in points, or `null` if the file sets none. */
   readonly height: number | null;
   readonly hidden: boolean;
@@ -274,7 +279,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
         budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars },
         formatCache,
       },
-      (number, cells, rowInfo) => ready.push({ number, cells: withNotes(cells), height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
+      (number, cells, rowInfo, styledCells) => ready.push({ number, cells: withNotes(cells), styledCells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
     );
     const parser = createXmlByteStreamParser(handler, { part, limits });
     const reader = zip.stream(zipName(part)).getReader();
@@ -477,6 +482,8 @@ export async function* readTableStream(
   };
 
   for await (const r of book.rows(sheetName)) {
+    // Rows with only style-only cells hold no data (D-E05).
+    if (r.cells.length === 0) continue;
     if (columns === null) {
       buffered.push(r);
       if (buffered.filter((b) => b.cells.length > 0).length < 20) continue;

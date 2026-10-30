@@ -761,6 +761,11 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
             // styles: 'cache' gives cells their style (worksheet-reader.js L282–286).
             if (styles) target.style = styleOut(cell.style, cell.numFmt);
           }
+          // Cells with only a style (D-E05): exceljs creates them too (worksheet-reader.js L280–287).
+          for (const cell of r.styledCells) {
+            const target = row.getCell(cell.col);
+            if (styles) target.style = styleOut(cell.style, cell.numFmt);
+          }
           if (r.height !== null) row.height = r.height;
           if (r.hidden) row.hidden = true;
           sheet._rows[r.number - 1] = undefined;

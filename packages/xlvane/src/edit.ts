@@ -926,8 +926,11 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
     const planned: PlannedCell[] = [];
     const text = edit.text(part);
     const columnStyle = text === undefined ? () => 0 : newCellStyles(text, part, limits, styles);
+    // A cell that holds only a style keeps that style when it gets a value (D-E05).
+    let styled: Map<string, Cell> | null = null;
+    const styledCell = (ref: string): Cell | undefined => (styled ??= new Map([...plan.sheet.styledCells()].map((cell) => [cell.ref, cell]))).get(ref);
     for (const [ref, c] of plan.cells) {
-      const existing: Cell | undefined = plan.sheet.cell(ref);
+      const existing: Cell | undefined = plan.sheet.cell(ref) ?? styledCell(ref);
       if (isFormula(c.value) || existing?.formula) formulasChanged = true;
       if (c.value === null && c.style === null) {
         planned.push({ row: c.row, col: c.col, ref, xml: null });

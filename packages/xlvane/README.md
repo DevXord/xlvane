@@ -55,7 +55,7 @@ import { readWorkbookFile } from 'xlvane/node';
 const workbook = await readWorkbookFile('report.xlsx');
 ```
 
-Cell values are numbers, strings, booleans, `Date`s (for date-formatted numbers and ISO date cells; the UTC fields of the `Date` hold the spreadsheet's date and time), error codes such as `"#DIV/0!"` (with `type: "error"`) or `null`. Formula cells carry `formula.text` and the cached result stored in the file; xlvane does not calculate formulas. Cells that have neither a value nor a formula are not stored.
+Cell values are numbers, strings, booleans, `Date`s (for date-formatted numbers and ISO date cells; the UTC fields of the `Date` hold the spreadsheet's date and time), error codes such as `"#DIV/0!"` (with `type: "error"`) or `null`. Formula cells carry `formula.text` and the cached result stored in the file; xlvane does not calculate formulas. Cells that have neither a value nor a formula are not part of `cells()`; those that hold only a style are listed by `sheet.styledCells()` (and `styledCells` of each streamed row), so tables, CSV and `inspect` see only data.
 
 ## Writing a workbook
 
