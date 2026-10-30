@@ -5,7 +5,7 @@ import { checkDefinedName, checkUniqueName, type DefinedNameOptions, type Normal
 import { APP_PROPERTIES_PART, appPropertiesXml, CORE_PROPERTIES_PART, corePropertiesXml, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
-import { printNames, printXml, sheetProtectionXml, type HeaderFooter, type PageBreaks, type PageSetupOptions, type PrintTitles, type SheetProtectionOptions } from './printing';
+import { printNames, printXml, sheetProtectionXml, type HeaderFooter, type PageBreaks, type PageSetupOptions, type PrintTitles, type SheetProtectionOptions, type WorkbookProtectionOptions } from './printing';
 import type { DateSystem, SheetState } from './model';
 import type { NoteInput } from './notes';
 import type { ConditionalFormatRuleInput, DataValidationRule } from './sheet-rules';
@@ -159,6 +159,8 @@ export interface WriteWorkbookStreamOptions {
    * sheet is checked when all sheets are known, at the end of the stream.
    */
   readonly definedNames?: readonly StreamDefinedName[];
+  /** Workbook protection, as for `NewWorkbook.protect`. */
+  readonly protection?: WorkbookProtectionOptions;
 }
 
 /**
@@ -226,12 +228,13 @@ async function* iterate<T>(source: Iterable<T> | AsyncIterable<T>): AsyncGenerat
  * ```
  */
 export function writeWorkbookStream(options: WriteWorkbookStreamOptions): ReadableStream<Uint8Array> {
-  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames'], 'writeWorkbookStream options');
+  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection'], 'writeWorkbookStream options');
   const dateSystem = o.get('dateSystem');
   const book = createWorkbook({
     ...(dateSystem === undefined ? {} : { dateSystem: dateSystem as DateSystem }),
     ...(o.has('properties') ? { properties: o.get('properties') as WorkbookProperties } : {}),
   });
+  if (o.has('protection')) book.protect(o.get('protection') as WorkbookProtectionOptions);
   const core = corePropertiesXml(book.properties);
   const rawNames = o.get('definedNames') ?? [];
   if (!Array.isArray(rawNames)) {
@@ -473,7 +476,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   function* closingParts(): Generator<ZipStreamEntry> {
     yield {
       name: 'xl/workbook.xml',
-      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames())),
+      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection)),
     };
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
     yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true, book.dxfStyles()).xml) };

@@ -5,6 +5,7 @@
 import { join } from 'node:path';
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
+import { hashPassword, verifyPassword } from '../../packages/xlvane/src/password';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { ExcelJS, expectNotSupported, roundTrip, withTempDir } from './helpers';
 
@@ -233,11 +234,33 @@ describe('sheet protection', () => {
     expect(ws2.sheetProtection).toEqual({ sheet: true, formatCells: true, sort: true, selectLockedCells: false, objects: false });
   });
 
-  it('rejects a password until password hashing is supported, and unprotect() removes the protection', async () => {
+  it('stores a password as exceljs does (SHA-512, random salt, spinCount), readable back and checkable', async () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('Locked');
-    await expectNotSupported(() => ws.protect('secret', {}));
-    await ws.protect();
+    const options = { spinCount: 1000.4, sort: true };
+    await ws.protect('secret', options);
+    expect(options.spinCount).toBe(1000.4);
+    expect(ws.sheetProtection).toMatchObject({ sheet: true, algorithmName: 'SHA-512', spinCount: 1000, sort: true });
+    expect(atob(ws.sheetProtection.saltValue)).toHaveLength(16);
+    // The hash is the one exceljs computes for that salt (Encryptor.convertPasswordToHash).
+    expect(ws.sheetProtection.hashValue).toBe(hashPassword('secret', { salt: ws.sheetProtection.saltValue, spinCount: 1000 }).hashValue);
+    const ws2 = (await roundTrip(wb)).getWorksheet('Locked');
+    expect(ws2.sheetProtection).toEqual(ws.sheetProtection);
+    const read = readWorkbook(await bytesOf(wb)).getSheet('Locked');
+    expect(verifyPassword(read.protection!, 'secret')).toBe(true);
+    expect(verifyPassword(read.protection!, 'Secret')).toBe(false);
+    // Saving a loaded file keeps the verifier.
+    const again = readWorkbook(await bytesOf((await roundTrip(wb)) as any)).getSheet('Locked');
+    expect(verifyPassword(again.protection!, 'secret')).toBe(true);
+  });
+
+  it('defaults spinCount to 100000 and drops it without a password; unprotect() removes the protection', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Locked');
+    await ws.protect('x');
+    expect(ws.sheetProtection.spinCount).toBe(100000);
+    await ws.protect('', { spinCount: 5 });
+    expect(ws.sheetProtection).toEqual({ sheet: true });
     ws.unprotect();
     expect(await sheetXml(wb)).not.toContain('<sheetProtection');
   });

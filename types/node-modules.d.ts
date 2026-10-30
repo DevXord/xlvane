@@ -121,3 +121,13 @@ declare module 'node:process' {
   };
   export default process;
 }
+
+/** https://nodejs.org/api/crypto.html#cryptocreatehashalgorithm-options (tests only). */
+declare module 'node:crypto' {
+  export interface Hash {
+    update(data: Uint8Array | string): Hash;
+    digest(encoding: 'hex' | 'base64'): string;
+    digest(): Uint8Array;
+  }
+  export function createHash(algorithm: string): Hash;
+}

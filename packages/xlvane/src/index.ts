@@ -67,7 +67,10 @@ export type {
   SheetProtectionFlags,
   SheetProtectionOptions,
   WorkbookProtection,
+  WorkbookProtectionOptions,
 } from './printing';
+export { hashPassword, legacyPasswordHash, verifyPassword, type HashPasswordOptions, type PasswordHash, type PasswordVerifier } from './password';
+export type { ShaAlgorithm } from './util/sha';
 export {
   createWorkbook,
   writeWorkbook,

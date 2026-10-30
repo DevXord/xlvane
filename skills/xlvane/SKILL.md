@@ -109,7 +109,7 @@ const out = createWorkbook();
 out.addSheet('Report').pageSetup({ orientation: 'landscape', margins: { left: 0.5 } }).headerFooter({ oddFooter: '&RPage &P of &N' }).printArea('A1:H40').protect({ sort: false });
 ```
 
-Protection flags are `true` when the action is locked. Passwords are not supported yet.
+Protection flags are `true` when the action is locked. `protect({ password: 'secret' })` stores a SHA-512 verifier; it is not encryption. `verifyPassword(sheet.protection, 'secret')` checks a password.
 
 ### Inserting and deleting rows
 

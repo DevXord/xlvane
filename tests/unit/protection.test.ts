@@ -29,9 +29,8 @@ describe('writing', () => {
     expect(sheetXml(writeWorkbook(off))).not.toContain('sheetProtection');
   });
 
-  it('refuses a password until phase C2 and unknown flags', () => {
-    const e = expectXlvError(() => createWorkbook().addSheet('S').protect({ password: 'x' } as never), 'XLV_E_NOT_SUPPORTED');
-    expect(e.hint).toContain('without a password');
+  it('refuses malformed passwords and unknown flags', () => {
+    expectXlvError(() => createWorkbook().addSheet('S').protect({ password: '' }), 'XLV_E_INVALID_OPTION');
     expectXlvError(() => createWorkbook().addSheet('S').protect({ sorting: false } as never), 'XLV_E_INVALID_OPTION');
     expectXlvError(() => createWorkbook().addSheet('S').protect({ sort: 'no' } as never), 'XLV_E_INVALID_OPTION');
   });

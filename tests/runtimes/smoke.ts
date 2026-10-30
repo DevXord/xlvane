@@ -9,11 +9,13 @@ import {
   diff,
   editCells,
   fromCSV,
+  hashPassword,
   inspect,
   openWorkbookStream,
   readTable,
   readWorkbook,
   toCSV,
+  verifyPassword,
   writeTable,
   writeWorkbook,
   writeWorkbookStream,
@@ -215,6 +217,23 @@ function checks(): (readonly [string, () => Promise<void> | void])[] {
         eq(sheet?.getCell('A2').value, 'Tea', 'value');
         eq(sheet?.getCell('B2').numFmt, '0.00', 'number format');
         eq(sheet?.getColumn(1).width, 20, 'column width');
+      },
+    ],
+    [
+      'password verifiers: fixed-salt hash and random salt (D-C08)',
+      async () => {
+        const hash = hashPassword('secret', { salt: 'c2FsdHNhbHRzYWx0c2FsdA==', spinCount: 1000 });
+        eq(verifyPassword(hash, 'secret'), true, 'verify');
+        eq(verifyPassword(hash, 'Secret'), false, 'reject');
+        const random = hashPassword('secret', { spinCount: 10 });
+        eq(random.saltValue.length, 24, 'random 16-byte salt');
+        const wb = createWorkbook();
+        wb.addSheet('S').set('A1', 1).protect({ password: hash });
+        eq(verifyPassword(readWorkbook(writeWorkbook(wb)).getSheet('S').protection!, 'secret'), true, 'round trip');
+        const xl = new ExcelJS.Workbook();
+        const ws = xl.addWorksheet('P');
+        await ws.protect('secret', { spinCount: 10 });
+        eq(verifyPassword(readWorkbook(new Uint8Array(await xl.xlsx.writeBuffer())).getSheet('P').protection!, 'secret'), true, 'exceljs layer');
       },
     ],
     [

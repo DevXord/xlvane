@@ -15,13 +15,16 @@ import {
   normalizePrintArea,
   normalizePrintTitles,
   normalizeProtection,
+  normalizeWorkbookProtection,
   printNames,
   type HeaderFooter,
   type PageBreaks,
   type PageSetupOptions,
   type PrintTitles,
   type SheetPrintData,
+  type NormalizedWorkbookProtection,
   type SheetProtectionOptions,
+  type WorkbookProtectionOptions,
 } from './printing';
 import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
@@ -1176,12 +1179,33 @@ export class NewWorkbook {
   private readonly names: NormalizedDefinedName[] = [];
   private readonly styleIds = new Map<string, number>();
   private readonly styleList: NormalizedStyle[] = [{}];
+  /** @internal `workbookProtection`, set by {@link NewWorkbook.protect}. */
+  workbookProtection: NormalizedWorkbookProtection | null = null;
 
   /** @internal Use {@link createWorkbook}. */
   constructor(dateSystem: DateSystem, properties: WorkbookProperties = {}) {
     this.dateSystem = dateSystem;
     this.properties = properties;
     this.styleIds.set(stableKey({}), 0);
+  }
+
+  /**
+   * Protects the workbook (`workbookProtection`, SR-22), by default its structure: sheets cannot
+   * be added, deleted, moved or renamed in a spreadsheet application without the password.
+   * `null` removes the protection. A password string is hashed with `hashPassword` defaults
+   * (D-C08); it is not encryption, and the content stays readable.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const workbook = createWorkbook().protect({ password: 'secret' });
+   * workbook.addSheet('Data').set('A1', 1);
+   * ```
+   */
+  protect(options: WorkbookProtectionOptions | null = {}): this {
+    this.workbookProtection = options === null ? null : normalizeWorkbookProtection(options);
+    return this;
   }
 
   /** Sheets in workbook order. */
@@ -1380,5 +1404,6 @@ export function writeWorkbook(workbook: NewWorkbook): Uint8Array {
     properties: workbook.properties,
     definedNames: [...workbook.definedNames, ...sheets.flatMap((s) => printNames(s.name, s.print))],
     dxfs: workbook.dxfStyles(),
+    workbookProtection: workbook.workbookProtection,
   });
 }

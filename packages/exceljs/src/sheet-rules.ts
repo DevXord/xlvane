@@ -14,7 +14,7 @@ import type {
   PageSetupOptions,
   PrintTitles,
   SheetProtection as XlvSheetProtection,
-  SheetProtectionFlags,
+  SheetProtectionOptions,
 } from 'xlvane';
 import { XlvError } from 'xlvane';
 import { colorInFor, colorOut, styleIn, styleOut } from './convert';
@@ -617,10 +617,19 @@ const PROTECTION_FLAGS = [
  * SR-20), and exceljs writes each option as the negated attribute (sheet-protection-xform.js
  * L17–48; X4-18), so every given option becomes its negation.
  */
-export function protectionIn(model: Record<string, unknown>): SheetProtectionFlags {
-  const out: Record<string, boolean> = {};
+export function protectionIn(model: Record<string, unknown>): SheetProtectionOptions {
+  const out: Record<string, unknown> = {};
   for (const k of PROTECTION_FLAGS) if (typeof model[k] === 'boolean') out[k] = !model[k];
-  return out as SheetProtectionFlags;
+  // The verifier set by protect(password) or read from a file (D-C08).
+  if (typeof model['hashValue'] === 'string' && typeof model['algorithmName'] === 'string') {
+    out['password'] = {
+      algorithmName: model['algorithmName'],
+      hashValue: model['hashValue'],
+      saltValue: typeof model['saltValue'] === 'string' ? model['saltValue'] : '',
+      spinCount: typeof model['spinCount'] === 'number' ? model['spinCount'] : 0,
+    };
+  }
+  return out as SheetProtectionOptions;
 }
 
 const LOCKED_BY_DEFAULT = new Set(['formatCells', 'formatColumns', 'formatRows', 'insertColumns', 'insertRows', 'insertHyperlinks', 'deleteColumns', 'deleteRows', 'sort', 'autoFilter', 'pivotTables']);

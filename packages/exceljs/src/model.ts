@@ -1,7 +1,7 @@
 // The exceljs-compatible document model: Workbook, Worksheet, Row, Column and Cell, following
 // the behaviour of exceljs 4.4.0 (lib/doc/*.js; docs/decisions.md D-501 … D-506). Reading and
 // writing go through xlvane (convert.ts).
-import { XlvError } from 'xlvane';
+import { hashPassword, XlvError } from 'xlvane';
 import type { DefinedNames } from './defined-names';
 import { DataValidations, defaultHeaderFooter, defaultPageSetup } from './sheet-rules';
 import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, moveSqref, movePosition, type SpliceChange } from './splice';
@@ -1499,17 +1499,28 @@ export class Worksheet {
 
   /**
    * Protects the sheet (exceljs `protect`). Options say what users may still do
-   * (`formatCells: true` allows formatting). A password is not supported yet: the password hash
-   * comes with phase C2, and the call rejects with `XLV_E_NOT_SUPPORTED`.
+   * (`formatCells: true` allows formatting). A non-empty password is stored as exceljs stores it:
+   * a SHA-512 verifier with a random 16-byte salt and `spinCount` iterations (default 100000;
+   * xlvane `hashPassword`, docs/decisions.md D-C08). The options object is not modified
+   * (exceljs rounds its `spinCount` in place).
    */
   protect(password?: string, options?: Partial<WorksheetProtection>): Promise<void> {
     return new Promise((resolve) => {
-      if (password) notSupported('A password for worksheet.protect() (the password hash comes in a later version)');
-      const protection: Record<string, unknown> = { sheet: true };
-      if (options) {
-        Object.assign(protection, options);
-        delete protection['spinCount'];
+      const opts: Record<string, unknown> = options ? { ...options } : {};
+      if ('spinCount' in opts) {
+        const n = opts['spinCount'];
+        opts['spinCount'] = typeof n === 'number' && Number.isFinite(n) ? Math.round(Math.max(0, n)) : 100000;
       }
+      const protection: Record<string, unknown> = { sheet: true };
+      if (password) {
+        const hash = hashPassword(password, { algorithm: 'SHA-512', spinCount: 'spinCount' in opts ? (opts['spinCount'] as number) : 100000 });
+        protection['algorithmName'] = hash.algorithmName;
+        protection['saltValue'] = hash.saltValue;
+        protection['spinCount'] = hash.spinCount;
+        protection['hashValue'] = hash.hashValue;
+      }
+      Object.assign(protection, opts);
+      if (!password) delete protection['spinCount'];
       this.sheetProtection = protection;
       resolve();
     });

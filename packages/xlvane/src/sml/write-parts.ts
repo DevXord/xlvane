@@ -5,7 +5,7 @@
 // schema types as ST_Xstring also through encodeXstring.
 import { definedNameXml, type NormalizedDefinedName } from '../defined-names';
 import type { NormalizedHyperlink } from '../hyperlinks';
-import { printXml, sheetProtectionXml, type SheetPrintData } from '../printing';
+import { printXml, sheetProtectionXml, workbookProtectionXml, type NormalizedWorkbookProtection, type SheetPrintData } from '../printing';
 import { X14_CF_URI, X14_ID_URI, X14_NS, XM_NS, type CfValue, type DataValidation, type StoredCfRule, type StoredConditionalFormat } from '../sheet-rules';
 import { COMMENTS_CONTENT_TYPE, VML_CONTENT_TYPE } from '../notes';
 import {
@@ -66,6 +66,8 @@ export interface WritePackageInput {
   readonly definedNames?: readonly NormalizedDefinedName[];
   /** Differential formats of conditional formatting, by dxf index (SR-16). */
   readonly dxfs?: readonly NormalizedStyle[];
+  /** `workbookProtection` (SR-22, D-C08). */
+  readonly workbookProtection?: NormalizedWorkbookProtection | null;
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -881,7 +883,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   });
 
   const n = input.sheets.length;
-  const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames);
+  const workbook = workbookXml(input.sheets, input.dateSystem, input.definedNames, input.workbookProtection ?? null);
   const workbookRels = workbookRelsXml(n, true);
   const core = corePropertiesXml(input.properties ?? {});
   const app = appPropertiesXml(input.properties ?? {}, input.sheets.map((sheet) => sheet.name), nameTitles(input.definedNames ?? []));
@@ -929,10 +931,12 @@ export function workbookXml(
   sheets: readonly { readonly name: string; readonly state: SheetState; readonly autoFilter: CellRange | null }[],
   dateSystem: DateSystem,
   definedNames: readonly NormalizedDefinedName[] = [],
+  protection: NormalizedWorkbookProtection | null = null,
 ): string {
   const active = sheets.findIndex((s) => s.state === 'visible');
   let workbook = `${XML_DECL}<workbook xmlns="${NS}" xmlns:r="${R_NS}">`;
   if (dateSystem === '1904') workbook += '<workbookPr date1904="1"/>';
+  workbook += workbookProtectionXml(protection);
   // Always written, also by the streaming writer: Excel fails to print files without bookViews
   // ([MS-OI29500] §2.1.584 a).
   workbook += `<bookViews><workbookView${active > 0 ? `${attr('firstSheet', active)}${attr('activeTab', active)}` : ''}/></bookViews>`;

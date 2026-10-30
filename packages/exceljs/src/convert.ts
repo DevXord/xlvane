@@ -9,7 +9,7 @@ import {
   type HeaderFooter as XlvHeaderFooter,
   type PageSetupOptions,
   type PrintTitles,
-  type SheetProtectionFlags,
+  type SheetProtectionOptions,
   type Color as XlvColor,
   type ColumnOptions,
   type FontStyle,
@@ -378,7 +378,7 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
 export function sheetRulesIn(ws: Worksheet): {
   dataValidations: { sqref: string; rule: DataValidationRule }[];
   conditionalFormats: { sqref: string; rules: ConditionalFormatRuleInput[] }[];
-  protect: SheetProtectionFlags | null;
+  protect: SheetProtectionOptions | null;
   pageSetup: PageSetupOptions;
   headerFooter: XlvHeaderFooter | null;
   pageBreaks: number[];

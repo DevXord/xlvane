@@ -1,8 +1,9 @@
 // Sheet protection flags, page setup, headers and footers, page breaks, print area and print
 // titles (ECMA-376 Part 1 §18.3.1.3, .14, .46, .62–.65, .70, .74, .85, §18.2.5, §18.2.29;
 // [MS-OI29500] §2.1.586–§2.1.654; docs/facts/sheet-rules.md SR-20 … SR-31; D-C03, D-C04).
-// Password hashes are read and kept as data; writing them is phase C2.
+// Password verifiers come from password.ts (D-C08).
 import { XlvError } from './errors';
+import { fromBase64, hashPassword, type PasswordHash } from './password';
 import type { NormalizedDefinedName } from './defined-names';
 import { MAX_COLUMNS, MAX_ROWS, columnLetters, columnNumber, parseRange, type CellRange } from './sml/cell-ref';
 import { decodeXstring } from './sml/xstring';
@@ -60,21 +61,27 @@ export interface SheetProtectionFlags {
 }
 
 /**
- * Options of {@link NewSheet.protect}: the flags of {@link SheetProtectionFlags}. A password is
- * not supported yet (it needs the hash of phase C2) and throws `XLV_E_NOT_SUPPORTED`.
+ * Options of {@link NewSheet.protect}: the flags of {@link SheetProtectionFlags} and an optional
+ * password. A password string is hashed with `hashPassword` defaults (SHA-512, 100,000
+ * iterations, random salt, SR-53); pass `hashPassword(...)` instead to choose the algorithm or a
+ * fixed salt for reproducible output. A protection password is not encryption: the content
+ * stays readable, and spreadsheet applications only refuse changes without it.
  *
  * @example
  * ```ts
- * import { createWorkbook, type SheetProtectionOptions } from 'xlvane';
+ * import { createWorkbook, hashPassword, type SheetProtectionOptions } from 'xlvane';
  *
- * const options: SheetProtectionOptions = { formatColumns: false };
+ * const options: SheetProtectionOptions = { formatColumns: false, password: hashPassword('secret', { salt: 'c2FsdHNhbHRzYWx0c2FsdA==' }) };
  * createWorkbook().addSheet('Form').protect(options);
  * ```
  */
 export interface SheetProtectionOptions extends SheetProtectionFlags {
-  /** Not supported yet; throws `XLV_E_NOT_SUPPORTED`. */
-  readonly password?: never;
+  /** The password, or its verifier from `hashPassword`. */
+  readonly password?: string | PasswordHash;
 }
+
+/** @internal Protection flags plus the password verifier, as written. */
+export type NormalizedProtection = Required<SheetProtectionFlags> & { readonly hash: PasswordHash | null };
 
 /**
  * The `sheetProtection` element of a sheet as read (SR-20). The flags have the meaning given in
@@ -368,7 +375,7 @@ export interface PrintTitles {
 
 /** @internal Everything a sheet stores about printing and protection, normalised. */
 export interface SheetPrintData {
-  readonly protection: Required<SheetProtectionFlags> | null;
+  readonly protection: NormalizedProtection | null;
   readonly pageSetup: PageSetup;
   /** `true` when `pageSetup` was called (so the elements are written). */
   readonly pageSetupSet: boolean;
@@ -514,18 +521,83 @@ function oneOf<T extends string>(name: string, v: unknown, allowed: readonly T[]
 }
 
 /** @internal Checks the options of `NewSheet.protect`. */
-export function normalizeProtection(options: unknown, sheet: string): Required<SheetProtectionFlags> {
-  if (typeof options === 'object' && options !== null && 'password' in options) {
-    throw new XlvError('XLV_E_NOT_SUPPORTED', 'Protecting a sheet with a password is not supported yet.', {
-      location: { sheet },
-      hint: 'Protect the sheet without a password for now; password hashing comes with phase C2 of xlvane. Remove the "password" option.',
+export function normalizeProtection(options: unknown, sheet: string): NormalizedProtection {
+  const o = readObject(options, [...PROTECTION_FLAGS, 'password'], 'protect options');
+  const out: Record<string, unknown> = { ...DEFAULT_PROTECTION, hash: null };
+  for (const [k, v] of o) {
+    if (k === 'password') out['hash'] = normalizePasswordHash(v, sheet);
+    else out[k] = bool(k, v);
+  }
+  return out as unknown as NormalizedProtection;
+}
+
+/** @internal A password string (hashed with the defaults) or a checked `PasswordHash`. */
+export function normalizePasswordHash(value: unknown, sheet?: string): PasswordHash {
+  if (typeof value === 'string') return hashPassword(value);
+  const bad = (what: string): XlvError =>
+    new XlvError('XLV_E_INVALID_OPTION', `The option "password" ${what}.`, {
+      ...(sheet === undefined ? {} : { location: { sheet } }),
+      hint: "Pass the password as text, or the result of hashPassword('…').",
       details: { option: 'password' },
     });
-  }
-  const o = readObject(options, PROTECTION_FLAGS, 'protect options');
-  const out: Record<string, boolean> = { ...DEFAULT_PROTECTION };
-  for (const [k, v] of o) out[k] = bool(k, v);
-  return out as unknown as Required<SheetProtectionFlags>;
+  if (typeof value !== 'object' || value === null) throw bad('must be text or a password hash');
+  const h = value as Partial<Record<keyof PasswordHash, unknown>>;
+  for (const k of Object.keys(value)) if (!['algorithmName', 'hashValue', 'saltValue', 'spinCount'].includes(k)) throw bad(`has an unknown property "${k}"`);
+  if (typeof h.algorithmName !== 'string' || h.algorithmName.length === 0 || h.algorithmName.length > 255) throw bad('needs an algorithmName');
+  if (typeof h.hashValue !== 'string' || fromBase64(h.hashValue) === null || h.hashValue.length === 0) throw bad('needs a base64 hashValue');
+  if (typeof h.saltValue !== 'string' || fromBase64(h.saltValue) === null) throw bad('needs a base64 saltValue');
+  if (typeof h.spinCount !== 'number' || !Number.isInteger(h.spinCount) || h.spinCount < 0 || h.spinCount > 10_000_000) throw bad('needs a spinCount from 0 to 10000000');
+  return Object.freeze({ algorithmName: h.algorithmName, hashValue: h.hashValue, saltValue: h.saltValue, spinCount: h.spinCount });
+}
+
+/**
+ * Options of {@link NewWorkbook.protect} (`workbookProtection`, ECMA-376 Part 1 §18.2.29, SR-22).
+ * `lockStructure` (default `true`) stops adding, deleting, moving and renaming sheets;
+ * `lockWindows` (default `false`) fixes the window layout. The password works as for sheets.
+ *
+ * @example
+ * ```ts
+ * import { createWorkbook, type WorkbookProtectionOptions } from 'xlvane';
+ *
+ * const options: WorkbookProtectionOptions = { lockStructure: true, password: 'secret' };
+ * createWorkbook().protect(options).addSheet('Data');
+ * ```
+ */
+export interface WorkbookProtectionOptions {
+  readonly lockStructure?: boolean;
+  readonly lockWindows?: boolean;
+  /** The password, or its verifier from `hashPassword`. */
+  readonly password?: string | PasswordHash;
+}
+
+/** @internal */
+export interface NormalizedWorkbookProtection {
+  readonly lockStructure: boolean;
+  readonly lockWindows: boolean;
+  readonly hash: PasswordHash | null;
+}
+
+/** @internal Checks the options of `NewWorkbook.protect`. */
+export function normalizeWorkbookProtection(options: unknown): NormalizedWorkbookProtection {
+  const o = readObject(options, ['lockStructure', 'lockWindows', 'password'], 'workbook protect options');
+  return {
+    lockStructure: o.has('lockStructure') ? bool('lockStructure', o.get('lockStructure')) : true,
+    lockWindows: o.has('lockWindows') ? bool('lockWindows', o.get('lockWindows')) : false,
+    hash: o.has('password') ? normalizePasswordHash(o.get('password')) : null,
+  };
+}
+
+/** @internal `workbookProtection` (after `workbookPr`, before `bookViews`; sml.xsd T4097–T4104). */
+export function workbookProtectionXml(p: NormalizedWorkbookProtection | null): string {
+  if (p === null) return '';
+  return `<workbookProtection${p.lockStructure ? ' lockStructure="1"' : ''}${p.lockWindows ? ' lockWindows="1"' : ''}${passwordHashAttrs(p.hash, 'workbook')}/>`;
+}
+
+/** @internal The verifier attributes of a protection element, with an optional name prefix. */
+export function passwordHashAttrs(h: PasswordHash | null, prefix = ''): string {
+  if (h === null) return '';
+  const n = (name: string): string => (prefix === '' ? name : prefix + name[0]!.toUpperCase() + name.slice(1));
+  return `${a(n('algorithmName'), h.algorithmName)}${a(n('hashValue'), h.hashValue)}${a(n('saltValue'), h.saltValue)}${a(n('spinCount'), h.spinCount)}`;
 }
 
 const ORIENTATIONS: readonly PageOrientation[] = ['default', 'portrait', 'landscape'];
@@ -692,9 +764,9 @@ function a(name: string, value: string | number): string {
 }
 
 /** @internal `sheetProtection` with `sheet="1"` and the flags that differ from the schema defaults. */
-export function sheetProtectionXml(p: Required<SheetProtectionFlags> | null): string {
+export function sheetProtectionXml(p: NormalizedProtection | null): string {
   if (p === null) return '';
-  let xml = '<sheetProtection sheet="1"';
+  let xml = `<sheetProtection${passwordHashAttrs(p.hash)} sheet="1"`;
   for (const k of PROTECTION_FLAGS) if (p[k] !== DEFAULT_PROTECTION[k]) xml += a(k, p[k] ? 1 : 0);
   return `${xml}/>`;
 }
