@@ -2,6 +2,7 @@
 // the behaviour of exceljs 4.4.0 (lib/doc/*.js; docs/decisions.md D-501 … D-506). Reading and
 // writing go through xlvane (convert.ts).
 import { XlvError } from 'xlvane';
+import type { DefinedNames } from './defined-names';
 import type { Alignment, Borders, CellValue, ColumnDefn, Fill, Font, Style, WorksheetOptions, WorksheetView } from './types';
 
 /**
@@ -156,7 +157,10 @@ export function typeOf(value: unknown): number {
 function checkValue(value: unknown): CellValue {
   const type = typeOf(value);
   if (type === ValueType.Hyperlink) return notSupported('A hyperlink cell value ({ text, hyperlink })');
-  if (type === ValueType.RichText) return notSupported('A rich text cell value ({ richText })');
+  if (type === ValueType.RichText) {
+    const runs = (value as { richText: unknown }).richText;
+    if (!Array.isArray(runs)) return notSupported('A { richText } cell value whose richText is not an array');
+  }
   if (type === ValueType.SharedString) return notSupported('A { sharedString } cell value');
   if (type === -1) return notSupported(`A cell value of this kind (${Array.isArray(value) ? 'array' : typeof value})`);
   if (value instanceof String) return value.valueOf();
@@ -253,6 +257,8 @@ export class Cell {
         return isRecord(r) ? String(r['error'] ?? '') : String(r);
       }
       if ('error' in v) return String(v['error']);
+      // RichTextValue.text joins the texts of the runs (lib/doc/cell.js L511).
+      if (Array.isArray(v['richText'])) return (v['richText'] as { text?: unknown }[]).map((r) => String(r.text ?? '')).join('');
     }
     return String(v);
   }
@@ -330,6 +336,47 @@ export class Cell {
   }
   get hyperlink(): undefined {
     return undefined;
+  }
+
+  /** The cell's location for defined names: `{ sheetName, address, row, col }` (lib/doc/cell.js L270). */
+  get fullAddress(): { sheetName: string; address: string; row: number; col: number } {
+    return { sheetName: this.worksheet.name, address: this.address, row: this.row, col: this.col };
+  }
+
+  private get definedNames(): DefinedNames {
+    const names = this.worksheet.workbook.definedNames;
+    if (!names) return notSupported('Defined names of this workbook');
+    return names;
+  }
+
+  /** The first defined name that includes this cell. */
+  get name(): string | undefined {
+    return this.names[0];
+  }
+  set name(value: string) {
+    this.names = [value];
+  }
+
+  /** The defined names that include this cell. */
+  get names(): string[] {
+    return this.definedNames.getNamesEx(this.fullAddress);
+  }
+  set names(value: string[]) {
+    const names = this.definedNames;
+    names.removeAllNames(this.fullAddress);
+    for (const name of value) names.addEx(this.fullAddress, name);
+  }
+
+  addName(name: string): void {
+    this.definedNames.addEx(this.fullAddress, name);
+  }
+
+  removeName(name: string): void {
+    this.definedNames.removeEx(this.fullAddress, name);
+  }
+
+  removeAllNames(): void {
+    this.definedNames.removeAllNames(this.fullAddress);
   }
 
   /** @internal */
@@ -731,7 +778,7 @@ export class Worksheet {
 
   /** @internal Use `workbook.addWorksheet()`. */
   constructor(
-    readonly workbook: { readonly _names: (exclude: Worksheet) => string[] },
+    readonly workbook: { readonly _names: (exclude: Worksheet) => string[]; readonly definedNames?: DefinedNames },
     id: number,
     name: string | undefined,
     options: WorksheetOptions | undefined,

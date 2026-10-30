@@ -1,14 +1,29 @@
 // Ported from exceljs v4.4.0 spec/integration/workbook-xlsx-reader.spec.js (MIT, Copyright (c)
 // 2014-2019 Guyon Roche), changes: every upstream test reads a binary fixture from
 // spec/integration/data/ or uses createTestBook; no fixtures were copied, so they are listed as
-// skipped. The first test is added for xlvane (not upstream): it writes a file with Workbook
+// skipped. The first two tests are added for xlvane (not upstream): one streams the rich-text
+// sample (tests/corpus/excel/exceljs-rich-text-sample.xlsx); one writes a file with Workbook
 // and reads it back with stream.xlsx.WorkbookReader, using the reader shape from exceljs
 // lib/stream/xlsx/workbook-reader.js and worksheet-reader.js (async iteration).
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, withTempDir } from './helpers';
 
 describe('WorkbookReader', () => {
+  it('streams rich text values as { richText } (added for xlvane)', async () => {
+    const bytes = readFileSync(new URL('../corpus/excel/exceljs-rich-text-sample.xlsx', import.meta.url));
+    const reader = new ExcelJS.stream.xlsx.WorkbookReader(bytes, {});
+    for await (const worksheetReader of reader) {
+      for await (const row of worksheetReader) {
+        if (row.number !== 1) continue;
+        const value = row.getCell(1).value as { richText: { text: string }[] };
+        expect(value.richText.map((r) => r.text).join('')).toBe('This is a colorful text with in-cell format');
+        expect(row.getCell(1).type).toBe(ExcelJS.ValueType.RichText);
+      }
+    }
+  });
+
   it('streams worksheets and rows written by Workbook (added for xlvane)', async () => {
     await withTempDir(async (dir) => {
       const filename = join(dir, 'wb.test.xlsx');

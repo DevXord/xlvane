@@ -1,0 +1,35 @@
+# exceljs 4.4.0 behaviour reproduced by @xlvane/exceljs
+
+Ids `X4-*` are cited from `packages/exceljs/src`. Every fact was read in the exceljs 4.4.0 source as installed in `bench/node_modules/exceljs` (`npm ci --prefix bench`; the package's `lib/` is the published source) on 2026-10-30, and where noted confirmed by running it. Paths are relative to the package root. Ported tests are in `tests/exceljs/` (README there).
+
+### X4-01 — Format codes written as built-in ids
+`StylesXform._addNumFmtStr(formatCode)` (`lib/xlsx/xform/style/styles-xform.js` L374–386) first looks the code up with `NumFmtXform.getDefaultFmtId` (`lib/xlsx/xform/style/numfmt-xform.js` L55), a hash of the `f` codes of `lib/xlsx/defaultnumformats.js` (ids 0–4, 9–22, 37–40, 45–49; the locale-dependent ids 27–36 and 50–81 have no `f`). A matching code is written as that id with no `numFmt` element; any other code gets a custom id from 164.
+
+### X4-02 — Dates without a format get built-in format 14
+`StylesXform.addStyleModel(model, cellType)` (`styles-xform.js` L245–266): without `model.numFmt`, a Number cell gets `General` and a Date cell `mm-dd-yy`, which X4-01 turns into id 14. The cell type is the type of the formula result for formula cells (`getEffectiveCellType`, `lib/xlsx/xform/sheet/cell-xform.js` L36–43). The mock used by the streaming writer without `useStyles` (`styles-xform.js` L495–515) still gives Date cells a style with `numFmtId` 14 (`dateStyleId`). Confirmed by running exceljs: a Date cell is written `<xf numFmtId="14" …>` and reads back with `numFmt` `"mm-dd-yy"`.
+
+### X4-03 — Document property defaults
+- `Workbook` constructor (`lib/doc/workbook.js` L15–31): `category`, `company`, `description`, `keywords`, `manager`, `subject`, `title` are `''`; `created = new Date()`, `modified = created`; `creator`, `lastModifiedBy`, `lastPrinted` are not set.
+- `Workbook.model` getter (L153–180): `creator` and `lastModifiedBy` default to `'Unknown'`; the model also carries `language`, `revision`, `contentStatus`.
+- `XLSX.prepareModel` (`lib/xlsx/xlsx.js` L594–600): `created` and `modified` default to now when unset.
+- `CoreXform` (`lib/xlsx/xform/core/core-xform.js` L12–60): writes an element unless the value is `undefined`; `cp:revision` is an `IntegerXform`, so it reads back as a number (L22); reading returns `creator`, `title`, `subject`, `description`, `identifier`, `language`, `keywords`, `category`, `lastModifiedBy`, `lastPrinted`, `revision`, `contentStatus`, `contentType`, `created`, `modified` (L99–114).
+- Reading (`xlsx.js` L345–358, `workbook.js` model setter L182–198): every property is assigned from the file, so a missing one becomes `undefined`; `company` and `manager` come from `docProps/app.xml`.
+- `stream.xlsx.WorkbookWriter` (`lib/stream/xlsx/workbook-writer.js` L22–30): options `created` (default now), `modified` (default `created`), `creator` and `lastModifiedBy` (default `'ExcelJS'`), `lastPrinted`; `addCore` (L264–271) writes them with `CoreXform`.
+
+### X4-04 — Columns that are written
+`Column.toModel` (`lib/doc/column.js` L265–293): a column is skipped when `isDefault` (L147–162: no custom width — width unset or 9 —, not hidden, no outline level, and no `font`, `numFmt`, `alignment`, `border`, `fill` or `protection` in its style); otherwise it is written with `width` defaulting to 9 (`DEFAULT_COLUMN_WIDTH`, L8) and its style. New cells inherit the column style with the row style winning per property (`lib/doc/cell.js` L27, `_mergeStyle` L99). Reading turns `col@style` back into the column's style (`lib/xlsx/xform/sheet/col-xform.js` L53, L80–81). Confirmed by running exceljs: a styled column without width is written `<col min="5" max="5" width="9" style="1" customWidth="1"/>`.
+
+### X4-05 — Defined names are cell sets
+`DefinedNames` (`lib/doc/defined-names.js`) keeps one `CellMatrix` (`lib/utils/cell-matrix.js`) per name: sheet → row → column. `add(locStr, name)` decodes the location with `colCache.decodeEx` (`lib/utils/col-cache.js` L216–257) and adds every cell of a range (L21–44); `remove`/`removeEx` delete one cell; `removeAllNames` deletes a cell from every name; `getNames`/`getNamesEx` list the names that hold a cell (L71–79). `Cell.name`, `names`, `addName`, `removeName`, `removeAllNames` and `fullAddress` work on these (`lib/doc/cell.js` L270–310).
+
+### X4-06 — Ranges of a name
+`getRanges(name)` (`defined-names.js` L81–145) marks every cell and grows rectangles from each unmarked one, first down and up in the column, then left and right over the rows found; each rectangle is written as `$shortRange` (`lib/doc/range.js` L204–214): `Sheet!$A$1` for one cell, `Sheet!$A$1:$B$2` otherwise. The sheet prefix is unquoted when the sheet name matches `/^[a-zA-Z0-9]*$/`, else quoted with single quotes, without doubling quotes inside (`range.js` L153–160). `model` lists `{ name, ranges }` for names with at least one range (L175–180).
+
+### X4-07 — Writing and reading names
+Writing: each model entry becomes `<definedName name="…">` with the ranges joined by commas and no `localSheetId` (`lib/xlsx/xform/book/defined-name-xform.js` L5–16); print areas and titles of `pageSetup` are added as `_xlnm.Print_Area` / `_xlnm.Print_Titles` (`lib/xlsx/xform/book/workbook-xform.js` L37–90). Reading: `extractRanges` (`defined-name-xform.js` L55–89) splits the text on commas, keeping quoted sheet names together, and keeps parts `colCache.decodeEx` accepts; `_xlnm.Print_Area` and `_xlnm.Print_Titles` move to `pageSetup` (`workbook-xform.js` L187–232); `localSheetId` is read but not used by the model; the `model` setter keeps only ranges whose address part matches `/[$](\w+)[$](\d+)(:[$](\w+)[$](\d+))?/` (`defined-names.js` L8, L182–193), and two entries with the same name replace each other.
+
+### X4-08 — Splicing names
+`DefinedNames.spliceRows` / `spliceColumns` (`defined-names.js` L147–173) splice each matrix (`cell-matrix.js` L138–162) and renumber the moved cells (`normaliseMatrix`).
+
+### X4-09 — Rich text values
+`RichTextValue` (`lib/doc/cell.js` L494): `{ richText: [{ text, font? }] }`, type `RichText`, text the run texts joined (`toString`, L511–513). Written as a shared string item with `<r><rPr>…</rPr><t>` runs (`lib/xlsx/xform/strings/shared-string-xform.js` L31–45, `lib/xlsx/xform/strings/rich-text-xform.js` L36); the run font uses `rFont` for `name` (`rich-text-xform.js` L98, `fontNameTag`) and the other properties as for cell fonts (`lib/xlsx/xform/style/font-xform.js` L19–34). Reading builds `{ richText }` again (`shared-string-xform.js` L71–80); runs without `rPr` have no `font`. Confirmed by running exceljs: 6-digit `argb` colours are written and read back unchanged.

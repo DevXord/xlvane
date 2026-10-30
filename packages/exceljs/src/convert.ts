@@ -1,7 +1,57 @@
 // Conversion between the exceljs model and xlvane (docs/decisions.md D-503, D-504).
-import { createWorkbook, readWorkbook, type CellInput, type CellStyle, type Color as XlvColor, type NewWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
-import { columnLetter, notSupported, ValueType, type Cell, type Worksheet } from './model';
+import {
+  createWorkbook,
+  readWorkbook,
+  type CellInput,
+  type CellStyle,
+  type Color as XlvColor,
+  type ColumnOptions,
+  type FontStyle,
+  type NewWorkbook,
+  type RichTextRun,
+  type Workbook as XlvWorkbook,
+  type WorkbookProperties,
+} from 'xlvane';
+import { columnLetter, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
 import type { Alignment, Borders, CellValue, Color, Fill, Font, Style } from './types';
+
+/**
+ * Format codes exceljs writes as built-in ids (lib/xlsx/defaultnumformats.js, used by
+ * NumFmtXform.getDefaultFmtId, lib/xlsx/xform/style/numfmt-xform.js L55; X4-01). Every id here is
+ * one xlvane accepts as a built-in id (D-A05). `General` (0) means no format.
+ */
+const BUILTIN_CODES: ReadonlyMap<string, number> = new Map([
+  ['0', 1],
+  ['0.00', 2],
+  ['#,##0', 3],
+  ['#,##0.00', 4],
+  ['0%', 9],
+  ['0.00%', 10],
+  ['0.00E+00', 11],
+  ['# ?/?', 12],
+  ['# ??/??', 13],
+  ['mm-dd-yy', 14],
+  ['d-mmm-yy', 15],
+  ['d-mmm', 16],
+  ['mmm-yy', 17],
+  ['h:mm AM/PM', 18],
+  ['h:mm:ss AM/PM', 19],
+  ['h:mm', 20],
+  ['h:mm:ss', 21],
+  ['m/d/yy "h":mm', 22],
+  ['#,##0 ;(#,##0)', 37],
+  ['#,##0 ;[Red](#,##0)', 38],
+  ['#,##0.00 ;(#,##0.00)', 39],
+  ['#,##0.00 ;[Red](#,##0.00)', 40],
+  ['mm:ss', 45],
+  ['[h]:mm:ss', 46],
+  ['mmss.0', 47],
+  ['##0.0E+0', 48],
+  ['@', 49],
+]);
+
+/** exceljs writes dates without a number format with built-in format 14 (styles-xform.js L260; X4-02). */
+export const DATE_NUMFMT = 14;
 
 // ---------------------------------------------------------------------------------------------
 // exceljs → xlvane
@@ -84,8 +134,51 @@ export function styleIn(s: Style): CellStyle {
   if (border) out['border'] = border;
   const alignment = alignmentIn(s.alignment);
   if (alignment) out['alignment'] = alignment;
-  if (s.numFmt && s.numFmt !== 'General') out['numFmt'] = s.numFmt;
+  if (s.numFmt && s.numFmt !== 'General') out['numFmt'] = BUILTIN_CODES.get(s.numFmt) ?? s.numFmt;
   return out as CellStyle;
+}
+
+/** True when exceljs gives the cell the date format: a Date value or a formula with a Date result (cell-xform.js L36). */
+export function isDateCell(cell: Cell): boolean {
+  const v = cell.value;
+  if (v instanceof Date) return true;
+  return isRecord(v) && ('formula' in v || 'sharedFormula' in v) && v['result'] instanceof Date;
+}
+
+/** The style written for a cell: its style, with format 14 for a date without a format (X4-02). */
+export function cellStyleIn(cell: Cell, style: CellStyle): CellStyle {
+  return style.numFmt === undefined && isDateCell(cell) ? { ...style, numFmt: DATE_NUMFMT } : style;
+}
+
+const DEFAULT_COLUMN_WIDTH = 9;
+
+/**
+ * The `col` options for a column, as exceljs `Column.toModel` (lib/doc/column.js L265; X4-04):
+ * a column is written unless it is a default one (width unset or 9, visible, no style), and a
+ * written column without a width gets width 9. `withStyle` false drops the style, as the
+ * streaming writer does without `useStyles`.
+ */
+export function columnIn(column: Column, withStyle: boolean): ColumnOptions | undefined {
+  const s = column.style;
+  const styled = !!(s.font || s.numFmt || s.alignment || s.border || s.fill || s.protection);
+  const customWidth = column.width !== undefined && column.width !== DEFAULT_COLUMN_WIDTH;
+  if (!customWidth && !column.hidden && !styled) return undefined;
+  const style = withStyle && styled ? styleIn(s) : undefined;
+  return {
+    width: column.width ?? DEFAULT_COLUMN_WIDTH,
+    ...(column.hidden ? { hidden: true } : {}),
+    ...(style && Object.keys(style).length > 0 ? { style } : {}),
+  };
+}
+
+function runsIn(runs: unknown[], address: string): RichTextRun[] {
+  if (runs.length === 0) return notSupported(`An empty { richText: [] } value in cell ${address}`);
+  return runs.map((r) => {
+    if (!isRecord(r)) return notSupported(`A rich text run that is not an object in cell ${address}`);
+    const text = r['text'] === undefined || r['text'] === null ? '' : String(r['text']);
+    const font = fontIn(r['font'] as Partial<Font> | undefined);
+    return font && Object.keys(font).length > 0 ? { text, font: font as FontStyle } : { text };
+  });
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -106,13 +199,20 @@ export function valueIn(cell: Cell): CellInput {
       return { formula: v['formula'], result: r as number };
     }
     if (typeof v['error'] === 'string') return { error: v['error'] as '#N/A' };
+    if (Array.isArray(v['richText'])) return { richText: runsIn(v['richText'] as unknown[], cell.address) };
   }
   return notSupported(`The value of cell ${cell.address}`);
 }
 
+/** Workbook-level data written with the sheets: document properties and defined names. */
+export interface WorkbookMeta {
+  readonly properties?: WorkbookProperties;
+  readonly definedNames?: readonly { name: string; ranges: string[] }[];
+}
+
 /** Builds an xlvane workbook from the exceljs model (D-503). */
-export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean): NewWorkbook {
-  const book = createWorkbook(date1904 ? { dateSystem: '1904' } : undefined);
+export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, meta: WorkbookMeta = {}): NewWorkbook {
+  const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}) });
   if (sheets.length === 0) {
     // exceljs writes a workbook without sheets; xlvane requires one (D-505).
     notSupported('Writing a workbook without worksheets');
@@ -120,9 +220,8 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean): 
   for (const ws of sheets) {
     const sheet = book.addSheet(ws.name, { state: ws.state });
     ws.columns.forEach((column) => {
-      if (column.width !== undefined || column.hidden) {
-        sheet.column(column.number, { ...(column.width === undefined ? {} : { width: column.width }), ...(column.hidden ? { hidden: true } : {}) });
-      }
+      const options = columnIn(column, true);
+      if (options) sheet.column(column.number, options);
     });
     const styleCache = new Map<Style, CellStyle>();
     const styleOf = (s: Style): CellStyle => {
@@ -140,7 +239,7 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean): 
       }
       row._cells.forEach((cell) => {
         if (!cell) return;
-        const style = styleOf(cell.style);
+        const style = cellStyleIn(cell, styleOf(cell.style));
         const value = cell.type === ValueType.Merge ? null : valueIn(cell);
         if (value === null && Object.keys(style).length === 0) return;
         sheet.set(cell.address, value, style);
@@ -153,6 +252,8 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean): 
     const filter = autoFilterRange(ws.autoFilter);
     if (filter) sheet.autoFilter(filter);
   }
+  // exceljs writes each name's ranges joined by commas, without a sheet scope (defined-name-xform.js L5).
+  for (const d of meta.definedNames ?? []) book.defineName(d.name, d.ranges.join(','));
   return book;
 }
 
@@ -178,23 +279,29 @@ function colorOut(c: XlvColor | undefined): Partial<Color> | undefined {
   return undefined;
 }
 
+function fontOut(f: FontStyle): Partial<Font> {
+  const font: Partial<Font> = {};
+  if (f.name !== undefined) font.name = f.name;
+  if (f.size !== undefined) font.size = f.size;
+  if (f.bold) font.bold = true;
+  if (f.italic) font.italic = true;
+  if (f.strike) font.strike = true;
+  if (f.underline) font.underline = f.underline === true ? 'single' : f.underline;
+  const color = colorOut(f.color);
+  if (color) font.color = color;
+  return font;
+}
+
+/** Converts rich text runs read by xlvane to the exceljs `{ richText }` value. */
+export function richTextOut(runs: readonly RichTextRun[]): { richText: { text: string; font?: Partial<Font> }[] } {
+  return { richText: runs.map((r) => (r.font ? { font: fontOut(r.font), text: r.text } : { text: r.text })) };
+}
+
 /** Converts a style read by xlvane to the exceljs format. */
 export function styleOut(s: CellStyle, numFmt: string | null): Style {
   const out: Style = {};
   if (numFmt) out.numFmt = numFmt;
-  if (s.font) {
-    const f = s.font;
-    const font: Partial<Font> = {};
-    if (f.name !== undefined) font.name = f.name;
-    if (f.size !== undefined) font.size = f.size;
-    if (f.bold) font.bold = true;
-    if (f.italic) font.italic = true;
-    if (f.strike) font.strike = true;
-    if (f.underline) font.underline = f.underline === true ? 'single' : f.underline;
-    const color = colorOut(f.color);
-    if (color) font.color = color;
-    out.font = font;
-  }
+  if (s.font) out.font = fontOut(s.font);
   if (s.fill && 'pattern' in s.fill) {
     const fill: Fill = { type: 'pattern', pattern: s.fill.pattern };
     const fg = colorOut(s.fill.fgColor);

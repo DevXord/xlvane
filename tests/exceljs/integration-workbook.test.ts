@@ -5,8 +5,9 @@
 // the frozen-panes test writes and checks one view (only the first sheet view is read);
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
 // unsupported features (createTestBook fixtures, compression options, print titles,
-// document properties, data validation, CSV, defined names, duplicateRow, spliceRows, split
-// panes, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED.
+// company/manager (docProps/app.xml), data validation, CSV, duplicateRow, spliceRows, split
+// panes, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; `equalDate`
+// is compared with getTime(); chai `have.members` is arrayContaining plus the length.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, roundTrip, styles, withTempDir } from './helpers';
@@ -36,7 +37,20 @@ describe('Workbook', () => {
       expect(wb2.getWorksheet('This & That')).toBeTruthy();
     });
 
-    it.skip('creator, lastModifiedBy, etc — not supported: document properties are not written in phase 5', () => {});
+    it('creator, lastModifiedBy, etc', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hello');
+      ws.getCell('A1').value = 'World!';
+      wb.creator = 'Foo';
+      wb.lastModifiedBy = 'Bar';
+      wb.created = new Date(2016, 0, 1);
+      wb.modified = new Date(2016, 4, 19);
+      const wb2 = await roundTrip(wb);
+      expect(wb2.creator).toBe(wb.creator);
+      expect(wb2.lastModifiedBy).toBe(wb.lastModifiedBy);
+      expect(wb2.created.getTime()).toBe(wb.created.getTime());
+      expect(wb2.modified.getTime()).toBe(wb.modified.getTime());
+    });
     it.skip('printTitlesRow — not supported: print settings', () => {});
     it.skip('printTitlesColumn — not supported: print settings', () => {});
     it.skip('printTitlesRowAndColumn — not supported: print settings', () => {});
@@ -57,9 +71,38 @@ describe('Workbook', () => {
       expect(wb2.getWorksheet('Hello').autoFilter).toBe('A1:B1');
     });
 
-    it.skip('company, manager, etc — not supported: document properties are not written in phase 5', () => {});
-    it.skip('title, subject, etc — not supported: document properties are not written in phase 5', () => {});
-    it.skip('language, revision and contentStatus — not supported: document properties are not written in phase 5', () => {});
+    it.skip('company, manager, etc — not supported yet: docProps/app.xml is not written (phase A2)', () => {});
+
+    it('title, subject, etc', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hello');
+      ws.getCell('A1').value = 'World!';
+      wb.title = 'the title';
+      wb.subject = 'the subject';
+      wb.keywords = 'the keywords';
+      wb.category = 'the category';
+      wb.description = 'the description';
+      const wb2 = await roundTrip(wb);
+      expect(wb2.title).toBe(wb.title);
+      expect(wb2.subject).toBe(wb.subject);
+      expect(wb2.keywords).toBe(wb.keywords);
+      expect(wb2.category).toBe(wb.category);
+      expect(wb2.description).toBe(wb.description);
+    });
+
+    it('language, revision and contentStatus', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hello');
+      ws.getCell('A1').value = 'World!';
+      wb.language = 'Klingon';
+      wb.revision = 2;
+      // Upstream sets the misspelt `contentStauts`, so contentStatus stays undefined on both sides.
+      (wb as unknown as Record<string, unknown>)['contentStauts'] = 'Final';
+      const wb2 = await roundTrip(wb);
+      expect(wb2.language).toBe(wb.language);
+      expect(wb2.revision).toBe(wb.revision);
+      expect(wb2.contentStatus).toBe(wb.contentStatus);
+    });
 
     it('empty strings', async () => {
       const wb = new ExcelJS.Workbook();
@@ -96,7 +139,90 @@ describe('Workbook', () => {
     });
 
     it.skip('CSV file and its configuration — not supported: csv', () => {});
-    it.skip('defined names — not supported: defined names', () => {});
+    it('defined names', async () => {
+      const wb1 = new ExcelJS.Workbook();
+      const ws1a = wb1.addWorksheet('blort');
+      const ws1b = wb1.addWorksheet('foo');
+
+      function assign(sheet: any, address: string, value: number, name: string | string[]) {
+        const cell = sheet.getCell(address);
+        cell.value = value;
+        if (Array.isArray(name)) cell.names = name;
+        else cell.name = name;
+      }
+
+      // single entry
+      assign(ws1a, 'A1', 5, 'five');
+      // three amigos - horizontal line
+      assign(ws1a, 'A3', 3, 'amigos');
+      assign(ws1a, 'B3', 3, 'amigos');
+      assign(ws1a, 'C3', 3, 'amigos');
+      // three amigos - vertical line
+      assign(ws1a, 'E1', 3, 'verts');
+      assign(ws1a, 'E2', 3, 'verts');
+      assign(ws1a, 'E3', 3, 'verts');
+      // four square
+      assign(ws1a, 'C5', 4, 'squares');
+      assign(ws1a, 'B6', 4, 'squares');
+      assign(ws1a, 'C6', 4, 'squares');
+      assign(ws1a, 'B5', 4, 'squares');
+      // long distance
+      assign(ws1a, 'B7', 2, 'sheets');
+      assign(ws1b, 'B7', 2, 'sheets');
+      // two names
+      assign(ws1a, 'G1', 1, 'thing1');
+      ws1a.getCell('G1').addName('thing2');
+      // once removed
+      assign(ws1a, 'G2', 1, ['once', 'twice']);
+      ws1a.getCell('G2').removeName('once');
+
+      const wb2 = await roundTrip(wb1);
+      const ws2a = wb2.getWorksheet('blort');
+      const ws2b = wb2.getWorksheet('foo');
+
+      function check(sheet: any, address: string, value: number, name: string) {
+        const cell = sheet.getCell(address);
+        expect(cell.value).toBe(value);
+        expect(cell.name).toBe(name);
+      }
+
+      check(ws2a, 'A1', 5, 'five');
+      check(ws2a, 'A3', 3, 'amigos');
+      check(ws2a, 'B3', 3, 'amigos');
+      check(ws2a, 'C3', 3, 'amigos');
+      check(ws2a, 'E1', 3, 'verts');
+      check(ws2a, 'E2', 3, 'verts');
+      check(ws2a, 'E3', 3, 'verts');
+      check(ws2a, 'C5', 4, 'squares');
+      check(ws2a, 'B6', 4, 'squares');
+      check(ws2a, 'C6', 4, 'squares');
+      check(ws2a, 'B5', 4, 'squares');
+      check(ws2a, 'B7', 2, 'sheets');
+      check(ws2b, 'B7', 2, 'sheets');
+
+      expect(ws2a.getCell('G1').names).toEqual(expect.arrayContaining(['thing1', 'thing2']));
+      expect(ws2a.getCell('G1').names).toHaveLength(2);
+      expect(ws2a.getCell('G2').names).toEqual(['twice']);
+
+      function rangeCheck(name: string, members: string[]) {
+        const ranges = wb2.definedNames.getRanges(name);
+        expect(ranges.name).toBe(name);
+        if (members.length) {
+          expect(ranges.ranges).toEqual(expect.arrayContaining(members));
+          expect(ranges.ranges).toHaveLength(members.length);
+        } else expect(ranges.ranges.length).toBe(0);
+      }
+
+      rangeCheck('five', ['blort!$A$1']);
+      rangeCheck('amigos', ['blort!$A$3:$C$3']);
+      rangeCheck('verts', ['blort!$E$1:$E$3']);
+      rangeCheck('squares', ['blort!$B$5:$C$6']);
+      rangeCheck('sheets', ['blort!$B$7', 'foo!$B$7']);
+      rangeCheck('thing1', ['blort!$G$1']);
+      rangeCheck('thing2', ['blort!$G$1']);
+      rangeCheck('once', []);
+      rangeCheck('twice', ['blort!$G$2']);
+    });
 
     describe('Duplicate Rows', () => {
       it('Duplicate rows with styles properly — not supported: duplicateRow', async () => {

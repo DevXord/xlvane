@@ -221,14 +221,15 @@ export interface CellFormulaValue {
 }
 
 /**
- * A cell value. Rich text, hyperlink and shared-formula values can be read by exceljs but are not
- * supported here (`XLV_E_NOT_SUPPORTED` when set).
+ * A cell value, including rich text (`{ richText: [{ text, font? }] }`). Hyperlink and
+ * shared-string values are not supported here (`XLV_E_NOT_SUPPORTED` when set); shared formulas
+ * are written as ordinary formulas.
  *
  * @example
  * ```ts
  * import type { CellValue } from '@xlvane/exceljs';
  *
- * const values: CellValue[] = [1, 'text', true, new Date(), null, { formula: 'A1*2' }, { error: '#N/A' }];
+ * const values: CellValue[] = [1, 'text', true, new Date(), null, { formula: 'A1*2' }, { error: '#N/A' }, { richText: [{ font: { bold: true }, text: 'Bold' }, { text: ' plain' }] }];
  * ```
  */
 export type CellValue = null | undefined | number | string | boolean | Date | CellErrorValue | CellFormulaValue | Record<string, unknown>;

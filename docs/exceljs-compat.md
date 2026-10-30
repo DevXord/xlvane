@@ -21,7 +21,8 @@ Status: **supported** means the same behaviour as exceljs for the cases covered 
 | API | Status | Notes | Source in exceljs |
 |---|---|---|---|
 | `new Workbook()` | supported | | `lib/doc/workbook.js` |
-| `creator`, `lastModifiedBy`, `created`, `modified` | partly | Stored on the object, not written to the file (xlvane writes no `docProps` part yet, W2-33). | `lib/doc/workbook.js` L18, L22, L153–158 |
+| `creator`, `lastModifiedBy`, `created`, `modified`, `lastPrinted`, `title`, `subject`, `keywords`, `category`, `description`, `language`, `revision`, `contentStatus` | supported | Written to `docProps/core.xml` with exceljs's defaults (`creator` and `lastModifiedBy` "Unknown", `created` and `modified` the time the workbook was made), and read back; `revision` reads back as a number. Dates are stored in whole seconds (UTC). | `lib/doc/workbook.js` L16–27, L153–180; `lib/xlsx/xform/core/core-xform.js` |
+| `company`, `manager` | partly | Kept on the object, not written yet: they belong to `docProps/app.xml` (phase A2). After reading a file they are `undefined`. | `lib/xlsx/xform/core/app-xform.js` |
 | `addWorksheet(name, { state, views, properties })` | partly | `properties.tabColor` and other sheet properties are not written. | `lib/doc/workbook.js` L53 |
 | `getWorksheet(name \| id)` | supported | | `lib/doc/workbook.js` L106 |
 | `worksheets`, `eachSheet(cb)` | supported | | `lib/doc/workbook.js` L119, L127 |
@@ -33,7 +34,7 @@ Status: **supported** means the same behaviour as exceljs for the cases covered 
 | `xlsx.writeFile(path)` | supported | | `lib/xlsx/xlsx.js` L666 |
 | `xlsx.write(stream)` | supported | | `lib/xlsx/xlsx.js` L643 |
 | `csv` (`workbook.csv.*`) | not supported | Use `toCSV` / `fromCSV` from `xlvane`. | `lib/doc/workbook.js` L38 |
-| `definedNames` | not supported | | `lib/doc/workbook.js` L133 |
+| `definedNames` (`add`, `addEx`, `remove`, `removeEx`, `removeAllNames`, `forEach`, `getNames`, `getNamesEx`, `getRanges`, `getMatrix`, `model`) | supported | As in exceljs, a name is a set of cells, written as rectangles with absolute references and no sheet scope; on reading, names that are not cell ranges (constants, formulas, `#REF!`) and the sheet scope (`localSheetId`) are dropped. Built-in `_xlnm.` names are not listed: print areas and titles (exceljs `pageSetup`) are not supported yet, and xlvane writes the autofilter name itself. Names exceljs accepts but Excel does not (for example `A1` or names starting with `_xl`) throw `XLV_E_INVALID_DEFINED_NAME` when the workbook is written. | `lib/doc/defined-names.js`; `lib/xlsx/xform/book/defined-name-xform.js`; `lib/xlsx/xform/book/workbook-xform.js` L187 |
 | `addImage(image)` | not supported | | `lib/doc/workbook.js` L142 |
 
 ## Worksheet
@@ -82,30 +83,31 @@ Status: **supported** means the same behaviour as exceljs for the cases covered 
 | `letter`, `number` | supported | | `lib/doc/column.js` L23, L31 |
 | `values` | supported | | `lib/doc/column.js` L179 |
 | `eachCell({ includeEmpty }, cb)` | supported | | `lib/doc/column.js` L168 |
-| `font`, `fill`, `border`, `alignment`, `numFmt` setters | partly | Applied to the column's existing cells; xlvane has no column default style yet (D-206), so cells added later do not inherit it. | `lib/doc/column.js` L226 |
+| `font`, `fill`, `border`, `alignment`, `numFmt` setters, `style` | supported | Applied to the column's existing cells, inherited by cells added later (the row style wins), and written as the column's default style (`col@style`). As in exceljs, a styled column without a width is written with width 9, and a column with width 9 and nothing else is not written. The streaming writer writes the column style only with `useStyles: true`. | `lib/doc/column.js` L147, L206, L265 |
 
 ## Cell values
 
 | Value | Status | Notes | Source in exceljs |
 |---|---|---|---|
 | `null`, number, string, boolean | supported | | `lib/doc/cell.js` L206, L211 |
-| `Date` | partly | Written with the format `yyyy-mm-dd` (or `yyyy-mm-dd hh:mm:ss`) unless `numFmt` is set; exceljs uses built-in format 14, which applications show in the local date order. | `lib/doc/cell.js` L538 |
+| `Date` | supported | Without `numFmt`, a date (also a formula result that is a date) is written with built-in format 14, as exceljs does, also by the streaming writer without `useStyles`; applications show it in the reader's date order, and reading gives `numFmt` `"mm-dd-yy"`. | `lib/doc/cell.js` L538; `lib/xlsx/xform/style/styles-xform.js` L253–266, L498–515 |
 | `{ formula, result }` | supported | xlvane does not calculate; `result` is stored as given. | `lib/doc/cell.js` L734 |
 | `{ sharedFormula, result }` | partly | Written as an ordinary formula. When reading, xlvane translates shared formulas, so such cells come back as `{ formula, result }`. | `lib/doc/cell.js` L744, L811; `index.d.ts` L357 |
 | `{ error: '#N/A' }` | supported | | `lib/doc/cell.js` L970 |
-| `{ richText: [...] }` | partly | Writing throws `XLV_E_NOT_SUPPORTED`; reading returns the plain text. | `lib/doc/cell.js` L494; `index.d.ts` L341 |
+| `{ richText: [...] }` | partly | Written and read back with the run fonts' `name`, `size`, `bold`, `italic`, `underline`, `strike` and `color`; `cell.text` joins the runs and `type` is `RichText`. `family`, `scheme` and `charset` are dropped (not written, D-A01), and `vertAlign` (superscript, subscript) and `outline` in a run throw `XLV_E_NOT_SUPPORTED`. A 6-digit `argb` colour reads back with alpha `FF` (8 digits). | `lib/doc/cell.js` L494; `lib/xlsx/xform/strings/rich-text-xform.js`; `index.d.ts` L336–343 |
 | `{ text, hyperlink }` | not supported | Writing throws; hyperlinks in read files are not reported. | `lib/doc/cell.js` L582; `index.d.ts` L345 |
 | `note` | not supported | | `lib/doc/cell.js` L224 |
 | `type` (`ValueType` numbers) | supported | Same numbers as exceljs: Null 0, Merge 1, Number 2, String 3, Date 4, Hyperlink 5, Formula 6, SharedString 7, RichText 8, Boolean 9, Error 10. | `lib/doc/enums.js` L4–16; `lib/doc/cell.js` L142 |
 | `text`, `address`, `row`, `col` | supported | | `lib/doc/cell.js` L123, L232 |
 | `isMerged`, `master` | supported | | `lib/doc/cell.js` L165, L190 |
+| `name`, `names`, `addName`, `removeName`, `removeAllNames`, `fullAddress` | supported | Through `workbook.definedNames`. | `lib/doc/cell.js` L270–310 |
 
 ## Styles
 
 | API | Status | Notes | Source in exceljs |
 |---|---|---|---|
-| `numFmt` | supported | | `lib/doc/cell.js` L51 |
-| `font` (`name`, `size`, `bold`, `italic`, `underline`, `strike`, `color`) | partly | `family`, `scheme`, `charset`, `outline`, `vertAlign` are not written. | `lib/doc/cell.js` L59; `index.d.ts` L217 |
+| `numFmt` | supported | Codes that exceljs maps to built-in formats (`'0.00'`, `'mm-dd-yy'`, `'@'`, …) are written as the built-in id, as exceljs does. | `lib/doc/cell.js` L51; `lib/xlsx/defaultnumformats.js`; `lib/xlsx/xform/style/styles-xform.js` L374 |
+| `font` (`name`, `size`, `bold`, `italic`, `underline`, `strike`, `color`) | partly | `family`, `scheme`, `charset`, `outline`, `vertAlign` are not written. A font without `name` or `size` is written with the workbook's default font for the missing ones (Calibri 11), so it reads back with them; exceljs writes only what is given. | `lib/doc/cell.js` L59; `index.d.ts` L217 |
 | `fill` (`type: 'pattern'`, `pattern`, `fgColor`, `bgColor`) | partly | Gradient fills are not supported (`XLV_E_NOT_SUPPORTED`). | `lib/doc/cell.js` L83; `index.d.ts` L161–215 |
 | `border` (`top`, `left`, `bottom`, `right`) | partly | `diagonal` is not supported. | `lib/doc/cell.js` L75; `index.d.ts` L258 |
 | `alignment` (`horizontal`, `vertical`, `wrapText`, `indent`, `textRotation`) | partly | `shrinkToFit`, `readingOrder` are not written. | `lib/doc/cell.js` L67; `index.d.ts` L280 |
@@ -118,7 +120,8 @@ Status: **supported** means the same behaviour as exceljs for the cases covered 
 | `stream.xlsx.WorkbookWriter({ filename \| stream, useStyles, useSharedStrings })` | supported | Built on `writeWorkbookStream`. | `lib/stream/xlsx/workbook-writer.js` L22, L33, L37 |
 | `writer.addWorksheet`, `worksheet.addRow(...).commit()`, `worksheet.commit()`, `await writer.commit()` | supported | | `lib/stream/xlsx/workbook-writer.js` L97, L136; `lib/stream/xlsx/worksheet-writer.js` L215, L407 |
 | Sheet layout (`columns`, `views`, `autoFilter`, merges) of a streamed worksheet | partly | Must be set before the worksheet's first row is committed. A change made later throws `XLV_E_NOT_SUPPORTED` (at `mergeCells()` or at `worksheet.commit()`), because xlvane writes the layout before the rows. exceljs writes `autoFilter` and merges when the worksheet is committed. | `lib/stream/xlsx/worksheet-writer.js` |
-| `stream.xlsx.WorkbookReader` with `for await` over worksheets and rows | supported | Built on `openWorkbookStream`. | `lib/stream/xlsx/workbook-reader.js` L19, L71; `lib/stream/xlsx/worksheet-reader.js` L105 |
+| `WorkbookWriter` options `created`, `modified`, `creator`, `lastModifiedBy`, `lastPrinted`; `definedNames` | partly | Written with exceljs's defaults (`creator` and `lastModifiedBy` "ExcelJS"). Names and these properties are written when the first row is committed (writing starts then); a change made later throws `XLV_E_NOT_SUPPORTED` at `writer.commit()`. exceljs writes them at the end. | `lib/stream/xlsx/workbook-writer.js` L22–40, L64, L264 |
+| `stream.xlsx.WorkbookReader` with `for await` over worksheets and rows | supported | Built on `openWorkbookStream`. Rich text cells come back as `{ richText }`. | `lib/stream/xlsx/workbook-reader.js` L19, L71; `lib/stream/xlsx/worksheet-reader.js` L105 |
 
 ## Other
 
@@ -132,5 +135,4 @@ Status: **supported** means the same behaviour as exceljs for the cases covered 
 
 `tests/exceljs/cross-check.test.ts` runs `tests/exceljs/sample-project` against exceljs 4.4.0 and stores its output in `expected-exceljs-4.4.0.json`. `tests/exceljs/alias.test.ts` requires @xlvane/exceljs to produce the same output, except for the entries of `KNOWN_DIFFERENCES` in `tests/exceljs/project-helper.ts`, which are listed here:
 
-- None so far for what the sample reads back.
-- Not covered by the sample's summary: the display format of dates written without `numFmt` (see "Cell values").
+- None so far for what the sample reads back. The sample covers document properties, rich text, a column style, defined names (including `cell.name`) and the built-in date format; `alias.test.ts` also checks that LibreOffice shows the dates as exceljs's files do (`1/31/2024`).

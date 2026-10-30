@@ -2,6 +2,13 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase A1: rich text, properties, defined names, column styles, format ids (2026-10-30)
+
+- **Core** (D-A01 … D-A05): `Cell.richText` and `{ richText }` input; `docProps/core.xml` via `properties`; `Workbook.definedNames` and `defineName` (`XLV_E_INVALID_DEFINED_NAME`); `column(c, { style })` and `ColumnInfo.style`; `numFmt` as a built-in id.
+- **@xlvane/exceljs** (D-A06): rich text, workbook properties, the `DefinedNames` API, column styles and date format 14 as in exceljs 4.4.0; ported exceljs specs for these features; cross-check sample extended.
+- **inspect, CLI, docs** (D-A07): new bounded fields in `inspect()` and `xlvane inspect`; README, SKILL.md, CHANGELOG.
+- **Roadmap**: docs/PLAN.md phases A–E and the "AI Friendly" stage; second local review report requested and received for phase A2.
+
 ## After phase 10: review with the supplied standards (2026-10-30)
 
 - **Sources:** ECMA-376 Part 1, [MS-OI29500] rev. 25.0 and [MS-XLSX] rev. 30.0, read through a local review report (D-1104); RFC 4180 for CSV. Facts in docs/facts updated with section and page.

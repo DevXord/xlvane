@@ -1,8 +1,9 @@
 // exceljs streaming API: `stream.xlsx.WorkbookWriter` (lib/stream/xlsx/workbook-writer.js) and
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
-import { openWorkbookStream, writeWorkbookStream, type CellInput, type StreamRowInput, type StreamSheetSpec } from 'xlvane';
-import { autoFilterRange, styleIn, valueIn } from './convert';
+import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
+import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, richTextOut, styleIn, valueIn } from './convert';
+import type { DefinedNames } from './defined-names';
 import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import { Workbook } from './workbook';
@@ -88,6 +89,12 @@ export interface WorkbookWriterOptions {
   useSharedStrings?: boolean;
   /** Write cell styles (default false, as in exceljs). */
   useStyles?: boolean;
+  /** Document properties written to `docProps/core.xml` (defaults as in exceljs). */
+  created?: Date;
+  modified?: Date;
+  creator?: string;
+  lastModifiedBy?: string;
+  lastPrinted?: Date;
   zip?: unknown;
 }
 
@@ -137,7 +144,7 @@ export class WorksheetWriter extends Worksheet {
     return {
       name: this.name,
       state: this.state,
-      columns: this.columns.map((c) => (c.width === undefined && !c.hidden ? undefined : { ...(c.width === undefined ? {} : { width: c.width }), ...(c.hidden ? { hidden: true } : {}) })),
+      columns: this.columns.map((c) => columnIn(c, this.writer._useStyles)),
       ...(frozen ? { freeze: { rows: frozen.ySplit ?? 0, cols: frozen.xSplit ?? 0 } } : {}),
       ...(filter ? { autoFilter: filter } : {}),
       merges: [...this._merges.values()].map((m) => `${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`),
@@ -165,16 +172,20 @@ export class WorksheetWriter extends Worksheet {
       return;
     }
     const values: CellValue[] = [];
-    const styles: (ReturnType<typeof styleIn> | undefined)[] = [];
+    const styles: (CellStyle | undefined)[] = [];
+    let styled = false;
     row._cells.forEach((cell, i) => {
       if (!cell) return;
       values[i] = cell.type === ValueType.Merge ? null : (valueIn(cell) as CellValue);
-      if (this.writer._useStyles) styles[i] = styleIn(cell.style);
+      // Without useStyles exceljs still gives dates format 14 (styles-xform.js Mock, L498; X4-02).
+      if (this.writer._useStyles) styles[i] = cellStyleIn(cell, styleIn(cell.style));
+      else if (isDateCell(cell)) styles[i] = { numFmt: DATE_NUMFMT };
+      if (styles[i] !== undefined) styled = true;
     });
     for (let i = 0; i < values.length; i++) if (values[i] === undefined) values[i] = null;
     this.rowsOut.push({
       values: values as CellInput[],
-      ...(this.writer._useStyles ? { styles } : {}),
+      ...(styled ? { styles } : {}),
       ...(row.height !== undefined ? { height: row.height } : {}),
       ...(row.hidden ? { hidden: true } : {}),
     });
@@ -223,24 +234,54 @@ export class WorkbookWriter {
   readonly _useStyles: boolean;
   private readonly sheets = new Channel<StreamSheetSpec>();
   private readonly open: WorksheetWriter[] = [];
-  private readonly done: Promise<void>;
+  private done: Promise<void> | null = null;
+  private readonly options: WorkbookWriterOptions;
+  private written = '';
   private nextId = 1;
-  creator = '';
-  lastModifiedBy = '';
-  created: Date = new Date();
-  modified: Date = this.created;
+  created: Date;
+  modified: Date;
+  creator: string;
+  lastModifiedBy: string;
+  lastPrinted: Date | undefined;
 
   constructor(options: WorkbookWriterOptions = {}) {
+    this.options = options;
     this._useStyles = options.useStyles === true;
-    const spec = { sheets: this.sheets, sharedStrings: options.useSharedStrings === true };
+    // Defaults of exceljs WorkbookWriter (lib/stream/xlsx/workbook-writer.js L24; X4-03).
+    this.created = options.created || new Date();
+    this.modified = options.modified || this.created;
+    this.creator = options.creator || 'ExcelJS';
+    this.lastModifiedBy = options.lastModifiedBy || 'ExcelJS';
+    this.lastPrinted = options.lastPrinted;
+  }
+
+  /** Defined names, as exceljs `workbookWriter.definedNames`; set them before the first row is committed. */
+  get definedNames(): DefinedNames {
+    return this._book.definedNames;
+  }
+
+  /** The document properties and names written; they are fixed when writing starts. */
+  private meta(): { properties: WorkbookProperties; definedNames: { name: string; refersTo: string }[] } {
+    const properties: Record<string, unknown> = { creator: this.creator, lastModifiedBy: this.lastModifiedBy, created: this.created, modified: this.modified };
+    if (this.lastPrinted) properties['lastPrinted'] = this.lastPrinted;
+    return { properties: properties as WorkbookProperties, definedNames: this._book.definedNames.model.map((d) => ({ name: d.name, refersTo: d.ranges.join(',') })) };
+  }
+
+  /** Starts the xlvane stream (once): when the first sheet starts or at commit. */
+  private begin(): Promise<void> {
+    if (this.done) return this.done;
+    const meta = this.meta();
+    this.written = JSON.stringify(meta);
+    const spec: WriteWorkbookStreamOptions = { sheets: this.sheets, sharedStrings: this.options.useSharedStrings === true, ...meta };
+    const options = this.options;
     if (options.filename !== undefined) {
       const filename = options.filename;
       // exceljs replaces an existing file, so overwrite is on.
       this.done = import('xlvane/node').then(({ writeWorkbookStreamFile }) => writeWorkbookStreamFile(filename, spec, { overwrite: true }));
     } else if (options.stream !== undefined) {
       const out = options.stream;
-      const stream = writeWorkbookStream(spec);
       this.done = (async () => {
+        const stream = writeWorkbookStream(spec);
         const reader = stream.getReader();
         for (;;) {
           const { done, value } = await reader.read();
@@ -258,6 +299,7 @@ export class WorkbookWriter {
     }
     // Errors are reported by commit(); avoid an unhandled rejection before that.
     this.done.catch(() => undefined);
+    return this.done;
   }
 
   /** Adds a worksheet. Sheets are written in the order their first rows are committed. */
@@ -276,6 +318,7 @@ export class WorkbookWriter {
   /** @internal Starts writing a sheet (once). */
   _start(sheet: WorksheetWriter): void {
     if ((sheet as unknown as { _queued?: boolean })._queued) return;
+    void this.begin();
     (sheet as unknown as { _queued?: boolean })._queued = true;
     this.sheets.push(sheet._spec());
   }
@@ -283,8 +326,16 @@ export class WorkbookWriter {
   /** Commits all worksheets and finishes the file. */
   async commit(): Promise<void> {
     for (const sheet of this.open) sheet.commit();
+    const done = this.begin();
+    // Properties and names are written with the workbook part's data fixed at the start (D-A06).
+    if (JSON.stringify(this.meta()) !== this.written) {
+      const error = notSupportedLater('Changing document properties or defined names of a WorkbookWriter after rows were committed');
+      this.sheets.fail(error);
+      await done.catch(() => undefined);
+      throw error;
+    }
     this.sheets.close();
-    await this.done;
+    await done;
   }
 }
 
@@ -353,7 +404,8 @@ export class WorkbookReader implements AsyncIterable<ReaderWorksheet> {
             const row = sheet.getRow(r.number);
             for (const cell of r.cells) {
               const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
-              row.getCell(cell.col).value = cell.formula && cell.formula.text !== null ? (plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number }) : plain;
+              row.getCell(cell.col).value =
+                cell.formula && cell.formula.text !== null ? (plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number }) : cell.richText ? richTextOut(cell.richText) : plain;
             }
             if (r.height !== null) row.height = r.height;
             if (r.hidden) row.hidden = true;

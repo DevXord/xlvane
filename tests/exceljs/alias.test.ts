@@ -77,6 +77,16 @@ describe('exceljs alias: code written for exceljs runs unchanged', () => {
     expect(s.freeze).toEqual({ rows: 1, cols: 0 });
     expect(s.autoFilter).toBe('A1:D4');
     expect(s.columns.find((c) => c.min <= 2 && c.max >= 2)?.width).toBe(24);
+    // Phase A1: built-in date format, rich text, column style, core properties and names.
+    expect(s.cell('D2')?.numFmt).toBe('mm-dd-yy');
+    expect(s.cell('A9')?.richText?.map((r) => r.text)).toEqual(['Note: ', 'prices', ' exclude tax']);
+    expect(s.columns.find((c) => c.min <= 6 && c.max >= 6)?.style?.font).toEqual({ name: 'Arial', size: 10, italic: true });
+    expect(wb.properties).toMatchObject({ creator: 'Sample', title: 'Sales report' });
+    expect(wb.definedNames.map((d) => [d.name, d.refersTo])).toEqual([
+      ['_xlnm._FilterDatabase', "'Sales'!$A$1:$D$4"],
+      ['firstAmount', 'Sales!$C$2'],
+      ['amounts', 'Sales!$C$2:$C$4'],
+    ]);
     const log = readWorkbook(await readFile(join(dir, 'out/streamed.xlsx'))).getSheet('Log');
     expect(log.cellCount).toBe(2002);
     expect(log.cell('B1001')?.value).toBe(1_000_000);
@@ -93,12 +103,12 @@ describe('exceljs alias: code written for exceljs runs unchanged', () => {
     );
     expect(result.status, result.stderr).toBe(0);
     const sales = (await readFile(join(dir, 'csv/report-Sales.csv'), 'utf8')).split(/\r?\n/);
-    expect(sales[0]).toBe('Id,Product,Amount,Date');
-    // The date's display format is not compared: exceljs 4.4.0 writes dates with built-in format 14
-    // (LibreOffice shows 1/31/2024), xlvane with yyyy-mm-dd (docs/exceljs-compat.md).
-    expect(sales[1]?.split(',').slice(0, 3)).toEqual(['1', 'Tea', '12.50']);
-    expect(sales[1]?.split(',')[3]).not.toBe('');
-    expect(sales[4]).toBe('Total,,39.75,');
+    expect(sales[0]).toBe('Id,Product,Amount,Date,,');
+    // Dates without a format get built-in format 14, as exceljs 4.4.0 writes them, which
+    // LibreOffice shows in its en-US form.
+    expect(sales[1]).toBe('1,Tea,12.50,1/31/2024,,later');
+    expect(sales[4]).toBe('Total,,39.75,,,');
+    expect(sales[8]).toBe('Note: prices exclude tax,,,,,');
     const log = (await readFile(join(dir, 'csv/streamed-Log.csv'), 'utf8')).split(/\r?\n/);
     expect(log[1000]).toBe('1000,1000000');
   }, 200_000);

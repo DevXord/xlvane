@@ -7,6 +7,7 @@ Every file under `tests/corpus/` is listed here with its origin and license. Fil
 | libreoffice/basic-types.xlsx | Content from REQUESTED.md written by xlvane and saved by LibreOffice 24.2.7.2 (Linux) with `scripts/make-lo-corpus.mjs`, 2026-10-30 | MIT (same as the project) |
 | libreoffice/formulas-merged-hidden.xlsx | Same way, 2026-10-30 | MIT (same as the project) |
 | libreoffice/date1904.xlsx | Same way, 2026-10-30 | MIT (same as the project) |
+| excel/exceljs-rich-text-sample.xlsx | exceljs v4.4.0 `spec/integration/data/rich-text-sample.js` (a base64 string), decoded unchanged; written by Microsoft Macintosh Excel (its `docProps/app.xml`). Used by tests/exceljs/integration-styles.test.ts | MIT, Copyright (c) 2014-2019 Guyon Roche (tests/exceljs/LICENSE-exceljs.md) |
 
 Most test inputs are built at test time from XML written in the test sources (`tests/helpers/`), so they need no entry here.
 

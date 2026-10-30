@@ -2,11 +2,11 @@
 // (MIT, Copyright (c) 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await;
 // files go to a temporary directory; cells are added with `addRow` instead of
 // `worksheet.getCell` (the streaming worksheet subset is `addRow`, row style setters and
-// `commit`); fonts without `family`/`outline`; the column and row style and width read-back is
-// removed (no row or column default styles after reading, docs/decisions.md D-206); rich text,
-// notes and conditional formatting expect XLV_E_NOT_SUPPORTED; tests that need
-// createTestBook, shared formulas, defined names, data validation, images or zip options are
-// skipped.
+// `commit`); fonts without `family`/`outline`; the row style read-back is removed (no row
+// default styles after reading, docs/decisions.md D-206); notes and conditional formatting
+// expect XLV_E_NOT_SUPPORTED; tests that need createTestBook, shared formulas, data
+// validation, images or zip options are skipped. One test added: names changed after the
+// first committed row.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported, styles, withTempDir } from './helpers';
@@ -80,18 +80,41 @@ describe('WorkbookWriter', () => {
         expect(ws2.getCell('C2').font).toEqual(styles.roundTripFonts.broadwayRed20);
         expect(ws2.getCell('B3').font).toEqual(styles.roundTripFonts.comicSansUdB16);
         expect(ws2.getCell('B3').alignment).toEqual(styles.namedAlignments.middleCentre);
+
+        expect(ws2.getColumn(2).font).toEqual(styles.roundTripFonts.comicSansUdB16);
+        expect(ws2.getColumn(2).alignment).toEqual(styles.namedAlignments.middleCentre);
+        expect(ws2.getColumn(2).width).toBe(9);
+        expect(ws2.getColumn(4).width).toBe(undefined);
       });
     });
 
-    it('rich text — not supported: rich text values on write', async () => {
+    it('rich text', async () => {
       await withTempDir(async (dir) => {
-        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 'wb.test.xlsx'), useSharedStrings: true });
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true });
         const ws = wb.addWorksheet('Hello');
-        await expectNotSupported(async () => {
-          ws.addRow([{ richText: [{ font: { bold: true }, text: 'Hello' }, { text: ', World!' }] }]).commit();
-          ws.commit();
-          await wb.commit();
+        // Change for xlvane: the cells are added with addRow (see the header).
+        ws.addRow([
+          {
+            richText: [
+              { font: { color: { argb: 'FF0000' } }, text: 'red ' },
+              { font: { color: { argb: '00FF00' }, bold: true }, text: ' bold green' },
+            ],
+          },
+          'plain text',
+        ]).commit();
+        ws.commit();
+        await wb.commit();
+        const ws2 = (await readBack(filename)).getWorksheet('Hello');
+        // Change for xlvane: a 6-digit colour is stored with alpha FF, so it reads back with 8
+        // digits (CT_Color rgb is 4 bytes, W2-16); exceljs writes and reads the 6 digits as given.
+        expect(ws2.getCell('A1').value).toEqual({
+          richText: [
+            { font: { color: { argb: 'FFFF0000' } }, text: 'red ' },
+            { font: { color: { argb: 'FF00FF00' }, bold: true }, text: ' bold green' },
+          ],
         });
+        expect(ws2.getCell('B1').value).toBe('plain text');
       });
     });
 
@@ -129,7 +152,43 @@ describe('WorkbookWriter', () => {
       });
     });
 
-    it.skip('defined names — not supported: defined names', () => {});
+    it('defined names', async () => {
+      await withTempDir(async (dir) => {
+        const filename = join(dir, 'wb.test.xlsx');
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename });
+        const ws = wb.addWorksheet('blort');
+        // Change for xlvane: the cells are added with addRow; as upstream, nothing is committed
+        // before the names are set (names are written when the first row is committed, D-A06).
+        const row1 = ws.addRow([5, null, null, null, 'grün']);
+        row1.getCell(1).name = 'five';
+        row1.getCell(5).name = 'greens';
+        ws.addRow([null, null, null, null, 'vert']).getCell(5).name = 'greens';
+        const row3 = ws.addRow(['drei', 'trois', null, null, 'verde']);
+        row3.getCell(1).name = 'threes';
+        row3.getCell(2).value = 'san';
+        row3.getCell(2).name = 'threes';
+        row3.getCell(5).name = 'greens';
+        await wb.commit();
+
+        const ws2 = (await readBack(filename)).getWorksheet('blort');
+        expect(ws2.getCell('A1').name).toBe('five');
+        expect(ws2.getCell('A3').name).toBe('threes');
+        expect(ws2.getCell('B3').name).toBe('threes');
+        expect(ws2.getCell('E1').name).toBe('greens');
+        expect(ws2.getCell('E2').name).toBe('greens');
+        expect(ws2.getCell('E3').name).toBe('greens');
+      });
+    });
+
+    it('names or properties changed after the first committed row — not supported', async () => {
+      await withTempDir(async (dir) => {
+        const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 'wb.test.xlsx') });
+        const ws = wb.addWorksheet('blort');
+        ws.addRow([1]).commit();
+        ws.getCell('A1').name = 'late';
+        await expectNotSupported(() => wb.commit());
+      });
+    });
 
     it('does not escape special xml characters', async () => {
       await withTempDir(async (dir) => {
@@ -174,5 +233,30 @@ describe('WorkbookWriter', () => {
     });
 
     it.skip('with conditional formatting that contains numFmt (#1814) — not supported: conditional formatting', () => {});
+  });
+});
+
+// Added for xlvane (not upstream): exceljs behaviour checked against its source.
+describe('WorkbookWriter defaults (added for xlvane)', () => {
+  it('writes dates with built-in format 14 also without useStyles, and creator "ExcelJS" (X4-02, X4-03)', async () => {
+    await withTempDir(async (dir) => {
+      const filename = join(dir, 'wb.test.xlsx');
+      const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, created: new Date(Date.UTC(2024, 0, 1)) });
+      wb.addWorksheet('Dates').addRow([new Date(Date.UTC(2024, 0, 31)), { formula: 'A1', result: new Date(Date.UTC(2024, 0, 31)) }]).commit();
+      await wb.commit();
+      const { readWorkbook } = await import('xlvane');
+      const { readFile } = await import('node:fs/promises');
+      const read = readWorkbook(await readFile(filename));
+      const s = read.getSheet('Dates');
+      expect(s.cell('A1')?.numFmt).toBe('mm-dd-yy');
+      expect(s.cell('B1')?.numFmt).toBe('mm-dd-yy');
+      expect(read.properties).toMatchObject({ creator: 'ExcelJS', lastModifiedBy: 'ExcelJS', created: new Date(Date.UTC(2024, 0, 1)), modified: new Date(Date.UTC(2024, 0, 1)) });
+    });
+  });
+
+  it('a rich text run with vertAlign — not supported', async () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('S');
+    ws.getCell('A1').value = { richText: [{ font: { vertAlign: 'superscript' }, text: '2' }] };
+    await expectNotSupported(() => ws.workbook.xlsx.writeBuffer());
   });
 });

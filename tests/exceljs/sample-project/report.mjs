@@ -10,6 +10,10 @@ export async function run(ExcelJS, Workbook, dir) {
   // --- write with the document API ---
   const workbook = new Workbook();
   workbook.creator = 'Sample';
+  workbook.lastModifiedBy = 'Sample editor';
+  workbook.title = 'Sales report';
+  workbook.created = new Date(Date.UTC(2024, 0, 1, 9, 30));
+  workbook.modified = new Date(Date.UTC(2024, 1, 2, 17, 0));
   const sheet = workbook.addWorksheet('Sales', { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] });
   sheet.columns = [
     { header: 'Id', key: 'id', width: 8 },
@@ -32,6 +36,13 @@ export async function run(ExcelJS, Workbook, dir) {
   sheet.mergeCells('A7:D7');
   sheet.getCell('A7').value = 'Merged note';
   sheet.autoFilter = 'A1:D4';
+  sheet.getCell('A9').value = {
+    richText: [{ font: { bold: true }, text: 'Note: ' }, { font: { italic: true, color: { argb: 'FFFF0000' } }, text: 'prices' }, { text: ' exclude tax' }],
+  };
+  sheet.getColumn(6).font = { name: 'Arial', size: 10, italic: true };
+  sheet.getCell('F2').value = 'later';
+  sheet.getCell('C2').name = 'firstAmount';
+  workbook.definedNames.add('Sales!$C$2:$C$4', 'amounts');
   await workbook.xlsx.writeFile(path);
 
   // --- read it back ---
@@ -77,5 +88,12 @@ export async function run(ExcelJS, Workbook, dir) {
     widthB: ws.getColumn(2).width,
     valueTypes: { number: ExcelJS.ValueType.Number, formula: ExcelJS.ValueType.Formula, c5type: ws.getCell('C5').type },
     streamed: { rowCount: log.rowCount, last: log.getCell('B1001').value },
+    properties: { creator: read.creator, lastModifiedBy: read.lastModifiedBy, title: read.title, created: read.created?.toISOString(), modified: read.modified?.toISOString() },
+    a9: ws.getCell('A9').value,
+    a9text: ws.getCell('A9').text,
+    a9type: ws.getCell('A9').type,
+    d2numFmt: ws.getCell('D2').numFmt ?? null,
+    columnF: { font: ws.getColumn(6).font ?? null, width: ws.getColumn(6).width ?? null, f2font: ws.getCell('F2').font ?? null },
+    names: { model: read.definedNames.model, c2: ws.getCell('C2').names, c3: ws.getCell('C3').name ?? null },
   };
 }

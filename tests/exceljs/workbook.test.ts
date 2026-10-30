@@ -1,9 +1,10 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/workbook.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
-// changes: Mocha/Chai → Vitest; `verquire('exceljs')` → @xlvane/exceljs; cell names
-// (`cell.name`) and data validation removed from the helper workbook (not supported); the
+// changes: Mocha/Chai → Vitest; `verquire('exceljs')` → @xlvane/exceljs; data validation
+// removed from the helper workbook (not supported); the
 // model-serialisation test stays skipped as upstream; `duplicateRow` tests expect
-// XLV_E_NOT_SUPPORTED; hyperlink and rich text values throw XLV_E_NOT_SUPPORTED when assigned,
-// so they are removed from the helper workbook and checked separately.
+// XLV_E_NOT_SUPPORTED; hyperlink values throw XLV_E_NOT_SUPPORTED when assigned, so they are
+// removed from the helper workbook and checked separately; the rich-text fonts are written with
+// spread objects (same values).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
 
@@ -11,11 +12,15 @@ function createSimpleWorkbook() {
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet('blort');
   ws.getCell('A1').value = 7;
+  ws.getCell('A1').name = 'Seven';
   ws.getCell('B1').value = 'Hello, World!';
+  ws.getCell('B1').name = 'Hello';
   ws.getCell('C1').value = 3.14;
   ws.getCell('D1').value = new Date();
   ws.getCell('A2').value = { formula: 'A1', result: 7 };
+  ws.getCell('A2').name = 'TheFormula';
   ws.getCell('B2').value = { formula: 'CONCATENATE("Hello", ", ", "World!")', result: 'Hello, World!' };
+  ws.getCell('B2').name = 'TheFormula';
   ws.getCell('C2').value = { formula: 'D1', result: new Date() };
   ws.getCell('C3').value = { formula: 'D1' };
   return wb;
@@ -45,25 +50,24 @@ describe('Workbook', () => {
     expect(ws.getCell('C2').type).toBe(ExcelJS.ValueType.Formula);
   });
 
-  it('assigns rich text — not supported: rich text values', async () => {
+  it('assigns rich text', () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('blort');
-    const font = { size: 12, color: { theme: 1 }, name: 'Calibri', family: 2, scheme: 'minor' };
-    const value = {
+    const base = { size: 12, name: 'Calibri', scheme: 'minor' };
+    ws.getCell('A1').value = {
       richText: [
-        { font, text: 'This is ' },
-        { font: { ...font, italic: true }, text: 'a' },
-        { font, text: ' ' },
-        { font: { ...font, color: { argb: 'FFFF6600' } }, text: 'colorful' },
-        { font, text: ' text ' },
-        { font: { ...font, color: { argb: 'FFCCFFCC' } }, text: 'with' },
-        { font, text: ' in-cell ' },
-        { font: { ...font, bold: true }, text: 'format' },
+        { font: { ...base, color: { theme: 0 }, family: 2 }, text: 'This is ' },
+        { font: { ...base, italic: true, color: { theme: 0 } }, text: 'a' },
+        { font: { ...base, color: { theme: 1 }, family: 2 }, text: ' ' },
+        { font: { ...base, color: { argb: 'FFFF6600' } }, text: 'colorful' },
+        { font: { ...base, color: { theme: 1 }, family: 2 }, text: ' text ' },
+        { font: { ...base, color: { argb: 'FFCCFFCC' } }, text: 'with' },
+        { font: { ...base, color: { theme: 1 }, family: 2 }, text: ' in-cell ' },
+        { font: { ...base, bold: true, color: { theme: 1 }, family: 2 }, text: 'format' },
       ],
     };
-    await expectNotSupported(() => {
-      ws.getCell('A1').value = value;
-    });
+    expect(ws.getCell('A1').text).toBe('This is a colorful text with in-cell format');
+    expect(ws.getCell('A1').type).toBe(ExcelJS.ValueType.RichText);
   });
 
   it('assigns hyperlinks — not supported: hyperlink values', async () => {

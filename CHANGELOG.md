@@ -29,3 +29,4 @@ First release of `xlvane` and `@xlvane/exceljs`.
 ### @xlvane/exceljs
 
 - **The commonly used exceljs 4.4.0 API** on xlvane, for switching with `"exceljs": "npm:@xlvane/exceljs@^1"`. Unsupported features throw `XLV_E_NOT_SUPPORTED` (docs/exceljs-compat.md).
+- Rich text values, workbook properties, `workbook.definedNames`, column styles, and dates written with built-in format 14 as exceljs writes them.

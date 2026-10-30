@@ -26,10 +26,15 @@ Paths checked at the tag (HTTP status of the raw URL):
 | 200 | `spec/utils/index.js`, `spec/utils/data/styles.json` |
 | 404 | `spec/unit/doc/worksheet.spec.js`, `spec/unit/doc/worksheet.dimensions.spec.js`, `spec/integration/workbook-xlsx-reader/workbook-xlsx-reader.spec.js`, `spec/integration/workbook/xlsx.spec.js`, `spec/integration/workbook/workbook-xlsx.spec.js`, `spec/utils/test-utils.js` |
 
-`range.spec.js`, `defined-names.spec.js` and `col-cache.spec.js` test internal classes (`Range`,
-`DefinedNames`, `colCache`) that are not part of the exceljs public API, so they were not ported.
+`range.spec.js` and `col-cache.spec.js` test internal classes (`Range`, `colCache`) that are
+not part of the exceljs public API, so they were not ported. `defined-names.spec.js` was ported in
+phase A1: its class is the object behind the public `workbook.definedNames`.
 
-No binary fixtures (`spec/integration/data/*`) were copied. Tests that read them are skipped.
+One fixture was copied in phase A1: `spec/integration/data/rich-text-sample.js` (a base64 XLSX
+written by Excel for Mac), decoded unchanged to
+`tests/corpus/excel/exceljs-rich-text-sample.xlsx`, and `spec/integration/data/rich-text-sample-a1.json`
+as `rich-text-sample-a1.json` (both listed in tests/corpus/LICENSES.md). No other binary
+fixtures (`spec/integration/data/*`) were copied; tests that read them are skipped.
 
 ## Files
 
@@ -41,11 +46,12 @@ No binary fixtures (`spec/integration/data/*`) were copied. Tests that read them
 | `column.test.ts` | `spec/unit/doc/column.spec.js` | 6 | 3 |
 | `worksheet-merge.test.ts` | `spec/unit/doc/worksheet.merge.spec.js` | 5 | 0 |
 | `worksheet-values.test.ts` | `spec/unit/doc/worksheet.values.spec.js` | 16 | 12 |
-| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` | 12 | 23 |
+| `defined-names.test.ts` | `spec/unit/doc/defined-names.spec.js` | 8 (2 added) | 0 |
+| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` | 16 | 19 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 15 | 8 |
-| `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 1 | 4 |
-| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js` | 9 | 10 |
-| `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 1 (added, not upstream) | 29 |
+| `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
+| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js` | 13 (3 added) | 9 |
+| `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 2 (added, not upstream) | 29 |
 
 "Passing" includes tests that expect `XLV_E_NOT_SUPPORTED` for an unsupported feature.
 
@@ -54,8 +60,8 @@ No binary fixtures (`spec/integration/data/*`) were copied. Tests that read them
 Each skipped test names its reason in the title. The reasons are:
 
 - **Unsupported features** (they throw `XLV_E_NOT_SUPPORTED`; where cheap, one test checks that):
-  rich text and hyperlink values, notes, images, conditional formatting, data validation, CSV,
-  defined names, print settings, `insertRow`, `spliceRows`, `spliceColumns`, `duplicateRow`,
+  hyperlink values, notes, images, conditional formatting, data validation, CSV,
+  `company`/`manager` (docProps/app.xml), print settings, `insertRow`, `spliceRows`, `spliceColumns`, `duplicateRow`,
   `addRow(values, 'i')`, shared-formula filling, zip compression options, split panes and
   workbook views.
 - **Internal API**: tests of internal classes and fields (`new Cell`, `Column.toModel`,
@@ -65,10 +71,10 @@ Each skipped test names its reason in the title. The reasons are:
   unsupported features; tests based on them, and tests reading `spec/integration/data/*`, are
   skipped.
 - **What xlvane does not keep after writing and reading a file**: font `family` and `outline`,
-  gradient fills, cells that have a style but no value, row and column default styles
-  (docs/decisions.md D-206), sheet views other than the first frozen pane and document
-  properties (not written in phase 5). Round-trip tests use the values xlvane keeps
-  (`styles.roundTripFonts`, a pattern fill, one frozen view) and do not read back row or column
-  styles.
+  gradient fills, cells that have a style but no value, row default styles
+  (docs/decisions.md D-206), sheet views other than the first frozen pane, rich-text run
+  `family`/`scheme`, and 6-digit `argb` colours (read back with alpha `FF`). Round-trip tests use
+  the values xlvane keeps (`styles.roundTripFonts`, a pattern fill, one frozen view) and do not
+  read back row styles.
 - **Messages**: worksheet-name errors are checked with `toThrow()`, without the exceljs message
   text.

@@ -2,7 +2,7 @@
   "sheetNames": [
     "Sales"
   ],
-  "rowCount": 7,
+  "rowCount": 9,
   "rows": [
     [
       1,
@@ -43,6 +43,10 @@
         [
           4,
           "2024-01-31T00:00:00.000Z"
+        ],
+        [
+          6,
+          "later"
         ]
       ]
     ],
@@ -124,6 +128,36 @@
           "Merged note"
         ]
       ]
+    ],
+    [
+      9,
+      [
+        [
+          1,
+          {
+            "richText": [
+              {
+                "font": {
+                  "bold": true
+                },
+                "text": "Note: "
+              },
+              {
+                "font": {
+                  "italic": true,
+                  "color": {
+                    "argb": "FFFF0000"
+                  }
+                },
+                "text": "prices"
+              },
+              {
+                "text": " exclude tax"
+              }
+            ]
+          }
+        ]
+      ]
     ]
   ],
   "b2": "Tea",
@@ -166,5 +200,71 @@
   "streamed": {
     "rowCount": 1001,
     "last": 1000000
+  },
+  "properties": {
+    "creator": "Sample",
+    "lastModifiedBy": "Sample editor",
+    "title": "Sales report",
+    "created": "2024-01-01T09:30:00.000Z",
+    "modified": "2024-02-02T17:00:00.000Z"
+  },
+  "a9": {
+    "richText": [
+      {
+        "font": {
+          "bold": true
+        },
+        "text": "Note: "
+      },
+      {
+        "font": {
+          "italic": true,
+          "color": {
+            "argb": "FFFF0000"
+          }
+        },
+        "text": "prices"
+      },
+      {
+        "text": " exclude tax"
+      }
+    ]
+  },
+  "a9text": "Note: prices exclude tax",
+  "a9type": 8,
+  "d2numFmt": "mm-dd-yy",
+  "columnF": {
+    "font": {
+      "italic": true,
+      "size": 10,
+      "name": "Arial"
+    },
+    "width": 9,
+    "f2font": {
+      "italic": true,
+      "size": 10,
+      "name": "Arial"
+    }
+  },
+  "names": {
+    "model": [
+      {
+        "name": "firstAmount",
+        "ranges": [
+          "Sales!$C$2"
+        ]
+      },
+      {
+        "name": "amounts",
+        "ranges": [
+          "Sales!$C$2:$C$4"
+        ]
+      }
+    ],
+    "c2": [
+      "firstAmount",
+      "amounts"
+    ],
+    "c3": "amounts"
   }
 }

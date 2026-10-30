@@ -12,6 +12,7 @@ import { Workbook } from './workbook';
 
 export { Cell, Column, ErrorValue, FormulaType, Row, ValueType, Worksheet } from './model';
 export { WorkbookReader, WorkbookWriter, WorksheetWriter, type WorkbookWriterOptions } from './stream';
+export { CellMatrix, DefinedNames, type DecodedLocation, type NameCell } from './defined-names';
 export { Workbook, XlsxIO } from './workbook';
 export type {
   Alignment,

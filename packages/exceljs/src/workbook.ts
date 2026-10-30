@@ -1,7 +1,8 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { XlvError, writeWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
-import { readBytes, styleOut, toNewWorkbook } from './convert';
+import { readBytes, richTextOut, styleOut, toNewWorkbook, type WorkbookMeta } from './convert';
+import { DefinedNames, extractRanges } from './defined-names';
 import { notSupported, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 
@@ -87,7 +88,7 @@ export class XlsxIO {
   /** Writes the workbook to a file, replacing an existing file as exceljs does (Node.js). */
   async writeFile(path: string, _options?: unknown): Promise<void> {
     const { writeWorkbookFile } = await import('xlvane/node');
-    await writeWorkbookFile(toNewWorkbook(this.workbook.worksheets, this.workbook._date1904), path, { overwrite: true });
+    await writeWorkbookFile(toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, this.workbook._meta()), path, { overwrite: true });
   }
 
   /** Writes the workbook to a writable stream and ends it. */
@@ -100,7 +101,7 @@ export class XlsxIO {
   }
 
   private bytes(): Uint8Array {
-    return writeWorkbook(toNewWorkbook(this.workbook.worksheets, this.workbook._date1904));
+    return writeWorkbook(toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, this.workbook._meta()));
   }
 }
 
@@ -120,18 +121,24 @@ export class XlsxIO {
  * ```
  */
 export class Workbook {
-  creator = '';
-  lastModifiedBy = '';
-  created: Date = new Date();
-  modified: Date = this.created;
+  /** Written to `docProps/core.xml`; `"Unknown"` when not set, as exceljs (lib/doc/workbook.js L155). */
+  creator: string | undefined;
+  lastModifiedBy: string | undefined;
+  created: Date | undefined = new Date();
+  modified: Date | undefined = this.created;
   lastPrinted: Date | undefined;
-  title = '';
-  subject = '';
-  keywords = '';
-  category = '';
-  description = '';
-  company = '';
-  manager = '';
+  title: string | undefined = '';
+  subject: string | undefined = '';
+  keywords: string | undefined = '';
+  category: string | undefined = '';
+  description: string | undefined = '';
+  language: string | undefined;
+  revision: string | number | undefined;
+  contentStatus: string | undefined;
+  /** Kept on the object; not written yet (it belongs to `docProps/app.xml`). */
+  company: string | undefined = '';
+  /** Kept on the object; not written yet (it belongs to `docProps/app.xml`). */
+  manager: string | undefined = '';
   /** Workbook properties; `date1904: true` selects the 1904 date system. */
   properties: { date1904?: boolean; [key: string]: unknown } = {};
   calcProperties: Record<string, unknown> = {};
@@ -151,8 +158,34 @@ export class Workbook {
     return notSupported('CSV (workbook.csv); use toCSV/fromCSV from xlvane');
   }
 
-  get definedNames(): never {
-    return notSupported('Defined names (workbook.definedNames)');
+  private readonly _definedNames = new DefinedNames();
+
+  /** Defined names, as exceljs `workbook.definedNames`. */
+  get definedNames(): DefinedNames {
+    return this._definedNames;
+  }
+
+  /** @internal The document properties and defined names to write, as exceljs `workbook.model`. */
+  _meta(): WorkbookMeta {
+    const text = (v: unknown): string | undefined => (v === undefined || v === null ? undefined : String(v));
+    const entries: [string, unknown][] = [
+      ['creator', this.creator || 'Unknown'],
+      ['lastModifiedBy', this.lastModifiedBy || 'Unknown'],
+      ['title', text(this.title)],
+      ['subject', text(this.subject)],
+      ['description', text(this.description)],
+      ['keywords', text(this.keywords)],
+      ['category', text(this.category)],
+      ['language', text(this.language)],
+      ['revision', text(this.revision)],
+      ['contentStatus', text(this.contentStatus)],
+      // xlsx.js prepareModel (L597): created and modified default to now.
+      ['created', this.created ?? new Date()],
+      ['modified', this.modified ?? new Date()],
+      ['lastPrinted', this.lastPrinted],
+    ];
+    const properties = Object.fromEntries(entries.filter(([, v]) => v !== undefined));
+    return { properties, definedNames: this._definedNames.model };
   }
 
   /** @internal */
@@ -213,6 +246,29 @@ export class Workbook {
     this.order = 0;
     if (read.dateSystem === '1904') this.properties.date1904 = true;
     else delete this.properties.date1904;
+    // exceljs assigns every core property from the file, so missing ones become undefined (workbook.js L184).
+    const p = read.properties;
+    this.creator = p.creator;
+    this.lastModifiedBy = p.lastModifiedBy;
+    this.lastPrinted = p.lastPrinted;
+    this.created = p.created;
+    this.modified = p.modified;
+    this.title = p.title;
+    this.subject = p.subject;
+    this.keywords = p.keywords;
+    this.category = p.category;
+    this.description = p.description;
+    this.language = p.language;
+    // cp:revision is read as an integer (core-xform.js L22, IntegerXform).
+    this.revision = p.revision === undefined ? undefined : Number.parseInt(p.revision, 10);
+    this.contentStatus = p.contentStatus;
+    // company and manager come from docProps/app.xml, which xlvane does not read yet.
+    this.company = undefined;
+    this.manager = undefined;
+    // Print areas and titles become pageSetup in exceljs (workbook-xform.js L187), which is not
+    // supported; other built-in names are written by xlvane itself (autofilter). The scope
+    // (localSheetId) is dropped, as in exceljs.
+    this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet') continue;
       const ws = this.addWorksheet(s.name, { state: s.state });
@@ -222,6 +278,7 @@ export class Workbook {
           const column = ws.getColumn(n);
           if (c.width !== null) column.width = c.width;
           if (c.hidden) column.hidden = true;
+          if (c.style) column.style = styleOut(c.style, typeof c.style.numFmt === 'string' ? c.style.numFmt : null);
         }
       }
       for (const cell of s.cells()) {
@@ -230,7 +287,7 @@ export class Workbook {
         const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
         if (cell.formula && cell.formula.text !== null) {
           value = plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number };
-        } else value = plain;
+        } else value = cell.richText ? richTextOut(cell.richText) : plain;
         target.value = value;
         target.style = styleOut(cell.style, cell.numFmt);
         const info = s.rowInfo(cell.row);
