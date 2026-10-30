@@ -4,7 +4,6 @@ import { convertCommand, createCommand } from './convert';
 import { diffCommand } from './diff';
 import { editCommand } from './edit';
 import { inspectCommand } from './inspect';
-import { mcpCommand } from './mcp';
 import { migrateCommand } from './migrate';
 import { readCommand } from './read';
 import { validateCommand } from './validate';
@@ -18,5 +17,4 @@ export const COMMANDS: readonly CommandSpec[] = [
   diffCommand,
   validateCommand,
   migrateCommand,
-  mcpCommand,
 ];

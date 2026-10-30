@@ -26,7 +26,7 @@ export function welcome(out: Output, version: string, commands: readonly Command
     '',
     `Commands: ${commands.map((c) => c.name).join(', ')}`,
     `More:  xlvane help <command>   ·   Docs: ${DOCS_URL}`,
-    'For AI agents: add --json to any command, or run `xlvane mcp`',
+    'For AI agents and scripts: add --json to any command (docs/cli-json.md)',
     '',
   ].join('\n');
 }

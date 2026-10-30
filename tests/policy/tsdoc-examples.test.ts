@@ -15,7 +15,6 @@ import { describe, expect, it } from 'vitest';
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SRC = join(ROOT, 'packages/xlvane/src');
 const EXCELJS_SRC = join(ROOT, 'packages/exceljs/src');
-const MCP_SRC = join(ROOT, 'packages/mcp/src');
 /** Markdown files whose ```ts blocks must compile too. */
 const MARKDOWN = ['skills/xlvane/SKILL.md'];
 /** Entry points whose exports must all carry an @example: [source dir, entry, label]. */
@@ -23,7 +22,6 @@ const ENTRY_POINTS: readonly (readonly [string, string, string])[] = [
   [SRC, 'index.ts', 'packages/xlvane/src'],
   [SRC, 'node.ts', 'packages/xlvane/src'],
   [EXCELJS_SRC, 'index.ts', 'packages/exceljs/src'],
-  [MCP_SRC, 'index.ts', 'packages/mcp/src'],
 ];
 
 interface Example {
@@ -76,7 +74,7 @@ function extractExamples(file: string, text: string): Example[] {
 
 async function allExamples(): Promise<Example[]> {
   const out: Example[] = [];
-  for (const path of [...(await sourceFiles(SRC)), ...(await sourceFiles(EXCELJS_SRC)), ...(await sourceFiles(MCP_SRC))]) {
+  for (const path of [...(await sourceFiles(SRC)), ...(await sourceFiles(EXCELJS_SRC))]) {
     out.push(...extractExamples(path.slice(ROOT.length).replace(/\\/g, '/'), await readFile(path, 'utf8')));
   }
   for (const file of MARKDOWN) {
@@ -127,7 +125,6 @@ describe('TSDoc examples', () => {
             xlvane: [join(SRC, 'index.ts')],
             'xlvane/node': [join(SRC, 'node.ts')],
             '@xlvane/exceljs': [join(EXCELJS_SRC, 'index.ts')],
-            '@xlvane/mcp': [join(MCP_SRC, 'index.ts')],
           },
         },
         files: [join(ROOT, 'types/node-modules.d.ts')],

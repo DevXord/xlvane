@@ -24,13 +24,11 @@ interface Manifest {
 const ALLOWED_RUNTIME_DEPENDENCIES: Record<string, readonly string[]> = {
   xlvane: ['fflate'],
   '@xlvane/exceljs': ['xlvane'],
-  '@xlvane/mcp': ['xlvane', '@modelcontextprotocol/server'],
 };
 
-/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-701). */
+/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-706). */
 const APPROVED_DEV_DEPENDENCIES = [
   '@arethetypeswrong/cli',
-  '@modelcontextprotocol/client',
   'arktype',
   'fast-check',
   'publint',
@@ -43,7 +41,7 @@ const APPROVED_DEV_DEPENDENCIES = [
   'zod',
 ];
 
-const PACKAGE_DIRS = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];
+const PACKAGE_DIRS = ['packages/xlvane', 'packages/exceljs'];
 
 async function readManifest(dir: string): Promise<Manifest> {
   return JSON.parse(await readFile(join(root, dir, 'package.json'), 'utf8')) as Manifest;
@@ -92,7 +90,6 @@ describe('package manifests', () => {
   const FILES: Record<string, readonly string[]> = {
     'packages/xlvane': ['dist', 'docs', 'skills', 'llms-full.txt'],
     'packages/exceljs': ['dist'],
-    'packages/mcp': ['dist'],
   };
 
   it.each(PACKAGE_DIRS)('%s is ESM-only, MIT-licensed and ships only its listed files', async (dir) => {

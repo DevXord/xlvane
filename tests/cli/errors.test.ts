@@ -32,7 +32,6 @@ const CASES: readonly (readonly [string, readonly string[], number])[] = [
   ['invalid column rule', ['validate', 'report.xlsx', '--columns', 'Revenue:money'], 2],
   ['invalid JSON input', ['create', 'bad.json', 'out.xlsx'], 3],
   ['migrate without package.json', ['migrate', 'nowhere'], 3],
-  ['mcp not installed', ['mcp'], 3],
 ];
 
 describe('error messages', () => {

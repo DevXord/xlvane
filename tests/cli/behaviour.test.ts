@@ -1,5 +1,5 @@
 // CLI behaviour: colour rules, overwrite protection, --dry-run, CSV injection, value typing of
-// --set, migrate and mcp (docs/PLAN.md section 5; docs/decisions.md D-601 … D-607).
+// --set and migrate (docs/PLAN.md section 5; docs/decisions.md D-601 … D-607).
 import { readFile, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -181,35 +181,6 @@ describe('migrate', () => {
       const doc = JSON.parse(r.stdout) as { result: { filesScanned: number } };
       expect(doc.result.filesScanned).toBe(2);
     });
-  });
-});
-
-describe('mcp', () => {
-  it('prints the install command when @xlvane/mcp is missing', async () => {
-    const r = await cli(['mcp'], { cwd: '/' });
-    expect(r.code).toBe(3);
-    expect(r.stderr).toContain('Try:   npm install @xlvane/mcp');
-  });
-
-  it('runs the server of @xlvane/mcp with the remaining arguments', async () => {
-    let seen: readonly string[] = [];
-    const r = await cli(['mcp', '--root', 'data', '--allow-write'], {
-      cwd: '/',
-      importModule: async () => ({
-        runCli: async (args: readonly string[]) => {
-          seen = args;
-          return 0;
-        },
-      }),
-    });
-    expect(r.code).toBe(0);
-    expect(seen).toEqual(['--root', 'data', '--allow-write']);
-  });
-
-  it('reports a @xlvane/mcp without a server', async () => {
-    const r = await cli(['mcp'], { cwd: '/', importModule: async () => ({}) });
-    expect(r.code).toBe(3);
-    expect(r.stderr).toContain('XLV_E_NOT_SUPPORTED');
   });
 });
 

@@ -24,7 +24,7 @@ xlvane help edit                          # usage and examples of one command
 - Errors say what happened, where, and what to do next, often with a ready-to-run `Try:` command; typos get "Did you mean …?".
 - `--json` prints one JSON document per command with a documented schema ([docs/cli-json.md](../../docs/cli-json.md)). Exit codes: 0 success, 1 a check found something (`diff`, `validate`), 2 usage error, 3 input or file error.
 - Colour is used only on a terminal and never carries information alone; `NO_COLOR` turns it off.
-- `xlvane migrate` prepares a project for `@xlvane/exceljs`, and `xlvane mcp` starts the MCP server from `@xlvane/mcp` (a separate package).
+- `xlvane migrate` prepares a project for `@xlvane/exceljs`.
 
 ## Reading a workbook
 

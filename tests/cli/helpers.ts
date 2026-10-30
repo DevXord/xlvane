@@ -17,7 +17,6 @@ export interface RunOptions {
   readonly env?: Record<string, string | undefined>;
   readonly tty?: boolean;
   readonly columns?: number;
-  readonly importModule?: (specifier: string) => Promise<unknown>;
 }
 
 /** Runs `xlvane <argv>` in-process. Colour is off unless the test turns it on. */
@@ -36,11 +35,6 @@ export async function cli(argv: readonly string[], options: RunOptions): Promise
     stdoutIsTTY: options.tty ?? false,
     stderrIsTTY: options.tty ?? false,
     columns: options.columns ?? 100,
-    importModule:
-      options.importModule ??
-      (async () => {
-        throw Object.assign(new Error('Cannot find package @xlvane/mcp'), { code: 'ERR_MODULE_NOT_FOUND' });
-      }),
     version: '0.0.0-test',
   };
   const code = await run(argv, io);

@@ -14,8 +14,8 @@ const DIR = join(ROOT, 'docs/cli-json');
 const schemas = new SchemaSet(DIR);
 
 /** Runs with --json and returns the parsed document; stdout must hold exactly one JSON value. */
-async function json(argv: readonly string[], dir: string, importModule?: (s: string) => Promise<unknown>): Promise<{ code: number; doc: Record<string, unknown>; stderr: string }> {
-  const r = await cli([...argv, '--json'], { cwd: dir, env: { FORCE_COLOR: '1' }, tty: true, ...(importModule ? { importModule } : {}) });
+async function json(argv: readonly string[], dir: string): Promise<{ code: number; doc: Record<string, unknown>; stderr: string }> {
+  const r = await cli([...argv, '--json'], { cwd: dir, env: { FORCE_COLOR: '1' }, tty: true });
   return { code: r.code, doc: JSON.parse(r.stdout) as Record<string, unknown>, stderr: r.stderr };
 }
 
@@ -70,7 +70,6 @@ describe('--json', () => {
         ['diff', ['diff', 'old.xlsx'], 2],
         ['validate', ['validate', 'data.json'], 3],
         ['migrate', ['migrate', 'nowhere'], 3],
-        ['mcp', ['mcp'], 3],
       ];
       for (const [command, argv, code] of cases) {
         const r = await json(argv, dir);
@@ -84,7 +83,7 @@ describe('--json', () => {
       expect(unknown.code).toBe(2);
       expect(unknown.doc['command']).toBeNull();
       expect(schemas.validate('common.schema.json', unknown.doc)).toEqual([]);
-      expect(schemas.validate('mcp.schema.json', unknown.doc)).toEqual([]);
+      expect(schemas.validate('read.schema.json', unknown.doc)).toEqual([]);
     });
   });
 
@@ -100,11 +99,11 @@ describe('--json', () => {
 describe('the schema validator', () => {
   const set = new SchemaSet(DIR);
   it('rejects documents that break the schema', () => {
-    const ok = { xlvane: 1, command: 'mcp', ok: true, result: { exitCode: 0 } };
-    expect(set.validate('mcp.schema.json', ok)).toEqual([]);
-    expect(set.validate('mcp.schema.json', { ...ok, extra: 1 })).not.toEqual([]);
-    expect(set.validate('mcp.schema.json', { ...ok, result: { exitCode: 'x' } })).not.toEqual([]);
-    expect(set.validate('mcp.schema.json', { ...ok, command: 'read' })).not.toEqual([]);
-    expect(set.validate('mcp.schema.json', { xlvane: 1, command: null, ok: false, try: null, error: { name: 'XlvError', code: 'nope', message: '', location: {}, hint: '', docsUrl: '', details: {} } })).not.toEqual([]);
+    const ok = { xlvane: 1, command: 'convert', ok: true, result: { input: 'a.csv', output: 'a.xlsx', from: 'csv', to: 'xlsx', bytes: 1, written: true, replaced: false } };
+    expect(set.validate('convert.schema.json', ok)).toEqual([]);
+    expect(set.validate('convert.schema.json', { ...ok, extra: 1 })).not.toEqual([]);
+    expect(set.validate('convert.schema.json', { ...ok, result: { ...ok.result, bytes: 'x' } })).not.toEqual([]);
+    expect(set.validate('convert.schema.json', { ...ok, command: 'read' })).not.toEqual([]);
+    expect(set.validate('convert.schema.json', { xlvane: 1, command: null, ok: false, try: null, error: { name: 'XlvError', code: 'nope', message: '', location: {}, hint: '', docsUrl: '', details: {} } })).not.toEqual([]);
   });
 });

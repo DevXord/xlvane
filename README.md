@@ -10,7 +10,6 @@ An MIT-licensed library for reading and writing XLSX files, designed for input f
 |---|---|---|
 | [`xlvane`](packages/xlvane) | Core library (safe reading, `inspect()`, writing with styles, task API, streaming) and the `xlvane` command line | `fflate` |
 | [`@xlvane/exceljs`](packages/exceljs) | exceljs-compatible API ([docs/exceljs-compat.md](docs/exceljs-compat.md)) | `xlvane` |
-| [`@xlvane/mcp`](packages/mcp) | MCP server for AI agents and other MCP clients | `xlvane`, `@modelcontextprotocol/server` |
 
 ## Command line in 5 minutes
 
@@ -28,9 +27,8 @@ xlvane help <command>                    # usage and examples
 
 Add `--json` to any command for machine-readable output ([docs/cli-json.md](docs/cli-json.md)). More in [packages/xlvane/README.md](packages/xlvane/README.md#command-line-in-5-minutes).
 
-## MCP server and Agent Skill
+## Agent Skill and offline docs
 
-- `npx @xlvane/mcp --root ./data` (or `xlvane mcp --root ./data`) serves the tools `inspect_workbook`, `read_table`, `diff` and `validate` for files inside `./data`; `--allow-write` adds `write_table`, `edit_cells` and `convert`. See [packages/mcp/README.md](packages/mcp/README.md).
 - [skills/xlvane/SKILL.md](skills/xlvane/SKILL.md) is an [Agent Skill](https://agentskills.io) with instructions and examples. Install it into a project with one command of the [`skills`](https://github.com/vercel-labs/skills) CLI: `npx skills add <path-to-this-repository>/skills --skill xlvane`, or, once the package is installed, `npx skills add ./node_modules/xlvane/skills --skill xlvane` (also offline).
 - The `xlvane` package also ships its documentation (`docs/`) and `llms-full.txt` (README, skill and docs in one file), so it is readable without network access.
 

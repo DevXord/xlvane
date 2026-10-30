@@ -160,17 +160,9 @@ The CSV text given to `fromCSV` has a quoted field that is never closed, text ri
 The `xlvane` command line was used incorrectly: an unknown command or option, a missing or extra argument, an option without its value, or an option value that is not allowed. `details` names the command and the option or argument; `details.suggestions` lists close matches ("Did you mean ...?"). Exit code 2.
 **Fix:** run `xlvane help <command>` for the usage and examples of the command.
 
-### XLV_E_NOT_INSTALLED
-`xlvane mcp` needs the separate package `@xlvane/mcp`, which could not be loaded. `details.package` names it.
-**Fix:** install it next to xlvane, for example `npm install @xlvane/mcp`.
-
 ### XLV_E_INTERNAL
 The `xlvane` command line caught an error that is not an `XlvError`. This is a bug in xlvane. `details.name` is the error's name; `--verbose` prints the stack trace.
 **Fix:** report it with the command and, if possible, the input file (see SECURITY.md for files that must stay private).
-
-### XLV_E_PATH_NOT_ALLOWED
-The MCP server (`@xlvane/mcp`) was asked to read or write a path outside the directories it was started with (`--root`), including paths that leave them through `..` or a symbolic link, or to write through a symbolic link. Nothing was read or written. `details.path` is the path as given and `details.roots` lists the allowed directories.
-**Fix:** use a path inside one of the listed directories, or restart the server with another `--root`.
 
 ## Warnings
 

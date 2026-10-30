@@ -2,6 +2,21 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 8: agent benchmark skipped, MCP server removed (2026-10-30)
+
+- **Benchmark:** not built and not run, at the maintainer's decision: no paid API usage in the free version (D-801).
+- **MCP server removed** (D-802):
+  - `@xlvane/mcp`, the `xlvane mcp` command and its JSON schema;
+  - the MCP tests;
+  - the error codes `XLV_E_NOT_INSTALLED` and `XLV_E_PATH_NOT_ALLOWED`;
+  - the dev dependency `@modelcontextprotocol/client`.
+  - The CLI now has 8 commands; the welcome screen says "For AI agents and scripts: add --json to any command".
+- **Kept from phase 7:**
+  - the Agent Skill;
+  - docs and `llms-full.txt` in the xlvane package;
+  - the policy test of agent-facing texts;
+  - tests building packages into their own directories.
+
 ## Phase 7: agent integration (2026-10-30)
 
 - **`@xlvane/mcp`**, on the official MCP SDK v2 (`@modelcontextprotocol/server` 2.4.0, spec 2026-07-28) (D-701 … D-705):

@@ -337,6 +337,8 @@ At the maintainer's decision the 125 kB budget covers the library files of `dist
 
 ## Decisions: phase 7 (agent integration)
 
+> D-701 … D-705 are superseded by D-802: the MCP server was removed. D-706 … D-708 still apply. The facts F-MCP-01 and F-MCP-02 are kept as research.
+
 ### D-701 MCP SDK and dependencies (2026-10-30)
 At the maintainer's decision `@xlvane/mcp` uses the v2 SDK, `@modelcontextprotocol/server` 2.4.0, pinned exactly (F-MCP-01). Its runtime dependencies are `xlvane` and `@modelcontextprotocol/server` only (checked by `tests/policy/packages.test.ts`); the SDK brings `@modelcontextprotocol/core` and zod. Input schemas are plain JSON Schema passed through the SDK's `fromJsonSchema`, so the package imports no schema library. The maintainer approved two root development dependencies: `@modelcontextprotocol/client` 2.4.0 (tests on an in-memory and a stdio client) and `skills` 1.7.4 (the install test). Licenses: the SDK packages are Apache-2.0, zod, fflate and skills MIT.
 
@@ -360,6 +362,14 @@ At the maintainer's decision the write tools are not registered without `--allow
 
 ### D-708 No test rewrites packages/*/dist (2026-10-30)
 Tests that need built packages (alias, CLI binary, MCP over stdio) build them into their own directories with `tests/helpers/build-package.ts` (`tsdown --out-dir`), laid out as npm installs them, so parallel test files cannot see a half-written dist.
+
+## Decisions: phase 8 (agent benchmark)
+
+### D-801 Agent benchmark skipped (2026-10-30)
+The maintainer clarified the goal of the agent work: when an agent builds someone's project and needs XLSX files, xlvane should be the better and easier choice by its content; agents operating the library fully is not a goal. The benchmark in docs/PLAN.md phase 8 costs API tokens on every run (estimated $5–150 depending on size and model), and the maintainer decided not to pay for anything in the free version ("Nie chcę nic dopłacać do tej paczki – przynajmniej nie w wersji darmowej"). No runner was built and nothing was run. What makes the library easy for agents stays: the task API, TSDoc examples, errors with hints, the CLI with `--json`, `@xlvane/exceljs`, the Agent Skill and the docs in the package.
+
+### D-802 MCP server removed (2026-10-30)
+At the maintainer's decision ("Jeśli niepotrzebne skasuj") `@xlvane/mcp`, the CLI command `xlvane mcp`, its JSON schema, its tests, the error codes used only by them (`XLV_E_NOT_INSTALLED`, `XLV_E_PATH_NOT_ALLOWED`; nothing was published, so no code is reused) and the development dependency `@modelcontextprotocol/client` were removed. The CLI has 8 commands. docs/PLAN.md and CLAUDE.md, which belong to the maintainer, still mention `@xlvane/mcp`, `xlvane mcp` and the benchmark; they were not changed.
 
 ## Facts: Node.js
 

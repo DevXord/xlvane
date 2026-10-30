@@ -2,12 +2,11 @@
   "name": "xlvane-monorepo",
   "private": true,
   "type": "module",
-  "description": "Monorepo for xlvane, @xlvane/exceljs and @xlvane/mcp.",
+  "description": "Monorepo for xlvane and @xlvane/exceljs.",
   "license": "MIT",
   "workspaces": [
     "packages/xlvane",
-    "packages/exceljs",
-    "packages/mcp"
+    "packages/exceljs"
   ],
   "engines": {
     "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
@@ -16,13 +15,12 @@
     "test": "vitest run",
     "fuzz": "vitest run --config vitest.fuzz.config.ts",
     "build": "npm run build --workspaces",
-    "typecheck": "tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json && tsc -p packages/mcp/tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json",
     "check:pkg": "node scripts/check-pkg.mjs",
     "bench": "npm run build && npm ci --prefix bench && node bench/perf/run.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
-    "@modelcontextprotocol/client": "2.4.0",
     "arktype": "2.2.9",
     "fast-check": "4.10.2",
     "publint": "0.3.25",

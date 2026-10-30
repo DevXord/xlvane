@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const packages = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];
+const packages = ['packages/xlvane', 'packages/exceljs'];
 const failures = [];
 /** Size budget of the library files in packages/xlvane/dist, gzip level 9, in bytes. Same number as in the README. */
 const SIZE_BUDGET_BYTES = 125_000;
@@ -44,8 +44,8 @@ if (failures.length === 0) {
     const dist = join(root, dir, 'dist');
     for (const file of readdirSync(dist).filter((f) => f.endsWith('.js'))) {
       if (file === CLI_FILE) {
-        // Command entry points run when loaded: xlvane prints its version, xlvane-mcp its help.
-        const flag = dir === 'packages/xlvane' ? '--version' : '--help';
+        // The command entry point runs when loaded, so it is run with --version instead.
+        const flag = '--version';
         const label = `${dir}/dist/${CLI_FILE} ${flag}`;
         const r = spawnSync(process.execPath, [join(dist, CLI_FILE), flag], { encoding: 'utf8' });
         console.log(`\n> ${label}: ${r.status === 0 ? `ok (${r.stdout.trim().split('\n')[0]})` : `exit ${r.status} ${r.stderr}`}`);

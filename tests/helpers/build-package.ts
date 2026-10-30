@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 export const REPO: string = fileURLToPath(new URL('../..', import.meta.url));
 
-const DIRS = { xlvane: 'packages/xlvane', '@xlvane/exceljs': 'packages/exceljs', '@xlvane/mcp': 'packages/mcp' } as const;
+const DIRS = { xlvane: 'packages/xlvane', '@xlvane/exceljs': 'packages/exceljs' } as const;
 
 /** Builds `name` into `<modules>/<install name>`; returns that directory. */
 export async function buildPackage(name: keyof typeof DIRS, modules: string, installAs: string = name): Promise<string> {

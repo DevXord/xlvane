@@ -23,7 +23,7 @@ describe('help screens', () => {
 
   it('has at most 9 commands, each a verb with 2–4 examples and related commands', () => {
     expect(COMMANDS.length).toBeLessThanOrEqual(9);
-    expect(COMMANDS.map((c) => c.name)).toEqual(['inspect', 'read', 'convert', 'create', 'edit', 'diff', 'validate', 'migrate', 'mcp']);
+    expect(COMMANDS.map((c) => c.name)).toEqual(['inspect', 'read', 'convert', 'create', 'edit', 'diff', 'validate', 'migrate']);
     for (const c of COMMANDS) {
       expect(c.examples.length, c.name).toBeGreaterThanOrEqual(2);
       expect(c.examples.length, c.name).toBeLessThanOrEqual(4);
@@ -72,8 +72,6 @@ describe('every example from help works', () => {
         const r = await cli(args, { cwd: dir });
         // diff and validate exit with 1 when they find something (documented in their help).
         const allowed = spec?.checks ? [0, 1] : [0];
-        // xlvane mcp needs the separate package; without it the documented result is exit 3.
-        if (name === 'mcp' && !line.includes('help')) allowed.push(3);
         if (!allowed.includes(r.code)) failures.push(`${line}\n  exit ${String(r.code)}\n${r.stderr}${r.stdout}`);
         if (args.includes('--json')) JSON.parse(r.stdout);
       });

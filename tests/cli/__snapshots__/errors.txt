@@ -2,7 +2,7 @@
 $ xlvane inspcet report.xlsx
 Error: Unknown command "inspcet".
 Where: command line
-Fix:   Did you mean "xlvane inspect"? Commands: inspect, read, convert, create, edit, diff, validate, migrate, mcp. Run "xlvane" for examples.
+Fix:   Did you mean "xlvane inspect"? Commands: inspect, read, convert, create, edit, diff, validate, migrate. Run "xlvane" for examples.
 Try:   xlvane inspect report.xlsx
 Code:  XLV_E_USAGE (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#xlv_e_usage)
 
@@ -10,7 +10,7 @@ Code:  XLV_E_USAGE (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#x
 $ xlvane frobnicate
 Error: Unknown command "frobnicate".
 Where: command line
-Fix:   Commands: inspect, read, convert, create, edit, diff, validate, migrate, mcp. Run "xlvane" for examples.
+Fix:   Commands: inspect, read, convert, create, edit, diff, validate, migrate. Run "xlvane" for examples.
 Code:  XLV_E_USAGE (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#xlv_e_usage)
 
 ## option before the command
@@ -81,7 +81,7 @@ Code:  XLV_E_USAGE (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#x
 $ xlvane help raed
 Error: Unknown command "raed".
 Where: command line
-Fix:   Did you mean "xlvane read"? Commands: inspect, read, convert, create, edit, diff, validate, migrate, mcp. Run "xlvane" for examples.
+Fix:   Did you mean "xlvane read"? Commands: inspect, read, convert, create, edit, diff, validate, migrate. Run "xlvane" for examples.
 Try:   xlvane help read
 Code:  XLV_E_USAGE (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#xlv_e_usage)
 
@@ -186,10 +186,3 @@ Error: Cannot read "nowhere/package.json" (ENOENT).
 Where: nowhere/package.json
 Fix:   Check the path: the file does not exist. Relative paths are resolved against the current working directory.
 Code:  XLV_E_FILE_READ (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#xlv_e_file_read)
-
-## mcp not installed
-$ xlvane mcp
-Error: The MCP server is in the separate package @xlvane/mcp, which is not installed.
-Fix:   Install it next to xlvane with "npm install @xlvane/mcp", then run "xlvane mcp" again.
-Try:   npm install @xlvane/mcp
-Code:  XLV_E_NOT_INSTALLED (https://github.com/DevXord/xlvane/blob/main/docs/errors.md#xlv_e_not_installed)

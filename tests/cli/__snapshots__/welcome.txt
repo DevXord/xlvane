@@ -7,6 +7,6 @@ Common tasks:
   xlvane create data.json new-report.xlsx   Build a formatted report
   xlvane diff old.xlsx new.xlsx             Show what changed
 
-Commands: inspect, read, convert, create, edit, diff, validate, migrate, mcp
+Commands: inspect, read, convert, create, edit, diff, validate, migrate
 More:  xlvane help <command>   ·   Docs: https://github.com/DevXord/xlvane
-For AI agents: add --json to any command, or run `xlvane mcp`
+For AI agents and scripts: add --json to any command (docs/cli-json.md)

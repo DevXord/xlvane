@@ -27,7 +27,6 @@ run(process.argv.slice(2), {
   stdoutIsTTY: process.stdout.isTTY === true,
   stderrIsTTY: process.stderr.isTTY === true,
   columns: process.stdout.columns,
-  importModule: (specifier) => import(specifier),
   version: version(),
 }).then(
   (code) => {
