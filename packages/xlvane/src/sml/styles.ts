@@ -250,6 +250,14 @@ function parseDxf(el: XmlElement, ns: string, colorOf: ColorOf, warn: (message: 
 
 type ColorOf = (el: XmlElement | undefined, what: string) => Color | undefined;
 
+/**
+ * Reads a differential format element outside the styles part, such as `x14:dxf` of an extended
+ * conditional formatting rule ([MS-XLSX] §2.6.27: of type CT_Dxf, with children in `ns`).
+ */
+export function parseDxfElement(el: XmlElement, ns: string, warn: (message: string) => void): CellStyle {
+  return parseDxf(el, ns, (c, what) => (c === undefined ? undefined : parseColor(c, what, warn)), warn);
+}
+
 /** Parses CT_Color (W2-16): rgb as ARGB, or theme (with tint), indexed or auto. */
 export function parseColor(el: XmlElement, what: string, warn: (message: string) => void): Color | undefined {
   const rgb = el.attrs.get('rgb');

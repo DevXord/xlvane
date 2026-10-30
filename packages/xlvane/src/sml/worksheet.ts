@@ -15,7 +15,7 @@ import { compileFormula, type CompiledFormula } from './formula-shift';
 import { parseIsoDateTime, serialToDate } from './dates';
 import { REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS, isDateFormat, isDateFormatId } from './numfmt';
-import { parseColor, parseRunFont, type Styles } from './styles';
+import { parseColor, parseDxfElement, parseRunFont, type Styles } from './styles';
 import { parseXsdBoolean } from './workbook';
 import { decodeXstring } from './xstring';
 
@@ -198,6 +198,7 @@ export function createWorksheetParser(
     ns: () => ns ?? SML_NS.transitional,
     maxElements: ctx.limits.maxXmlTreeElements,
     dxf: (index) => ctx.styles.dxf(index),
+    readDxf: (el) => parseDxfElement(el, ns ?? SML_NS.transitional, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())),
     readColor: (el) => parseColor(el, 'conditional format', (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())),
     warn: (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()),
     tooLarge: () =>
@@ -454,8 +455,11 @@ export function createWorksheetParser(
         }
         const parent = path[path.length - 1];
         path.push(elementNs === ns ? local : '');
-        if (elementNs !== ns) return;
         const depth = path.length;
+        // Conditional formats and validations, including their [MS-XLSX] extensions in extLst,
+        // whose elements are in other namespaces (SR-40).
+        if (cell === null && rules.start(elementNs, local, depth, attrs)) return;
+        if (elementNs !== ns) return;
         if (cell !== null) {
           if (phoneticDepth > 0 || local === 'rPh') {
             phoneticDepth++;
@@ -475,7 +479,6 @@ export function createWorksheetParser(
           else if (local === 't' && cell.inline !== null && (parent === 'is' || parent === 'r')) target = 'is';
           return;
         }
-        if (rules.start(local, depth, attrs)) return;
         if (print.start(depth, local, parent, attrs)) return;
         if (depth === 2 && local === 'dimension') {
           const ref = attrs.get('ref') ?? '';
@@ -588,7 +591,7 @@ export function createWorksheetParser(
       },
       end(elementNs, local) {
         path.pop();
-        if (elementNs === ns && rules.end()) return;
+        if (cell === null && rules.end(elementNs, local)) return;
         if (elementNs === ns) print.end(local);
         if (onRow && local === 'row' && elementNs === ns && path.length === 2) flushRows();
         if (elementNs !== ns || cell === null) return;

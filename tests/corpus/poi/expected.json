@@ -189,7 +189,9 @@
   },
   "51850.xlsx": {
     "ok": true,
-    "warnings": []
+    "warnings": [
+      "XLV_W_INVALID_VALUE"
+    ]
   },
   "51963.xlsx": {
     "ok": true,

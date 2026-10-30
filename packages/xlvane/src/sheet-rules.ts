@@ -1,7 +1,9 @@
 // Data validations and conditional formatting of a worksheet (ECMA-376 Part 1 §18.3.1.10,
 // §18.3.1.11, §18.3.1.15, §18.3.1.16, §18.3.1.18, §18.3.1.28, §18.3.1.32, §18.3.1.33,
 // §18.3.1.43–§18.3.1.45, §18.3.1.49, §18.18; [MS-OI29500] §2.1.595 … §2.1.625, §2.1.1085,
-// §2.1.1092; docs/facts/sheet-rules.md SR-01 … SR-16; docs/decisions.md D-C01, D-C02).
+// §2.1.1092; docs/facts/sheet-rules.md SR-01 … SR-16; docs/decisions.md D-C01, D-C02), and their
+// Excel 2010 extensions in the worksheet extLst ([MS-XLSX] §2.2.4.12, §2.6.1–§2.6.5,
+// §2.6.26–§2.6.36; SR-40 … SR-45; D-C07).
 // This module validates what callers give the writer and reads the elements back; the XML is
 // written by sml/write-parts.ts. Enumerations are those of the Transitional sml.xsd, which are
 // identical in Strict (SR-01, SR-07). Formulas are formula text without a leading "=": xlvane
@@ -140,6 +142,9 @@ export type ConditionalFormatOperator =
 export type TimePeriod = 'today' | 'yesterday' | 'tomorrow' | 'last7Days' | 'thisMonth' | 'lastMonth' | 'nextMonth' | 'thisWeek' | 'lastWeek' | 'nextWeek';
 /**
  * ST_CfvoType (§18.18.13): the kind of a threshold of a colour scale, data bar or icon set.
+ * `autoMin` and `autoMax` come from the [MS-XLSX] extension (§2.7.9: the smaller of zero and the
+ * minimum of the range, the larger of zero and the maximum) and are allowed in data bars only
+ * (SR-42).
  *
  * @example
  * ```ts
@@ -148,7 +153,7 @@ export type TimePeriod = 'today' | 'yesterday' | 'tomorrow' | 'last7Days' | 'thi
  * const type: CfValueType = 'percentile';
  * ```
  */
-export type CfValueType = 'num' | 'percent' | 'max' | 'min' | 'formula' | 'percentile';
+export type CfValueType = 'num' | 'percent' | 'max' | 'min' | 'formula' | 'percentile' | 'autoMin' | 'autoMax';
 /**
  * ST_IconSetType (§18.18.42): the icons of an icon set rule.
  *
@@ -176,7 +181,50 @@ export type IconSetType =
   | '5Arrows'
   | '5ArrowsGray'
   | '5Rating'
-  | '5Quarters';
+  | '5Quarters'
+  | '3Stars'
+  | '3Triangles'
+  | '5Boxes'
+  | 'NoIcons';
+
+/**
+ * ST_DataBarDirection of the [MS-XLSX] extension (§2.7.7): the direction of a data bar.
+ *
+ * @example
+ * ```ts
+ * import type { DataBarDirection } from 'xlvane';
+ *
+ * const direction: DataBarDirection = 'rightToLeft';
+ * ```
+ */
+export type DataBarDirection = 'context' | 'leftToRight' | 'rightToLeft';
+/**
+ * ST_DataBarAxisPosition of the [MS-XLSX] extension (§2.7.8): where the axis of a data bar with
+ * negative values is drawn; `none` draws no axis.
+ *
+ * @example
+ * ```ts
+ * import type { DataBarAxisPosition } from 'xlvane';
+ *
+ * const axis: DataBarAxisPosition = 'middle';
+ * ```
+ */
+export type DataBarAxisPosition = 'automatic' | 'middle' | 'none';
+/**
+ * One icon of a custom icon set (CT_CfIcon, [MS-XLSX] §2.6.36): icon `iconId` (0-based) of the
+ * set `iconSet`. `NoIcons` with `iconId` 0 shows no icon.
+ *
+ * @example
+ * ```ts
+ * import type { CfIcon } from 'xlvane';
+ *
+ * const greenFlag: CfIcon = { iconSet: '3Flags', iconId: 2 };
+ * ```
+ */
+export interface CfIcon {
+  readonly iconSet: IconSetType;
+  readonly iconId: number;
+}
 
 const DV_TYPES: readonly DataValidationType[] = ['none', 'whole', 'decimal', 'list', 'date', 'time', 'textLength', 'custom'];
 const DV_OPERATORS: readonly DataValidationOperator[] = ['between', 'notBetween', 'equal', 'notEqual', 'lessThan', 'lessThanOrEqual', 'greaterThan', 'greaterThanOrEqual'];
@@ -218,6 +266,7 @@ const CF_OPERATORS: readonly ConditionalFormatOperator[] = [
 ];
 const TEXT_OPERATORS: readonly ConditionalFormatOperator[] = ['containsText', 'notContains', 'beginsWith', 'endsWith'];
 const TIME_PERIODS: readonly TimePeriod[] = ['today', 'yesterday', 'tomorrow', 'last7Days', 'thisMonth', 'lastMonth', 'nextMonth', 'thisWeek', 'lastWeek', 'nextWeek'];
+/** ST_CfvoType of Part 1 (§18.18.13); the main `cfvo` element cannot hold `autoMin` / `autoMax`. */
 const CFVO_TYPES: readonly CfValueType[] = ['num', 'percent', 'max', 'min', 'formula', 'percentile'];
 const ICON_SETS: readonly IconSetType[] = [
   '3Arrows',
@@ -238,6 +287,17 @@ const ICON_SETS: readonly IconSetType[] = [
   '5Rating',
   '5Quarters',
 ];
+/** The icon sets that exist only in the [MS-XLSX] extension (§2.7.10, SR-43). */
+const X14_ICON_SETS: readonly IconSetType[] = ['3Stars', '3Triangles', '5Boxes', 'NoIcons'];
+const ALL_ICON_SETS: readonly IconSetType[] = [...ICON_SETS, ...X14_ICON_SETS];
+const X14_CFVO_TYPES: readonly CfValueType[] = ['num', 'percent', 'max', 'min', 'formula', 'percentile', 'autoMin', 'autoMax'];
+const BAR_DIRECTIONS: readonly DataBarDirection[] = ['context', 'leftToRight', 'rightToLeft'];
+const AXIS_POSITIONS: readonly DataBarAxisPosition[] = ['automatic', 'middle', 'none'];
+/**
+ * The number of icons of an icon set, taken from the digit its name starts with. [MS-XLSX] does
+ * not state it for 3Stars, 3Triangles and 5Boxes (SR-43); NoIcons has one "no icon".
+ */
+const iconCount = (set: IconSetType): number => (set === 'NoIcons' ? 1 : Number(set[0]));
 
 /** Types whose `operator` gives the comparison and whose `formula2` is the upper bound (SR-03). */
 const DV_COMPARING: readonly DataValidationType[] = ['whole', 'decimal', 'date', 'time', 'textLength'];
@@ -256,6 +316,8 @@ const CF_NEEDS_FORMULA: readonly ConditionalFormatType[] = [
   'timePeriod',
 ];
 const CF_TEXT_TYPES: readonly ConditionalFormatType[] = ['containsText', 'notContainsText', 'beginsWith', 'endsWith'];
+/** Data bar properties that exist only in the [MS-XLSX] extension (§2.6.30, SR-41). */
+const BAR_EXTENSION_KEYS = ['gradient', 'borderColor', 'negativeFillColor', 'negativeBorderColor', 'axisPosition', 'axisColor', 'direction'];
 const CF_GRAPHIC_TYPES: readonly ConditionalFormatType[] = ['colorScale', 'dataBar', 'iconSet'];
 
 // ---------------------------------------------------------------------------------------------
@@ -432,8 +494,40 @@ export interface ConditionalFormatRuleInput {
   readonly equalAverage?: boolean;
   readonly stdDev?: number;
   readonly colorScale?: { readonly cfvo: readonly CfValueInput[]; readonly colors: readonly Color[] };
-  readonly dataBar?: { readonly cfvo: readonly [CfValueInput, CfValueInput]; readonly color: Color; readonly minLength?: number; readonly maxLength?: number; readonly showValue?: boolean };
-  readonly iconSet?: { readonly iconSet?: IconSetType; readonly cfvo: readonly CfValueInput[]; readonly reverse?: boolean; readonly showValue?: boolean; readonly percent?: boolean };
+  /**
+   * A data bar. `gradient`, `borderColor`, `negativeFillColor`, `negativeBorderColor`,
+   * `axisPosition`, `axisColor`, `direction` and the value types `autoMin` / `autoMax` are
+   * features of the [MS-XLSX] extension; giving any of them writes the extension as well (SR-41).
+   * The axis needs `axisColor` unless `axisPosition` is `none`; a negative border colour needs
+   * `borderColor`; without `negativeFillColor` negative bars use `color`.
+   */
+  readonly dataBar?: {
+    readonly cfvo: readonly [CfValueInput, CfValueInput];
+    readonly color: Color;
+    readonly minLength?: number;
+    readonly maxLength?: number;
+    readonly showValue?: boolean;
+    readonly gradient?: boolean;
+    readonly borderColor?: Color;
+    readonly negativeFillColor?: Color;
+    readonly negativeBorderColor?: Color;
+    readonly axisPosition?: DataBarAxisPosition;
+    readonly axisColor?: Color;
+    readonly direction?: DataBarDirection;
+  };
+  /**
+   * An icon set. The sets `3Stars`, `3Triangles`, `5Boxes` and `NoIcons`, and `custom` icons
+   * (one per value object), exist only in the [MS-XLSX] extension; such rules are written there
+   * alone, with 3 to 5 value objects (SR-43).
+   */
+  readonly iconSet?: {
+    readonly iconSet?: IconSetType;
+    readonly cfvo: readonly CfValueInput[];
+    readonly reverse?: boolean;
+    readonly showValue?: boolean;
+    readonly percent?: boolean;
+    readonly custom?: readonly CfIcon[];
+  };
 }
 
 /**
@@ -466,8 +560,31 @@ export interface ConditionalFormatRule {
   readonly equalAverage: boolean;
   readonly stdDev: number | null;
   readonly colorScale: { readonly cfvo: readonly CfValue[]; readonly colors: readonly Color[] } | null;
-  readonly dataBar: { readonly cfvo: readonly CfValue[]; readonly color: Color; readonly minLength: number; readonly maxLength: number; readonly showValue: boolean } | null;
-  readonly iconSet: { readonly iconSet: IconSetType; readonly cfvo: readonly CfValue[]; readonly reverse: boolean; readonly showValue: boolean; readonly percent: boolean } | null;
+  /**
+   * The data bar. `extended` is `true` when the rule has [MS-XLSX] extension data (SR-41); the
+   * extension's `cfvo`, `minLength`, `maxLength` and `showValue` then replace those of the main
+   * element ([MS-XLSX] §2.6.30). Without the extension the extension fields have these values:
+   * `gradient` true, `border` false, colours `null`, `axisPosition` "automatic", `direction`
+   * "context" (the defaults of the [MS-XLSX] schema).
+   */
+  readonly dataBar: {
+    readonly cfvo: readonly CfValue[];
+    readonly color: Color;
+    readonly minLength: number;
+    readonly maxLength: number;
+    readonly showValue: boolean;
+    readonly extended: boolean;
+    readonly gradient: boolean;
+    readonly border: boolean;
+    readonly borderColor: Color | null;
+    readonly negativeFillColor: Color | null;
+    readonly negativeBorderColor: Color | null;
+    readonly axisPosition: DataBarAxisPosition;
+    readonly axisColor: Color | null;
+    readonly direction: DataBarDirection;
+  } | null;
+  /** The icon set; `custom` lists the icons of a custom set ([MS-XLSX] §2.6.28), else `null`. */
+  readonly iconSet: { readonly iconSet: IconSetType; readonly cfvo: readonly CfValue[]; readonly reverse: boolean; readonly showValue: boolean; readonly percent: boolean; readonly custom: readonly CfIcon[] | null } | null;
 }
 
 /**
@@ -671,13 +788,13 @@ const CF_KEYS = [
   'iconSet',
 ];
 
-function cfValues(value: unknown, option: string, min: number, max: number, where: Where, inIconSet: boolean): CfValue[] {
+function cfValues(value: unknown, option: string, min: number, max: number, where: Where, inIconSet: boolean, allowAuto = false): CfValue[] {
   if (!Array.isArray(value) || value.length < min || value.length > max) {
     throw fail(where, option, `${option} must be an array of ${min === max ? String(min) : `${String(min)} to ${String(max)}`} value objects.`, 'For example [{ type: "min" }, { type: "max" }].');
   }
   return value.map((v: unknown, i) => {
     const o = readKeys(v, ['type', 'value', 'gte'], `${option}[${String(i)}]`, where);
-    const type = enumValue(o.get('type'), CFVO_TYPES, `${option}[${String(i)}].type`, where);
+    const type = enumValue(o.get('type'), allowAuto ? X14_CFVO_TYPES : CFVO_TYPES, `${option}[${String(i)}].type`, where);
     // In Office the thresholds of an icon set cannot be min or max ([MS-OI29500] §2.1.596 b).
     if (inIconSet && (type === 'min' || type === 'max')) {
       throw fail(where, `${option}[${String(i)}].type`, `An icon set threshold cannot be of type "${type}".`, 'Use { type: "percent", value: 0 } for the lowest threshold.');
@@ -771,29 +888,67 @@ export function normalizeCfRule(rule: unknown, index: number, where: Where): Omi
   }
   let dataBar: StoredCfRule['dataBar'] = null;
   if (type === 'dataBar') {
-    const d = readKeys(o.get('dataBar'), ['cfvo', 'color', 'minLength', 'maxLength', 'showValue'], `${what}.dataBar`, where);
-    const cfvo = cfValues(d.get('cfvo'), `${what}.dataBar.cfvo`, 2, 2, where, false);
+    const d = readKeys(o.get('dataBar'), ['cfvo', 'color', 'minLength', 'maxLength', 'showValue', ...BAR_EXTENSION_KEYS], `${what}.dataBar`, where);
+    const cfvo = cfValues(d.get('cfvo'), `${what}.dataBar.cfvo`, 2, 2, where, false, true);
     if (!d.has('color')) throw fail(where, `${what}.dataBar.color`, 'A data bar needs a color.', 'For example color: "638EC6".');
     const len = (k: string, dflt: number): number => (d.has(k) ? intValue(d.get(k), `${what}.dataBar.${k}`, 0, MAX_BAR_LENGTH, where) : dflt);
+    const color = (k: string): Color | null => (d.has(k) ? normalizeColor(d.get(k), `${what}.dataBar.${k}`) : null);
+    const extended = BAR_EXTENSION_KEYS.some((k) => d.has(k)) || cfvo.some((v) => v.type === 'autoMin' || v.type === 'autoMax');
+    const minLength = len('minLength', 10);
+    const maxLength = len('maxLength', 90);
+    const borderColor = color('borderColor');
+    const negativeBorderColor = color('negativeBorderColor');
+    const axisPosition = d.has('axisPosition') ? enumValue(d.get('axisPosition'), AXIS_POSITIONS, `${what}.dataBar.axisPosition`, where) : 'automatic';
+    const axisColor = color('axisColor');
+    if (extended) {
+      // [MS-XLSX] §2.6.26, §2.6.30 (SR-41, SR-42).
+      const [first, last] = cfvo as [CfValue, CfValue];
+      if (first.type === 'max' || first.type === 'autoMax') throw fail(where, `${what}.dataBar.cfvo[0].type`, `The first value object of a data bar cannot be "${first.type}".`, 'Use "min", "autoMin", "num", "percent", "percentile" or "formula".');
+      if (last.type === 'min' || last.type === 'autoMin') throw fail(where, `${what}.dataBar.cfvo[1].type`, `The second value object of a data bar cannot be "${last.type}".`, 'Use "max", "autoMax", "num", "percent", "percentile" or "formula".');
+      if (minLength > maxLength) throw fail(where, `${what}.dataBar.minLength`, `minLength (${String(minLength)}) is greater than maxLength (${String(maxLength)}).`, 'Give a minLength from 0 to maxLength.');
+      if (negativeBorderColor !== null && borderColor === null) throw fail(where, `${what}.dataBar.negativeBorderColor`, 'negativeBorderColor needs borderColor: negative bars have a border only when the bars have one.', 'Add borderColor, for example borderColor: "638EC6".');
+      if (axisPosition !== 'none' && axisColor === null) throw fail(where, `${what}.dataBar.axisColor`, 'A data bar with an axis needs axisColor.', 'Add axisColor, for example axisColor: "000000", or set axisPosition: "none".');
+    }
+    if (!extended && cfvo.some((v) => v.type === 'autoMin' || v.type === 'autoMax')) throw fail(where, `${what}.dataBar.cfvo`, 'autoMin and autoMax need the data bar extension.', 'Use "min" and "max".');
     dataBar = Object.freeze({
       cfvo,
       color: normalizeColor(d.get('color'), `${what}.dataBar.color`),
-      minLength: len('minLength', 10),
-      maxLength: len('maxLength', 90),
+      minLength,
+      maxLength,
       showValue: d.has('showValue') ? boolValue(d.get('showValue'), `${what}.dataBar.showValue`, where) : true,
+      extended,
+      gradient: d.has('gradient') ? boolValue(d.get('gradient'), `${what}.dataBar.gradient`, where) : true,
+      border: borderColor !== null,
+      borderColor,
+      negativeFillColor: color('negativeFillColor'),
+      negativeBorderColor,
+      axisPosition,
+      axisColor: axisPosition === 'none' ? null : axisColor,
+      direction: d.has('direction') ? enumValue(d.get('direction'), BAR_DIRECTIONS, `${what}.dataBar.direction`, where) : 'context',
     });
   }
   let iconSet: StoredCfRule['iconSet'] = null;
   if (type === 'iconSet') {
-    const s = readKeys(o.get('iconSet'), ['iconSet', 'cfvo', 'reverse', 'showValue', 'percent'], `${what}.iconSet`, where);
+    const s = readKeys(o.get('iconSet'), ['iconSet', 'cfvo', 'reverse', 'showValue', 'percent', 'custom'], `${what}.iconSet`, where);
     const b = (k: string, dflt: boolean): boolean => (s.has(k) ? boolValue(s.get(k), `${what}.iconSet.${k}`, where) : dflt);
-    iconSet = Object.freeze({
-      iconSet: s.has('iconSet') ? enumValue(s.get('iconSet'), ICON_SETS, `${what}.iconSet.iconSet`, where) : '3TrafficLights1',
-      cfvo: cfValues(s.get('cfvo'), `${what}.iconSet.cfvo`, 2, 5, where, true),
-      reverse: b('reverse', false),
-      showValue: b('showValue', true),
-      percent: b('percent', true),
-    });
+    const set = s.has('iconSet') ? enumValue(s.get('iconSet'), ALL_ICON_SETS, `${what}.iconSet.iconSet`, where) : '3TrafficLights1';
+    const extended = X14_ICON_SETS.includes(set) || s.has('custom');
+    // The extension needs 3 to 5 value objects ([MS-XLSX] §2.6.28, SR-43).
+    const cfvo = cfValues(s.get('cfvo'), `${what}.iconSet.cfvo`, extended ? 3 : 2, 5, where, true);
+    let custom: CfIcon[] | null = null;
+    if (s.has('custom')) {
+      const raw = s.get('custom');
+      if (!Array.isArray(raw) || raw.length !== cfvo.length) {
+        throw fail(where, `${what}.iconSet.custom`, `custom must list one icon per value object (${String(cfvo.length)}).`, "For example custom: [{ iconSet: '3Flags', iconId: 0 }, …].");
+      }
+      custom = raw.map((icon: unknown, i) => {
+        const at = `${what}.iconSet.custom[${String(i)}]`;
+        const c = readKeys(icon, ['iconSet', 'iconId'], at, where);
+        const iconSetOf = enumValue(c.get('iconSet'), ALL_ICON_SETS, `${at}.iconSet`, where);
+        return Object.freeze({ iconSet: iconSetOf, iconId: intValue(c.get('iconId'), `${at}.iconId`, 0, iconCount(iconSetOf) - 1, where) });
+      });
+    }
+    iconSet = Object.freeze({ iconSet: set, cfvo, reverse: b('reverse', false), showValue: b('showValue', true), percent: b('percent', true), custom: custom === null ? null : Object.freeze(custom) });
   }
   return {
     type,
@@ -846,6 +1001,17 @@ export function normalizeConditionalFormat(sqref: unknown, rules: unknown, where
 
 type Warn = (message: string) => void;
 
+/** Namespace of the Excel 2010 extensions, prefix `x14` ([MS-XLSX] §2.2, §5.3; SR-40). */
+export const X14_NS = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
+/** Namespace of `f`, `sqref` and `ref` of the extensions, prefix `xm` ([MS-XLSX] §2.4.3–§2.4.5, §5.1). */
+export const XM_NS = 'http://schemas.microsoft.com/office/excel/2006/main';
+/** `ext@uri` of the worksheet extension with `x14:conditionalFormattings` ([MS-XLSX] §2.2.4.12). */
+export const X14_CF_URI = '{78C0D931-6437-407D-A8EE-F0AAD7539E65}';
+/** `ext@uri` of the worksheet extension with `x14:dataValidations` (§2.2.4.12). */
+export const X14_DV_URI = '{CCE6A557-97BC-4B89-ADB6-D9C93CAAB3DF}';
+/** `ext@uri` of the cfRule extension with `x14:id` (§2.2.4.12). */
+export const X14_ID_URI = '{B025F937-C7B1-47D3-B67F-A62EFF666E3E}';
+
 const parseBool = (raw: string | undefined, dflt: boolean): boolean => {
   if (raw === undefined) return dflt;
   const s = raw.trim();
@@ -883,6 +1049,59 @@ function readSqref(raw: string | undefined, max: number, what: string, warn: War
   return out.join(' ');
 }
 
+/** The text of the `xm:f` child of an element, decoded; `null` without one. */
+function xmFormula(el: XmlElement | undefined): string | null {
+  const f = el === undefined ? undefined : childrenNamed(el, XM_NS, 'f')[0];
+  return f === undefined ? null : decodeXstring(f.text);
+}
+
+/**
+ * One data validation from its element: `sqref` is the range list, `formula(name)` the text of
+ * `formula1` / `formula2` (main element or [MS-XLSX] `xm:f`). `null`, with a warning, when the
+ * range or the type is not valid.
+ */
+function readDataValidation(dv: XmlElement, rawSqref: string | undefined, formula: (name: string) => string | null, warn: Warn): DataValidation | null {
+  const sqref = readSqref(rawSqref, MAX_DV_REFS, 'data validation', warn);
+  if (sqref === null) return null;
+  const rawType = dv.attrs.get('type') ?? 'none';
+  const type = DV_TYPES.find((t) => t === rawType);
+  if (type === undefined) {
+    warn(`A data validation has the unknown type "${rawType.slice(0, 40)}"; it is ignored.`);
+    return null;
+  }
+  const pick = <T extends string>(name: string, allowed: readonly T[], dflt: T): T => {
+    const raw = dv.attrs.get(name);
+    if (raw === undefined) return dflt;
+    const found = allowed.find((a) => a === raw);
+    if (found === undefined) warn(`A data validation has the unknown ${name} "${raw.slice(0, 40)}"; "${dflt}" is used.`);
+    return found ?? dflt;
+  };
+  const text = (name: string): string | null => {
+    const raw = dv.attrs.get(name);
+    return raw === undefined ? null : decodeXstring(raw);
+  };
+  // formula2 is used only by "between" and "notBetween" (§18.3.1.45, SR-03); LibreOffice writes
+  // one for other rules too, which is ignored here.
+  const operator = DV_COMPARING.includes(type) ? pick('operator', DV_OPERATORS, 'between') : null;
+  return Object.freeze({
+    sqref,
+    type,
+    operator,
+    formula1: type === 'none' ? null : formula('formula1'),
+    formula2: operator === 'between' || operator === 'notBetween' ? formula('formula2') : null,
+    allowBlank: parseBool(dv.attrs.get('allowBlank'), false),
+    showDropDown: parseBool(dv.attrs.get('showDropDown'), false),
+    showInputMessage: parseBool(dv.attrs.get('showInputMessage'), false),
+    showErrorMessage: parseBool(dv.attrs.get('showErrorMessage'), false),
+    errorStyle: pick('errorStyle', DV_ERROR_STYLES, 'stop'),
+    imeMode: pick('imeMode', DV_IME_MODES, 'noControl'),
+    errorTitle: text('errorTitle'),
+    error: text('error'),
+    promptTitle: text('promptTitle'),
+    prompt: text('prompt'),
+  });
+}
+
 /** Reads `dataValidations` (§18.3.1.33); invalid entries are skipped with a warning. */
 export function parseDataValidations(el: XmlElement, ns: string, warn: Warn): DataValidation[] {
   const out: DataValidation[] = [];
@@ -891,67 +1110,55 @@ export function parseDataValidations(el: XmlElement, ns: string, warn: Warn): Da
       warn(`The sheet has more than ${String(MAX_DATA_VALIDATIONS)} data validations; the rest are ignored.`);
       break;
     }
-    const sqref = readSqref(dv.attrs.get('sqref'), MAX_DV_REFS, 'data validation', warn);
-    if (sqref === null) continue;
-    const rawType = dv.attrs.get('type') ?? 'none';
-    const type = DV_TYPES.find((t) => t === rawType);
-    if (type === undefined) {
-      warn(`A data validation has the unknown type "${rawType.slice(0, 40)}"; it is ignored.`);
-      continue;
-    }
-    const pick = <T extends string>(name: string, allowed: readonly T[], dflt: T): T => {
-      const raw = dv.attrs.get(name);
-      if (raw === undefined) return dflt;
-      const found = allowed.find((a) => a === raw);
-      if (found === undefined) warn(`A data validation has the unknown ${name} "${raw.slice(0, 40)}"; "${dflt}" is used.`);
-      return found ?? dflt;
-    };
-    const text = (name: string): string | null => {
-      const raw = dv.attrs.get(name);
-      return raw === undefined ? null : decodeXstring(raw);
-    };
-    const formula = (name: string): string | null => {
-      const f = childrenNamed(dv, ns, name)[0];
-      return f === undefined ? null : decodeXstring(f.text);
-    };
-    // formula2 is used only by "between" and "notBetween" (§18.3.1.45, SR-03); LibreOffice writes
-    // one for other rules too, which is ignored here.
-    const operator = DV_COMPARING.includes(type) ? pick('operator', DV_OPERATORS, 'between') : null;
-    out.push(
-      Object.freeze({
-        sqref,
-        type,
-        operator,
-        formula1: type === 'none' ? null : formula('formula1'),
-        formula2: operator === 'between' || operator === 'notBetween' ? formula('formula2') : null,
-        allowBlank: parseBool(dv.attrs.get('allowBlank'), false),
-        showDropDown: parseBool(dv.attrs.get('showDropDown'), false),
-        showInputMessage: parseBool(dv.attrs.get('showInputMessage'), false),
-        showErrorMessage: parseBool(dv.attrs.get('showErrorMessage'), false),
-        errorStyle: pick('errorStyle', DV_ERROR_STYLES, 'stop'),
-        imeMode: pick('imeMode', DV_IME_MODES, 'noControl'),
-        errorTitle: text('errorTitle'),
-        error: text('error'),
-        promptTitle: text('promptTitle'),
-        prompt: text('prompt'),
-      }),
+    const read = readDataValidation(
+      dv,
+      dv.attrs.get('sqref'),
+      (name) => {
+        const f = childrenNamed(dv, ns, name)[0];
+        return f === undefined ? null : decodeXstring(f.text);
+      },
+      warn,
     );
+    if (read !== null) out.push(read);
   }
   return out;
 }
 
-function readCfValues(parent: XmlElement, ns: string, warn: Warn): CfValue[] | null {
+/**
+ * Reads `x14:dataValidations` ([MS-XLSX] §2.6.3–§2.6.5, SR-44): the same attributes as the main
+ * element, formulas in `x14:formula1/xm:f` and the range in `xm:sqref`.
+ */
+export function parseX14DataValidations(el: XmlElement, warn: Warn): DataValidation[] {
+  const out: DataValidation[] = [];
+  for (const dv of childrenNamed(el, X14_NS, 'dataValidation')) {
+    if (out.length >= MAX_DATA_VALIDATIONS) {
+      warn(`The sheet has more than ${String(MAX_DATA_VALIDATIONS)} data validations; the rest are ignored.`);
+      break;
+    }
+    const sqref = childrenNamed(dv, XM_NS, 'sqref')[0]?.text;
+    const read = readDataValidation(dv, sqref, (name) => xmFormula(childrenNamed(dv, X14_NS, name)[0]), warn);
+    if (read !== null) out.push(read);
+  }
+  return out;
+}
+
+/**
+ * The value objects of a main (`x14` false) or extension `cfvo` list. Main values are in `val`,
+ * extension values in `xm:f` ([MS-XLSX] §2.6.26). `null`, with a warning, for an unknown type.
+ */
+function readCfValues(parent: XmlElement, ns: string, warn: Warn, x14 = false): CfValue[] | null {
   const out: CfValue[] = [];
   for (const v of childrenNamed(parent, ns, 'cfvo')) {
     const raw = v.attrs.get('type') ?? '';
-    const type = CFVO_TYPES.find((t) => t === raw);
+    const type = (x14 ? X14_CFVO_TYPES : CFVO_TYPES).find((t) => t === raw);
     if (type === undefined) {
       warn(`A conditional format value object has the unknown type "${raw.slice(0, 40)}"; the rule is ignored.`);
       return null;
     }
-    const val = v.attrs.get('val');
+    const val = x14 ? (xmFormula(v) ?? undefined) : v.attrs.get('val');
     // The value of min and max is not used (SR-12); it is reported only for the other types.
-    out.push(Object.freeze({ type, value: val === undefined || type === 'min' || type === 'max' ? null : decodeXstring(val), gte: parseBool(v.attrs.get('gte'), true) }));
+    const unused = type === 'min' || type === 'max' || type === 'autoMin' || type === 'autoMax';
+    out.push(Object.freeze({ type, value: val === undefined || unused ? null : x14 ? val : decodeXstring(val), gte: parseBool(v.attrs.get('gte'), true) }));
   }
   return out;
 }
@@ -969,6 +1176,140 @@ function readColors(parent: XmlElement, ns: string, warn: Warn, readColor: (el: 
   return out;
 }
 
+/** What a data bar of the [MS-XLSX] extension adds (§2.6.30). */
+type BarExtension = Pick<
+  NonNullable<ConditionalFormatRule['dataBar']>,
+  'cfvo' | 'minLength' | 'maxLength' | 'showValue' | 'gradient' | 'border' | 'borderColor' | 'negativeFillColor' | 'negativeBorderColor' | 'axisPosition' | 'axisColor' | 'direction'
+>;
+
+/** The extension fields of a data bar without extension data (the [MS-XLSX] schema defaults). */
+const PLAIN_BAR = { extended: false, gradient: true, border: false, borderColor: null, negativeFillColor: null, negativeBorderColor: null, axisPosition: 'automatic', axisColor: null, direction: 'context' } as const;
+
+/** Reads `x14:dataBar` (§2.6.30); `fillColor` is the bar colour of a rule with its own priority. */
+function readX14DataBar(db: XmlElement, warn: Warn, readColor: (el: XmlElement) => Color | undefined): (BarExtension & { readonly fill: Color | null }) | null {
+  const cfvo = readCfValues(db, X14_NS, warn, true);
+  if (cfvo === null) return null;
+  const color = (name: string): Color | null => {
+    const el = childrenNamed(db, X14_NS, name)[0];
+    return el === undefined ? null : (readColor(el) ?? null);
+  };
+  const pick = <T extends string>(name: string, allowed: readonly T[], dflt: T): T => allowed.find((a) => a === db.attrs.get(name)) ?? dflt;
+  const border = parseBool(db.attrs.get('border'), false);
+  const axisPosition = pick('axisPosition', AXIS_POSITIONS, 'automatic');
+  // The negative colours exist exactly when the "same as positive" flags are false (§2.6.30).
+  const negativeSame = parseBool(db.attrs.get('negativeBarColorSameAsPositive'), false);
+  const negativeBorderSame = parseBool(db.attrs.get('negativeBarBorderColorSameAsPositive'), true);
+  return {
+    cfvo,
+    minLength: parseInteger(db.attrs.get('minLength'), 0, MAX_BAR_LENGTH) ?? 10,
+    maxLength: parseInteger(db.attrs.get('maxLength'), 0, MAX_BAR_LENGTH) ?? 90,
+    showValue: parseBool(db.attrs.get('showValue'), true),
+    gradient: parseBool(db.attrs.get('gradient'), true),
+    border,
+    borderColor: border ? color('borderColor') : null,
+    negativeFillColor: negativeSame ? null : color('negativeFillColor'),
+    negativeBorderColor: negativeBorderSame || !border ? null : color('negativeBorderColor'),
+    axisPosition,
+    axisColor: axisPosition === 'none' ? null : color('axisColor'),
+    direction: pick('direction', BAR_DIRECTIONS, 'context'),
+    fill: color('fillColor'),
+  };
+}
+
+/** Reads `x14:iconSet` (§2.6.28, §2.6.36). */
+function readX14IconSet(is: XmlElement, warn: Warn): NonNullable<ConditionalFormatRule['iconSet']> | null {
+  const cfvo = readCfValues(is, X14_NS, warn, true);
+  if (cfvo === null) return null;
+  const raw = is.attrs.get('iconSet');
+  const set = raw === undefined ? '3TrafficLights1' : ALL_ICON_SETS.find((x) => x === raw);
+  if (set === undefined) {
+    warn(`A conditional formatting rule has the unknown icon set "${String(raw).slice(0, 40)}"; it is ignored.`);
+    return null;
+  }
+  const custom = parseBool(is.attrs.get('custom'), false);
+  const icons: CfIcon[] = [];
+  if (custom) {
+    for (const c of childrenNamed(is, X14_NS, 'cfIcon')) {
+      const ofSet = ALL_ICON_SETS.find((x) => x === c.attrs.get('iconSet'));
+      const id = ofSet === undefined ? null : parseInteger(c.attrs.get('iconId'), 0, iconCount(ofSet) - 1);
+      if (ofSet === undefined || id === null) {
+        warn('A custom icon of an icon set is not valid; the rule is ignored.');
+        return null;
+      }
+      icons.push(Object.freeze({ iconSet: ofSet, iconId: id }));
+    }
+  }
+  return Object.freeze({
+    iconSet: set,
+    cfvo,
+    reverse: parseBool(is.attrs.get('reverse'), false),
+    showValue: parseBool(is.attrs.get('showValue'), true),
+    // `percent` of the extension is undefined and ignored (§2.6.28).
+    percent: true,
+    custom: custom ? Object.freeze(icons) : null,
+  });
+}
+
+/** The attributes of a cfRule element that depend on its type (§18.3.1.10, SR-09). */
+function ruleFromAttributes(
+  r: XmlElement,
+  type: ConditionalFormatType,
+  priority: number,
+  style: CellStyle | null,
+  formulas: readonly string[],
+  graphics: Pick<ConditionalFormatRule, 'colorScale' | 'dataBar' | 'iconSet'>,
+  warn: Warn,
+): ConditionalFormatRule {
+  const enumAttr = <T extends string>(name: string, allowed: readonly T[]): T | null => {
+    const raw = r.attrs.get(name);
+    if (raw === undefined) return null;
+    const found = allowed.find((a) => a === raw);
+    if (found === undefined) warn(`A conditional formatting rule has the unknown ${name} "${raw.slice(0, 40)}"; it is ignored.`);
+    return found ?? null;
+  };
+  // Attributes of other rule types are ignored (§18.3.1.10, SR-09): LibreOffice writes, for
+  // example, rank="0" and text="" on every rule.
+  const top = type === 'top10';
+  const avg = type === 'aboveAverage';
+  const textType = CF_TEXT_TYPES.includes(type);
+  const stdDev = avg ? r.attrs.get('stdDev') : undefined;
+  return Object.freeze({
+    type,
+    priority,
+    stopIfTrue: parseBool(r.attrs.get('stopIfTrue'), false),
+    style,
+    formulas: Object.freeze(formulas.slice(0, 3)),
+    operator: type === 'cellIs' || textType ? enumAttr('operator', CF_OPERATORS) : null,
+    text: textType ? (r.attrs.get('text') ?? null) : null,
+    timePeriod: type === 'timePeriod' ? enumAttr('timePeriod', TIME_PERIODS) : null,
+    rank: top ? parseInteger(r.attrs.get('rank'), 0, 4_294_967_295) : null,
+    percent: top && parseBool(r.attrs.get('percent'), false),
+    bottom: top && parseBool(r.attrs.get('bottom'), false),
+    aboveAverage: !avg || parseBool(r.attrs.get('aboveAverage'), true),
+    equalAverage: avg && parseBool(r.attrs.get('equalAverage'), false),
+    stdDev: stdDev === undefined ? null : parseInteger(stdDev, -2_147_483_648, 2_147_483_647),
+    ...graphics,
+  });
+}
+
+/** A conditional format as read, with the [MS-XLSX] `x14:id` of each rule (`null` without one). */
+interface ReadConditionalFormat {
+  readonly format: ConditionalFormat;
+  readonly ids: readonly (string | null)[];
+}
+
+/** The `x14:id` in a main cfRule's `extLst` (§2.2.4.12, §2.6.30), upper-cased; `null` without one. */
+function extensionId(r: XmlElement, ns: string): string | null {
+  for (const list of childrenNamed(r, ns, 'extLst')) {
+    for (const ext of childrenNamed(list, ns, 'ext')) {
+      if (ext.attrs.get('uri')?.toUpperCase() !== X14_ID_URI) continue;
+      const id = childrenNamed(ext, X14_NS, 'id')[0]?.text.trim();
+      if (id !== undefined && id !== '') return id.toUpperCase();
+    }
+  }
+  return null;
+}
+
 /**
  * Reads one `conditionalFormatting` element (§18.3.1.18) with its rules; `dxf(i)` resolves a
  * differential format. Rules with an unknown type or without a valid priority are skipped with
@@ -981,9 +1322,20 @@ export function parseConditionalFormatting(
   readColor: (el: XmlElement) => Color | undefined,
   warn: Warn,
 ): ConditionalFormat | null {
+  return readConditionalFormatting(el, ns, dxf, readColor, warn)?.format ?? null;
+}
+
+function readConditionalFormatting(
+  el: XmlElement,
+  ns: string,
+  dxf: (index: number) => CellStyle | undefined,
+  readColor: (el: XmlElement) => Color | undefined,
+  warn: Warn,
+): ReadConditionalFormat | null {
   const sqref = readSqref(el.attrs.get('sqref'), MAX_SQREF_REFS, 'conditional format', warn);
   if (sqref === null) return null;
   const rules: ConditionalFormatRule[] = [];
+  const ids: (string | null)[] = [];
   for (const r of childrenNamed(el, ns, 'cfRule')) {
     const rawType = r.attrs.get('type') ?? '';
     const type = CF_TYPES.find((t) => t === rawType);
@@ -1004,13 +1356,6 @@ export function parseConditionalFormatting(
       if (found === undefined) warn(`A conditional formatting rule refers to the differential format "${rawDxf.slice(0, 20)}", which does not exist; the rule is read without a format.`);
       else style = found;
     }
-    const enumAttr = <T extends string>(name: string, allowed: readonly T[]): T | null => {
-      const raw = r.attrs.get(name);
-      if (raw === undefined) return null;
-      const found = allowed.find((a) => a === raw);
-      if (found === undefined) warn(`A conditional formatting rule has the unknown ${name} "${raw.slice(0, 40)}"; it is ignored.`);
-      return found ?? null;
-    };
     let colorScale: ConditionalFormatRule['colorScale'] = null;
     let dataBar: ConditionalFormatRule['dataBar'] = null;
     let iconSet: ConditionalFormatRule['iconSet'] = null;
@@ -1038,6 +1383,7 @@ export function parseConditionalFormatting(
         minLength: parseInteger(db.attrs.get('minLength'), 0, 4_294_967_295) ?? 10,
         maxLength: parseInteger(db.attrs.get('maxLength'), 0, 4_294_967_295) ?? 90,
         showValue: parseBool(db.attrs.get('showValue'), true),
+        ...PLAIN_BAR,
       });
     } else if (is !== undefined) {
       const cfvo = readCfValues(is, ns, warn);
@@ -1048,98 +1394,212 @@ export function parseConditionalFormatting(
         warn(`A conditional formatting rule has the unknown icon set "${String(raw).slice(0, 40)}"; it is ignored.`);
         continue;
       }
-      iconSet = Object.freeze({ iconSet: set, cfvo, reverse: parseBool(is.attrs.get('reverse'), false), showValue: parseBool(is.attrs.get('showValue'), true), percent: parseBool(is.attrs.get('percent'), true) });
+      iconSet = Object.freeze({ iconSet: set, cfvo, reverse: parseBool(is.attrs.get('reverse'), false), showValue: parseBool(is.attrs.get('showValue'), true), percent: parseBool(is.attrs.get('percent'), true), custom: null });
     }
-    // Attributes of other rule types are ignored (§18.3.1.10, SR-09): LibreOffice writes, for
-    // example, rank="0" and text="" on every rule.
-    const top = type === 'top10';
-    const avg = type === 'aboveAverage';
-    const textType = CF_TEXT_TYPES.includes(type);
-    const stdDev = avg ? r.attrs.get('stdDev') : undefined;
-    rules.push(
-      Object.freeze({
-        type,
-        priority,
-        stopIfTrue: parseBool(r.attrs.get('stopIfTrue'), false),
-        style,
-        formulas: Object.freeze(childrenNamed(r, ns, 'formula').slice(0, 3).map((f) => decodeXstring(f.text))),
-        operator: type === 'cellIs' || textType ? enumAttr('operator', CF_OPERATORS) : null,
-        text: textType ? (r.attrs.get('text') ?? null) : null,
-        timePeriod: type === 'timePeriod' ? enumAttr('timePeriod', TIME_PERIODS) : null,
-        rank: top ? parseInteger(r.attrs.get('rank'), 0, 4_294_967_295) : null,
-        percent: top && parseBool(r.attrs.get('percent'), false),
-        bottom: top && parseBool(r.attrs.get('bottom'), false),
-        aboveAverage: !avg || parseBool(r.attrs.get('aboveAverage'), true),
-        equalAverage: avg && parseBool(r.attrs.get('equalAverage'), false),
-        stdDev: stdDev === undefined ? null : parseInteger(stdDev, -2_147_483_648, 2_147_483_647),
-        colorScale,
-        dataBar,
-        iconSet,
-      }),
-    );
+    const formulas = childrenNamed(r, ns, 'formula')
+      .slice(0, 3)
+      .map((f) => decodeXstring(f.text));
+    rules.push(ruleFromAttributes(r, type, priority, style, formulas, { colorScale, dataBar, iconSet }, warn));
+    ids.push(type === 'dataBar' ? extensionId(r, ns) : null);
   }
-  return rules.length === 0 ? null : Object.freeze({ sqref, rules: Object.freeze(rules) });
+  return rules.length === 0 ? null : { format: Object.freeze({ sqref, rules: Object.freeze(rules) }), ids };
+}
+
+/** The rules of `x14:conditionalFormattings` ([MS-XLSX] §2.6.1, §2.6.2, §2.6.27; SR-41 … SR-43). */
+interface X14Formats {
+  /** Rules with their own priority, grouped by range. */
+  readonly formats: ConditionalFormat[];
+  /** Data bar extensions of main rules, by upper-cased `id`. */
+  readonly bars: Map<string, BarExtension>;
 }
 
 /**
- * Collects the `conditionalFormatting` and `dataValidations` elements of a worksheet while it is
- * streamed through the SAX parser (they follow `sheetData`, so this costs no memory per row).
- * Each element is kept as a small tree until its end tag; elements and attributes count against
- * `maxElements` for the whole sheet, so a hostile part cannot grow it without bound.
+ * Reads `x14:conditionalFormattings`. A rule with a `priority` stands alone; a rule without one
+ * extends the main data bar rule whose `x14:id` equals its `id` (§2.6.27). `mainNs` is the
+ * namespace of the main elements of a differential format (`x14:dxf` is CT_Dxf).
+ */
+export function parseX14ConditionalFormattings(
+  el: XmlElement,
+  mainNs: string,
+  readDxf: (el: XmlElement) => CellStyle,
+  readColor: (el: XmlElement) => Color | undefined,
+  warn: Warn,
+): X14Formats {
+  const formats: ConditionalFormat[] = [];
+  const bars = new Map<string, BarExtension>();
+  for (const cf of childrenNamed(el, X14_NS, 'conditionalFormatting')) {
+    const sqrefEl = childrenNamed(cf, XM_NS, 'sqref')[0];
+    const rules: ConditionalFormatRule[] = [];
+    for (const r of childrenNamed(cf, X14_NS, 'cfRule')) {
+      const rawPriority = r.attrs.get('priority');
+      const db = childrenNamed(r, X14_NS, 'dataBar')[0];
+      if (rawPriority === undefined) {
+        // Only a data bar extension may leave out the priority; without an id it is ignored (§2.6.27).
+        const id = r.attrs.get('id')?.trim().toUpperCase();
+        if (id === undefined || id === '' || db === undefined) continue;
+        const bar = readX14DataBar(db, warn, readColor);
+        if (bar !== null) {
+          const { fill: _fill, ...rest } = bar;
+          bars.set(id, rest);
+        }
+        continue;
+      }
+      const priority = parseInteger(rawPriority, 1, MAX_PRIORITY);
+      const rawType = r.attrs.get('type') ?? '';
+      const type = CF_TYPES.find((t) => t === rawType);
+      if (priority === null || type === undefined) {
+        warn(`An extended conditional formatting rule has ${priority === null ? 'no valid priority' : `the unknown type "${rawType.slice(0, 40)}"`}; it is ignored.`);
+        continue;
+      }
+      const dxfEl = childrenNamed(r, X14_NS, 'dxf')[0];
+      const style = dxfEl === undefined ? null : readDxf(dxfEl);
+      let colorScale: ConditionalFormatRule['colorScale'] = null;
+      let dataBar: ConditionalFormatRule['dataBar'] = null;
+      let iconSet: ConditionalFormatRule['iconSet'] = null;
+      if (type === 'colorScale') {
+        const cs = childrenNamed(r, X14_NS, 'colorScale')[0];
+        const cfvo = cs === undefined ? null : readCfValues(cs, X14_NS, warn, true);
+        const colors = cs === undefined ? null : readColors(cs, X14_NS, warn, readColor);
+        if (cfvo === null || colors === null) continue;
+        colorScale = Object.freeze({ cfvo, colors });
+      } else if (type === 'dataBar') {
+        const bar = db === undefined ? null : readX14DataBar(db, warn, readColor);
+        if (bar === null || bar.fill === null) {
+          warn('An extended data bar has no fill colour; the rule is ignored.');
+          continue;
+        }
+        const { fill, ...rest } = bar;
+        dataBar = Object.freeze({ ...rest, color: fill, extended: true });
+      } else if (type === 'iconSet') {
+        const is = childrenNamed(r, X14_NS, 'iconSet')[0];
+        iconSet = is === undefined ? null : readX14IconSet(is, warn);
+        if (iconSet === null) continue;
+      }
+      const formulas = childrenNamed(r, XM_NS, 'f').map((f) => decodeXstring(f.text));
+      rules.push(ruleFromAttributes(r, type, priority, style, CF_GRAPHIC_TYPES.includes(type) ? [] : formulas, { colorScale, dataBar, iconSet }, warn));
+    }
+    if (rules.length === 0) continue;
+    const sqref = readSqref(sqrefEl?.text, MAX_SQREF_REFS, 'conditional format', warn);
+    if (sqref !== null) formats.push(Object.freeze({ sqref, rules: Object.freeze(rules) }));
+  }
+  return { formats, bars };
+}
+
+/**
+ * Collects the `conditionalFormatting` and `dataValidations` elements of a worksheet, and the
+ * [MS-XLSX] extensions of the same in the worksheet `extLst` (SR-40), while it is streamed
+ * through the SAX parser (they follow `sheetData`, so this costs no memory per row). Each element
+ * is kept as a small tree until its end tag; elements and attributes count against
+ * `maxElements` for the whole sheet, so a hostile part cannot grow it without bound. Other
+ * extensions in `extLst` are skipped without being kept.
  */
 export function createRuleCollector(ctx: {
   readonly ns: () => string;
   readonly maxElements: number;
   readonly dxf: (index: number) => CellStyle | undefined;
+  readonly readDxf: (el: XmlElement) => CellStyle;
   readonly readColor: (el: XmlElement) => Color | undefined;
   readonly warn: Warn;
   readonly tooLarge: () => XlvError;
 }): {
-  start(local: string, depth: number, attrs: ReadonlyMap<string, string>): boolean;
-  end(): boolean;
+  start(elementNs: string, local: string, depth: number, attrs: ReadonlyMap<string, string>): boolean;
+  end(elementNs: string, local: string): boolean;
   text(value: string): boolean;
   result(): { conditionalFormats: ConditionalFormat[]; dataValidations: DataValidation[] };
 } {
-  const conditionalFormats: ConditionalFormat[] = [];
+  const main: ReadConditionalFormat[] = [];
+  const extended: ConditionalFormat[] = [];
+  const bars = new Map<string, BarExtension>();
   const dataValidations: DataValidation[] = [];
   let stack: XmlElement[] | null = null;
   let count = 0;
+  let inExtList = false;
+  let skip = 0;
+  const addValidations = (list: DataValidation[]): void => {
+    const room = MAX_DATA_VALIDATIONS - dataValidations.length;
+    if (list.length > room) ctx.warn(`The sheet has more than ${String(MAX_DATA_VALIDATIONS)} data validations; the rest are ignored.`);
+    dataValidations.push(...list.slice(0, Math.max(0, room)));
+  };
   return {
-    start(local, depth, attrs) {
+    start(elementNs, local, depth, attrs) {
+      if (skip > 0) {
+        skip++;
+        return true;
+      }
       if (stack === null) {
-        if (depth !== 2 || (local !== 'conditionalFormatting' && local !== 'dataValidations')) return false;
+        const isMain = elementNs === ctx.ns();
+        if (isMain && depth === 2 && local === 'extLst') {
+          inExtList = true;
+          return true;
+        }
+        if (inExtList && depth === 3) {
+          const uri = attrs.get('uri')?.toUpperCase();
+          if (!isMain || local !== 'ext' || (uri !== X14_CF_URI && uri !== X14_DV_URI)) {
+            skip = 1;
+            return true;
+          }
+        } else if (!isMain || depth !== 2 || (local !== 'conditionalFormatting' && local !== 'dataValidations')) return false;
         stack = [];
       }
       count += 1 + attrs.size;
       if (count > ctx.maxElements) throw ctx.tooLarge();
-      const el: XmlElement = { ns: ctx.ns(), local, attrs, children: [], text: '' };
+      const el: XmlElement = { ns: elementNs, local, attrs, children: [], text: '' };
       stack[stack.length - 1]?.children.push(el);
       stack.push(el);
       return true;
     },
-    end() {
-      if (stack === null) return false;
+    end(elementNs, local) {
+      if (skip > 0) {
+        skip--;
+        return true;
+      }
+      if (stack === null) {
+        if (inExtList && local === 'extLst' && elementNs === ctx.ns()) {
+          inExtList = false;
+          return true;
+        }
+        return false;
+      }
       const done = stack.pop();
       if (stack.length === 0 && done !== undefined) {
         stack = null;
-        if (done.local === 'dataValidations') {
-          const room = MAX_DATA_VALIDATIONS - dataValidations.length;
-          dataValidations.push(...parseDataValidations(done, done.ns, ctx.warn).slice(0, Math.max(0, room)));
+        if (done.local === 'dataValidations') addValidations(parseDataValidations(done, done.ns, ctx.warn));
+        else if (done.local === 'conditionalFormatting') {
+          const cf = readConditionalFormatting(done, done.ns, ctx.dxf, ctx.readColor, ctx.warn);
+          if (cf !== null) main.push(cf);
         } else {
-          const cf = parseConditionalFormatting(done, done.ns, ctx.dxf, ctx.readColor, ctx.warn);
-          if (cf !== null) conditionalFormats.push(cf);
+          for (const child of done.children) {
+            if (child.ns !== X14_NS) continue;
+            if (child.local === 'dataValidations') addValidations(parseX14DataValidations(child, ctx.warn));
+            else if (child.local === 'conditionalFormattings') {
+              const x = parseX14ConditionalFormattings(child, ctx.ns(), ctx.readDxf, ctx.readColor, ctx.warn);
+              extended.push(...x.formats);
+              for (const [id, bar] of x.bars) if (!bars.has(id)) bars.set(id, bar);
+            }
+          }
         }
       }
       return true;
     },
     text(value) {
+      if (skip > 0) return true;
       if (stack === null) return false;
       const top = stack[stack.length - 1];
       if (top !== undefined) top.text += value;
       return true;
     },
     result() {
-      return { conditionalFormats, dataValidations };
+      // A data bar extension replaces the value objects, lengths and showValue of its main rule
+      // ([MS-XLSX] §2.6.30); extensions without a matching main rule are ignored (§2.6.27).
+      const conditionalFormats = main.map(({ format, ids }) => {
+        if (!ids.some((id) => id !== null && bars.has(id))) return format;
+        const rules = format.rules.map((rule, i) => {
+          const ext = ids[i] === null || ids[i] === undefined ? undefined : bars.get(ids[i]);
+          return ext === undefined || rule.dataBar === null ? rule : Object.freeze({ ...rule, dataBar: Object.freeze({ ...rule.dataBar, ...ext, extended: true }) });
+        });
+        return Object.freeze({ sqref: format.sqref, rules: Object.freeze(rules) });
+      });
+      return { conditionalFormats: [...conditionalFormats, ...extended], dataValidations };
     },
   };
 }

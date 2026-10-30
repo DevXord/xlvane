@@ -441,10 +441,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     p.notes = noteParts(sortedNotes(p.sheet.noteMap), n, p.rels, shapeBlock);
     p.sheet.noteMap.clear();
     if (p.notes !== null) shapeBlock += p.notes.blocks;
+    const rules = sheetRulesXml({ conditionalFormats: p.sheet.conditionalList, dataValidations: p.sheet.validationList }, n);
     buffer += sheetTail(
       p.filterRange,
       p.sheet.mergeList,
-      sheetRulesXml({ conditionalFormats: p.sheet.conditionalList, dataValidations: p.sheet.validationList }) + hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + printXml(p.sheet.print) + (p.notes?.legacyDrawing ?? ''),
+      rules.main + hyperlinksXml([...p.sheet.linkMap.values()], p.rels) + printXml(p.sheet.print) + (p.notes?.legacyDrawing ?? '') + rules.ext,
       sheetProtectionXml(p.sheet.print.protection),
     );
     yield encoder.encode(buffer);

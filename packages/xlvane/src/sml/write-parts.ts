@@ -6,7 +6,7 @@
 import { definedNameXml, type NormalizedDefinedName } from '../defined-names';
 import type { NormalizedHyperlink } from '../hyperlinks';
 import { printXml, sheetProtectionXml, type SheetPrintData } from '../printing';
-import type { CfValue, DataValidation, StoredConditionalFormat } from '../sheet-rules';
+import { X14_CF_URI, X14_ID_URI, X14_NS, XM_NS, type CfValue, type DataValidation, type StoredCfRule, type StoredConditionalFormat } from '../sheet-rules';
 import { COMMENTS_CONTENT_TYPE, VML_CONTENT_TYPE } from '../notes';
 import {
   APP_PROPERTIES_CONTENT_TYPE,
@@ -552,45 +552,147 @@ function dxfRecordXml(style: NormalizedStyle, numFmtId: (code: string | number |
 }
 
 function cfValuesXml(values: readonly CfValue[]): string {
-  return values.map((v) => `<cfvo${attr('type', v.type)}${v.value === null ? '' : attr('val', encodeXstring(v.value))}${v.gte ? '' : ' gte="0"'}/>`).join('');
+  // The main cfvo cannot hold autoMin / autoMax ([MS-XLSX] §2.7.9); a data bar that uses them
+  // has the extension, whose value objects replace these (§2.6.30, SR-41).
+  return values
+    .map((v) => {
+      const type = v.type === 'autoMin' ? 'min' : v.type === 'autoMax' ? 'max' : v.type;
+      return `<cfvo${attr('type', type)}${v.value === null || type !== v.type ? '' : attr('val', encodeXstring(v.value))}${v.gte ? '' : ' gte="0"'}/>`;
+    })
+    .join('');
+}
+
+/** Value objects of the extension: the value in `xm:f`, `gte` only in icon sets ([MS-XLSX] §2.6.26). */
+function x14CfValuesXml(values: readonly CfValue[], iconSet: boolean): string {
+  return values
+    .map((v) => {
+      const open = `<x14:cfvo${attr('type', v.type)}${iconSet && !v.gte ? ' gte="0"' : ''}`;
+      const noValue = v.value === null || v.type === 'min' || v.type === 'max' || v.type === 'autoMin' || v.type === 'autoMax';
+      return noValue ? `${open}/>` : `${open}><xm:f>${escapeText(encodeXstring(v.value ?? ''))}</xm:f></x14:cfvo>`;
+    })
+    .join('');
+}
+
+/** Icon sets that exist only in the extension ([MS-XLSX] §2.7.10, SR-43). */
+const X14_ICON_SETS = new Set(['3Stars', '3Triangles', '5Boxes', 'NoIcons']);
+
+/** A rule that only the [MS-XLSX] extension can hold: an extension icon set or custom icons (SR-43). */
+function extensionOnly(r: StoredCfRule): boolean {
+  return r.iconSet !== null && (r.iconSet.custom !== null || X14_ICON_SETS.has(r.iconSet.iconSet));
+}
+
+/**
+ * The `id` that links a main data bar rule to its extension (ST_Guid, [MS-XLSX] §2.4.28,
+ * §2.6.27). [MS-XLSX] requires only that the main rule and the extension carry the same value;
+ * xlvane derives it from the sheet number and the rule's position on the sheet, so the output is
+ * the same for the same input (SR-41).
+ */
+export function ruleGuid(sheet: number, rule: number): string {
+  const hex = (n: number, width: number): string => n.toString(16).toUpperCase().padStart(width, '0');
+  return `{${hex(sheet, 8)}-0000-0000-0000-${hex(rule, 12)}}`;
+}
+
+/** `x14:dataBar` of a rule (§2.6.30); `fill` only for a rule with its own priority. */
+function x14DataBarXml(d: NonNullable<StoredCfRule['dataBar']>, fill: boolean): string {
+  let xml = '<x14:dataBar';
+  if (d.minLength !== 10) xml += attr('minLength', d.minLength);
+  if (d.maxLength !== 90) xml += attr('maxLength', d.maxLength);
+  if (!d.showValue) xml += ' showValue="0"';
+  if (d.border) xml += ' border="1"';
+  if (!d.gradient) xml += ' gradient="0"';
+  if (d.direction !== 'context') xml += attr('direction', d.direction);
+  // The negative colours exist exactly when the "same as positive" flags are false (§2.6.30).
+  if (d.negativeFillColor === null) xml += ' negativeBarColorSameAsPositive="1"';
+  if (d.negativeBorderColor !== null) xml += ' negativeBarBorderColorSameAsPositive="0"';
+  if (d.axisPosition !== 'automatic') xml += attr('axisPosition', d.axisPosition);
+  xml += `>${x14CfValuesXml(d.cfvo, false)}`;
+  if (fill) xml += colorXml('x14:fillColor', d.color);
+  if (d.borderColor !== null) xml += colorXml('x14:borderColor', d.borderColor);
+  if (d.negativeFillColor !== null) xml += colorXml('x14:negativeFillColor', d.negativeFillColor);
+  if (d.negativeBorderColor !== null) xml += colorXml('x14:negativeBorderColor', d.negativeBorderColor);
+  if (d.axisColor !== null) xml += colorXml('x14:axisColor', d.axisColor);
+  return `${xml}</x14:dataBar>`;
+}
+
+/** `x14:iconSet` of a rule (§2.6.28, §2.6.36); `percent` is undefined there and not written. */
+function x14IconSetXml(s: NonNullable<StoredCfRule['iconSet']>): string {
+  let xml = '<x14:iconSet';
+  if (s.iconSet !== '3TrafficLights1') xml += attr('iconSet', s.iconSet);
+  if (!s.showValue) xml += ' showValue="0"';
+  // reverse is ignored with custom icons (§2.6.28).
+  if (s.reverse && s.custom === null) xml += ' reverse="1"';
+  if (s.custom !== null) xml += ' custom="1"';
+  xml += `>${x14CfValuesXml(s.cfvo, true)}`;
+  for (const icon of s.custom ?? []) xml += `<x14:cfIcon${attr('iconSet', icon.iconSet)}${attr('iconId', icon.iconId)}/>`;
+  return `${xml}</x14:iconSet>`;
+}
+
+/** The parts of the conditional formatting and validations of a sheet; see {@link sheetRulesXml}. */
+export interface SheetRulesXml {
+  /** `conditionalFormatting*` and `dataValidations`, written after `mergeCells`. */
+  readonly main: string;
+  /** The worksheet `extLst` with the [MS-XLSX] extensions, the last child of `worksheet`; or ''. */
+  readonly ext: string;
 }
 
 /**
  * The `conditionalFormatting` elements and the `dataValidations` element of a sheet, in this
  * order (CT_Worksheet: … mergeCells, phoneticPr, conditionalFormatting*, dataValidations,
- * hyperlinks …, sml.xsd T2186–T2191; SR-01, SR-07). Attributes are written only where they
- * differ from the schema defaults.
+ * hyperlinks …, sml.xsd T2186–T2191; SR-01, SR-07), and the worksheet `extLst` with the
+ * [MS-XLSX] extensions (SR-40 … SR-43): the extension of a data bar that uses extension
+ * features, linked to its main rule by `id`, and rules only the extension can hold, with their
+ * own priority. Attributes are written only where they differ from the schema defaults. `sheet`
+ * is the 1-based sheet number, used for the rule ids.
  */
-export function sheetRulesXml(sheet: Pick<WriteSheetData, 'conditionalFormats' | 'dataValidations'>): string {
+export function sheetRulesXml(sheet: Pick<WriteSheetData, 'conditionalFormats' | 'dataValidations'>, sheetNumber = 1): SheetRulesXml {
   let xml = '';
+  let ext = '';
+  let ruleNumber = 0;
   for (const cf of sheet.conditionalFormats ?? []) {
-    xml += `<conditionalFormatting${attr('sqref', cf.sqref)}>`;
+    let main = '';
+    let extended = '';
     cf.rules.forEach((r, i) => {
+      ruleNumber++;
+      if (extensionOnly(r) && r.iconSet !== null) {
+        extended += `<x14:cfRule type="iconSet"${attr('priority', r.priority)}${r.stopIfTrue ? ' stopIfTrue="1"' : ''}>${x14IconSetXml(r.iconSet)}</x14:cfRule>`;
+        return;
+      }
       const dxf = cf.dxfIds[i];
-      xml += `<cfRule${attr('type', r.type)}${dxf === null || dxf === undefined ? '' : attr('dxfId', dxf)}${attr('priority', r.priority)}`;
-      if (r.stopIfTrue) xml += ' stopIfTrue="1"';
-      if (r.type === 'aboveAverage' && !r.aboveAverage) xml += ' aboveAverage="0"';
-      if (r.percent) xml += ' percent="1"';
-      if (r.bottom) xml += ' bottom="1"';
-      if (r.operator !== null) xml += attr('operator', r.operator);
-      if (r.text !== null) xml += attr('text', r.text);
-      if (r.timePeriod !== null) xml += attr('timePeriod', r.timePeriod);
-      if (r.rank !== null) xml += attr('rank', r.rank);
-      if (r.stdDev !== null) xml += attr('stdDev', r.stdDev);
-      if (r.equalAverage) xml += ' equalAverage="1"';
+      main += `<cfRule${attr('type', r.type)}${dxf === null || dxf === undefined ? '' : attr('dxfId', dxf)}${attr('priority', r.priority)}`;
+      if (r.stopIfTrue) main += ' stopIfTrue="1"';
+      if (r.type === 'aboveAverage' && !r.aboveAverage) main += ' aboveAverage="0"';
+      if (r.percent) main += ' percent="1"';
+      if (r.bottom) main += ' bottom="1"';
+      if (r.operator !== null) main += attr('operator', r.operator);
+      if (r.text !== null) main += attr('text', r.text);
+      if (r.timePeriod !== null) main += attr('timePeriod', r.timePeriod);
+      if (r.rank !== null) main += attr('rank', r.rank);
+      if (r.stdDev !== null) main += attr('stdDev', r.stdDev);
+      if (r.equalAverage) main += ' equalAverage="1"';
       let inner = r.formulas.map((f) => `<formula>${escapeText(encodeXstring(f))}</formula>`).join('');
       if (r.colorScale) inner += `<colorScale>${cfValuesXml(r.colorScale.cfvo)}${r.colorScale.colors.map((c) => colorXml('color', c)).join('')}</colorScale>`;
       if (r.dataBar) {
         const d = r.dataBar;
-        inner += `<dataBar${d.minLength === 10 ? '' : attr('minLength', d.minLength)}${d.maxLength === 90 ? '' : attr('maxLength', d.maxLength)}${d.showValue ? '' : ' showValue="0"'}>${cfValuesXml(d.cfvo)}${colorXml('color', d.color)}</dataBar>`;
+        // A main rule with an extension of 0 and 100 has 10 and 90 ([MS-XLSX] §2.6.30, SR-41).
+        const full = d.extended && d.minLength === 0 && d.maxLength === 100;
+        const min = full ? 10 : d.minLength;
+        const max = full ? 90 : d.maxLength;
+        inner += `<dataBar${min === 10 ? '' : attr('minLength', min)}${max === 90 ? '' : attr('maxLength', max)}${d.showValue ? '' : ' showValue="0"'}>${cfValuesXml(d.cfvo)}${colorXml('color', d.color)}</dataBar>`;
+        if (d.extended) {
+          const id = ruleGuid(sheetNumber, ruleNumber);
+          inner += `<extLst><ext${attr('uri', X14_ID_URI)}${attr('xmlns:x14', X14_NS)}><x14:id>${id}</x14:id></ext></extLst>`;
+          extended += `<x14:cfRule type="dataBar"${attr('id', id)}>${x14DataBarXml(d, false)}</x14:cfRule>`;
+        }
       }
       if (r.iconSet) {
         const s = r.iconSet;
         inner += `<iconSet${s.iconSet === '3TrafficLights1' ? '' : attr('iconSet', s.iconSet)}${s.showValue ? '' : ' showValue="0"'}${s.percent ? '' : ' percent="0"'}${s.reverse ? ' reverse="1"' : ''}>${cfValuesXml(s.cfvo)}</iconSet>`;
       }
-      xml += inner === '' ? '/>' : `>${inner}</cfRule>`;
+      main += inner === '' ? '/>' : `>${inner}</cfRule>`;
     });
-    xml += '</conditionalFormatting>';
+    // Part 1 requires at least one cfRule in conditionalFormatting (§18.3.1.18).
+    if (main !== '') xml += `<conditionalFormatting${attr('sqref', cf.sqref)}>${main}</conditionalFormatting>`;
+    if (extended !== '') ext += `<x14:conditionalFormatting>${extended}<xm:sqref>${cf.sqref}</xm:sqref></x14:conditionalFormatting>`;
   }
   const dvs = sheet.dataValidations ?? [];
   if (dvs.length > 0) {
@@ -614,7 +716,10 @@ export function sheetRulesXml(sheet: Pick<WriteSheetData, 'conditionalFormats' |
     }
     xml += '</dataValidations>';
   }
-  return xml;
+  return {
+    main: xml,
+    ext: ext === '' ? '' : `<extLst><ext${attr('uri', X14_CF_URI)}${attr('xmlns:x14', X14_NS)}${attr('xmlns:xm', XM_NS)}><x14:conditionalFormattings>${ext}</x14:conditionalFormattings></ext></extLst>`,
+  };
 }
 
 /**
@@ -718,7 +823,7 @@ function vmlXml(notes: readonly StoredNote[], block: number, blocks: number): st
   return `${xml}</xml>`;
 }
 
-function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings, rels: SheetRels, after = ''): string {
+function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly number[], sst: SharedStrings, rels: SheetRels, after = '', sheetNumber = 1): string {
   const rowNumbers = new Set<number>([...sheet.cells.keys(), ...sheet.rows.keys()]);
   const sortedRows = [...rowNumbers].sort((a, b) => a - b);
 
@@ -752,7 +857,8 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
     xml += '</row>';
   }
   const print = sheet.print;
-  return xml + sheetTail(sheet.autoFilter, sheet.merges, sheetRulesXml(sheet) + hyperlinksXml(sheet.hyperlinks ?? [], rels) + (print ? printXml(print) : '') + after, print ? sheetProtectionXml(print.protection) : '');
+  const rules = sheetRulesXml(sheet, sheetNumber);
+  return xml + sheetTail(sheet.autoFilter, sheet.merges, rules.main + hyperlinksXml(sheet.hyperlinks ?? [], rels) + (print ? printXml(print) : '') + after + rules.ext, print ? sheetProtectionXml(print.protection) : '');
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -771,7 +877,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     const parts = noteParts(sheet.notes ?? [], i + 1, rels, block);
     notes.push(parts);
     if (parts !== null) block += parts.blocks;
-    return sheetXml(sheet, i === active, xfOf, sst, rels, parts?.legacyDrawing);
+    return sheetXml(sheet, i === active, xfOf, sst, rels, parts?.legacyDrawing, i + 1);
   });
 
   const n = input.sheets.length;
