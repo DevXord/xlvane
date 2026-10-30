@@ -112,6 +112,20 @@ const stream = writeWorkbookStream({ sheets: [{ name: 'Data', rows: rows() }] })
 - Rows come in file order. A shared formula whose master cell comes later in the file cannot be translated while streaming.
 - `maxCells` does not apply when streaming; single parts may decompress to 4 GiB (`STREAM_LIMIT_DEFAULTS`). All other limits apply.
 
+## Benchmark
+
+100 000 rows × 20 columns (numbers, texts, dates, booleans). Median of 5 runs, each in a fresh Node.js 22.22.0 process. Machine: Intel Xeon @ 2.10 GHz, 4 logical cores, 15.7 GiB RAM, Linux (a cloud VM). Measured on 2026-10-30. Peak RSS includes Node.js and the imported libraries; the baseline with all three libraries imported is 135 MiB. Method, raw data and caveats: [bench/perf/RESULTS.md](../../bench/perf/RESULTS.md). Reproduce with `npm run bench`.
+
+| Write | Time, s | Peak RSS, MiB | | Read | Time, s | Peak RSS, MiB |
+|---|---|---|---|---|---|---|
+| xlvane `writeWorkbook` | 9.37 | 1005 | | xlvane `readWorkbook` | 4.52 | 690 |
+| xlvane `writeWorkbookStream` | 4.91 | 170 | | xlvane `openWorkbookStream` | 5.32 | 309 |
+| exceljs 4.4.0 `Workbook` | 18.72 | 2102 | | exceljs `xlsx.load` | 6.80 | 889 |
+| exceljs `WorkbookWriter` (stream) | 6.31 | 194 | | exceljs `WorkbookReader` (stream) | 4.60 | 309 |
+| SheetJS 0.18.5 `XLSX.write` | 10.96 | 1002 | | SheetJS `XLSX.read` | 9.04 | 838 |
+
+The streaming reader of exceljs was faster than xlvane's in this run (4.60 s against 5.32 s). SheetJS is the npm release 0.18.5, which has CVE-2023-30533; the benchmark reads only files it generated itself. The results come from one machine and one data mix.
+
 ## Inspecting a workbook
 
 `inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas and warnings. The schema is documented in [docs/inspect-json.md](../../docs/inspect-json.md).
