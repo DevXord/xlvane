@@ -166,3 +166,38 @@ describe('inspect', () => {
     expectXlvError(() => inspect(report, { maxColumns: -1 }), 'XLV_E_INVALID_OPTION');
   });
 });
+
+describe('inspect: phase A1 metadata (D-A07)', () => {
+  it('reports set document properties, defined names, rich-text cells and styled columns', async () => {
+    const { createWorkbook, writeWorkbook } = await import('../../packages/xlvane/src/write');
+    const wb = createWorkbook({ properties: { title: 'Q3', created: new Date(Date.UTC(2026, 9, 1)) } });
+    const s = wb.addSheet('Data');
+    s.set('A1', { richText: [{ text: 'Bold', font: { bold: true } }, { text: ' plain' }] }).set('A2', 'x');
+    s.column('B', { style: { font: { italic: true } } }).column('D', { width: 12 });
+    wb.defineName('Rate', 'Data!$A$2', { sheet: 'Data', hidden: true });
+    wb.defineName('Long', `SUM(${'Data!$A$1,'.repeat(20)}Data!$A$2)`);
+    const r = inspect(writeWorkbook(wb));
+    expect(r.properties).toEqual({ title: 'Q3', created: '2026-10-01T00:00:00.000Z' });
+    expect(r.definedNames[0]).toEqual({ name: 'Rate', refersTo: 'Data!$A$2', sheet: 'Data', hidden: true });
+    expect(r.definedNames[1]?.refersTo).toMatch(/^SUM\(.{96}…$/);
+    expect(r.definedNamesTruncated).toBe(false);
+    const sheet = r.sheets[0]!;
+    expect(sheet.richTextCellCount).toBe(1);
+    expect(sheet.richTextCells).toEqual(['A1']);
+    expect(sheet.styledColumns).toEqual(['B']);
+  });
+
+  it('keeps the lists bounded', async () => {
+    const { createWorkbook, writeWorkbook } = await import('../../packages/xlvane/src/write');
+    const wb = createWorkbook();
+    const s = wb.addSheet('Data');
+    for (let i = 1; i <= 15; i++) s.set(`A${String(i)}`, { richText: [{ text: `r${String(i)}`, font: { bold: true } }] });
+    for (let i = 0; i < 105; i++) wb.defineName(`n_${String(i)}`, 'Data!$A$1');
+    const r = inspect(writeWorkbook(wb));
+    expect(r.definedNames).toHaveLength(100);
+    expect(r.definedNamesTruncated).toBe(true);
+    expect(r.sheets[0]?.richTextCellCount).toBe(15);
+    expect(r.sheets[0]?.richTextCells).toHaveLength(10);
+    expect(r.properties).toEqual({});
+  });
+});

@@ -5,6 +5,17 @@
   "dateSystem": "1900",
   "hasMacros": false,
   "externalLinkCount": 0,
+  "properties": {
+    "creator": "",
+    "description": "",
+    "language": "en-US",
+    "lastModifiedBy": "",
+    "revision": "0",
+    "subject": "",
+    "title": ""
+  },
+  "definedNames": [],
+  "definedNamesTruncated": false,
   "sheetCount": 2,
   "sheets": [
     {
@@ -43,6 +54,9 @@
           "formula": "SUM(B2:B4)"
         }
       ],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 5,
       "columnCount": 6,
       "headerRow": {
@@ -181,6 +195,9 @@
           "formula": "Data!B2"
         }
       ],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 1,
       "columnCount": 1,
       "headerRow": null,

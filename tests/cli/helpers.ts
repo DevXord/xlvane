@@ -61,7 +61,7 @@ export async function withFixtures<T>(fn: (dir: string) => Promise<T>): Promise<
 }
 
 function report(revenueNorth: number): Uint8Array {
-  const wb = createWorkbook();
+  const wb = createWorkbook({ properties: { title: 'Sales report', creator: 'Finance' } });
   const sales = wb.addSheet('Sales');
   sales.set('A1', 'Region', { font: { bold: true } }).set('B1', 'Revenue').set('C1', 'Date');
   sales.set('A2', 'North').set('B2', revenueNorth).set('C2', new Date(Date.UTC(2024, 0, 31)));
@@ -71,6 +71,8 @@ function report(revenueNorth: number): Uint8Array {
   costs.set('A1', 'Item').set('B1', 'Cost');
   costs.set('A2', 'Rent').set('B2', 500);
   costs.set('A3', '=cmd|calc').set('B3', 1);
+  costs.column('B', { style: { numFmt: '#,##0.00' } });
+  wb.defineName('Total', 'Sales!$B$4');
   return writeWorkbook(wb);
 }
 

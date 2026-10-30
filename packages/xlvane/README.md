@@ -83,6 +83,28 @@ In Node.js, `writeWorkbookFile(workbook, 'sales.xlsx')` from `xlvane/node` write
 
 Reading returns the same information: `cell.style`, `sheet.columns`, `sheet.rowInfo(row)`, `sheet.freeze` and `sheet.autoFilter`.
 
+### Rich text, document properties, defined names, column styles
+
+```ts
+import { createWorkbook, readWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook({ properties: { title: 'Q3 sales', creator: 'Finance', created: new Date(Date.UTC(2026, 9, 1)) } });
+const sheet = workbook.addSheet('Sales');
+sheet.set('A1', { richText: [{ text: 'Total ', font: { bold: true } }, { text: '(EUR)', font: { color: '808080' } }] });
+sheet.set('B1', 1250.5).set('C1', new Date(Date.UTC(2026, 9, 1)), { numFmt: 14 });
+sheet.column('B', { width: 14, style: { numFmt: '#,##0.00' } });
+workbook.defineName('Total', 'Sales!$B$1');
+
+const read = readWorkbook(writeWorkbook(workbook));
+console.log(read.properties.title, read.definedNames, read.getSheet('Sales').cell('A1')?.richText);
+```
+
+- **Rich text:** `{ richText: [{ text, font? }] }` writes text whose parts have their own fonts. Reading keeps `cell.value` as the plain text and adds `cell.richText` with the runs. Run fonts take the same properties as cell fonts.
+- **Document properties:** `properties` (`title`, `subject`, `creator`, `keywords`, `description`, `lastModifiedBy`, `category`, `created`, `modified`, `lastPrinted`, and a few more) are stored in `docProps/core.xml`, only when at least one is set. Read them from `workbook.properties`. `company` and `manager` are not supported yet.
+- **Defined names:** `workbook.defineName(name, refersTo, { sheet?, hidden?, comment? })`; `workbook.definedNames` lists the names of a file that was read, built-in names such as `_xlnm._FilterDatabase` included. Invalid names throw `XLV_E_INVALID_DEFINED_NAME`.
+- **Column styles:** `column(c, { style })` stores a default style for the column. Applications use it for cells added later; xlvane does not apply it to the cells you set. Reading gives `sheet.columns[i].style`.
+- **Built-in number formats:** `numFmt` may be a built-in format number such as `14` (a date shown in the reader's local date order). A format code string such as `'yyyy-mm-dd'` is shown the same everywhere.
+
 ## Tasks in one call
 
 ```ts
@@ -158,7 +180,7 @@ The streaming reader of exceljs was faster than xlvane's in this run (4.60 s aga
 
 ## Inspecting a workbook
 
-`inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas and warnings. The schema is documented in [docs/inspect-json.md](../../docs/inspect-json.md).
+`inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas, rich-text cells, column styles, document properties, defined names and warnings. The schema is documented in [docs/inspect-json.md](../../docs/inspect-json.md).
 
 ```ts
 import { inspect } from 'xlvane';

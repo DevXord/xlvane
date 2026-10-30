@@ -17,7 +17,7 @@ export const inspectCommand: CommandSpec = {
   name: 'inspect',
   summary: 'See sheets, columns and problems in a workbook',
   description:
-    'Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected header rows, column types with sample values, merged cells, formulas, and warnings such as macros or external links. Macros are never run and links are never followed. With --json the result is the inspect() report described in docs/inspect-json.md.',
+    'Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected header rows, column types with sample values, merged cells, formulas, rich-text cells, column styles, document properties, defined names, and warnings such as macros or external links. Macros are never run and links are never followed. With --json the result is the inspect() report described in docs/inspect-json.md.',
   usage: '<file> [options]',
   positionals: { min: 1, max: 1, names: ['file'] },
   options: {
@@ -53,6 +53,13 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
   ];
   if (r.hasMacros) lines.push('Contains macros (not run).');
   if (r.externalLinkCount > 0) lines.push(`Links to ${plural(r.externalLinkCount, 'other workbook')} (not followed).`);
+  const props = Object.entries(r.properties);
+  if (props.length > 0) lines.push(`Properties: ${props.map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(', ')}`);
+  if (r.definedNames.length > 0) {
+    const shown = r.definedNames.slice(0, 5).map((n) => `${n.name}${n.sheet === null ? '' : ` (sheet "${n.sheet}")`}${n.hidden ? ' (hidden)' : ''} =${n.refersTo}`);
+    const more = r.definedNames.length > 5 || r.definedNamesTruncated ? `, … (${r.definedNamesTruncated ? 'more than ' : ''}${String(r.definedNames.length)} in total; see --json)` : '';
+    lines.push(`Defined names: ${shown.join(', ')}${more}`);
+  }
   for (const s of r.sheets) {
     lines.push('');
     const state = s.state === 'visible' ? '' : ` (${s.state})`;
@@ -80,6 +87,8 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
       if (s.columnsTruncated) lines.push(`  … more columns; see --json`);
     }
     if (s.formulas.length > 0) lines.push(`  Formulas: ${s.formulas.slice(0, 3).map((f) => `${f.cell} =${f.formula ?? '(shared)'}`).join(', ')}`);
+    if (s.richTextCellCount > 0) lines.push(`  Rich text: ${plural(s.richTextCellCount, 'cell')} (${s.richTextCells.slice(0, 5).join(', ')}${s.richTextCellCount > 5 ? ', …' : ''})`);
+    if (s.styledColumns.length > 0) lines.push(`  Column styles: ${s.styledColumns.slice(0, 10).join(', ')}${s.styledColumns.length > 10 ? ', …' : ''}`);
   }
   if (r.warnings.length > 0) {
     lines.push('', 'Warnings:', ...warningLines(out, r.warnings));

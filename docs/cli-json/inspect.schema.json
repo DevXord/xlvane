@@ -49,6 +49,45 @@
               "type": "integer",
               "minimum": 0
             },
+            "properties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "definedNames": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "refersTo": {
+                    "type": "string"
+                  },
+                  "sheet": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "refersTo",
+                  "sheet",
+                  "hidden"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "definedNamesTruncated": {
+              "type": "boolean"
+            },
             "sheetCount": {
               "type": "integer",
               "minimum": 0
@@ -246,6 +285,22 @@
                       ],
                       "additionalProperties": false
                     }
+                  },
+                  "richTextCellCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "richTextCells": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "styledColumns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 },
                 "required": [
@@ -263,7 +318,10 @@
                   "headerRow",
                   "columns",
                   "columnsTruncated",
-                  "formulas"
+                  "formulas",
+                  "richTextCellCount",
+                  "richTextCells",
+                  "styledColumns"
                 ],
                 "additionalProperties": false
               }
@@ -282,6 +340,9 @@
             "dateSystem",
             "hasMacros",
             "externalLinkCount",
+            "properties",
+            "definedNames",
+            "definedNamesTruncated",
             "sheetCount",
             "sheets",
             "warnings"

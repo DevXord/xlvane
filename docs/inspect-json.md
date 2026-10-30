@@ -21,6 +21,9 @@
 | `dateSystem` | `"1900" \| "1904"` | date system used for serial dates |
 | `hasMacros` | boolean | the package contains a VBA project or Excel 4.0 macro sheets (never run) |
 | `externalLinkCount` | number | links to other workbooks (never followed) |
+| `properties` | object | document properties that are set (`title`, `creator`, `created`, …, from `docProps/core.xml`); all values are strings, dates as ISO 8601 in UTC (`"2026-10-01T00:00:00.000Z"`); `{}` when the file has none |
+| `definedNames` | `{ name, refersTo, sheet, hidden }[]` | defined names in file order, at most 100; `refersTo` is the formula text without "=", cut to 100 characters; `sheet` is `null` for a workbook-level name; built-in names such as `_xlnm._FilterDatabase` are included |
+| `definedNamesTruncated` | boolean | the workbook has more than 100 defined names |
 | `sheetCount` | number | number of sheets |
 | `sheets` | array of sheet objects | in workbook order |
 | `warnings` | array of warning objects | see below |
@@ -43,6 +46,9 @@
 | `columns` | array of column objects | one per column of `usedRange`, at most `maxColumns` |
 | `columnsTruncated` | boolean | `usedRange` has more columns than were described |
 | `formulas` | `{ cell, formula }[]` | up to `formulaSamples` examples; `formula` is the text without "=" or `null` for cells that reuse a shared formula |
+| `richTextCellCount` | number | cells whose text has formatted runs (`Cell.richText`) |
+| `richTextCells` | string[] | up to ten of those cells |
+| `styledColumns` | string[] | columns with a default style (`col@style`, `ColumnInfo.style`), e.g. `["B", "D:F"]`; at most `maxColumns` entries |
 
 **Header detection.** Among the first `headerScanRows` non-empty rows, the header row is the first one whose cells are all distinct, non-blank strings and cover at least half of the used width. The confidence is `"high"` when the next non-empty row contains a value that is not a string (number, date, boolean or error), otherwise `"low"`. This is a heuristic; check `confidence` before relying on it.
 
@@ -79,6 +85,9 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
   "dateSystem": "1900",
   "hasMacros": false,
   "externalLinkCount": 0,
+  "properties": { "title": "Sales 2024", "creator": "Finance" },
+  "definedNames": [{ "name": "Total", "refersTo": "Sales!$C$3", "sheet": null, "hidden": false }],
+  "definedNamesTruncated": false,
   "sheetCount": 1,
   "sheets": [
     {
@@ -92,6 +101,9 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
       "formulaCount": 1,
       "mergedRanges": [],
       "formulas": [{ "cell": "C3", "formula": "SUM(C2:C2)" }],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 3,
       "columnCount": 3,
       "headerRow": { "row": 1, "confidence": "high" },

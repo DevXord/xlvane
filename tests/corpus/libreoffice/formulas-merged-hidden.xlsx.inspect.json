@@ -5,6 +5,17 @@
   "dateSystem": "1900",
   "hasMacros": false,
   "externalLinkCount": 0,
+  "properties": {
+    "creator": "",
+    "description": "",
+    "language": "en-US",
+    "lastModifiedBy": "",
+    "revision": "0",
+    "subject": "",
+    "title": ""
+  },
+  "definedNames": [],
+  "definedNamesTruncated": false,
   "sheetCount": 3,
   "sheets": [
     {
@@ -59,6 +70,9 @@
           "formula": "A9*2"
         }
       ],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 10,
       "columnCount": 3,
       "headerRow": null,
@@ -134,6 +148,9 @@
         "A1:D1"
       ],
       "formulas": [],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 5,
       "columnCount": 4,
       "headerRow": {
@@ -231,6 +248,9 @@
       "formulaCount": 0,
       "mergedRanges": [],
       "formulas": [],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 1,
       "columnCount": 1,
       "headerRow": {

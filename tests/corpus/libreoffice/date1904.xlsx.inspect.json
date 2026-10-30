@@ -5,6 +5,17 @@
   "dateSystem": "1904",
   "hasMacros": false,
   "externalLinkCount": 0,
+  "properties": {
+    "creator": "",
+    "description": "",
+    "language": "en-US",
+    "lastModifiedBy": "",
+    "revision": "0",
+    "subject": "",
+    "title": ""
+  },
+  "definedNames": [],
+  "definedNamesTruncated": false,
   "sheetCount": 1,
   "sheets": [
     {
@@ -18,6 +29,9 @@
       "formulaCount": 0,
       "mergedRanges": [],
       "formulas": [],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
       "rowCount": 2,
       "columnCount": 1,
       "headerRow": null,

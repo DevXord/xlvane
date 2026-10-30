@@ -1,4 +1,6 @@
 report.xlsx: xlsx, 2 sheets, date system 1900
+Properties: creator "Finance", title "Sales report"
+Defined names: Total =Sales!$B$4
 
 Sheet "Sales": A1:C4, 4 rows × 3 columns, 11 cells, 1 formula
   Header row: 1 (high confidence)
@@ -13,3 +15,4 @@ Sheet "Costs": A1:B3, 3 rows × 2 columns, 6 cells, 0 formulas
   Column  Header  Type    Samples
   A       Item    string  Rent, =cmd|calc
   B       Cost    number  500, 1
+  Column styles: B

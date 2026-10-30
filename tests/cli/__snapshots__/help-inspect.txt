@@ -5,9 +5,10 @@ Usage:
 
 Describes a workbook without changing it: its sheets (also hidden ones), used
 ranges, detected header rows, column types with sample values, merged cells,
-formulas, and warnings such as macros or external links. Macros are never run
-and links are never followed. With --json the result is the inspect() report
-described in docs/inspect-json.md.
+formulas, rich-text cells, column styles, document properties, defined names,
+and warnings such as macros or external links. Macros are never run and links
+are never followed. With --json the result is the inspect() report described in
+docs/inspect-json.md.
 
 Options:
       --sheet <name>  Describe only this sheet

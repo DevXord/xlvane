@@ -66,6 +66,23 @@ const { rows, issues } = readTable(bytes, { sheet: 'Sales', schema: Row });
 console.log(rows.length, issues.map((i) => `${i.cell ?? '?'}: ${i.message}`));
 ```
 
+Rich text, document properties, defined names and column styles:
+
+```ts
+import { createWorkbook, readWorkbook } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const workbook = readWorkbook(bytes);
+console.log(workbook.properties.title, workbook.definedNames.map((n) => `${n.name}=${n.refersTo}`));
+console.log(workbook.sheets[0]?.cell('A1')?.richText); // runs with fonts; cell.value is the plain text
+
+const out = createWorkbook({ properties: { title: 'Report' } });
+out.addSheet('Data').set('A1', { richText: [{ text: 'Net ', font: { bold: true } }, { text: 'sales' }] }).column('B', { style: { numFmt: '#,##0.00' } });
+out.defineName('Net', 'Data!$B$2');
+```
+
+`inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount` and `styledColumns`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
+
 In Node.js, `xlvane/node` adds `readWorkbookFile`, `inspectFile` and `writeWorkbookFile` (which never replaces an existing file unless `{ overwrite: true }` is passed). `toCSV`, `fromCSV`, `toJSON` and `fromJSON` convert tables. For very large files use `openWorkbookStream` and `writeWorkbookStream`.
 
 Code written for the `exceljs` API can run on xlvane through `@xlvane/exceljs` (`"exceljs": "npm:@xlvane/exceljs@^1"` in package.json); unsupported exceljs features throw `XLV_E_NOT_SUPPORTED`.

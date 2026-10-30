@@ -126,6 +126,33 @@ export interface InspectSheet {
   readonly columnsTruncated: boolean;
   /** Example formulas (text `null` only for shared formulas that could not be translated). */
   readonly formulas: readonly { readonly cell: string; readonly formula: string | null }[];
+  /** Cells whose text has formatted runs (`Cell.richText`). */
+  readonly richTextCellCount: number;
+  /** Up to ten of those cells, e.g. `["A1", "B4"]`. */
+  readonly richTextCells: readonly string[];
+  /** Columns with a default style (`ColumnInfo.style`), e.g. `["B", "D:F"]`; at most `maxColumns` entries. */
+  readonly styledColumns: readonly string[];
+}
+
+/**
+ * A defined name as reported by {@link inspect}.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectDefinedName } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const names: readonly InspectDefinedName[] = inspect(bytes).definedNames;
+ * console.log(names.map((n) => `${n.name} = ${n.refersTo}`));
+ * ```
+ */
+export interface InspectDefinedName {
+  readonly name: string;
+  /** Formula text without "=", cut to 100 characters. */
+  readonly refersTo: string;
+  /** The sheet the name belongs to, or `null` for a workbook-level name. */
+  readonly sheet: string | null;
+  readonly hidden: boolean;
 }
 
 /**
@@ -147,6 +174,15 @@ export interface InspectReport {
   readonly dateSystem: DateSystem;
   readonly hasMacros: boolean;
   readonly externalLinkCount: number;
+  /**
+   * Document properties that are set (`Workbook.properties`); dates as ISO 8601 strings in UTC.
+   * Empty when the file has none.
+   */
+  readonly properties: Readonly<Record<string, string>>;
+  /** Defined names in file order, at most 100. */
+  readonly definedNames: readonly InspectDefinedName[];
+  /** `true` when the workbook has more than 100 defined names. */
+  readonly definedNamesTruncated: boolean;
   readonly sheetCount: number;
   readonly sheets: readonly InspectSheet[];
   readonly warnings: readonly XlvWarning[];
@@ -155,6 +191,9 @@ export interface InspectReport {
 const OPTION_NAMES = ['limits', 'maxColumns', 'headerScanRows', 'formulaSamples'] as const;
 /** Upper bound on the steps spent looking for values hidden under merged ranges, per sheet. */
 const MAX_MERGE_CHECK_WORK = 5_000_000;
+/** Bounds of the lists that are not controlled by an option. */
+const MAX_DEFINED_NAMES = 100;
+const MAX_RICH_TEXT_CELLS = 10;
 const TYPE_ORDER: readonly Exclude<CellType, 'empty'>[] = ['number', 'string', 'date', 'boolean', 'error'];
 
 interface ResolvedOptions {
@@ -248,10 +287,37 @@ export function inspect(input: Uint8Array | ArrayBuffer | Workbook, options?: In
     dateSystem: workbook.dateSystem,
     hasMacros: workbook.hasMacros,
     externalLinkCount: workbook.externalLinkCount,
+    properties: propertiesJson(workbook),
+    definedNames: workbook.definedNames.slice(0, MAX_DEFINED_NAMES).map((n) => ({
+      name: n.name,
+      refersTo: n.refersTo.length > 100 ? `${n.refersTo.slice(0, 100)}…` : n.refersTo,
+      sheet: n.sheet,
+      hidden: n.hidden,
+    })),
+    definedNamesTruncated: workbook.definedNames.length > MAX_DEFINED_NAMES,
     sheetCount: workbook.sheets.length,
     sheets,
     warnings: [...workbook.warnings, ...warnings.list()],
   };
+}
+
+function propertiesJson(workbook: Workbook): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(workbook.properties)) {
+    if (value instanceof Date) out[key] = value.toISOString();
+    else if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
+
+/** Column ranges (`"B"`, `"D:F"`) that have a default style. */
+function styledColumns(sheet: Sheet, max: number): string[] {
+  const out: string[] = [];
+  for (const c of sheet.columns) {
+    if (c.style === undefined || out.length >= max) continue;
+    out.push(c.min === c.max ? columnLetters(c.min) : `${columnLetters(c.min)}:${columnLetters(c.max)}`);
+  }
+  return out;
 }
 
 function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningCollector): InspectSheet {
@@ -261,6 +327,8 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
   let minCol = Number.POSITIVE_INFINITY;
   let maxCol = 0;
   let formulaCount = 0;
+  let richTextCellCount = 0;
+  const richTextCells: string[] = [];
   const formulas: { cell: string; formula: string | null }[] = [];
   for (const cells of rows) {
     for (const cell of cells) {
@@ -268,6 +336,10 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
       maxRow = Math.max(maxRow, cell.row);
       minCol = Math.min(minCol, cell.col);
       maxCol = Math.max(maxCol, cell.col);
+      if (cell.richText !== undefined) {
+        richTextCellCount++;
+        if (richTextCells.length < MAX_RICH_TEXT_CELLS) richTextCells.push(cell.ref);
+      }
       if (cell.formula !== null) {
         formulaCount++;
         if (formulas.length < options.formulaSamples) formulas.push({ cell: cell.ref, formula: cell.formula.text });
@@ -291,6 +363,9 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     formulaCount,
     mergedRanges: [...sheet.merges],
     formulas,
+    richTextCellCount,
+    richTextCells,
+    styledColumns: styledColumns(sheet, options.maxColumns),
   };
   if (empty) {
     return { ...base, rowCount: 0, columnCount: 0, headerRow: null, columns: [], columnsTruncated: false };

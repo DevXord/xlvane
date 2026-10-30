@@ -4,6 +4,7 @@ export { readWorkbook, type ReadOptions } from './read';
 export {
   inspect,
   type InspectColumn,
+  type InspectDefinedName,
   type InspectOptions,
   type InspectReport,
   type InspectSheet,
