@@ -3,6 +3,7 @@
 // writing go through xlvane (convert.ts).
 import { hashPassword, XlvError } from 'xlvane';
 import type { DefinedNames } from './defined-names';
+import { imageRange, Table, type ImageRangeInput, type SheetMedia, type TableProperties } from './media';
 import { DataValidations, defaultHeaderFooter, defaultPageSetup } from './sheet-rules';
 import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, moveSqref, movePosition, type SpliceChange } from './splice';
 import type { Alignment, Borders, CellValue, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
@@ -1017,6 +1018,7 @@ export class Worksheet {
       invalidArgument(method, 'inserts', inserts.length, 'The columns would move beyond column XFD (16384). Remove columns at the end of the sheet first.');
     }
     const formulas = this._checkFormulas(change, method);
+    this._checkMedia(change, method);
     const merges = this._takeMerges();
     for (const row of this._rows) row?._spliceCells(change, method);
     // Column definitions move as objects, so keys keep pointing at their column.
@@ -1217,6 +1219,7 @@ export class Worksheet {
       invalidArgument(method, 'inserts', inserts.length, 'The rows would move beyond row 1048576. Remove rows at the end of the sheet first.');
     }
     const formulas = this._checkFormulas(change, method);
+    this._checkMedia(change, method);
     const merges = this._takeMerges();
     const rows: (Row | undefined)[] = [];
     this._rows.forEach((row, i) => {
@@ -1348,6 +1351,49 @@ export class Worksheet {
     for (const [cell, text] of formulas) {
       const v = cell.value;
       if (v !== null && typeof v === 'object' && !(v instanceof Date)) cell.value = { ...(v as Record<string, unknown>), formula: text } as CellValue;
+    }
+    // Pictures move with their cells, as in a spreadsheet application (exceljs leaves them; X4-22).
+    // _checkMedia has made sure no corner is in a removed band.
+    for (const m of this._media) {
+      if (!m.range) continue;
+      for (const corner of [m.range.tl, m.range.br]) {
+        if (!corner) continue;
+        if (change.axis === 'row') corner.nativeRow = (movePosition(corner.nativeRow + 1, change) ?? corner.nativeRow + 1) - 1;
+        else corner.nativeCol = (movePosition(corner.nativeCol + 1, change) ?? corner.nativeCol + 1) - 1;
+      }
+    }
+  }
+
+  /**
+   * @internal Refuses a splice that tables or pictures cannot follow, before anything changes:
+   * tables do not move in @xlvane/exceljs (as in exceljs), so rows or columns may not be inserted
+   * or removed at or before a table's last row or column; a picture corner in a removed row or
+   * column has no place to go.
+   */
+  _checkMedia(change: SpliceChange, method: string): void {
+    for (const t of Object.values(this.tables)) {
+      const r = parseRangeArgs([t.table.tableRef]);
+      const end = change.axis === 'row' ? r.bottom : r.right;
+      if (change.at <= end && (change.count > 0 || change.inserts > 0)) {
+        throw new XlvError('XLV_E_NOT_SUPPORTED', `${method} would move or cut table "${t.name}" (${t.table.tableRef}), which does not follow splices in @xlvane/exceljs.`, {
+          location: { sheet: this.name },
+          hint: 'Splice below or to the right of the table, or move it: set table.ref and call table.commit() after the splice. xlvane insertRows/deleteRows move tables in files.',
+          details: { method, table: t.name },
+        });
+      }
+    }
+    for (const m of this._media) {
+      for (const corner of [m.range?.tl, m.range?.br]) {
+        if (!corner) continue;
+        const n = change.axis === 'row' ? corner.nativeRow + 1 : corner.nativeCol + 1;
+        if (movePosition(n, change) === null) {
+          throw new XlvError('XLV_E_NOT_SUPPORTED', `${method} would remove the ${change.axis === 'row' ? 'row' : 'column'} a picture's corner is in.`, {
+            location: { sheet: this.name },
+            hint: 'Move or remove the picture first, or remove rows or columns that no picture touches.',
+            details: { method },
+          });
+        }
+      }
     }
   }
 
@@ -1531,16 +1577,69 @@ export class Worksheet {
     this.sheetProtection = null;
   }
 
-  // ---- features not supported ------------------------------------------------------------------
+  // ---- tables and images (lib/doc/worksheet.js L724–807; D-D04) ------------------------------
 
-  addImage(): never {
-    return notSupported('Images (worksheet.addImage)');
+  /** Tables by name, as exceljs `worksheet.tables`. */
+  tables: Record<string, Table> = {};
+  /** @internal Pictures and the background, as exceljs `worksheet._media`. */
+  _media: SheetMedia[] = [];
+
+  /**
+   * Adds a table and writes its header, rows and totals into the cells (exceljs `addTable`).
+   * Names are unique in the workbook, ignoring case (`XLV_E_INVALID_TABLE`); exceljs replaces a
+   * table of the same name on this sheet.
+   */
+  addTable(model: TableProperties): Table {
+    const name = model?.name;
+    for (const ws of this.workbook.worksheets ?? [this]) {
+      for (const other of Object.values(ws.tables)) {
+        if (typeof name === 'string' && (other.name.toLowerCase() === name.toLowerCase() || other.displayName.toLowerCase() === name.toLowerCase())) {
+          throw new XlvError('XLV_E_INVALID_TABLE', `The workbook already has a table named "${other.name}".`, {
+            location: { sheet: this.name },
+            hint: 'Table names are unique in a workbook, ignoring case; choose another name or remove the other table with worksheet.removeTable().',
+            details: { name },
+          });
+        }
+      }
+    }
+    const table = new Table(this, model);
+    this.tables[model.name] = table;
+    return table;
   }
-  addBackgroundImage(): never {
-    return notSupported('Background images');
+
+  /** The table with this name, or `undefined`. */
+  getTable(name: string): Table | undefined {
+    return this.tables[name];
   }
-  addTable(): never {
-    return notSupported('Tables (worksheet.addTable)');
+
+  /** Removes the table; its cells are kept, as in exceljs. */
+  removeTable(name: string): void {
+    delete this.tables[name];
+  }
+
+  /** The tables of the sheet (an array; exceljs's typings say tuples). */
+  getTables(): Table[] {
+    return Object.values(this.tables);
+  }
+
+  /** Places an image of the workbook (`workbook.addImage`) on the sheet. */
+  addImage(imageId: number, range: ImageRangeInput): void {
+    this._media.push({ type: 'image', imageId, range: imageRange(this, range) });
+  }
+
+  /** The pictures of the sheet, as exceljs `getImages()`: `{ type, imageId, range }`. */
+  getImages(): SheetMedia[] {
+    return this._media.filter((m) => m.type === 'image');
+  }
+
+  /** Uses an image of the workbook as the sheet background. */
+  addBackgroundImage(imageId: number): void {
+    this._media.push({ type: 'background', imageId });
+  }
+
+  /** The id of the background image, or `undefined`. */
+  getBackgroundImageId(): number | undefined {
+    return this._media.find((m) => m.type === 'background')?.imageId;
   }
 }
 

@@ -1,8 +1,9 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
-import { XlvError, writeWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
+import { XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
 import { colorOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { DefinedNames, extractRanges } from './defined-names';
+import { imageBytes, imageOut, mediaOut, tableOut, type ImageData } from './media';
 import { notSupported, Worksheet } from './model';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
@@ -189,7 +190,7 @@ export class Workbook {
       ['manager', text(this.manager)],
     ];
     const properties = Object.fromEntries(entries.filter(([, v]) => v !== undefined));
-    return { properties, definedNames: this._definedNames.model };
+    return { properties, definedNames: this._definedNames.model, media: this._media };
   }
 
   /** @internal */
@@ -239,8 +240,23 @@ export class Workbook {
     for (const sheet of this.worksheets) iteratee(sheet, sheet.id);
   }
 
-  addImage(): never {
-    return notSupported('Images (workbook.addImage)');
+  /** @internal Images of the workbook, as exceljs `workbook.media`. */
+  _media: ImageData[] = [];
+
+  /**
+   * Adds an image (PNG, JPEG or GIF, recognised from its bytes) and returns its id for
+   * `worksheet.addImage` and `addBackgroundImage`, as exceljs `workbook.addImage`. Give `buffer`
+   * or `base64`; `filename` throws `XLV_E_NOT_SUPPORTED` (read the file and pass `buffer`).
+   */
+  addImage(image: ImageData): number {
+    imageBytes(image);
+    this._media.push({ ...image, type: 'image' });
+    return this._media.length - 1;
+  }
+
+  /** The image with this id, as exceljs `workbook.getImage`. */
+  getImage(id: number): ImageData | undefined {
+    return this._media[id];
   }
 
   /** @internal Replaces the sheets with those of a workbook read by xlvane. */
@@ -272,6 +288,9 @@ export class Workbook {
     // Print areas and titles become pageSetup in exceljs (workbook-xform.js L187; read from
     // Sheet.printArea / printTitles below); other built-in names are written by xlvane itself
     // (autofilter). The scope (localSheetId) is dropped, as in exceljs.
+    // Images: the media list as exceljs reads it, one entry per image part (X4-22).
+    this._media = mediaOut(read.images);
+    const mediaIds = new Map<WorkbookImage, number>(read.images.map((img, i) => [img, i]));
     this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet') continue;
@@ -325,6 +344,15 @@ export class Workbook {
       ws.pageSetup = pageSetupOut(s.pageSetup, s.printArea, s.printTitles);
       ws.headerFooter = headerFooterOut(s.headerFooter) as HeaderFooter;
       ws.rowBreaks = rowBreaksOut(s.pageBreaks.rows);
+      // Tables with their ref and rows (X4-21); pictures and the background (X4-22).
+      for (const def of s.tables) ws.tables[def.name] = tableOut(ws, def);
+      for (const img of s.images) {
+        const id = img.image === null ? undefined : mediaIds.get(img.image);
+        const media = id === undefined ? null : imageOut(ws, img, id);
+        if (media) ws._media.push(media);
+      }
+      const background = s.backgroundImage === null ? undefined : mediaIds.get(s.backgroundImage);
+      if (background !== undefined) ws._media.push({ type: 'background', imageId: background });
     }
   }
 }

@@ -23,7 +23,9 @@ import {
   type SheetViewOptions,
   type Workbook as XlvWorkbook,
   type WorkbookProperties,
+  XlvError,
 } from 'xlvane';
+import { imageAnchorIn, imageBytes, tableInput, type ImageData } from './media';
 import { columnLetter, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
 import { conditionalFormatsIn, dataValidationsIn, headerFooterIn, pageSetupIn, protectionIn, rowBreaksIn } from './sheet-rules';
 import type { Alignment, Borders, CellValue, Color, Comment, Fill, Font, Style, WorksheetView } from './types';
@@ -307,6 +309,8 @@ export function layoutIn(ws: Worksheet): SheetLayoutIn {
 export interface WorkbookMeta {
   readonly properties?: WorkbookProperties;
   readonly definedNames?: readonly { name: string; ranges: string[] }[];
+  /** The workbook's images, by exceljs image id (`workbook.addImage`). */
+  readonly media?: readonly ImageData[];
 }
 
 /** Builds an xlvane workbook from the exceljs model (D-503). */
@@ -316,6 +320,27 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
     // exceljs writes a workbook without sheets; xlvane requires one (D-505).
     notSupported('Writing a workbook without worksheets');
   }
+  const coreImages = new Map<number, number>();
+  const coreBytes: Uint8Array[] = [];
+  const imageId = (id: number): number => {
+    let core = coreImages.get(id);
+    if (core === undefined) {
+      const image = meta.media?.[id];
+      if (!image) {
+        throw new XlvError('XLV_E_INVALID_OPTION', `Image ${String(id)} was not added to this workbook.`, { hint: 'Use the id that workbook.addImage() returned.', details: { option: 'imageId', value: id } });
+      }
+      // Identical images under different ids become one core image, so a drawing has one
+      // relationship per image file (exceljs writes one per use, X4-22).
+      const bytes = imageBytes(image);
+      const same = coreBytes.findIndex((b) => b.length === bytes.length && b.every((x, i) => x === bytes[i]));
+      if (same === -1) {
+        core = book.addImage(bytes);
+        coreBytes[core] = bytes;
+      } else core = same;
+      coreImages.set(id, core);
+    }
+    return core;
+  };
   for (const ws of sheets) {
     const sheet = book.addSheet(ws.name, { state: ws.state });
     ws.columns.forEach((column) => {
@@ -364,6 +389,18 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
     if (rules.pageBreaks.length > 0) sheet.pageBreaks({ rows: rules.pageBreaks });
     if (rules.printArea) sheet.printArea(rules.printArea);
     if (rules.printTitles) sheet.printTitles(rules.printTitles);
+    // Tables (D-D04): the cells are written above; the core adds the header names, the totals
+    // formulas and the table part. exceljs writes the ref computed at the last validate/commit.
+    for (const table of ws.getTables()) sheet.addTable(tableInput(table));
+    // Pictures and the background: each exceljs image becomes one core image, stored once (D-D03).
+    for (const m of ws._media) {
+      const id = imageId(m.imageId);
+      if (m.type === 'background') sheet.background(id);
+      else if (m.range) {
+        const { anchor, hyperlink } = imageAnchorIn(ws, m.range);
+        sheet.addImage(id, anchor, hyperlink === undefined ? {} : { hyperlink });
+      }
+    }
   }
   // exceljs writes each name's ranges joined by commas, without a sheet scope (defined-name-xform.js L5).
   for (const d of meta.definedNames ?? []) book.defineName(d.name, d.ranges.join(','));

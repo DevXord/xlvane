@@ -2,6 +2,9 @@
 // exceljs module object it is given, so the scripts differ only in how they load exceljs.
 // Plain exceljs 4.4.0 usage, following the exceljs README.
 
+/** A 283×168 PNG (exceljs v4.4.0 spec/integration/data/image.png, MIT). */
+const PNG_BASE64 = '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';
+
 /** Writes report.xlsx in `dir` with the in-memory API and stream.xlsx.WorkbookWriter, then reads both back. */
 export async function run(ExcelJS, Workbook, dir) {
   const path = `${dir}/report.xlsx`;
@@ -88,6 +91,20 @@ export async function run(ExcelJS, Workbook, dir) {
   edits.spliceColumns(2, 0, ['c1', 'c2', 'c3']);
   edits.insertRows(2, [['a', 'b'], ['c', 'd']]);
   edits.getRow(1).splice(1, 1);
+  // A table with a totals row and pictures (exceljs README "Tables" and "Images").
+  const media = workbook.addWorksheet('Media');
+  media.addTable({
+    name: 'Fruit',
+    ref: 'B2',
+    totalsRow: true,
+    style: { theme: 'TableStyleLight9', showRowStripes: true },
+    columns: [{ name: 'Name', totalsRowLabel: 'Total' }, { name: 'Count', totalsRowFunction: 'sum' }],
+    rows: [['Apple', 3], ['Pear', 5]],
+  });
+  const logo = workbook.addImage({ base64: `data:image/png;base64,${PNG_BASE64}`, extension: 'png' });
+  media.addImage(logo, 'E2:G8');
+  media.addImage(logo, { tl: { col: 8, row: 1 }, ext: { width: 120, height: 60 } });
+  media.addBackgroundImage(logo);
   await workbook.xlsx.writeFile(path);
 
   // --- read it back ---
@@ -125,7 +142,15 @@ export async function run(ExcelJS, Workbook, dir) {
       if (cell.font?.bold) editBold.push(cell.address);
     });
   });
+  const readMedia = read.getWorksheet('Media');
+  const table = readMedia.getTables()[0];
+  const tableModel = table.model ?? table.table;
   return {
+    media: {
+      table: { name: tableModel.name, tableRef: tableModel.tableRef, headerRow: tableModel.headerRow, totalsRow: tableModel.totalsRow, columns: tableModel.columns.map((c) => c.name), b4: readMedia.getCell('B4').value, c5: readMedia.getCell('C5').value, b5: readMedia.getCell('B5').value },
+      images: readMedia.getImages().map((i) => ({ tl: [i.range.tl.nativeCol, i.range.tl.nativeRow], br: i.range.br ? [i.range.br.nativeCol, i.range.br.nativeRow] : null, ext: i.range.ext ?? null, bytes: read.getImage(i.imageId).buffer.length })),
+      background: read.getImage(readMedia.getBackgroundImageId())?.buffer.length ?? null,
+    },
     sheetNames: read.worksheets.map((w) => w.name),
     rowCount: ws.rowCount,
     rows,

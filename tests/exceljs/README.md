@@ -24,6 +24,8 @@ Paths checked at the tag (HTTP status of the raw URL):
 | 200 | `spec/unit/utils/col-cache.spec.js` |
 | 200 | `spec/integration/worksheet.spec.js`, `spec/integration/workbook/workbook.spec.js`, `spec/integration/workbook/styles.spec.js`, `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/integration/workbook-xlsx-reader.spec.js` |
 | 200 | `spec/utils/index.js`, `spec/utils/data/styles.json` |
+| 200 | `spec/integration/workbook/images.spec.js`, `spec/integration/data/image.png` (phase D) |
+| 404 | `spec/integration/workbook/tables.spec.js`, `spec/unit/doc/table.spec.js`, `spec/utils/test-table-sheet.js` (phase D: no table spec was found at the tag) |
 | 404 | `spec/unit/doc/worksheet.spec.js`, `spec/unit/doc/worksheet.dimensions.spec.js`, `spec/integration/workbook-xlsx-reader/workbook-xlsx-reader.spec.js`, `spec/integration/workbook/xlsx.spec.js`, `spec/integration/workbook/workbook-xlsx.spec.js`, `spec/utils/test-utils.js` |
 
 `range.spec.js` and `col-cache.spec.js` test internal classes (`Range`, `colCache`) that are
@@ -34,7 +36,9 @@ One fixture was copied in phase A1: `spec/integration/data/rich-text-sample.js` 
 written by Excel for Mac), decoded unchanged to
 `tests/corpus/excel/exceljs-rich-text-sample.xlsx`, and `spec/integration/data/rich-text-sample-a1.json`
 as `rich-text-sample-a1.json` (both listed in tests/corpus/LICENSES.md). No other binary
-fixtures (`spec/integration/data/*`) were copied; tests that read them are skipped.
+fixtures (`spec/integration/data/*`) were copied in phase A1; tests that read them are skipped.
+Phase D copied `spec/integration/data/image.png` unchanged to `tests/exceljs/data/image.png`
+(listed in tests/corpus/LICENSES.md).
 
 ## Files
 
@@ -50,8 +54,9 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 | `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` and `spec/utils/test-data-validation-sheet.js` (as `sheet-rules-sheets.ts`) | 27 (1 added) | 9 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 19 | 4 |
 | `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
-| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/utils/test-data-validation-sheet.js` and `spec/utils/test-conditional-formatting-sheet.js` (as `sheet-rules-sheets.ts`) | 16 (3 added) | 6 |
+| `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js`, `spec/utils/test-data-validation-sheet.js` and `spec/utils/test-conditional-formatting-sheet.js` (as `sheet-rules-sheets.ts`) | 16 (3 added) | 4 |
 | `workbook-reader.test.ts` | `spec/integration/workbook-xlsx-reader.spec.js` | 2 (added, not upstream) | 29 |
+| `tables-images.test.ts` | `spec/integration/workbook/images.spec.js` and the two background-image tests of `workbook-xlsx-writer.spec.js` | 16 (8 ported, 8 added) | 0 |
 
 "Passing" includes tests that expect `XLV_E_NOT_SUPPORTED` for an unsupported feature.
 
@@ -60,7 +65,12 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 Each skipped test names its reason in the title. The reasons are:
 
 - **Unsupported features** (they throw `XLV_E_NOT_SUPPORTED`; where cheap, one test checks that):
-  images, CSV, shared-formula filling, zip compression options and workbook views.
+  CSV, shared-formula filling, zip compression options and workbook views.
+- **Images** (phase D): the ported image tests pass the image as `buffer`, because @xlvane/exceljs
+  does not read files by name (`filename` throws `XLV_E_NOT_SUPPORTED`). One expectation differs
+  on purpose and is marked `xlvane:` (a sized picture with `editAs: 'absolute'` reads back as
+  `oneCell` without the tooltip). No table spec exists at the tag; `tables-images.test.ts` has
+  xlvane tests for tables.
 - **Data validation, conditional formatting and printing** (phase C1):
   `spec/utils/test-data-validation-sheet.js`, `spec/utils/test-conditional-formatting-sheet.js` and
   their data `spec/utils/data/data-validations.json` and `conditional-formatting.json` were

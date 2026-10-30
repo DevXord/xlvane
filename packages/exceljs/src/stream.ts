@@ -4,6 +4,7 @@
 import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
 import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, richTextOut, sheetRulesIn, styleIn, valueIn } from './convert';
 import type { DefinedNames } from './defined-names';
+import { imageAnchorIn, imageBytes, type ImageData } from './media';
 import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import { Workbook } from './workbook';
@@ -150,7 +151,24 @@ export class WorksheetWriter extends Worksheet {
       ...(filter ? { autoFilter: filter } : {}),
       merges: [...this._merges.values()].map((m) => `${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`),
       ...sheetRulesSpec(this),
+      ...this.mediaSpec(),
     };
+  }
+
+  /** The background (exceljs `addBackgroundImage`, worksheet-writer.js L474) and pictures, by image id. */
+  private mediaSpec(): Pick<StreamSheetSpec, 'images' | 'background'> {
+    const background = this.getBackgroundImageId();
+    const images = this.getImages().flatMap((m) => {
+      if (!m.range) return [];
+      const { anchor, hyperlink } = imageAnchorIn(this, m.range);
+      return [{ image: m.imageId, anchor, ...(hyperlink === undefined ? {} : { hyperlink }) }];
+    });
+    return { ...(background === undefined ? {} : { background }), ...(images.length > 0 ? { images } : {}) };
+  }
+
+  override addTable(): never {
+    // exceljs's streaming WorksheetWriter has no addTable (X4-21).
+    return notSupported('worksheet.addTable() on a streamed worksheet');
   }
 
   override mergeCells(...args: unknown[]): void {
@@ -284,6 +302,21 @@ export class WorkbookWriter {
     this.lastPrinted = options.lastPrinted;
   }
 
+  /**
+   * Adds an image (PNG, JPEG or GIF; `buffer` or `base64`) and returns its id, as exceljs
+   * `workbookWriter.addImage`. Images are written when the first sheet starts, so they must be
+   * added before the first row is committed.
+   */
+  addImage(image: ImageData): number {
+    if (this.done) throw notSupportedLater('workbookWriter.addImage() after rows were committed');
+    return this._book.addImage(image);
+  }
+
+  /** The image with this id. */
+  getImage(id: number): ImageData | undefined {
+    return this._book.getImage(id);
+  }
+
   /** Defined names, as exceljs `workbookWriter.definedNames`; set them before the first row is committed. */
   get definedNames(): DefinedNames {
     return this._book.definedNames;
@@ -301,7 +334,8 @@ export class WorkbookWriter {
     if (this.done) return this.done;
     const meta = this.meta();
     this.written = JSON.stringify(meta);
-    const spec: WriteWorkbookStreamOptions = { sheets: this.sheets, sharedStrings: this.options.useSharedStrings === true, ...meta };
+    const images = this._book._media.map((m) => imageBytes(m));
+    const spec: WriteWorkbookStreamOptions = { sheets: this.sheets, sharedStrings: this.options.useSharedStrings === true, ...meta, ...(images.length > 0 ? { images } : {}) };
     const options = this.options;
     if (options.filename !== undefined) {
       const filename = options.filename;

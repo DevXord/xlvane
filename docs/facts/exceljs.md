@@ -86,3 +86,25 @@ Read in exceljs 4.4.0 and confirmed by writing and reading workbooks in memory (
 - **x14 icon set** (`icon-set-ext-xform.js` L21–70, `cf-icon-ext-xform.js`): `custom="1"` is written when `icons` is given, and every icon's `iconId` is replaced by its position (`icon.iconId = i`, L33–36); on read `icons` is filled but `custom` is not (the model has no `custom` field), so `cf-rule-xform.js` `isPrimitive` treats a read custom rule as a main rule when it is written again.
 - **Merging on read** (`lib/xlsx/xform/sheet/worksheet-xform.js` L34–89): an extension rule with the `x14Id` of a main rule is merged into it (fields the main rule lacks); other extension rules are added to the last range read with the same reference, or form a new range.
 
+### X4-21 — Tables
+Read in exceljs 4.4.0 (`lib/doc/table.js`, `lib/doc/worksheet.js` L790–807, `lib/xlsx/xform/table/*`) and confirmed by writing and reading workbooks in memory (phase C/D research, 2026-10-30).
+- `addTable(model)` creates `new Table(worksheet, model)`, which runs `validate()` and `store()` (table.js L72–79), and stores it in `worksheet.tables[model.name]`, replacing a table of the same name; `getTable(name)` looks up by name; `removeTable(name)` deletes the entry and keeps the cells; `getTables()` is `Object.values(this.tables)` (worksheet.js L790–807).
+- `validate()` (table.js L129–178): defaults `headerRow` true, `totalsRow` false, style theme `TableStyleMedium2`, the four `show…` flags false; `tl` from `ref`; `autoFilterRef` covers the header and rows, `tableRef` adds the totals row; column 0 gets `totalsRowLabel` "Total", the others `totalsRowFunction` "none" and `totalsRowFormula = getFormula(column)`.
+- `getFormula` (table.js L81–107): `SUBTOTAL(n, name[column])` with average 101, countNums 102, count 103, max 104, min 105, stdDev 106, var 107, sum 109; `custom` returns `totalsRowFormula`.
+- `store()` (L180–234) writes the header names, the rows and the totals row (column 0 the label, others the formula with `totalsRowResult`), assigning the column `style` to each cell.
+- `commit()` (L295–335) clears the old area (from `_cache`) and stores again; `_cache` is never cleared, so a second change is committed against the first area. `addRow`, `removeRows`, `addColumn`, `removeColumns` and the `ref`, `headerRow`, `totalsRow` setters call `cacheState()`.
+- Accessors: `displayName` returns `this.table.displyName || this.table.name` and its setter is named `displayNamename`; `theme` reads and writes `style.name` (L407–433).
+- Writing: `tableColumn` gets a `dxfId` for a styled column (not in CT_TableColumn); `totalsRowFunction="custom"` without `totalsRowFormula`; `autoFilter` also without a header row; `hiddenButton="1"` unless `filterButton` is true (filter-column-xform.js L35–51).
+- Reading (table-xform.js L55–110, worksheet.js L915–921): the model has no `ref`, `rows` or worksheet, so `commit()` on a loaded table fails.
+- The streaming `WorksheetWriter` has no `addTable`.
+
+### X4-22 — Images
+Read in exceljs 4.4.0 and confirmed in memory (phase D research, 2026-10-30).
+- `workbook.addImage(image)` pushes `{ ...image, type: 'image' }` to `media` and returns its index (workbook.js L142–151); `getImage(id)` returns `media[id]`. When written, a `base64` value is cut after its first comma (xlsx.js L421–442); `filename` is read with `fs` at write time; the media part is `xl/media/image{n}.{extension}` with content type `image/{extension}`.
+- `worksheet.addImage(id, range)` pushes `new Image(worksheet, { type: 'image', imageId, range })`; `getImages()` filters them; `addBackgroundImage(id)` adds `{ type: 'background' }` and `getBackgroundImageId()` returns its id (worksheet.js L724–749).
+- `Image.model` setter (image.js L33–54): a range string `'B10:D14'` gives `tl` (col−1, row−1), `br` (right, bottom) as 0-based `nativeCol`/`nativeRow`, and `editAs` "oneCell"; an object keeps `tl`, `br`, `ext`, `editAs` and `hyperlinks`.
+- `Anchor` (anchor.js): `col`/`row` are `nativeCol + nativeColOff / colWidth`, with `colWidth` `floor(width × 10000)` for a custom column width and 640000 otherwise, `rowHeight` `floor(height × 10000)` or 180000; a string address uses the 1-based column and row plus the offset argument.
+- Writing: `twoCellAnchor` and `oneCellAnchor` both get `editAs` (default "oneCell"); `ext` is written in EMU at 9525 per pixel; `hlinkClick` gets a drawing relationship with `TargetMode="External"`; image relationships are reused only for consecutive uses of one image; every picture gets the same `a16:creationId`.
+- Reading: one media entry per `xl/media` file (`{ type, name, extension, buffer }`); `absoluteAnchor` is ignored; an absent `editAs` reads as "oneCell"; `ext` is read back in pixels.
+- The streaming `WorkbookWriter` has `addImage`; its worksheets have `addBackgroundImage` but no `addImage` (workbook-writer.js L125, worksheet-writer.js L474).
+

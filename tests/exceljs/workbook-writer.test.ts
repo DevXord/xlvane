@@ -240,8 +240,8 @@ describe('WorkbookWriter', () => {
         });
       });
     }
-    it.skip('with background image — not supported: images', () => {});
-    it.skip('with background image where worksheet is commited in advance — not supported: images', () => {});
+    // 'with background image' and '… where worksheet is commited in advance' are in
+    // tables-images.test.ts, with the image passed as a buffer (D-D04).
 
     it('with conditional formatting', async () => {
       await withTempDir(async (dir) => {

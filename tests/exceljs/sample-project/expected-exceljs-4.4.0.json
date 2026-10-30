@@ -1,7 +1,52 @@
 {
+  "media": {
+    "table": {
+      "name": "Fruit",
+      "tableRef": "B2:C5",
+      "headerRow": true,
+      "totalsRow": true,
+      "columns": [
+        "Name",
+        "Count"
+      ],
+      "b4": "Pear",
+      "c5": {
+        "formula": "SUBTOTAL(109,Fruit[Count])"
+      },
+      "b5": "Total"
+    },
+    "images": [
+      {
+        "tl": [
+          4,
+          1
+        ],
+        "br": [
+          7,
+          8
+        ],
+        "ext": null,
+        "bytes": 1672
+      },
+      {
+        "tl": [
+          8,
+          1
+        ],
+        "br": null,
+        "ext": {
+          "width": 120,
+          "height": 60
+        },
+        "bytes": 1672
+      }
+    ],
+    "background": 1672
+  },
   "sheetNames": [
     "Sales",
-    "Edits"
+    "Edits",
+    "Media"
   ],
   "rowCount": 12,
   "rows": [

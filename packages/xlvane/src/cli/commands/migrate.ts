@@ -19,8 +19,7 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
  */
 const PATTERNS: readonly { readonly api: string; readonly status: 'not supported' | 'partly'; readonly re: RegExp }[] = [
   { api: 'workbook.csv', status: 'not supported', re: /\.csv\s*\.\s*(?:read|write|readFile|writeFile|writeBuffer|load)\b/ },
-  { api: 'addImage', status: 'not supported', re: /\.addImage\s*\(/ },
-  { api: 'addTable', status: 'not supported', re: /\.addTable\s*\(/ },
+  { api: 'addImage({ filename })', status: 'not supported', re: /\.addImage\s*\(\s*\{\s*filename\b/ },
   { api: 'ModelContainer', status: 'not supported', re: /\bModelContainer\b/ },
   { api: 'deep import (exceljs/...)', status: 'not supported', re: /['"]exceljs\/[^'"]+['"]/ },
   { api: 'sharedFormula values', status: 'partly', re: /\bsharedFormula\s*:/ },

@@ -88,6 +88,6 @@ export async function writeFixtures(dir: string): Promise<void> {
   await writeFile(join(dir, 'sales.csv'), 'Region,Revenue,Date\r\nNorth,1200,2024-01-31\r\nSouth,980,2024-02-29\r\n');
   await mkdir(join(dir, 'my-app', 'src'), { recursive: true });
   await writeFile(join(dir, 'my-app', 'package.json'), '{\n    "name": "my-app",\n    "dependencies": {\n        "exceljs": "^4.4.0"\n    }\n}\n');
-  await writeFile(join(dir, 'my-app', 'src', 'report.js'), "const ExcelJS = require('exceljs');\nconst wb = new ExcelJS.Workbook();\nconst ws = wb.addWorksheet('S');\nws.addTable({ name: 'T' });\n");
+  await writeFile(join(dir, 'my-app', 'src', 'report.js'), "const ExcelJS = require('exceljs');\nconst wb = new ExcelJS.Workbook();\nconst ws = wb.addWorksheet('S');\nwb.addImage({ filename: 'logo.png', extension: 'png' });\n");
   await writeFile(join(dir, 'package.json'), '{\n  "name": "example",\n  "dependencies": { "exceljs": "4.4.0" }\n}\n');
 }

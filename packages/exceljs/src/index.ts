@@ -40,6 +40,7 @@ export type {
   WorksheetView,
 } from './types';
 export { DataValidations } from './sheet-rules';
+export { Anchor, Table, TableColumn, type ImageData, type ImageRangeInput, type TableColumnProperties, type TableProperties } from './media';
 
 /**
  * The streaming API, as `ExcelJS.stream`.
