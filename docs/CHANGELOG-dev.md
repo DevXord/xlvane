@@ -2,6 +2,24 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase 5: exceljs compatibility (2026-10-30)
+
+- **`@xlvane/exceljs`:** the commonly used exceljs 4.4.0 API on xlvane, for migration with one line (`"exceljs": "npm:@xlvane/exceljs@^1"`):
+  - `Workbook` with `xlsx.load/readFile/read/writeBuffer/writeFile/write`, worksheets, rows, columns, cells, values, styles, merges, frozen panes and autofilter (D-503 … D-505);
+  - `stream.xlsx.WorkbookWriter` and `WorkbookReader` (D-507);
+  - `ValueType`, `FormulaType`, `ErrorValue` with the exceljs numbers;
+  - default export, named exports and `require()` (Node.js 22.12+, `'module.exports'` export name, D-501);
+  - everything outside the subset throws `XLV_E_NOT_SUPPORTED` (new error code, docs/errors.md, D-502).
+- **`xlvane`:** `writeWorkbookStream` accepts `sheets` as an (async) iterable; the package parts are then written after the worksheets.
+- **Tests:**
+  - exceljs v4.4.0 specs ported to `tests/exceljs/` (96 passing in the ported and own files, 106 skipped with reasons: upstream binary fixtures or unsupported features; tests/exceljs/README.md);
+  - alias test: a sample project written for exceljs runs unchanged from ESM (default and named import) and CommonJS against the built package; its output matches exceljs 4.4.0 (cross-check) and LibreOffice opens the files;
+  - streaming writer layout rules; lazy sheets in `writeWorkbookStream`;
+  - TSDoc examples test covers `packages/exceljs`;
+  - in-process tests resolve `xlvane` to its sources (vitest alias), so the alias test can rebuild dist while they run.
+- **Docs:** docs/exceljs-compat.md (support table with sources), packages/exceljs/README.md, decisions D-501 … D-507, F-NODE-08, F-EXCELJS-01.
+- **Not done in this phase:** rich text and hyperlink writing, images, tables, conditional formatting, data validation, notes, defined names, protection, page setup, `insertRow`/`spliceRows`/`duplicateRow`, workbook CSV, document properties in the file.
+
 ## Phase 4: streaming (2026-10-30)
 
 - **Public API** (`xlvane`):

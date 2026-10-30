@@ -2,7 +2,7 @@
   "name": "@xlvane/exceljs",
   "version": "0.0.0",
   "private": true,
-  "description": "exceljs-compatible API on top of xlvane. Not implemented yet (phase 5 of docs/PLAN.md).",
+  "description": "The commonly used exceljs 4.4.0 API on top of xlvane, for switching with one line in package.json.",
   "keywords": [
     "xlsx",
     "excel",
@@ -27,7 +27,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=22"
+    "node": ">=22.12"
   },
   "scripts": {
     "build": "tsdown"

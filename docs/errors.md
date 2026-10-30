@@ -152,6 +152,10 @@ The text given to `fromJSON` is not valid JSON. The message contains the parser'
 The CSV text given to `fromCSV` has a quoted field that is never closed, text right after a closing quote, or bytes that are not valid UTF-8. `details.line` and `details.column` give the position (1-based; 0 for an encoding error).
 **Fix:** close the quoted field or double the quotes inside it (`""`), or convert the file to UTF-8.
 
+### XLV_E_NOT_SUPPORTED
+`@xlvane/exceljs` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, conditional formatting, data validation, notes, CSV, protection or `insertRow`. `details.feature` names it. The error is thrown where the feature is used, so nothing is dropped silently.
+**Fix:** see docs/exceljs-compat.md for the supported subset; remove the call, or keep using exceljs for files that need the feature.
+
 ## Warnings
 
 ### XLV_W_DIMENSION_MISMATCH

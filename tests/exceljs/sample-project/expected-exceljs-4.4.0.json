@@ -1,0 +1,170 @@
+{
+  "sheetNames": [
+    "Sales"
+  ],
+  "rowCount": 7,
+  "rows": [
+    [
+      1,
+      [
+        [
+          1,
+          "Id"
+        ],
+        [
+          2,
+          "Product"
+        ],
+        [
+          3,
+          "Amount"
+        ],
+        [
+          4,
+          "Date"
+        ]
+      ]
+    ],
+    [
+      2,
+      [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          "Tea"
+        ],
+        [
+          3,
+          12.5
+        ],
+        [
+          4,
+          "2024-01-31T00:00:00.000Z"
+        ]
+      ]
+    ],
+    [
+      3,
+      [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          "Coffee"
+        ],
+        [
+          3,
+          20
+        ],
+        [
+          4,
+          "2024-02-01T00:00:00.000Z"
+        ]
+      ]
+    ],
+    [
+      4,
+      [
+        [
+          1,
+          3
+        ],
+        [
+          2,
+          "Cocoa"
+        ],
+        [
+          3,
+          7.25
+        ],
+        [
+          4,
+          "2024-02-02T00:00:00.000Z"
+        ]
+      ]
+    ],
+    [
+      5,
+      [
+        [
+          1,
+          "Total"
+        ],
+        [
+          3,
+          {
+            "formula": "SUM(C2:C4)",
+            "result": 39.75
+          }
+        ]
+      ]
+    ],
+    [
+      7,
+      [
+        [
+          1,
+          "Merged note"
+        ],
+        [
+          2,
+          "Merged note"
+        ],
+        [
+          3,
+          "Merged note"
+        ],
+        [
+          4,
+          "Merged note"
+        ]
+      ]
+    ]
+  ],
+  "b2": "Tea",
+  "c5": {
+    "formula": "SUM(C2:C4)",
+    "result": 39.75
+  },
+  "c2numFmt": "#,##0.00",
+  "a1font": {
+    "bold": true
+  },
+  "a1fill": {
+    "type": "pattern",
+    "pattern": "solid",
+    "fgColor": {
+      "argb": "FFD9E1F2"
+    }
+  },
+  "a1borderBottom": "thin",
+  "b2alignment": {
+    "horizontal": "center",
+    "wrapText": true
+  },
+  "merged": {
+    "a7": "Merged note",
+    "d7isMerged": true,
+    "d7master": "A7"
+  },
+  "frozen": {
+    "state": "frozen",
+    "ySplit": 1
+  },
+  "autoFilter": "A1:D4",
+  "widthB": 24,
+  "valueTypes": {
+    "number": 2,
+    "formula": 6,
+    "c5type": 6
+  },
+  "streamed": {
+    "rowCount": 1001,
+    "last": 1000000
+  }
+}

@@ -1,9 +1,10 @@
 // CLAUDE.md: "Every public symbol has TSDoc with a description and a working example; a test
 // checks that the examples compile." This test does both:
-// 1. Every ```ts block inside a /** ... */ comment in packages/xlvane/src is written to its own
-//    module in a temporary project, where `xlvane` and `xlvane/node` resolve to the sources, and
+// 1. Every ```ts block inside a /** ... */ comment in packages/xlvane/src and packages/exceljs/src
+//    is written to its own module in a temporary project, where `xlvane`, `xlvane/node` and
+//    `@xlvane/exceljs` resolve to the sources, and
 //    the project is type-checked with one run of the repository's `tsc` (TypeScript 7 CLI).
-// 2. Every symbol exported from the public entry points (src/index.ts, src/node.ts) has a TSDoc
+// 2. Every symbol exported from the public entry points (ENTRY_POINTS) has a TSDoc
 //    comment with an @example at its declaration.
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
@@ -13,7 +14,13 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SRC = join(ROOT, 'packages/xlvane/src');
-const ENTRY_POINTS = ['index.ts', 'node.ts'];
+const EXCELJS_SRC = join(ROOT, 'packages/exceljs/src');
+/** Entry points whose exports must all carry an @example: [source dir, entry, label]. */
+const ENTRY_POINTS: readonly (readonly [string, string, string])[] = [
+  [SRC, 'index.ts', 'packages/xlvane/src'],
+  [SRC, 'node.ts', 'packages/xlvane/src'],
+  [EXCELJS_SRC, 'index.ts', 'packages/exceljs/src'],
+];
 
 interface Example {
   /** Source file relative to the repository root. */
@@ -65,7 +72,7 @@ function extractExamples(file: string, text: string): Example[] {
 
 async function allExamples(): Promise<Example[]> {
   const out: Example[] = [];
-  for (const path of await sourceFiles(SRC)) {
+  for (const path of [...(await sourceFiles(SRC)), ...(await sourceFiles(EXCELJS_SRC))]) {
     out.push(...extractExamples(path.slice(ROOT.length).replace(/\\/g, '/'), await readFile(path, 'utf8')));
   }
   return out;
@@ -105,6 +112,7 @@ describe('TSDoc examples', () => {
           paths: {
             xlvane: [join(SRC, 'index.ts')],
             'xlvane/node': [join(SRC, 'node.ts')],
+            '@xlvane/exceljs': [join(EXCELJS_SRC, 'index.ts')],
           },
         },
         files: [join(ROOT, 'types/node-modules.d.ts')],
@@ -168,11 +176,11 @@ function hasExample(text: string, name: string): boolean {
 describe('public symbols', () => {
   it('have TSDoc with an @example', async () => {
     const missing: string[] = [];
-    for (const entry of ENTRY_POINTS) {
-      const names = exportedNames(await readFile(join(SRC, entry), 'utf8'), entry);
+    for (const [dir, entry, label] of ENTRY_POINTS) {
+      const names = exportedNames(await readFile(join(dir, entry), 'utf8'), entry);
       for (const [name, module] of names) {
-        const text = await readFile(join(SRC, module), 'utf8');
-        if (!hasExample(text, name)) missing.push(`${name} (packages/xlvane/src/${module})`);
+        const text = await readFile(join(dir, module), 'utf8');
+        if (!hasExample(text, name)) missing.push(`${name} (${label}/${module})`);
       }
     }
     expect(missing, `Public symbols without an @example:\n${missing.join('\n')}`).toEqual([]);

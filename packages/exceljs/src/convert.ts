@@ -1,0 +1,232 @@
+// Conversion between the exceljs model and xlvane (docs/decisions.md D-503, D-504).
+import { createWorkbook, readWorkbook, type CellInput, type CellStyle, type Color as XlvColor, type NewWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
+import { columnLetter, notSupported, ValueType, type Cell, type Worksheet } from './model';
+import type { Alignment, Borders, CellValue, Color, Fill, Font, Style } from './types';
+
+// ---------------------------------------------------------------------------------------------
+// exceljs → xlvane
+
+function colorIn(c: Partial<Color> | undefined, where: string): XlvColor | undefined {
+  if (c === undefined || c === null) return undefined;
+  if (typeof c.argb === 'string') return c.argb;
+  if (typeof c.theme === 'number') return c.tint ? { theme: c.theme, tint: c.tint } : { theme: c.theme };
+  if (typeof c.indexed === 'number') return { indexed: c.indexed };
+  if (Object.keys(c).length === 0) return undefined;
+  return notSupported(`The colour ${JSON.stringify(c).slice(0, 60)} in ${where}`);
+}
+
+function fontIn(f: Partial<Font> | undefined): CellStyle['font'] {
+  if (!f) return undefined;
+  if (f.vertAlign) notSupported('Superscript and subscript fonts (font.vertAlign)');
+  if (f.outline) notSupported('Outline fonts (font.outline)');
+  const out: Record<string, unknown> = {};
+  if (f.name !== undefined) out['name'] = f.name;
+  if (f.size !== undefined) out['size'] = f.size;
+  if (f.bold) out['bold'] = true;
+  if (f.italic) out['italic'] = true;
+  if (f.strike) out['strike'] = true;
+  if (f.underline && f.underline !== 'none') out['underline'] = f.underline === true ? 'single' : f.underline;
+  const color = colorIn(f.color, 'font.color');
+  if (color !== undefined) out['color'] = color;
+  // family, scheme and charset describe the font for substitution; they are not written (D-504).
+  return out as CellStyle['font'];
+}
+
+function fillIn(f: Fill | undefined): CellStyle['fill'] {
+  if (!f) return undefined;
+  if (f.type === 'gradient') return notSupported('Gradient fills');
+  if (f.type !== 'pattern') return notSupported(`A fill of type "${String(f.type)}"`);
+  if (!f.pattern || f.pattern === 'none') return undefined;
+  const out: Record<string, unknown> = { pattern: f.pattern };
+  const fg = colorIn(f.fgColor, 'fill.fgColor');
+  if (fg !== undefined) out['fgColor'] = fg;
+  const bg = colorIn(f.bgColor, 'fill.bgColor');
+  if (bg !== undefined) out['bgColor'] = bg;
+  return out as CellStyle['fill'];
+}
+
+function borderIn(b: Partial<Borders> | undefined): CellStyle['border'] {
+  if (!b) return undefined;
+  if (b.diagonal && (b.diagonal.style || b.diagonal.up || b.diagonal.down)) notSupported('Diagonal borders');
+  const out: Record<string, unknown> = {};
+  for (const edge of ['top', 'right', 'bottom', 'left'] as const) {
+    const e = b[edge];
+    if (!e || !e.style) continue;
+    const color = colorIn(e.color, `border.${edge}.color`);
+    out[edge] = color === undefined ? { style: e.style } : { style: e.style, color };
+  }
+  return Object.keys(out).length > 0 ? (out as CellStyle['border']) : undefined;
+}
+
+function alignmentIn(a: Partial<Alignment> | undefined): CellStyle['alignment'] {
+  if (!a) return undefined;
+  if (a.shrinkToFit) notSupported('alignment.shrinkToFit');
+  if (a.readingOrder) notSupported('alignment.readingOrder');
+  const out: Record<string, unknown> = {};
+  if (a.horizontal) out['horizontal'] = a.horizontal;
+  // exceljs calls the centre "middle" (index.d.ts Alignment L282); SpreadsheetML calls it "center".
+  if (a.vertical) out['vertical'] = a.vertical === 'middle' ? 'center' : a.vertical;
+  if (a.wrapText) out['wrapText'] = true;
+  if (a.indent) out['indent'] = a.indent;
+  if (a.textRotation !== undefined) out['textRotation'] = a.textRotation === 'vertical' ? 255 : a.textRotation;
+  return Object.keys(out).length > 0 ? (out as CellStyle['alignment']) : undefined;
+}
+
+/** Converts an exceljs style to an xlvane CellStyle (unsupported parts throw XLV_E_NOT_SUPPORTED). */
+export function styleIn(s: Style): CellStyle {
+  if (s.protection !== undefined && s.protection !== null) notSupported('Cell protection');
+  const out: Record<string, unknown> = {};
+  const font = fontIn(s.font);
+  if (font && Object.keys(font).length > 0) out['font'] = font;
+  const fill = fillIn(s.fill);
+  if (fill) out['fill'] = fill;
+  const border = borderIn(s.border);
+  if (border) out['border'] = border;
+  const alignment = alignmentIn(s.alignment);
+  if (alignment) out['alignment'] = alignment;
+  if (s.numFmt && s.numFmt !== 'General') out['numFmt'] = s.numFmt;
+  return out as CellStyle;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null && !(v instanceof Date) && !Array.isArray(v);
+}
+
+/** Converts a cell value for the writer. */
+export function valueIn(cell: Cell): CellInput {
+  const v: CellValue = cell.value;
+  if (v === null || v === undefined) return null;
+  if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v instanceof Date) return v;
+  if (isRecord(v)) {
+    if ('sharedFormula' in v) return notSupported('Writing { sharedFormula } values (write the formula text with { formula })');
+    if (typeof v['formula'] === 'string') {
+      const r = v['result'];
+      if (r === undefined || r === null) return { formula: v['formula'] };
+      if (isRecord(r) && typeof r['error'] === 'string') return { formula: v['formula'], result: { error: r['error'] as '#N/A' } };
+      return { formula: v['formula'], result: r as number };
+    }
+    if (typeof v['error'] === 'string') return { error: v['error'] as '#N/A' };
+  }
+  return notSupported(`The value of cell ${cell.address}`);
+}
+
+/** Builds an xlvane workbook from the exceljs model (D-503). */
+export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean): NewWorkbook {
+  const book = createWorkbook(date1904 ? { dateSystem: '1904' } : undefined);
+  if (sheets.length === 0) {
+    // exceljs writes a workbook without sheets; xlvane requires one (D-505).
+    notSupported('Writing a workbook without worksheets');
+  }
+  for (const ws of sheets) {
+    const sheet = book.addSheet(ws.name, { state: ws.state });
+    ws.columns.forEach((column) => {
+      if (column.width !== undefined || column.hidden) {
+        sheet.column(column.number, { ...(column.width === undefined ? {} : { width: column.width }), ...(column.hidden ? { hidden: true } : {}) });
+      }
+    });
+    const styleCache = new Map<Style, CellStyle>();
+    const styleOf = (s: Style): CellStyle => {
+      let c = styleCache.get(s);
+      if (!c) {
+        c = styleIn(s);
+        styleCache.set(s, c);
+      }
+      return c;
+    };
+    ws._rows.forEach((row) => {
+      if (!row) return;
+      if (row.height !== undefined || row.hidden) {
+        sheet.row(row.number, { ...(row.height === undefined ? {} : { height: row.height }), ...(row.hidden ? { hidden: true } : {}) });
+      }
+      row._cells.forEach((cell) => {
+        if (!cell) return;
+        const style = styleOf(cell.style);
+        const value = cell.type === ValueType.Merge ? null : valueIn(cell);
+        if (value === null && Object.keys(style).length === 0) return;
+        sheet.set(cell.address, value, style);
+      });
+    });
+    for (const m of ws._merges.values()) sheet.merge(`${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`);
+    const frozen = ws.views.find((v) => v.state === 'frozen');
+    if (frozen) sheet.freeze({ rows: frozen.ySplit ?? 0, cols: frozen.xSplit ?? 0 });
+    else if (ws.views.some((v) => v.state === 'split')) notSupported('Split worksheet views');
+    const filter = autoFilterRange(ws.autoFilter);
+    if (filter) sheet.autoFilter(filter);
+  }
+  return book;
+}
+
+function refOf(x: string | { row: number; column: number }): string {
+  return typeof x === 'string' ? x : `${columnLetter(x.column)}${String(x.row)}`;
+}
+
+/** The autofilter range in A1 form (exceljs accepts a string or { from, to }). */
+export function autoFilterRange(f: Worksheet['autoFilter']): string | null {
+  if (!f) return null;
+  if (typeof f === 'string') return f;
+  return `${refOf(f.from)}:${refOf(f.to)}`;
+}
+
+// ---------------------------------------------------------------------------------------------
+// xlvane → exceljs
+
+function colorOut(c: XlvColor | undefined): Partial<Color> | undefined {
+  if (c === undefined) return undefined;
+  if (typeof c === 'string') return { argb: c };
+  if ('theme' in c) return c.tint === undefined ? { theme: c.theme } : { theme: c.theme, tint: c.tint };
+  if ('indexed' in c) return { indexed: c.indexed };
+  return undefined;
+}
+
+/** Converts a style read by xlvane to the exceljs format. */
+export function styleOut(s: CellStyle, numFmt: string | null): Style {
+  const out: Style = {};
+  if (numFmt) out.numFmt = numFmt;
+  if (s.font) {
+    const f = s.font;
+    const font: Partial<Font> = {};
+    if (f.name !== undefined) font.name = f.name;
+    if (f.size !== undefined) font.size = f.size;
+    if (f.bold) font.bold = true;
+    if (f.italic) font.italic = true;
+    if (f.strike) font.strike = true;
+    if (f.underline) font.underline = f.underline === true ? 'single' : f.underline;
+    const color = colorOut(f.color);
+    if (color) font.color = color;
+    out.font = font;
+  }
+  if (s.fill && 'pattern' in s.fill) {
+    const fill: Fill = { type: 'pattern', pattern: s.fill.pattern };
+    const fg = colorOut(s.fill.fgColor);
+    if (fg) fill.fgColor = fg;
+    const bg = colorOut(s.fill.bgColor);
+    if (bg) fill.bgColor = bg;
+    out.fill = fill;
+  }
+  if (s.border) {
+    const border: Partial<Borders> = {};
+    for (const edge of ['top', 'right', 'bottom', 'left'] as const) {
+      const e = s.border[edge];
+      if (!e) continue;
+      const color = colorOut(e.color);
+      border[edge] = color ? { style: e.style, color } : { style: e.style };
+    }
+    out.border = border;
+  }
+  if (s.alignment) {
+    const a = s.alignment;
+    const alignment: Partial<Alignment> = {};
+    if (a.horizontal && a.horizontal !== 'general') alignment.horizontal = a.horizontal;
+    if (a.vertical) alignment.vertical = a.vertical === 'center' ? 'middle' : a.vertical;
+    if (a.wrapText) alignment.wrapText = true;
+    if (a.indent) alignment.indent = a.indent;
+    if (a.textRotation !== undefined) alignment.textRotation = a.textRotation === 255 ? 'vertical' : a.textRotation;
+    out.alignment = alignment;
+  }
+  return out;
+}
+
+/** Reads a file with xlvane; returns the read model for `fillFromRead`. */
+export function readBytes(bytes: Uint8Array): XlvWorkbook {
+  return readWorkbook(bytes);
+}

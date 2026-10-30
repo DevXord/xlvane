@@ -286,6 +286,29 @@ At the maintainer's decision the benchmark libraries live in `bench/package.json
 ### D-408 Size budget raised to 125 kB (2026-10-30)
 Streaming brought the bundle to 101.4 kB gzip. The maintainer chose to raise the budget to 125 kB and keep the build unminified.
 
+## Decisions: phase 5 (exceljs compatibility)
+
+### D-501 Module shape of `@xlvane/exceljs` (2026-10-30)
+The package is ESM-only like `xlvane`. `src/index.ts` exports named classes and enums, a default export `ExcelJS` (a frozen object with `Workbook`, `ModelContainer`, `stream`, `ValueType`, `FormulaType`, `ErrorValue`, the members of the exceljs 4.4.0 CommonJS export `lib/exceljs.nodejs.js`), and the same object under the string export name `'module.exports'`, so that `require('exceljs')` returns it directly (F-NODE-08). tsdown 0.23.4 and TypeScript 7.0.2 accept the string export name; checked by building and by `tests/exceljs/alias.test.ts` (ESM default import, ESM named import, CommonJS `require`). `engines.node` is `>=22.12` at the maintainer's decision; `xlvane` stays at `>=22`.
+
+### D-502 Unsupported API throws `XLV_E_NOT_SUPPORTED` (2026-10-30)
+At the maintainer's decision every method, option or value outside the supported subset throws `XlvError('XLV_E_NOT_SUPPORTED')` naming the feature, with a hint linking to docs/exceljs-compat.md. Values (hyperlink, rich text, arbitrary objects) are rejected when assigned, not when written, so the stack points at the caller. Style parts that change how a cell looks (gradient fills, diagonal borders, `vertAlign`, `outline`, `shrinkToFit`, `readingOrder`, protection) throw; font `family`, `scheme` and `charset` only describe substitution and are ignored.
+
+### D-503 In-memory model, converted on write (2026-10-30)
+`Workbook`, `Worksheet`, `Row`, `Column` and `Cell` are an in-memory model that follows exceljs 4.4.0 behaviour (`lib/doc/*.js`): sparse 1-based `row.values`, `rowCount` as the last row number, column keys, merged cells that delegate to their master, styles inherited from rows and columns when a cell is created. Writing converts the model into an xlvane `NewWorkbook` (`convert.ts`); merged non-master cells keep their style but no value.
+
+### D-504 Style mapping (2026-10-30)
+exceljs `vertical: 'middle'` is SpreadsheetML `center`; `textRotation: 'vertical'` is 255. Fills read back as `{ type: 'pattern', pattern, fgColor }`, with `bgColor` only when the file has one, matching what exceljs 4.4.0 reads (checked by the cross-check sample).
+
+### D-505 Reading into the model (2026-10-30)
+`xlsx.load`/`readFile`/`read` read with xlvane (its limits for untrusted files apply) and fill the model: formulas as `{ formula, result }`, errors as `{ error }`, shared formulas translated to ordinary formulas, rich text as plain text, frozen panes as `views: [{ state: 'frozen', xSplit?, ySplit? }]`, the autofilter as an A1 string. A workbook with no worksheets cannot be written (xlvane needs one) and throws.
+
+### D-506 Ported exceljs specs (2026-10-30)
+Specs from exceljs tag v4.4.0 (commit d911329c, MIT) are ported to Vitest in `tests/exceljs/` with their attribution header; sources, HTTP status of each path and the reasons for skipped tests are in tests/exceljs/README.md. Tests that need upstream binary fixtures or unsupported features are skipped with the reason. A cross-check runs the same sample project against exceljs 4.4.0 (from `bench/node_modules`, when installed) and stores its output in `expected-exceljs-4.4.0.json`; our output must match it.
+
+### D-507 Streaming writer and reader (2026-10-30)
+`stream.xlsx.WorkbookWriter` feeds `writeWorkbookStream` through an async queue; committed rows are converted and dropped. To allow worksheets to be added while writing, `writeWorkbookStream` now accepts `sheets` as an (async) iterable and then writes the package parts ([Content_Types].xml, relationships, workbook, styles, shared strings) after the worksheets (allowed: ZIP entries may be in any order, Z-19; LibreOffice opens the result, checked in alias.test.ts). The worksheet layout is written before its rows, so it must be set before the first commit; a later change throws `XLV_E_NOT_SUPPORTED` (exceljs writes `autoFilter` and merges at the end). `stream.xlsx.WorkbookReader` iterates `openWorkbookStream`.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -320,6 +343,12 @@ See docs/facts/sml-write.md.
 
 ### F-NODE-07 process.memoryUsage and resourceUsage
 `process.memoryUsage()` returns `rss`, `heapTotal`, `heapUsed`, `external`, `arrayBuffers` (bytes); `process.resourceUsage().maxRSS` is in kibibytes. Source: https://github.com/nodejs/node/blob/v22.x/doc/api/process.md, checked 2026-10-30. Used by tests and the benchmark only.
+
+### F-NODE-08 require(esm) and the `'module.exports'` export name
+`require()` of an ES module returns its namespace object (the default export at `.default`); from v22.12.0 / v23.0.0 a module can export a value under the string name `'module.exports'`, which `require()` then returns directly. Source: Node.js `doc/api/modules.md` (v22.x), recorded as W-05 in docs/facts/zip-xml-web.md. Verified with the built `@xlvane/exceljs` on Node.js 26 (`tests/exceljs/alias.test.ts`, `check:pkg`).
+
+### F-EXCELJS-01 exceljs 4.4.0 behaviour
+The exceljs behaviours copied by `@xlvane/exceljs` are taken from the exceljs 4.4.0 source installed in `bench/node_modules/exceljs` (`lib/doc/enums.js` for `ValueType`, `FormulaType`, `ErrorValue`; `lib/exceljs.nodejs.js` for the CommonJS export; `lib/doc/worksheet.js` L134–173 for sheet-name rules; `lib/doc/cell.js`, `row.js`, `column.js`; `lib/stream/xlsx/*`) and from its specs at tag v4.4.0. Each behaviour lists its source file and line in docs/exceljs-compat.md.
 
 ### F-TOOL-11 Vitest execArgv
 Vitest 5 option `test.execArgv`: "Pass additional arguments to `node` process when spawning the worker" (default `[]`). Source: `node_modules/vitest/dist/chunks/plugin.d.C8mmycim.d.ts` (Vitest 5.0.5), checked 2026-10-30.

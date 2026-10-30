@@ -116,6 +116,37 @@ describe('writeWorkbookStream', () => {
   });
 });
 
+describe('writeWorkbookStream with sheets added while writing', () => {
+  it('reads sheet specs lazily and writes the package parts after them', async () => {
+    let second = false;
+    async function* sheets() {
+      yield { name: 'First', state: 'hidden' as const, rows: [['a']] };
+      second = true;
+      yield { name: 'Second', rows: (function* () {
+        yield [1];
+        yield [2];
+      })() };
+    }
+    const bytes = await collect(writeWorkbookStream({ sheets: sheets() }));
+    expect(second).toBe(true);
+    const wb = readWorkbook(bytes);
+    expect(wb.sheets.map((s) => [s.name, s.state])).toEqual([
+      ['First', 'hidden'],
+      ['Second', 'visible'],
+    ]);
+    expect(wb.getSheet('Second').cell('A2')?.value).toBe(2);
+    const names = Object.keys(unzipSync(bytes));
+    expect(names.indexOf('[Content_Types].xml')).toBeGreaterThan(names.indexOf('xl/worksheets/sheet2.xml'));
+  });
+
+  it('errors the stream when no sheet is visible', async () => {
+    async function* sheets() {
+      yield { name: 'Only', state: 'hidden' as const, rows: [] };
+    }
+    await expectXlvErrorAsync(() => collect(writeWorkbookStream({ sheets: sheets() })), 'XLV_E_INVALID_INPUT');
+  });
+});
+
 describe('writeTableStream', () => {
   it('writes objects as a report table', async () => {
     async function* objects(): AsyncGenerator<Record<string, unknown>> {

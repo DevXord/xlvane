@@ -91,7 +91,11 @@ export interface StreamSheetSpec {
  * ```
  */
 export interface WriteWorkbookStreamOptions {
-  readonly sheets: readonly StreamSheetSpec[];
+  /**
+   * The sheets. An array is checked before the stream starts; an (async) iterable is read lazily,
+   * so sheets can be added while earlier ones are being written.
+   */
+  readonly sheets: readonly StreamSheetSpec[] | Iterable<StreamSheetSpec> | AsyncIterable<StreamSheetSpec>;
   /** Default `"1900"`. */
   readonly dateSystem?: DateSystem;
   /**
@@ -156,10 +160,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   }
   const shared: boolean = sharedOption;
   const specs = o.get('sheets');
-  if (!Array.isArray(specs) || specs.length === 0) {
+  const dynamic = !Array.isArray(specs);
+  if (dynamic ? !isIterable(specs) : (specs as unknown[]).length === 0) {
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
-  const prepared: PreparedSheet[] = specs.map((raw: unknown, i) => {
+  const prepare = (raw: unknown, i: number): PreparedSheet => {
     const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'autoFilter', 'merges', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
     const sheet = book.addSheet(s.get('name') as string, state === undefined ? undefined : { state: state as SheetState });
@@ -189,10 +194,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       throw new XlvError('XLV_E_TABLE_INVALID', `sheets[${String(i)}].rows is not an iterable.`, { hint: 'Pass an array, a generator or an async iterable of rows.', details: { row: 0 } });
     }
     return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null };
-  });
-  if (!prepared.some((p) => p.sheet.state === 'visible')) {
-    throw new XlvError('XLV_E_INVALID_INPUT', 'All sheets of the workbook are hidden.', { hint: 'A workbook needs at least one visible sheet.' });
-  }
+  };
+  const noVisibleSheet = (): XlvError =>
+    new XlvError('XLV_E_INVALID_INPUT', 'All sheets of the workbook are hidden.', { hint: 'A workbook needs at least one visible sheet.' });
+  const prepared: PreparedSheet[] = dynamic ? [] : (specs as unknown[]).map(prepare);
+  if (!dynamic && !prepared.some((p) => p.sheet.state === 'visible')) throw noVisibleSheet();
 
   const strings = shared ? createSharedStrings() : null;
   const styleCache = new WeakMap<object, NormalizedStyle>();
@@ -285,15 +291,8 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     yield encoder.encode(buffer);
   }
 
-  const active = prepared.findIndex((p) => p.sheet.state === 'visible');
-  async function* entries(): AsyncGenerator<ZipStreamEntry> {
-    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared)) };
-    yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml()) };
-    for (let i = 0; i < prepared.length; i++) {
-      const p = prepared[i];
-      if (p) yield { name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: sheetData(p, i === active) };
-    }
-    // Generated only now: the filter ranges and the styles are known once every row is written.
+  /** The parts written after the sheets: filter ranges and styles are known only then. */
+  function* closingParts(): Generator<ZipStreamEntry> {
     yield {
       name: 'xl/workbook.xml',
       data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem)),
@@ -301,6 +300,35 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
     yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true).xml) };
     if (strings) yield { name: 'xl/sharedStrings.xml', data: encoder.encode(strings.xml()) };
+  }
+  async function* entries(): AsyncGenerator<ZipStreamEntry> {
+    if (!dynamic) {
+      const active = prepared.findIndex((p) => p.sheet.state === 'visible');
+      yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared)) };
+      yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml()) };
+      for (let i = 0; i < prepared.length; i++) {
+        const p = prepared[i];
+        if (p) yield { name: `xl/worksheets/sheet${String(i + 1)}.xml`, data: sheetData(p, i === active) };
+      }
+      yield* closingParts();
+      return;
+    }
+    // Sheets given as an iterable are prepared when they are reached, so they can be added while
+    // earlier sheets are written; the package-level parts follow the sheets (D-409). ZIP entries
+    // may be stored in any order (APPNOTE §4.3.3, Z-19).
+    let selected = false;
+    for await (const raw of iterate(specs as Iterable<unknown>)) {
+      const p = prepare(raw, prepared.length);
+      prepared.push(p);
+      const select = !selected && p.sheet.state === 'visible';
+      if (select) selected = true;
+      yield { name: `xl/worksheets/sheet${String(prepared.length)}.xml`, data: sheetData(p, select) };
+    }
+    if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
+    if (!selected) throw noVisibleSheet();
+    yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared)) };
+    yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml()) };
+    yield* closingParts();
   }
   return createZipStream(entries());
 }
