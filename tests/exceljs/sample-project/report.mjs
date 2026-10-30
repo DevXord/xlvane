@@ -12,9 +12,11 @@ export async function run(ExcelJS, Workbook, dir) {
   workbook.creator = 'Sample';
   workbook.lastModifiedBy = 'Sample editor';
   workbook.title = 'Sales report';
+  workbook.company = 'Sample Ltd';
+  workbook.manager = 'Sample manager';
   workbook.created = new Date(Date.UTC(2024, 0, 1, 9, 30));
   workbook.modified = new Date(Date.UTC(2024, 1, 2, 17, 0));
-  const sheet = workbook.addWorksheet('Sales', { views: [{ state: 'frozen', xSplit: 0, ySplit: 1 }] });
+  const sheet = workbook.addWorksheet('Sales', { views: [{ state: 'frozen', xSplit: 0, ySplit: 1, zoomScale: 120 }], properties: { tabColor: { argb: 'FF00B050' } } });
   sheet.columns = [
     { header: 'Id', key: 'id', width: 8 },
     { header: 'Product', key: 'product', width: 24 },
@@ -43,6 +45,9 @@ export async function run(ExcelJS, Workbook, dir) {
   sheet.getCell('F2').value = 'later';
   sheet.getCell('C2').name = 'firstAmount';
   workbook.definedNames.add('Sales!$C$2:$C$4', 'amounts');
+  sheet.getCell('A10').value = { text: 'Price list', hyperlink: 'https://example.com/prices?year=2024&q=1' };
+  sheet.getCell('A11').value = { text: 'Mail us', hyperlink: 'mailto:sales@example.com' };
+  sheet.getCell('A12').value = { text: 'Go to total', hyperlink: '#Sales!C5' };
   await workbook.xlsx.writeFile(path);
 
   // --- read it back ---
@@ -95,5 +100,15 @@ export async function run(ExcelJS, Workbook, dir) {
     d2numFmt: ws.getCell('D2').numFmt ?? null,
     columnF: { font: ws.getColumn(6).font ?? null, width: ws.getColumn(6).width ?? null, f2font: ws.getCell('F2').font ?? null },
     names: { model: read.definedNames.model, c2: ws.getCell('C2').names, c3: ws.getCell('C3').name ?? null },
+    company: { company: read.company ?? null, manager: read.manager ?? null },
+    tabColor: ws.properties.tabColor ?? null,
+    view: { state: view.state ?? null, zoomScale: view.zoomScale ?? null, showGridLines: view.showGridLines ?? null, topLeftCell: view.topLeftCell ?? null },
+    links: {
+      a10: ws.getCell('A10').value,
+      a10type: ws.getCell('A10').type,
+      a10text: ws.getCell('A10').text,
+      a11hyperlink: ws.getCell('A11').hyperlink ?? null,
+      a12: ws.getCell('A12').value,
+    },
   };
 }

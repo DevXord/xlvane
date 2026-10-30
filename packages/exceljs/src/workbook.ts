@@ -1,7 +1,7 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { XlvError, writeWorkbook, type Workbook as XlvWorkbook } from 'xlvane';
-import { readBytes, richTextOut, styleOut, toNewWorkbook, type WorkbookMeta } from './convert';
+import { colorOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { DefinedNames, extractRanges } from './defined-names';
 import { notSupported, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
@@ -183,6 +183,9 @@ export class Workbook {
       ['created', this.created ?? new Date()],
       ['modified', this.modified ?? new Date()],
       ['lastPrinted', this.lastPrinted],
+      // app-xform.js L31–32: Company is always written (`company || ''`), Manager when defined (X4-13).
+      ['company', this.company || ''],
+      ['manager', text(this.manager)],
     ];
     const properties = Object.fromEntries(entries.filter(([, v]) => v !== undefined));
     return { properties, definedNames: this._definedNames.model };
@@ -262,9 +265,9 @@ export class Workbook {
     // cp:revision is read as an integer (core-xform.js L22, IntegerXform).
     this.revision = p.revision === undefined ? undefined : Number.parseInt(p.revision, 10);
     this.contentStatus = p.contentStatus;
-    // company and manager come from docProps/app.xml, which xlvane does not read yet.
-    this.company = undefined;
-    this.manager = undefined;
+    // xlsx.js L348–349: company and manager come from docProps/app.xml (X4-13).
+    this.company = p.company;
+    this.manager = p.manager;
     // Print areas and titles become pageSetup in exceljs (workbook-xform.js L187), which is not
     // supported; other built-in names are written by xlvane itself (autofilter). The scope
     // (localSheetId) is dropped, as in exceljs.
@@ -288,6 +291,15 @@ export class Workbook {
         if (cell.formula && cell.formula.text !== null) {
           value = plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number };
         } else value = cell.richText ? richTextOut(cell.richText) : plain;
+        if (cell.hyperlink) {
+          // cell-xform.js L477–489: a linked cell becomes { text, hyperlink }, its text being the
+          // value or the formula result (X4-10). xlvane also reads links stored only as a
+          // location, and the tooltip, which exceljs drops.
+          const h = cell.hyperlink;
+          const hyperlink = h.target !== null ? (h.location !== null ? `${h.target}#${h.location}` : h.target) : `#${h.location ?? ''}`;
+          const text = cell.richText ? richTextOut(cell.richText) : plain;
+          value = h.tooltip ? { text, hyperlink, tooltip: h.tooltip } : { text, hyperlink };
+        }
         target.value = value;
         target.style = styleOut(cell.style, cell.numFmt);
         const info = s.rowInfo(cell.row);
@@ -298,12 +310,10 @@ export class Workbook {
         }
       }
       for (const m of s.merges) if (m.includes(':')) ws.mergeCells(m);
-      if (s.freeze) {
-        const view: Record<string, unknown> = { state: 'frozen' };
-        if (s.freeze.cols > 0) view['xSplit'] = s.freeze.cols;
-        if (s.freeze.rows > 0) view['ySplit'] = s.freeze.rows;
-        ws.views = [view];
-      }
+      // exceljs reads one view per sheetView, with every setting (sheet-view-xform.js; X4-11).
+      ws.views = [viewOut(s.view, s.freeze)];
+      const tab = colorOut(s.tabColor ?? undefined);
+      if (tab) ws.properties['tabColor'] = tab;
       if (s.autoFilter) ws.autoFilter = s.autoFilter;
     }
   }

@@ -2,7 +2,7 @@
   "sheetNames": [
     "Sales"
   ],
-  "rowCount": 9,
+  "rowCount": 12,
   "rows": [
     [
       1,
@@ -158,6 +158,42 @@
           }
         ]
       ]
+    ],
+    [
+      10,
+      [
+        [
+          1,
+          {
+            "text": "Price list",
+            "hyperlink": "https://example.com/prices?year=2024&q=1"
+          }
+        ]
+      ]
+    ],
+    [
+      11,
+      [
+        [
+          1,
+          {
+            "text": "Mail us",
+            "hyperlink": "mailto:sales@example.com"
+          }
+        ]
+      ]
+    ],
+    [
+      12,
+      [
+        [
+          1,
+          {
+            "text": "Go to total",
+            "hyperlink": "#Sales!C5"
+          }
+        ]
+      ]
     ]
   ],
   "b2": "Tea",
@@ -266,5 +302,31 @@
       "amounts"
     ],
     "c3": "amounts"
+  },
+  "company": {
+    "company": "Sample Ltd",
+    "manager": "Sample manager"
+  },
+  "tabColor": {
+    "argb": "FF00B050"
+  },
+  "view": {
+    "state": "frozen",
+    "zoomScale": 120,
+    "showGridLines": true,
+    "topLeftCell": "A2"
+  },
+  "links": {
+    "a10": {
+      "text": "Price list",
+      "hyperlink": "https://example.com/prices?year=2024&q=1"
+    },
+    "a10type": 5,
+    "a10text": "Price list",
+    "a11hyperlink": "mailto:sales@example.com",
+    "a12": {
+      "text": "Go to total",
+      "hyperlink": "#Sales!C5"
+    }
   }
 }

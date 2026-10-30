@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, writeWorkbookStream, type CellInput, type CellStyle, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, richTextOut, styleIn, valueIn } from './convert';
+import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, richTextOut, styleIn, valueIn } from './convert';
 import type { DefinedNames } from './defined-names';
 import { columnLetter, notSupported, Row, ValueType, Worksheet } from './model';
 import type { CellValue, WorksheetOptions } from './types';
@@ -138,14 +138,15 @@ export class WorksheetWriter extends Worksheet {
   }
 
   private currentLayout(): Omit<StreamSheetSpec, 'rows'> {
-    const frozen = this.views.find((v) => v.state === 'frozen');
-    if (!frozen && this.views.some((v) => v.state === 'split')) notSupported('Split worksheet views');
+    const layout = layoutIn(this);
     const filter = autoFilterRange(this.autoFilter);
     return {
       name: this.name,
       state: this.state,
       columns: this.columns.map((c) => columnIn(c, this.writer._useStyles)),
-      ...(frozen ? { freeze: { rows: frozen.ySplit ?? 0, cols: frozen.xSplit ?? 0 } } : {}),
+      ...(layout.freeze ? { freeze: layout.freeze } : {}),
+      ...(Object.keys(layout.view).length > 0 ? { view: layout.view } : {}),
+      ...(layout.tabColor !== undefined ? { tabColor: layout.tabColor } : {}),
       ...(filter ? { autoFilter: filter } : {}),
       merges: [...this._merges.values()].map((m) => `${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`),
     };
@@ -176,6 +177,11 @@ export class WorksheetWriter extends Worksheet {
     let styled = false;
     row._cells.forEach((cell, i) => {
       if (!cell) return;
+      // TODO(phase A2, notes fork): links are set per cell while rows are committed, but the core
+      // streaming writer takes a sheet's links up front (sheets[].hyperlinks). Wire them through
+      // per-row links of StreamRowInput once the core has them; until then a link would be lost,
+      // so it is refused rather than dropped.
+      if (cell.type === ValueType.Hyperlink) notSupported(`Hyperlinks in streamed worksheets (cell ${cell.address})`);
       values[i] = cell.type === ValueType.Merge ? null : (valueIn(cell) as CellValue);
       // Without useStyles exceljs still gives dates format 14 (styles-xform.js Mock, L498; X4-02).
       if (this.writer._useStyles) styles[i] = cellStyleIn(cell, styleIn(cell.style));

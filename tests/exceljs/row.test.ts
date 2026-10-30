@@ -2,8 +2,7 @@
 // changes: Mocha/Chai → Vitest; the internal sheet mock (`createSheetMock`, `addColumn`) is
 // replaced by a real worksheet and `ws.getColumn(n).key = …`; `row.hasValues`, `row.dimensions`
 // and `row.model` (internal model) assertions are skipped; `row.splice` tests expect
-// XLV_E_NOT_SUPPORTED (row splicing is not supported); the hyperlink in D1 is replaced by a string
-// (hyperlink values throw XLV_E_NOT_SUPPORTED).
+// XLV_E_NOT_SUPPORTED (row splicing is not supported).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
 
@@ -29,15 +28,14 @@ describe('Row', () => {
     expect(b1.address).toBe('B1');
     expect(b1.type).toBe(ExcelJS.ValueType.Null);
     b1.value = 'Hello, World!';
-    // Change for xlvane: D1 holds a string; hyperlink values are not supported.
     const d1 = row1.getCell(4);
-    d1.value = 'www.hyperlink.com';
+    d1.value = { hyperlink: 'http://www.hyperlink.com', text: 'www.hyperlink.com' };
 
     // Sparse array: index 0 and 3 are holes, as in exceljs.
     const values: unknown[] = [];
     values[1] = 5;
     values[2] = 'Hello, World!';
-    values[4] = 'www.hyperlink.com';
+    values[4] = { hyperlink: 'http://www.hyperlink.com', text: 'www.hyperlink.com' };
     expect(row1.values).toEqual(values);
 
     let count = 0;

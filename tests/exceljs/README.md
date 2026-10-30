@@ -1,7 +1,7 @@
 # Ported exceljs specs
 
-The tests in this directory (except `alias.test.ts`, `cross-check.test.ts` and their helpers) are
-ported from the exceljs test suite. They check that `@xlvane/exceljs` behaves like exceljs for the
+The tests in this directory (except `alias.test.ts`, `cross-check.test.ts`, `stream-layout.test.ts`,
+`hyperlinks-views.test.ts` and their helpers) are ported from the exceljs test suite. They check that `@xlvane/exceljs` behaves like exceljs for the
 supported subset described in [docs/exceljs-compat.md](../../docs/exceljs-compat.md).
 
 ## Source
@@ -40,14 +40,14 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 
 | Test file | Source | Passing | Skipped |
 |---|---|---|---|
-| `workbook.test.ts` | `spec/unit/doc/workbook.spec.js` | 9 | 1 |
+| `workbook.test.ts` | `spec/unit/doc/workbook.spec.js` | 8 | 1 |
 | `row.test.ts` | `spec/unit/doc/row.spec.js` | 5 | 9 |
 | `cell.test.ts` | `spec/unit/doc/cell.spec.js` | 5 | 7 |
 | `column.test.ts` | `spec/unit/doc/column.spec.js` | 6 | 3 |
 | `worksheet-merge.test.ts` | `spec/unit/doc/worksheet.merge.spec.js` | 5 | 0 |
 | `worksheet-values.test.ts` | `spec/unit/doc/worksheet.values.spec.js` | 16 | 12 |
 | `defined-names.test.ts` | `spec/unit/doc/defined-names.spec.js` | 8 (2 added) | 0 |
-| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` | 16 | 19 |
+| `integration-workbook.test.ts` | `spec/integration/workbook/workbook.spec.js` | 19 (1 added) | 17 |
 | `integration-worksheet.test.ts` | `spec/integration/worksheet.spec.js` | 15 | 8 |
 | `integration-styles.test.ts` | `spec/integration/workbook/styles.spec.js` | 2 | 3 |
 | `workbook-writer.test.ts` | `spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js` | 13 (3 added) | 9 |
@@ -60,10 +60,9 @@ fixtures (`spec/integration/data/*`) were copied; tests that read them are skipp
 Each skipped test names its reason in the title. The reasons are:
 
 - **Unsupported features** (they throw `XLV_E_NOT_SUPPORTED`; where cheap, one test checks that):
-  hyperlink values, notes, images, conditional formatting, data validation, CSV,
-  `company`/`manager` (docProps/app.xml), print settings, `insertRow`, `spliceRows`, `spliceColumns`, `duplicateRow`,
-  `addRow(values, 'i')`, shared-formula filling, zip compression options, split panes and
-  workbook views.
+  notes, images, conditional formatting, data validation, CSV, print settings, `insertRow`,
+  `spliceRows`, `spliceColumns`, `duplicateRow`, `addRow(values, 'i')`, shared-formula filling,
+  zip compression options and workbook views.
 - **Internal API**: tests of internal classes and fields (`new Cell`, `Column.toModel`,
   `row.model`, `_upgradeToHyperlink`, `effectiveType`, sheet mocks) are skipped or rewritten
   with the public API.
@@ -72,9 +71,9 @@ Each skipped test names its reason in the title. The reasons are:
   skipped.
 - **What xlvane does not keep after writing and reading a file**: font `family` and `outline`,
   gradient fills, cells that have a style but no value, row default styles
-  (docs/decisions.md D-206), sheet views other than the first frozen pane, rich-text run
-  `family`/`scheme`, and 6-digit `argb` colours (read back with alpha `FF`). Round-trip tests use
-  the values xlvane keeps (`styles.roundTripFonts`, a pattern fill, one frozen view) and do not
-  read back row styles.
+  (docs/decisions.md D-206), sheet views other than the first, `topLeftCell` of a split view and
+  `activeCell`, rich-text run `family`/`scheme`, and 6-digit `argb` colours (read back with alpha
+  `FF`). Round-trip tests use the values xlvane keeps (`styles.roundTripFonts`, a pattern fill,
+  one view per worksheet) and do not read back row styles.
 - **Messages**: worksheet-name errors are checked with `toThrow()`, without the exceljs message
   text.

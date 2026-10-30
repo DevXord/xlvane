@@ -221,15 +221,21 @@ export interface CellFormulaValue {
 }
 
 /**
- * A cell value, including rich text (`{ richText: [{ text, font? }] }`). Hyperlink and
- * shared-string values are not supported here (`XLV_E_NOT_SUPPORTED` when set); shared formulas
- * are written as ordinary formulas.
+ * A cell value, including rich text (`{ richText: [{ text, font? }] }`) and hyperlinks
+ * (`{ text, hyperlink, tooltip? }`; a `hyperlink` starting with `#` is a place in the workbook).
+ * Shared-string values are not supported (`XLV_E_NOT_SUPPORTED` when set); shared formulas are
+ * written as ordinary formulas.
  *
  * @example
  * ```ts
  * import type { CellValue } from '@xlvane/exceljs';
  *
- * const values: CellValue[] = [1, 'text', true, new Date(), null, { formula: 'A1*2' }, { error: '#N/A' }, { richText: [{ font: { bold: true }, text: 'Bold' }, { text: ' plain' }] }];
+ * const values: CellValue[] = [
+ *   1, 'text', true, new Date(), null, { formula: 'A1*2' }, { error: '#N/A' },
+ *   { richText: [{ font: { bold: true }, text: 'Bold' }, { text: ' plain' }] },
+ *   { text: 'Docs', hyperlink: 'https://example.com', tooltip: 'Open the docs' },
+ *   { text: 'Totals', hyperlink: "#'Sheet 2'!A1" },
+ * ];
  * ```
  */
 export type CellValue = null | undefined | number | string | boolean | Date | CellErrorValue | CellFormulaValue | Record<string, unknown>;
@@ -253,8 +259,10 @@ export interface ColumnDefn {
 }
 
 /**
- * A worksheet view. Only frozen panes (`state: "frozen"`) are written; other view properties
- * such as `zoomScale` are kept in memory and not written.
+ * A worksheet view. The first view of a worksheet is written: frozen panes (`xSplit`/`ySplit`
+ * in columns and rows) or a split window (`state: "split"`, `xSplit`/`ySplit` in 1/20 point),
+ * `zoomScale`, `showGridLines`, `showRowColHeaders`, `rightToLeft` and `style`. `topLeftCell`,
+ * `activeCell`, `activePane`, `showRuler` and `zoomScaleNormal` are not written.
  *
  * @example
  * ```ts
@@ -267,7 +275,7 @@ export interface WorksheetView {
   state?: 'normal' | 'frozen' | 'split';
   xSplit?: number;
   ySplit?: number;
-  topLeftCell?: string;
+  topLeftCell?: string | undefined;
   activeCell?: string;
   showGridLines?: boolean;
   zoomScale?: number;

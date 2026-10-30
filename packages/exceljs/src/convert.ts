@@ -7,13 +7,17 @@ import {
   type Color as XlvColor,
   type ColumnOptions,
   type FontStyle,
+  type FrozenPanes,
+  type HyperlinkTarget,
   type NewWorkbook,
   type RichTextRun,
+  type SheetView,
+  type SheetViewOptions,
   type Workbook as XlvWorkbook,
   type WorkbookProperties,
 } from 'xlvane';
 import { columnLetter, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
-import type { Alignment, Borders, CellValue, Color, Fill, Font, Style } from './types';
+import type { Alignment, Borders, CellValue, Color, Fill, Font, Style, WorksheetView } from './types';
 
 /**
  * Format codes exceljs writes as built-in ids (lib/xlsx/defaultnumformats.js, used by
@@ -185,12 +189,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !(v instanceof Date) && !Array.isArray(v);
 }
 
-/** Converts a cell value for the writer. */
+/** Converts a cell value for the writer; a `{ text, hyperlink }` value gives its text (the link is {@link linkIn}). */
 export function valueIn(cell: Cell): CellInput {
   const v: CellValue = cell.value;
   if (v === null || v === undefined) return null;
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v instanceof Date) return v;
   if (isRecord(v)) {
+    if (cell.type === ValueType.Hyperlink) {
+      // exceljs stores the link text in the shared string table (cell-xform.js L80–83; X4-10).
+      const t = v['text'];
+      if (isRecord(t) && Array.isArray(t['richText'])) return { richText: runsIn(t['richText'] as unknown[], cell.address) };
+      return String(t);
+    }
     if ('sharedFormula' in v) return notSupported('Writing { sharedFormula } values (write the formula text with { formula })');
     if (typeof v['formula'] === 'string') {
       const r = v['result'];
@@ -202,6 +212,52 @@ export function valueIn(cell: Cell): CellInput {
     if (Array.isArray(v['richText'])) return { richText: runsIn(v['richText'] as unknown[], cell.address) };
   }
   return notSupported(`The value of cell ${cell.address}`);
+}
+
+/**
+ * The link of a `{ text, hyperlink, tooltip }` value for `NewSheet.link`, or `null`. A target that
+ * starts with `#` is a place in the workbook and is written as `location` without a relationship;
+ * any other target is an external `url`. exceljs writes every target as an external relationship
+ * (worksheet-xform.js L158–167); xlvane follows the specification instead (D-A08, X4-10).
+ */
+export function linkIn(cell: Cell): HyperlinkTarget | null {
+  if (cell.type !== ValueType.Hyperlink) return null;
+  const v = cell.value as Record<string, unknown>;
+  const target = String(v['hyperlink']);
+  const tooltip = v['tooltip'] ? { tooltip: String(v['tooltip']) } : {};
+  return target.startsWith('#') ? { location: target.slice(1), ...tooltip } : { url: target, ...tooltip };
+}
+
+/** Sheet layout from an exceljs view and `properties.tabColor`, applied to a new xlvane sheet. */
+export interface SheetLayoutIn {
+  readonly freeze: FrozenPanes | null;
+  readonly view: SheetViewOptions;
+  readonly tabColor: XlvColor | undefined;
+}
+
+/**
+ * The first exceljs view and the tab colour (X4-11, X4-12). xlvane writes one view: frozen panes
+ * (`xSplit`/`ySplit` in columns and rows) or a split window (`xSplit`/`ySplit` in 1/20 point, as
+ * exceljs), plus `zoomScale`, `showGridLines`, `showRowColHeaders`, `rightToLeft` and `style`.
+ * `topLeftCell`, `activeCell` and `activePane` are not written; xlvane writes the default
+ * top-left cell and active pane.
+ */
+export function layoutIn(ws: Worksheet): SheetLayoutIn {
+  const v = ws.views[0];
+  const view: { -readonly [K in keyof SheetViewOptions]: SheetViewOptions[K] } = {};
+  let freeze: FrozenPanes | null = null;
+  if (v) {
+    if (typeof v.zoomScale === 'number' && v.zoomScale !== 100) view.zoom = v.zoomScale;
+    if (v.showGridLines === false) view.showGridLines = false;
+    if (v['showRowColHeaders'] === false) view.showRowColHeaders = false;
+    if (v['rightToLeft'] === true) view.rightToLeft = true;
+    const style = v['style'];
+    if (style === 'pageBreakPreview' || style === 'pageLayout') view.layout = style;
+    if (v.state === 'frozen') freeze = { rows: v.ySplit ?? 0, cols: v.xSplit ?? 0 };
+    else if (v.state === 'split' && ((v.xSplit ?? 0) > 0 || (v.ySplit ?? 0) > 0)) view.split = { x: (v.xSplit ?? 0) / 20, y: (v.ySplit ?? 0) / 20 };
+  }
+  const tab = ws.properties['tabColor'] as Partial<Color> | undefined;
+  return { freeze, view, tabColor: colorIn(tab, `the tab colour of worksheet "${ws.name}"`) };
 }
 
 /** Workbook-level data written with the sheets: document properties and defined names. */
@@ -243,12 +299,15 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         const value = cell.type === ValueType.Merge ? null : valueIn(cell);
         if (value === null && Object.keys(style).length === 0) return;
         sheet.set(cell.address, value, style);
+        const link = cell.type === ValueType.Merge ? null : linkIn(cell);
+        if (link) sheet.link(cell.address, link);
       });
     });
     for (const m of ws._merges.values()) sheet.merge(`${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`);
-    const frozen = ws.views.find((v) => v.state === 'frozen');
-    if (frozen) sheet.freeze({ rows: frozen.ySplit ?? 0, cols: frozen.xSplit ?? 0 });
-    else if (ws.views.some((v) => v.state === 'split')) notSupported('Split worksheet views');
+    const layout = layoutIn(ws);
+    if (layout.freeze) sheet.freeze(layout.freeze);
+    if (Object.keys(layout.view).length > 0) sheet.view(layout.view);
+    if (layout.tabColor !== undefined) sheet.tabColor(layout.tabColor);
     const filter = autoFilterRange(ws.autoFilter);
     if (filter) sheet.autoFilter(filter);
   }
@@ -271,7 +330,8 @@ export function autoFilterRange(f: Worksheet['autoFilter']): string | null {
 // ---------------------------------------------------------------------------------------------
 // xlvane → exceljs
 
-function colorOut(c: XlvColor | undefined): Partial<Color> | undefined {
+/** Converts a colour read by xlvane to the exceljs format. */
+export function colorOut(c: XlvColor | undefined): Partial<Color> | undefined {
   if (c === undefined) return undefined;
   if (typeof c === 'string') return { argb: c };
   if ('theme' in c) return c.tint === undefined ? { theme: c.theme } : { theme: c.theme, tint: c.tint };
@@ -290,6 +350,34 @@ function fontOut(f: FontStyle): Partial<Font> {
   const color = colorOut(f.color);
   if (color) font.color = color;
   return font;
+}
+
+/**
+ * An exceljs view from the view read by xlvane, shaped as exceljs reads one (sheet-view-xform.js
+ * L145–192; X4-11): `showRuler` and `zoomScaleNormal` are not read by xlvane and get their
+ * defaults; a frozen view gets the default `topLeftCell`; a split view gets `xSplit`/`ySplit` in
+ * 1/20 point and the active pane xlvane writes.
+ */
+export function viewOut(view: SheetView, freeze: FrozenPanes | null): WorksheetView {
+  const common: WorksheetView = {
+    workbookViewId: 0,
+    rightToLeft: view.rightToLeft,
+    showRuler: true,
+    showRowColHeaders: view.showRowColHeaders,
+    showGridLines: view.showGridLines,
+    zoomScale: view.zoom,
+    zoomScaleNormal: 100,
+  };
+  const style = view.layout === 'normal' ? {} : { style: view.layout };
+  if (freeze) {
+    return { ...common, state: 'frozen', xSplit: freeze.cols, ySplit: freeze.rows, topLeftCell: `${columnLetter(freeze.cols + 1)}${String(freeze.rows + 1)}`, ...style };
+  }
+  if (view.split) {
+    const { x, y } = view.split;
+    const activePane = x > 0 && y > 0 ? 'bottomRight' : y > 0 ? 'bottomLeft' : 'topRight';
+    return { ...common, state: 'split', xSplit: Math.round(x * 20), ySplit: Math.round(y * 20), topLeftCell: undefined, activePane, ...style };
+  }
+  return { ...common, state: 'normal', ...style };
 }
 
 /** Converts rich text runs read by xlvane to the exceljs `{ richText }` value. */

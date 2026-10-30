@@ -470,6 +470,9 @@ Part 1 §18.3.1.13 says `col@style` applies to cells not yet allocated (second l
 ### D-A11 Size budget raised to 175 kB (2026-10-30)
 Phases A1 and A2 (rich text, properties, defined names, hyperlinks, views, app.xml) brought the library to 122.9 kB gzip of the 125 kB budget, with notes and phases B–E still to come. The maintainer chose to raise the library budget to 175 kB, kept unminified; the CLI budget stays 40 kB.
 
+### D-A13 The exceljs layer for phase A2 (2026-10-30)
+@xlvane/exceljs reads and writes hyperlink values, worksheet tab colours, the first worksheet view and `company`/`manager`, following exceljs 4.4.0 (X4-10 … X4-13), except where exceljs writes data the specification does not describe: a `hyperlink` starting with `#` is written as a location in the workbook, not as an external relationship (D-A08), and tooltips and location-only links are read back (exceljs drops them). Views follow exceljs's shape on read; one view per worksheet is written, without `topLeftCell` of a split, `activeCell` or `activePane`; a split is given in 1/20 point as in exceljs. `company` is always written and `manager` when defined, as exceljs does, but xlvane does not claim `Application`/`AppVersion` (D-A10). The streaming `WorkbookWriter` fixes tab colour and view at the first commit (D-507). All differences are listed in docs/exceljs-compat.md.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await

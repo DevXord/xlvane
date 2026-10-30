@@ -2,8 +2,7 @@
 // 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest; sparse array literals written out
 // explicitly; column `defn` and `headers` assertions removed (multi-row headers are not
 // supported); the Splice tests (`spliceRows`, `spliceColumns`) expect XLV_E_NOT_SUPPORTED;
-// `getSheetValues` and `actualColumnCount` are skipped (outside the supported subset); hyperlink
-// values (F1, E1) are removed because they throw XLV_E_NOT_SUPPORTED when assigned.
+// `getSheetValues` and `actualColumnCount` are skipped (outside the supported subset).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
 
@@ -24,6 +23,7 @@ describe('Worksheet', () => {
       ws.getCell('D1').value = 5;
       ws.getCell('D1').value = now;
       ws.getCell('E1').value = `${['Hello', 'World'].join(', ')}!`;
+      ws.getCell('F1').value = { text: 'www.google.com', hyperlink: 'http://www.google.com' };
       ws.getCell('A2').value = { formula: 'A1', result: 7 };
       ws.getCell('B2').value = { formula: 'CONCATENATE("Hello", ", ", "World!")', result: 'Hello, World!' };
       ws.getCell('C2').value = { formula: 'D1', result: now };
@@ -33,6 +33,8 @@ describe('Worksheet', () => {
       expect(ws.getCell('C1').value).toBe(3.14);
       expect(ws.getCell('D1').value).toBe(now);
       expect(ws.getCell('E1').value).toBe('Hello, World!');
+      expect(ws.getCell('F1').value.text).toBe('www.google.com');
+      expect(ws.getCell('F1').value.hyperlink).toBe('http://www.google.com');
       expect(ws.getCell('A2').value.formula).toBe('A1');
       expect(ws.getCell('A2').value.result).toBe(7);
       expect(ws.getCell('B2').value.formula).toBe('CONCATENATE("Hello", ", ", "World!")');
@@ -58,6 +60,7 @@ describe('Worksheet', () => {
       ws.getCell('B1').value = 'Hello, World!';
       ws.getCell('C1').value = 3.14;
       ws.getCell('D1').value = new Date();
+      ws.getCell('E1').value = { text: 'www.google.com', hyperlink: 'http://www.google.com' };
       ws.getCell('A2').value = { formula: 'A1', result: 7 };
       ws.getCell('B2').value = { formula: 'CONCATENATE("Hello", ", ", "World!")', result: 'Hello, World!' };
       ws.getCell('C2').value = { formula: 'D1', result: new Date() };
@@ -65,6 +68,7 @@ describe('Worksheet', () => {
       expect(ws.getCell('B1').type).toBe(ExcelJS.ValueType.String);
       expect(ws.getCell('C1').type).toBe(ExcelJS.ValueType.Number);
       expect(ws.getCell('D1').type).toBe(ExcelJS.ValueType.Date);
+      expect(ws.getCell('E1').type).toBe(ExcelJS.ValueType.Hyperlink);
       expect(ws.getCell('A2').type).toBe(ExcelJS.ValueType.Formula);
       expect(ws.getCell('B2').type).toBe(ExcelJS.ValueType.Formula);
       expect(ws.getCell('C2').type).toBe(ExcelJS.ValueType.Formula);

@@ -2,11 +2,12 @@
 // 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await; files go to a temporary
 // directory (`roundTrip`); the merge-styles test uses a pattern fill and a font without
 // `family`/`outline` (gradient fills and those font attributes are not written by xlvane);
-// the frozen-panes test writes and checks one view (only the first sheet view is read);
+// the frozen-panes and split-panes tests write one view per worksheet (only the first sheet view
+// is written) and expect `topLeftCell` of a split view and `activeCell` to be absent (not
+// written by xlvane);
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
 // unsupported features (createTestBook fixtures, compression options, print titles,
-// company/manager (docProps/app.xml), data validation, CSV, duplicateRow, spliceRows, split
-// panes, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; `equalDate`
+// data validation, CSV, duplicateRow, spliceRows, workbook views, fillFormula) are skipped or expect XLV_E_NOT_SUPPORTED; `equalDate`
 // is compared with getTime(); chai `have.members` is arrayContaining plus the length.
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -71,7 +72,16 @@ describe('Workbook', () => {
       expect(wb2.getWorksheet('Hello').autoFilter).toBe('A1:B1');
     });
 
-    it.skip('company, manager, etc — not supported yet: docProps/app.xml is not written (phase A2)', () => {});
+    it('company, manager, etc', async () => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('Hello');
+      ws.getCell('A1').value = 'World!';
+      wb.company = 'Cyber Sapiens, Ltd';
+      wb.manager = 'Guyon Roche';
+      const wb2 = await roundTrip(wb);
+      expect(wb2.company).toBe(wb.company);
+      expect(wb2.manager).toBe(wb.manager);
+    });
 
     it('title, subject, etc', async () => {
       const wb = new ExcelJS.Workbook();
@@ -309,7 +319,44 @@ describe('Workbook', () => {
       expect(ws2.views[0]).toMatchObject({ state: 'frozen', xSplit: 2, ySplit: 3 });
     });
 
-    it.skip('serialises split panes — not supported: split panes', () => {});
+    // Change for xlvane: the second and third upstream views, each as the only view of a worksheet.
+    it('frozen panes: the view read back', async () => {
+      const defaults = { workbookViewId: 0, showRuler: true, showGridLines: true, showRowColHeaders: true, zoomScale: 100, zoomScaleNormal: 100, rightToLeft: false };
+      const wb = new ExcelJS.Workbook();
+      wb.addWorksheet('rows', { views: [{ state: 'frozen', ySplit: 1 }] }).getCell('A1').value = 1;
+      wb.addWorksheet('cols', { views: [{ state: 'frozen', xSplit: 1 }] }).getCell('A1').value = 1;
+      const wb2 = await roundTrip(wb);
+      expect(wb2.getWorksheet('rows').views).toEqual([{ ...defaults, state: 'frozen', xSplit: 0, ySplit: 1, topLeftCell: 'A2' }]);
+      expect(wb2.getWorksheet('cols').views).toEqual([{ ...defaults, state: 'frozen', xSplit: 1, ySplit: 0, topLeftCell: 'B1' }]);
+    });
+
+    // Change for xlvane: each upstream view is the only view of its own worksheet; `topLeftCell`
+    // and `activeCell` of a split view are not written, so they read back as undefined/absent.
+    it('serialises split panes', async () => {
+      const defaults = { workbookViewId: 0, showRuler: true, showGridLines: true, showRowColHeaders: true, zoomScale: 100, zoomScaleNormal: 100, rightToLeft: false };
+      const wb = new ExcelJS.Workbook();
+      const views = [
+        { state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: 'C4', activeCell: 'D5', activePane: 'bottomRight' },
+        { state: 'split', ySplit: 1500, activePane: 'bottomLeft', topLeftCell: 'A10' },
+        { state: 'split', xSplit: 1500, activePane: 'topRight' },
+      ];
+      views.forEach((view, i) => {
+        const ws = wb.addWorksheet(`split${String(i)}`);
+        ws.views = [view];
+        ws.getCell('A1').value = 'Do the splits!';
+      });
+      const wb2 = await roundTrip(wb);
+      const expected = [
+        { ...defaults, state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: undefined, activePane: 'bottomRight' },
+        { ...defaults, state: 'split', xSplit: 0, ySplit: 1500, topLeftCell: undefined, activePane: 'bottomLeft' },
+        { ...defaults, state: 'split', xSplit: 1500, ySplit: 0, topLeftCell: undefined, activePane: 'topRight' },
+      ];
+      expected.forEach((view, i) => {
+        const ws2 = wb2.getWorksheet(`split${String(i)}`);
+        expect(ws2.getCell('A1').value).toBe('Do the splits!');
+        expect(ws2.views).toEqual([view]);
+      });
+    });
     it.skip('multiple book views — not supported: workbook views', () => {});
   });
 });

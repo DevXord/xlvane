@@ -2,9 +2,7 @@
 // changes: Mocha/Chai → Vitest; `verquire('exceljs')` → @xlvane/exceljs; data validation
 // removed from the helper workbook (not supported); the
 // model-serialisation test stays skipped as upstream; `duplicateRow` tests expect
-// XLV_E_NOT_SUPPORTED; hyperlink values throw XLV_E_NOT_SUPPORTED when assigned, so they are
-// removed from the helper workbook and checked separately; the rich-text fonts are written with
-// spread objects (same values).
+// XLV_E_NOT_SUPPORTED; the rich-text fonts are written with spread objects (same values).
 import { describe, expect, it } from 'vitest';
 import { ExcelJS, expectNotSupported } from './helpers';
 
@@ -17,6 +15,7 @@ function createSimpleWorkbook() {
   ws.getCell('B1').name = 'Hello';
   ws.getCell('C1').value = 3.14;
   ws.getCell('D1').value = new Date();
+  ws.getCell('E1').value = { text: 'www.google.com', hyperlink: 'http://www.google.com' };
   ws.getCell('A2').value = { formula: 'A1', result: 7 };
   ws.getCell('A2').name = 'TheFormula';
   ws.getCell('B2').value = { formula: 'CONCATENATE("Hello", ", ", "World!")', result: 'Hello, World!' };
@@ -45,6 +44,7 @@ describe('Workbook', () => {
     expect(ws.getCell('B1').type).toBe(ExcelJS.ValueType.String);
     expect(ws.getCell('C1').type).toBe(ExcelJS.ValueType.Number);
     expect(ws.getCell('D1').type).toBe(ExcelJS.ValueType.Date);
+    expect(ws.getCell('E1').type).toBe(ExcelJS.ValueType.Hyperlink);
     expect(ws.getCell('A2').type).toBe(ExcelJS.ValueType.Formula);
     expect(ws.getCell('B2').type).toBe(ExcelJS.ValueType.Formula);
     expect(ws.getCell('C2').type).toBe(ExcelJS.ValueType.Formula);
@@ -68,13 +68,6 @@ describe('Workbook', () => {
     };
     expect(ws.getCell('A1').text).toBe('This is a colorful text with in-cell format');
     expect(ws.getCell('A1').type).toBe(ExcelJS.ValueType.RichText);
-  });
-
-  it('assigns hyperlinks — not supported: hyperlink values', async () => {
-    const ws = new ExcelJS.Workbook().addWorksheet('blort');
-    await expectNotSupported(() => {
-      ws.getCell('E1').value = { text: 'www.google.com', hyperlink: 'http://www.google.com' };
-    });
   });
 
   it.skip('serialises to model (skipped upstream as well)', () => {});

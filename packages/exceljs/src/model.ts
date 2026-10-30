@@ -156,7 +156,6 @@ export function typeOf(value: unknown): number {
 /** Checks a value for writing support (D-503); unsupported kinds throw XLV_E_NOT_SUPPORTED. */
 function checkValue(value: unknown): CellValue {
   const type = typeOf(value);
-  if (type === ValueType.Hyperlink) return notSupported('A hyperlink cell value ({ text, hyperlink })');
   if (type === ValueType.RichText) {
     const runs = (value as { richText: unknown }).richText;
     if (!Array.isArray(runs)) return notSupported('A { richText } cell value whose richText is not an array');
@@ -257,6 +256,12 @@ export class Cell {
         return isRecord(r) ? String(r['error'] ?? '') : String(r);
       }
       if ('error' in v) return String(v['error']);
+      // HyperlinkValue.toString returns the link text (lib/doc/cell.js L664; X4-10).
+      if (typeOf(v) === ValueType.Hyperlink) {
+        const t = v['text'];
+        if (isRecord(t) && Array.isArray(t['richText'])) return (t['richText'] as { text?: unknown }[]).map((r) => String(r.text ?? '')).join('');
+        return String(t);
+      }
       // RichTextValue.text joins the texts of the runs (lib/doc/cell.js L511).
       if (Array.isArray(v['richText'])) return (v['richText'] as { text?: unknown }[]).map((r) => String(r.text ?? '')).join('');
     }
@@ -334,8 +339,15 @@ export class Cell {
   set dataValidation(_v: unknown) {
     notSupported('Data validation');
   }
-  get hyperlink(): undefined {
-    return undefined;
+  /** The link target of a `{ text, hyperlink }` value, as exceljs `cell.hyperlink` (lib/doc/cell.js L201). */
+  get hyperlink(): string | undefined {
+    const v = this.value;
+    return isRecord(v) && typeOf(v) === ValueType.Hyperlink ? String(v['hyperlink']) : undefined;
+  }
+
+  /** Whether the value is a `{ text, hyperlink }` value (lib/doc/cell.js L197). */
+  get isHyperlink(): boolean {
+    return this.type === ValueType.Hyperlink;
   }
 
   /** The cell's location for defined names: `{ sheetName, address, row, col }` (lib/doc/cell.js L270). */
@@ -808,6 +820,14 @@ export class Worksheet {
     if (name.length > 31) name = name.substring(0, 31);
     if (this.workbook._names(this).some((n) => n.toLowerCase() === name.toLowerCase())) throw new Error(`Worksheet name already exists: ${name}`);
     this._name = name;
+  }
+
+  /** Deprecated in exceljs in favour of `properties.tabColor`, which it reads and sets (lib/doc/worksheet.js L827). */
+  get tabColor(): unknown {
+    return this.properties['tabColor'];
+  }
+  set tabColor(value: unknown) {
+    this.properties['tabColor'] = value;
   }
 
   // ---- columns ------------------------------------------------------------------------------

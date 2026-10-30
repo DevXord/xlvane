@@ -44,7 +44,10 @@ describe('Cell', () => {
     expect(a1.value).toEqual({ formula: 'A3' });
     expect(a1.type).toBe(ExcelJS.ValueType.Formula);
 
-    // Change for xlvane: hyperlink values throw XLV_E_NOT_SUPPORTED (checked in workbook.test.ts).
+    const hyperlinkValue = { hyperlink: 'http://www.link.com', text: 'www.link.com' };
+    expect((a1.value = hyperlinkValue)).toEqual(hyperlinkValue);
+    expect(a1.value).toEqual(hyperlinkValue);
+    expect(a1.type).toBe(ExcelJS.ValueType.Hyperlink);
 
     expect((a1.value = null)).toBeNull();
     expect(a1.type).toBe(ExcelJS.ValueType.Null);
