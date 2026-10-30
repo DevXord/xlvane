@@ -195,7 +195,7 @@ New workbooks use Calibri 11 as font 0, fills 0 and 1 are `none` and `gray125`, 
 Text up to 32 767 characters, column width up to 255 and row height up to 409 points (W-04, checked in phase 1). Sheet names (W2-20), formula length 8 192 (W2-21) and font size 409 (W2-19) are provisional. Font names are capped at 255 characters as an implementation limit. Strings with unpaired UTF-16 surrogates are rejected, because XML cannot hold them and the `_xHHHH_` escape of a lone surrogate is not decoded by readers that follow D-XS-3.
 
 ### D-208 Package size budget (2026-10-30)
-70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done. **Phase 3:** the task API brought the size to 84.5 kB; the maintainer chose to raise the budget to 100 kB and keep the build unminified (a minified build measured about 51 kB). **Phase 4:** raised to 125 kB (D-408).
+70 kB gzip (level 9) for all `packages/xlvane/dist/*.js` files as published (unminified, comments kept). Measured 58.4 kB at the end of phase 2; fflate adds about 22 kB. `npm run check:pkg` enforces the budget; `tests/policy/size-budget.test.ts` checks that the README states the same number. Minifying the build would roughly halve the size but makes stack traces harder to read; not done. **Phase 3:** the task API brought the size to 84.5 kB; the maintainer chose to raise the budget to 100 kB and keep the build unminified (a minified build measured about 51 kB). **Phase 4:** raised to 125 kB (D-408). **Phase A:** raised to 175 kB (D-A11).
 
 ### D-209 LibreOffice check of written files (2026-10-30)
 `tests/libreoffice/libreoffice.test.ts` writes workbooks covering every feature of the phase, converts them with `soffice --headless` to CSV (all sheets, contents as shown; F-LO-01) and back to XLSX, and checks values in the CSV and merges, frozen panes, filter, widths, heights, states and styles in LibreOffice's own XLSX. The test is skipped when `soffice` is missing and fails instead when `XLV_REQUIRE_LIBREOFFICE=1` (set in CI). Each run uses its own LibreOffice profile directory.
@@ -466,6 +466,9 @@ xlvane reads every `hyperlink` of a worksheet as `Sheet.hyperlinks` and, in the 
 
 ### D-A04 addendum (2026-10-30)
 Part 1 §18.3.1.13 says `col@style` applies to cells not yet allocated (second local report), so `editCells` now starts every cell it creates from its column's style when that cell-format index exists. Existing cells keep their format. Where a row has its own format (`row@s` with `customFormat`), new cells keep format 0, because no source says whether row or column takes precedence.
+
+### D-A11 Size budget raised to 175 kB (2026-10-30)
+Phases A1 and A2 (rich text, properties, defined names, hyperlinks, views, app.xml) brought the library to 122.9 kB gzip of the 125 kB budget, with notes and phases B–E still to come. The maintainer chose to raise the library budget to 175 kB, kept unminified; the CLI budget stays 40 kB.
 
 ## Facts: Node.js
 

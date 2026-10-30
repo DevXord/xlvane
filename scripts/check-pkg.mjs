@@ -21,7 +21,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const packages = ['packages/xlvane', 'packages/exceljs'];
 const failures = [];
 /** Size budget of the library files in packages/xlvane/dist, gzip level 9, in bytes. Same number as in the README. */
-const SIZE_BUDGET_BYTES = 125_000;
+const SIZE_BUDGET_BYTES = 175_000;
 /** Size budget of packages/xlvane/dist/cli.js, gzip level 9, in bytes. Same number as in the README. */
 const CLI_SIZE_BUDGET_BYTES = 40_000;
 const CLI_FILE = 'cli.js';
