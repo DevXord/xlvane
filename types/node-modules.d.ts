@@ -18,6 +18,12 @@ declare module 'node:fs/promises' {
     options?: { flag?: string },
   ): Promise<void>;
   export function unlink(path: string | URL): Promise<void>;
+  /** https://nodejs.org/api/fs.html#class-filehandle (F-NODE-11). */
+  export interface FileHandle {
+    write(data: Uint8Array, offset?: number): Promise<{ bytesWritten: number }>;
+    close(): Promise<void>;
+  }
+  export function open(path: string | URL, flags?: string): Promise<FileHandle>;
   export function stat(path: string | URL): Promise<Stats>;
   export function readdir(path: string | URL): Promise<string[]>;
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;

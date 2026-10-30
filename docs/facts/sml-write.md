@@ -161,6 +161,15 @@ APPNOTE says only "standard MS-DOS format" (Z-19). The bit layout used, `(year �
 ### F-NODE-05 — child_process.spawnSync
 `spawnSync(command, args, options)` with `timeout` and `encoding`, returning `status`, `stdout`, `stderr`. Source: S-NODE child_process.md. Used only by tests and scripts.
 
+### F-NODE-11 — A FileHandle closed by garbage collection is an error from Node.js 25
+DEP0137 "Closing fs.FileHandle on garbage collection" reached End-of-Life in v25.0.0 (nodejs/node#58536): "Allowing a `fs.FileHandle` object to be closed on garbage collection used to be allowed, but now throws an error. Please ensure that all `fs.FileHandle` objects are explicitly closed using `FileHandle.prototype.close()`". fs.md, Class FileHandle: "always explicitly close {FileHandle}s". Source: https://raw.githubusercontent.com/nodejs/node/v25.x/doc/api/deprecations.md and fs.md (v25.x), read 2026-10-30. Reproduced on Node.js 25.8.2: an `fsPromises.writeFile(path, asyncIterable)` whose iterable never ends exits with `ERR_INVALID_STATE` after `gc()`.
+
+### F-NODE-12 — filehandle.write may write fewer bytes
+`filehandle.write(buffer, offset[, length[, position]])`: `length` defaults to `buffer.byteLength - offset`; the promise is fulfilled with `{ bytesWritten, buffer }`; "It is unsafe to use `filehandle.write()` multiple times on the same file without waiting for the promise". Source: fs.md (v25.x), read 2026-10-30.
+
+### F-NODE-13 — fsPromises.open and writeFile with an AsyncIterable
+`fsPromises.open(path, flags[, mode])` (added v10.0.0) takes the same flags as F-NODE-04. `fsPromises.writeFile` accepts `data` of type `AsyncIterable`. Source: fs.md (v25.x), read 2026-10-30. That `writeFile` opens the file before reading the iterable was observed in the reproduction of F-NODE-11, not read in the documentation.
+
 ### F-GH-01 — GitHub Actions pins
 `actions/checkout` tag v7.0.1 → commit 3d3c42e5aac5ba805825da76410c181273ba90b1; `actions/setup-node` tag v7.1.0 → commit 949feb2413d6458794dcd2491c4babbbce0c15c1 (`git ls-remote`, lightweight tags, 2026-10-30). Inputs used (`persist-credentials`, `node-version`) are declared in each action's `action.yml` at that tag.
 

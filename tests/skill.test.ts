@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
+import { binOf } from './helpers/build-package';
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const SKILL = join(ROOT, 'skills/xlvane/SKILL.md');
@@ -42,11 +43,11 @@ describe('SKILL.md', () => {
     const project = await mkdtemp(join(tmpdir(), 'xlvane-skill-'));
     try {
       await writeFile(join(project, 'package.json'), '{"name":"skill-test","private":true}\n');
-      const r = spawnSync(join(ROOT, 'node_modules/.bin/skills'), ['add', join(ROOT, 'skills'), '--skill', 'xlvane', '--agent', 'claude-code', '--yes', '--copy'], {
+      const r = spawnSync(process.execPath, [binOf('skills', 'skills'), 'add', join(ROOT, 'skills'), '--skill', 'xlvane', '--agent', 'claude-code', '--yes', '--copy'], {
         cwd: project,
         encoding: 'utf8',
         timeout: 100_000,
-        env: { PATH: process.env['PATH'], HOME: project, DISABLE_TELEMETRY: '1', DO_NOT_TRACK: '1', CI: '1' },
+        env: { PATH: process.env['PATH'], HOME: project, USERPROFILE: project, DISABLE_TELEMETRY: '1', DO_NOT_TRACK: '1', CI: '1' },
       });
       expect(r.status, `${r.stdout}\n${r.stderr}`).toBe(0);
       expect(await readFile(join(project, '.claude/skills/xlvane/SKILL.md'), 'utf8')).toBe(await readFile(SKILL, 'utf8'));

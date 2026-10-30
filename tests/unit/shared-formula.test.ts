@@ -36,8 +36,50 @@ describe('shiftFormula', () => {
     expect(shiftFormula('SUM(Table1[[#Headers],[A1]])+A1', 1, 0)).toBe('SUM(Table1[[#Headers],[A1]])+A2');
     expect(shiftFormula('TRUE+FALSE+A1%', 1, 0)).toBe('TRUE+FALSE+A2%');
     expect(shiftFormula('{1,2;3,4}*A1', 1, 0)).toBe('{1,2;3,4}*A2');
-    expect(shiftFormula('A1#+@B1', 1, 0)).toBe('A2#+@B2');
     expect(shiftFormula('A1 B1', 1, 0)).toBe('A2 B2');
+  });
+
+  it('accepts every number form of the documented grammars (F2-10)', () => {
+    for (const num of ['1e5', '1.', '1.E5', '.5', '1E+10', '1e-3', '210.', '0.5e+2']) {
+      expect(shiftFormula(`A1+${num}`, 1, 0), num).toBe(`A2+${num}`);
+    }
+    expect(shiftFormula('E10+1', 1, 0)).toBe('E11+1');
+    expect(shiftFormula('LOG10+LOG10(A1)', 1, 0)).toBe('LOG11+LOG10(A2)');
+  });
+
+  it('refuses the @ and spill # operators, which no documented grammar defines (F2-07, F2-08)', () => {
+    for (const f of ['@A1', 'SUM(@A1:A3)', 'A1+@B1', '@TAX_RATE', 'A1#', 'Sheet1!A1#', "'My Sheet'!A1#", 'TAX_RATE#', 'SUM(A1#)', 'F(1)#', '#']) {
+      expect(shiftFormula(f, 1, 0), f).toBeNull();
+      expect(compileFormula(f), f).toBeNull();
+    }
+  });
+
+  it('keeps # in error constants, structured references and strings, and @ in strings and brackets', () => {
+    expect(shiftFormula('Sheet1!#REF!+A1', 1, 0)).toBe('Sheet1!#REF!+A2');
+    expect(shiftFormula('#GETTING_DATA&A1', 1, 0)).toBe('#GETTING_DATA&A2');
+    expect(shiftFormula('Table1[[#This Row],[Qty]]*A1', 1, 0)).toBe('Table1[[#This Row],[Qty]]*A2');
+    expect(shiftFormula('Table1[#Headers]&A1', 1, 0)).toBe('Table1[#Headers]&A2');
+    expect(shiftFormula('"#@"&A1', 1, 0)).toBe('"#@"&A2');
+    expect(shiftFormula("Table1['#Col'@x]&A1", 1, 0)).toBe("Table1['#Col'@x]&A2");
+    expect(shiftFormula("Table1[a'[b']]&A1", 1, 0)).toBe("Table1[a'[b']]&A2");
+  });
+
+  it('copies Office identifiers and quoted 3-D prefixes unchanged (F2-05, F2-11)', () => {
+    expect(shiftFormula("'Sheet 1:Sheet 3'!A1", 1, 0)).toBe("'Sheet 1:Sheet 3'!A2");
+    expect(shiftFormula('_xlfn._xlws.FILTER(A1:A3,B1:B3)', 1, 0)).toBe('_xlfn._xlws.FILTER(A2:A4,B2:B4)');
+    expect(shiftFormula('_xlfn.LAMBDA(_xlpm.x,_xlpm.x+A1)(1)', 1, 0)).toBe('_xlfn.LAMBDA(_xlpm.x,_xlpm.x+A2)(1)');
+    expect(shiftFormula('xlpm.x+A1', 1, 0)).toBe('xlpm.x+A2');
+    expect(shiftFormula('rate?+\\name+my.name+Zażółć+A1', 1, 0)).toBe('rate?+\\name+my.name+Zażółć+A2');
+  });
+
+  it('treats CR LF and LF as white space', () => {
+    expect(shiftFormula('A1\r\n+B1', 1, 0)).toBe('A2\r\n+B2');
+    expect(shiftFormula('SUM(\nA1)', 1, 0)).toBe('SUM(\nA2)');
+  });
+
+  it('refuses reference shapes beyond column XFD or row 1048576', () => {
+    for (const f of ['XFE1+A1', 'A1048577+A1', 'A0', 'ZZZ1']) expect(shiftFormula(f, 1, 0), f).toBeNull();
+    expect(shiftFormula('XFD1048575', 1, 0)).toBe('XFD1048576');
   });
 
   it('treats LOG10 without a parenthesis as a cell reference, and any name before "(" as a function', () => {

@@ -8,6 +8,11 @@
 // classify with confidence (R1C1-looking names, unbalanced quotes or brackets, unknown
 // characters, references that would leave the grid) makes the whole formula "not shiftable",
 // and the caller keeps the formula text unknown rather than guess.
+//
+// Only constructs that the documented grammars define are shifted: ECMA-376 Part 1 §18.17,
+// [MS-OI29500] §2.1.859 … §2.1.873 and [MS-XLSX] §2.2.2 (docs/decisions.md D-1102). The
+// implicit-intersection operator `@` and the spill operator `#` occur in none of them, so a
+// formula that uses either is not shiftable.
 import { columnLetters, MAX_COLUMNS, MAX_ROWS } from './cell-ref';
 
 /** A cell reference: column and row, each relative or absolute. */
@@ -49,8 +54,12 @@ export interface CompiledFormula {
 
 /** Error constants (§18.17.3, fact E-33). */
 const ERROR_CONSTANTS = ['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA'];
-/** Characters copied as operators or separators (F2-07). */
-const OPERATORS = '+-*/^&=<>%,;(){}:@ \t\r\n';
+/**
+ * Characters copied as operators or separators (F2-07). `@` is not among them: it is in no
+ * documented grammar. CR and LF are white space ([MS-XLSX] §2.2.2 `whitespace`; an XML parser
+ * turns the CR LF pair into LF).
+ */
+const OPERATORS = '+-*/^&=<>%,;(){}: \t\r\n';
 
 function isLetter(c: number): boolean {
   return (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a);
@@ -111,6 +120,18 @@ function cellRef(id: string): CellPart | null {
   return row === 0 ? null : { kind: 'cell', col, colAbs, row, rowAbs };
 }
 
+/** Whether `id` has the shape `$?letters$?digits` with 1–3 letters but lies outside the grid. */
+function beyondGrid(id: string): boolean {
+  let i = id.charCodeAt(0) === 0x24 ? 1 : 0;
+  const colStart = i;
+  while (i < id.length && isLetter(id.charCodeAt(i))) i++;
+  if (i - colStart < 1 || i - colStart > 3) return false;
+  if (id.charCodeAt(i) === 0x24) i++;
+  const rowStart = i;
+  while (i < id.length && isDigit(id.charCodeAt(i))) i++;
+  return i > rowStart && i === id.length && cellRef(id) === null;
+}
+
 /** Parses `$?letters` (the whole of `id`) as a column; returns 0 if it is not one. */
 function columnRef(id: string): { col: number; abs: boolean } | null {
   const abs = id.charCodeAt(0) === 0x24;
@@ -140,8 +161,6 @@ function looksR1C1(id: string): boolean {
 function tokenize(s: string): Part[] | null {
   const parts: Part[] = [];
   let literal = '';
-  /** Whether the previous token can be followed by the spill operator `#` (F2-08). */
-  let afterOperand = false;
   const flush = (): void => {
     if (literal !== '') {
       parts.push(literal);
@@ -164,7 +183,6 @@ function tokenize(s: string): Part[] | null {
       }
       literal += s.slice(i, j + 1);
       i = j + 1;
-      afterOperand = true;
       continue;
     }
     // Quoted sheet name: '...' with '' for an apostrophe, followed by "!" (F2-04).
@@ -180,7 +198,6 @@ function tokenize(s: string): Part[] | null {
       if (s.charCodeAt(j + 1) !== 0x21) return null;
       literal += s.slice(i, j + 2);
       i = j + 2;
-      afterOperand = false;
       continue;
     }
     // Bracketed text: structured references and external workbook indexes, kept as they are.
@@ -198,7 +215,6 @@ function tokenize(s: string): Part[] | null {
       if (j >= n) return null;
       literal += s.slice(i, j + 1);
       i = j + 1;
-      afterOperand = true;
       continue;
     }
     if (c === 0x5d) return null;
@@ -206,21 +222,15 @@ function tokenize(s: string): Part[] | null {
       // "!" after a bracketed workbook index, e.g. [1]!Name.
       literal += '!';
       i++;
-      afterOperand = false;
       continue;
     }
-    // Error constants, or the spill operator after an operand (F2-08).
+    // Error constants (F2-08). Any other "#" outside strings and brackets, such as the spill
+    // operator in A1# or name#, is in no documented grammar: not shiftable.
     if (c === 0x23) {
       const constant = ERROR_CONSTANTS.find((e) => s.startsWith(e, i));
-      if (constant !== undefined) {
-        literal += constant;
-        i += constant.length;
-        afterOperand = true;
-        continue;
-      }
-      if (!afterOperand) return null;
-      literal += '#';
-      i++;
+      if (constant === undefined) return null;
+      literal += constant;
+      i += constant.length;
       continue;
     }
     // Numbers, and whole-row ranges such as 1:3 or $1:$3 (F2-02, F2-10).
@@ -230,7 +240,6 @@ function tokenize(s: string): Part[] | null {
         flush();
         parts.push(rows.part);
         i = rows.end;
-        afterOperand = true;
         continue;
       }
       if (c === 0x24) return null;
@@ -253,7 +262,6 @@ function tokenize(s: string): Part[] | null {
       if (j < n && (isIdentChar(s.charCodeAt(j)) || s.charCodeAt(j) === 0x3a)) return null;
       literal += s.slice(i, j);
       i = j;
-      afterOperand = true;
       continue;
     }
     // Names, functions, sheet names and references.
@@ -275,7 +283,6 @@ function tokenize(s: string): Part[] | null {
         // reads as a reference, as LOG10( does (F2-05).
         literal += id;
         i = j;
-        afterOperand = false;
         continue;
       }
       // "(" after white space: a reference there is not valid text.
@@ -285,14 +292,16 @@ function tokenize(s: string): Part[] | null {
         if (refLike) return null;
         literal += id;
         i = j;
-        afterOperand = false;
         continue;
       }
+      // A reference shape beyond XFD or row 1048576 (XFE1, A1048577) is neither a valid
+      // reference nor a valid name ([MS-XLSX] §2.2.2 A1-relative-column and
+      // row-digit-sequence; Part 1 §18.17.5.1): not shiftable.
+      if (cell === null && beyondGrid(id)) return null;
       if (cell !== null) {
         flush();
         parts.push(cell);
         i = j;
-        afterOperand = true;
         continue;
       }
       if (column !== null && next === 0x3a) {
@@ -305,7 +314,6 @@ function tokenize(s: string): Part[] | null {
           flush();
           parts.push({ kind: 'cols', c1: column.col, c1Abs: column.abs, c2: second.col, c2Abs: second.abs });
           i = m;
-          afterOperand = true;
           continue;
         }
       }
@@ -313,13 +321,11 @@ function tokenize(s: string): Part[] | null {
       // A defined name, TRUE/FALSE or another identifier: copied unchanged (F2-05).
       literal += id;
       i = j;
-      afterOperand = true;
       continue;
     }
     if (OPERATORS.includes(s[i] ?? '')) {
       literal += s[i];
       i++;
-      afterOperand = c === 0x29 || c === 0x7d || c === 0x25;
       continue;
     }
     return null;

@@ -1,7 +1,8 @@
 // Node.js-only entry point (`xlvane/node`): file-system helpers around the core API. Uses
-// fs.promises.stat, readFile and writeFile (Node.js fs documentation; F-NODE-03, F-NODE-04).
+// fs.promises.stat, readFile, writeFile and open (Node.js fs documentation; F-NODE-03, F-NODE-04,
+// F-NODE-11 … F-NODE-13).
 import { openAsBlob } from 'node:fs';
-import { unlink, writeFile } from 'node:fs/promises';
+import { open, unlink, writeFile, type FileHandle } from 'node:fs/promises';
 import { XlvError } from './errors';
 import { inspect, type InspectOptions, type InspectReport } from './inspect';
 import { resolveLimits } from './limits';
@@ -11,6 +12,9 @@ import { readWorkbook, type ReadOptions } from './read';
 import { writeWorkbook, type NewWorkbook } from './write';
 import { openWorkbookStream, STREAM_LIMIT_DEFAULTS, type OpenWorkbookStreamOptions, type WorkbookStream } from './stream-read';
 import { writeWorkbookStream, type WriteWorkbookStreamOptions } from './stream-write';
+
+/** File handles of writes in progress; see writeWorkbookStreamFile. */
+const OPEN_HANDLES = new Set<FileHandle>();
 
 /**
  * Reads an XLSX file from disk. Node.js only; in other runtimes pass the bytes to
@@ -146,7 +150,8 @@ export async function openWorkbookStreamFile(path: string | URL, options?: OpenW
  * Writes a streamed workbook (see `writeWorkbookStream`) to a file with constant memory. An
  * existing file is not replaced unless `overwrite` is `true` (`XLV_E_FILE_EXISTS`). If writing
  * fails part-way, for example because a row holds an invalid value, the incomplete file is
- * removed and the error is thrown.
+ * removed and the error is thrown. The file is opened when the first bytes are ready, so an
+ * existing file is reported then, and a write whose rows never arrive creates no file.
  *
  * @example
  * ```ts
@@ -168,23 +173,38 @@ export async function writeWorkbookStreamFile(path: string | URL, spec: WriteWor
   }
   const stream = writeWorkbookStream(spec);
   const shown = describePath(path);
+  const reader = stream.getReader();
+  let handle: FileHandle | null = null;
   let created = false;
-  async function* chunks(): AsyncGenerator<Uint8Array> {
-    created = true;
-    const reader = stream.getReader();
-    try {
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) return;
-        yield value;
-      }
-    } finally {
-      reader.releaseLock();
-    }
-  }
   try {
-    await writeFile(path, chunks(), { flag: overwrite ? 'w' : 'wx' });
+    // The file is opened only when the first bytes exist, so a writer that is never started
+    // (e.g. sheets that never arrive) holds no file. The handle is closed explicitly in every
+    // case and is kept in OPEN_HANDLES meanwhile: Node.js 25 throws, uncatchably, when a
+    // FileHandle is closed by garbage collection (DEP0137, F-NODE-11).
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (handle === null) {
+        handle = await open(path, overwrite ? 'w' : 'wx');
+        OPEN_HANDLES.add(handle);
+        created = true;
+      }
+      // write() may write fewer bytes than given; it reports how many (F-NODE-12).
+      for (let at = 0; at < value.byteLength; ) at += (await handle.write(value, at)).bytesWritten;
+    }
+    if (handle === null) {
+      // An empty stream still gives a (valid, if unusual) file, as before.
+      handle = await open(path, overwrite ? 'w' : 'wx');
+      OPEN_HANDLES.add(handle);
+      created = true;
+    }
   } catch (error) {
+    await reader.cancel(error).catch(() => undefined);
+    if (handle !== null) {
+      await handle.close().catch(() => undefined);
+      OPEN_HANDLES.delete(handle);
+      handle = null;
+    }
     if (created) await unlink(path).catch(() => undefined);
     if (error instanceof XlvError) throw error;
     const code = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code: unknown }).code) : 'UNKNOWN';
@@ -200,5 +220,10 @@ export async function writeWorkbookStreamFile(path: string | URL, spec: WriteWor
       details: { path: shown, code },
       cause: error,
     });
+  }
+  try {
+    await handle.close();
+  } finally {
+    OPEN_HANDLES.delete(handle);
   }
 }

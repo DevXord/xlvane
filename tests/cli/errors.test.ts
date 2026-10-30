@@ -46,7 +46,9 @@ describe('error messages', () => {
         // Three parts: what (Error:), where (Where:, when known) and what to do (Fix:).
         expect(r.stderr, title).toMatch(/^Error: .+\n(Where: .+\n)?Fix: {3}.+\n/);
         // JSON.parse messages come from V8 and differ between Node.js versions.
-        const stderr = r.stderr.split(dir).join('<dir>').replace(/(is not valid JSON: ).*/, '$1<parser message>');
+        // Paths are shown with the platform's separator; the snapshot uses "/" (Windows prints "\\").
+        const shown = process.platform === 'win32' ? r.stderr.split(dir).join('<dir>').replace(/\\/g, '/') : r.stderr.split(dir).join('<dir>');
+        const stderr = shown.replace(/(is not valid JSON: ).*/, '$1<parser message>');
         blocks.push(`## ${title}\n$ xlvane ${argv.join(' ')}\n${stderr}`);
       }
     });

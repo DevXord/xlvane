@@ -102,4 +102,24 @@ describe('streaming files', () => {
     await expectXlvErrorAsync(() => writeWorkbookStreamFile(out, { sheets: [{ name: 'S', rows: [[1], [Number.NaN]] }] }), 'XLV_E_INVALID_VALUE');
     await expectXlvErrorAsync(() => readWorkbookFile(out), 'XLV_E_FILE_READ');
   });
+
+  it('an abandoned write holds no file handle that garbage collection could close', async () => {
+    // Node.js 25 ends the process when a FileHandle is closed by garbage collection (DEP0137).
+    // A writer whose sheets never arrive (e.g. an exceljs WorkbookWriter that is never committed)
+    // must not have opened the file at all.
+    const { writeWorkbookStreamFile } = await import('../../packages/xlvane/src/node');
+    const out = join(dir, 'abandoned.xlsx');
+    async function* never(): AsyncGenerator<never> {
+      await new Promise(() => undefined);
+    }
+    void writeWorkbookStreamFile(out, { sheets: never() }).catch(() => undefined);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    await expect(readFile(out)).rejects.toMatchObject({ code: 'ENOENT' });
+    const gc = (globalThis as { gc?: () => void }).gc;
+    if (gc) {
+      gc();
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      gc();
+    }
+  });
 });
