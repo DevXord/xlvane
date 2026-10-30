@@ -20,6 +20,7 @@ Schema facts that the phase 1 facts already established from the 5th edition (ec
 | P2 | ECMA-376 Part 2, 5th edition (December 2021), Open Packaging Conventions | `ECMA-376-2_5th_edition_december_2021.zip`: `Ecma Office Open XML Part 2 - Open Packaging Conventions.pdf`, `OpenPackagingConventions-XMLSchema.zip` |
 | P3 | ECMA-376 Part 3, 5th edition (December 2015), Markup Compatibility and Extensibility | `ECMA-376-3_5th_edition_december_2015.zip` |
 | P4 | ECMA-376 Part 4, 5th edition (December 2016), Transitional Migration Features | `ECMA-376-4_5th_edition_december_2016.zip`: `Ecma Office Open XML Part 4 - Transitional Migration Features.pdf`, `OfficeOpenXML-XMLSchema-Transitional.zip` (contains `sml.xsd`, SHA-256 `495debc8…6ab9`) |
+| P1S | ECMA-376 Part 1 supporting files (no Part 1 PDF yet) | `OfficeOpenXML-XMLSchema-Strict.zip` (Strict schemas; `sml.xsd` `targetNamespace` `http://purl.oclc.org/ooxml/spreadsheetml/main` at L7), `OfficeOpenXML-SpreadsheetMLStyles.zip` (`presetCellStyles.xml`, `presetTableStyles.xml`) |
 
 Line numbers `sml.xsd Lnnn` below refer to that official Transitional `sml.xsd`. Every S-XSD citation was compared with it: the worksheet types are at the same lines with the same content; the styles and workbook types are shifted by 14–51 lines with the same content, except CT_CellAlignment (see W2-17). PDF locators give the printed page; `pdftotext -layout` line numbers are not repeated here. ECMA-376 Part 1 (the SpreadsheetML reference prose, §18) was not supplied, so semantics that only Part 1 states (units, meanings, defaults beyond the schema) remain PROVISIONAL.
 
@@ -73,6 +74,7 @@ A choice (any order, each at most once) of `name` (val ST_Xstring), `charset`, `
 
 ### W2-12 — Font 0 is the default font — PROVISIONAL (convention; needs Part 1 §18.8 or [MS-OI29500])
 The writer puts the default font (Calibri 11) at index 0 and the reader treats `fontId="0"` as "default". This is how Excel and LibreOffice files are laid out (the cell style "Normal" uses `xfId 0` → font 0), **not checked** in §18.8.
+**Supporting evidence (not a normative rule):** in `presetCellStyles.xml` (Part 1 supporting archive) the `normal` preset's style sheet has the default font first and `cellStyle Normal` with `xfId="0"`, whose xf uses font 0. The rule itself still needs Part 1 §18.8 or [MS-OI29500].
 
 ### W2-13 — CT_Xf — VERIFIED
 Sequence `alignment`?, `protection`?, `extLst`?; attributes `numFmtId`, `fontId`, `fillId`, `borderId`, `xfId`, `quotePrefix`, `pivotButton`, `applyNumberFormat`, `applyFont`, `applyFill`, `applyBorder`, `applyAlignment`, `applyProtection` (all optional). Source: S-XSD L3584–3603 (agrees with F-STY-06 for the attributes covered there).
@@ -81,6 +83,7 @@ Sequence `alignment`?, `protection`?, `extLst`?; attributes `numFmtId`, `fontId`
 ### W2-14 — Fills; fills 0 and 1 — VERIFIED (schema); reserved fills PROVISIONAL
 CT_Fill is a choice of `patternFill` or `gradientFill`. CT_PatternFill: `fgColor`?, `bgColor`?, attribute `patternType` (ST_PatternType: `none`, `solid`, `mediumGray`, `darkGray`, `lightGray`, `darkHorizontal`, `darkVertical`, `darkDown`, `darkUp`, `darkGrid`, `darkTrellis`, `lightHorizontal`, `lightVertical`, `lightDown`, `lightUp`, `lightGrid`, `lightTrellis`, `gray125`, `gray0625`). Source: S-XSD L3469–3518. **Convention, not checked:** fills 0 and 1 are `none` and `gray125` in files written by Excel; the writer reserves them the same way. To check in [MS-OI29500].
 **Verified:** `sml.xsd` (Part 4 schema archive) CT_Fill L3489 (choice of one), CT_PatternFill L3495, ST_PatternType L3509 (same 19 values). Fills 0 and 1 remain a convention to check in [MS-OI29500].
+**Supporting evidence (not a normative rule):** the style sheets in `presetCellStyles.xml` (Part 1 supporting archive `OfficeOpenXML-SpreadsheetMLStyles.zip`) all start with `<fills count="2">` holding `patternFill patternType="none"` and then `patternType="gray125"`, the layout the writer uses. The rule itself still needs Part 1 §18.8 or [MS-OI29500].
 
 ### W2-15 — Borders — VERIFIED
 CT_Border sequence: `start`, `end`, `left`, `right`, `top`, `bottom`, `diagonal`, `vertical`, `horizontal` (all optional); CT_BorderPr: `color`?, attribute `style` (ST_BorderStyle, default `none`: `none`, `thin`, `medium`, `dashed`, `dotted`, `thick`, `double`, `hair`, `mediumDashed`, `dashDot`, `mediumDashDot`, `dashDotDot`, `mediumDashDotDot`, `slantDashDot`). Source: S-XSD L3413–3458. The writer emits `left`, `right`, `top`, `bottom`, `diagonal`.
@@ -94,9 +97,10 @@ Attributes `auto` (boolean), `indexed` (unsignedInt), `rgb` (ST_UnsignedIntHex =
 Attributes `horizontal` (ST_HorizontalAlignment: `general`, `left`, `center`, `right`, `fill`, `justify`, `centerContinuous`, `distributed`), `vertical` (ST_VerticalAlignment: `top`, `center`, `bottom`, `justify`, `distributed`), `textRotation` (unsignedInt), `wrapText`, `indent` (unsignedInt), `relativeIndent`, `justifyLastLine`, `shrinkToFit`, `readingOrder`. Source: S-XSD L3402–3412, L3541–3561. **Not checked:** the meaning and range of `textRotation` (the writer accepts 0–180 and 255) and the maximum `indent` (the writer accepts 0–250).
 **Verified:** `sml.xsd` (Part 4 schema archive) CT_CellAlignment L3402–3412, ST_TextRotation L3413–3426, ST_HorizontalAlignment L3555, ST_VerticalAlignment L3567. **Difference between official sources:** the electronic `sml.xsd` types `textRotation` as ST_TextRotation, a union of 0–180 and the value 255, and gives `vertical` the default `bottom`; the schema printed in P4 Annex A (printed page 1003) and S-XSD type `textRotation` as xsd:unsignedInt with no `vertical` default. The writer's 0–180 or 255 satisfies both. The maximum `indent` (writer: 250) is not in the schema (xsd:unsignedInt) and stays PROVISIONAL (Excel behaviour).
 
-### W2-18 — Cell styles — VERIFIED (schema); builtinId 0 PROVISIONAL
+### W2-18 — Cell styles — VERIFIED
 CT_CellStyleXfs and CT_CellXfs hold 1..n `xf`; CT_CellStyles holds 1..n `cellStyle` with required `xfId` and optional `name`, `builtinId` (S-XSD L3572–3617). The writer writes one cell style xf and one cell style `Normal` with `builtinId="0"`; **not checked** that built-in id 0 is "Normal".
 **Verified:** `sml.xsd` (Part 4 schema archive) CT_CellStyleXfs L3586, CT_CellXfs L3592 (1..n `xf`), CT_CellStyles L3618, CT_CellStyle L3624 (`xfId` required). That built-in id 0 is "Normal" needs Part 1 §18.8.7.
+**Verified (builtinId 0):** `presetCellStyles.xml` in the Part 1 supporting archive `OfficeOpenXML-SpreadsheetMLStyles.zip` (supplied by the maintainer, 2026-10-30) defines the preset style `<normal builtinId="0">`, whose style sheet contains `<cellStyle name="Normal" xfId="0" builtinId="0"/>` (L47).
 
 ### W2-19 — Font size limit — PROVISIONAL (Excel behaviour, not in ECMA-376)
 The writer accepts font sizes greater than 0 and at most 409 points. 409 is the Excel row-height limit (W-04); a font-size limit is **not checked** in the Excel specifications page.
