@@ -1,0 +1,38 @@
+{
+  "name": "@xlvane/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "description": "MCP server for working with XLSX files through xlvane. Not implemented yet (phase 7 of docs/PLAN.md).",
+  "keywords": [
+    "xlsx",
+    "excel",
+    "mcp"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevXord/xlvane.git",
+    "directory": "packages/mcp"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "xlvane": "0.0.0"
+  }
+}

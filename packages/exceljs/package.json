@@ -1,0 +1,38 @@
+{
+  "name": "@xlvane/exceljs",
+  "version": "0.0.0",
+  "private": true,
+  "description": "exceljs-compatible API on top of xlvane. Not implemented yet (phase 5 of docs/PLAN.md).",
+  "keywords": [
+    "xlsx",
+    "excel",
+    "exceljs"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevXord/xlvane.git",
+    "directory": "packages/exceljs"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "xlvane": "0.0.0"
+  }
+}

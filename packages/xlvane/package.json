@@ -1,0 +1,44 @@
+{
+  "name": "xlvane",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Read and inspect XLSX files from untrusted sources. ESM only, one runtime dependency (fflate).",
+  "keywords": [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "ooxml",
+    "spreadsheetml"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevXord/xlvane.git",
+    "directory": "packages/xlvane"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./node": {
+      "types": "./dist/node.d.ts",
+      "default": "./dist/node.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "fflate": "^0.8.3"
+  }
+}
