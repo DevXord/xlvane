@@ -28,8 +28,10 @@ jobs:
           bun-version: '1.4.4'
       - name: Check the tag against the package versions
         run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
+      # Same packages as the CI workflow: python3-uno for the UNO fact scripts, Carlito so that
+      # default row heights (and image anchors) match.
       - name: Install LibreOffice Calc
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-calc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-calc python3-uno fonts-crosextra-carlito
       - run: npm ci
       - name: Install Chromium for Playwright
         run: npx playwright install --with-deps chromium

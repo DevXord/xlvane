@@ -37,6 +37,15 @@ describe('published packages', () => {
 });
 
 describe('workflows', () => {
+  it('install the same LibreOffice packages in CI and before a release', () => {
+    // The LibreOffice tests need python3-uno (UNO fact scripts) and Carlito (default row heights).
+    const installs = workflows.map(([f, text]) => [f, text.match(/apt-get install[^\n]*libreoffice-calc[^\n]*/)?.[0]] as const);
+    for (const [f, line] of installs) {
+      expect(line, f).toContain('python3-uno');
+      expect(line, f).toContain('fonts-crosextra-carlito');
+    }
+  });
+
   it('pin every action to a full commit SHA', () => {
     for (const [name, text] of workflows) {
       for (const m of text.matchAll(/uses:\s*(\S+)/g)) expect(m[1], name).toMatch(/^[\w.-]+\/[\w.-]+@[0-9a-f]{40}$/);
