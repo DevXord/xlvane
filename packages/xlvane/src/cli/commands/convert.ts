@@ -1,4 +1,5 @@
-import { extname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fromCSV, toCSV } from '../../csv';
 import { XlvError, type XlvWarning } from '../../errors';
 import { fromJSON, toJSON } from '../../table';
@@ -58,7 +59,22 @@ function delimiterNote(ctx: CommandContext, command: string, text: string, input
 }
 
 /** What to do with a JSON file that holds something other than an array of rows. */
-function notArrayHint(text: string, input: string): string {
+/**
+ * A file name for the extracted array next to the input: `<input name>-<property>.json` (or
+ * `-rows.json` for a property that is not a plain name), numbered while it names the input or an
+ * existing file, because `jq … > name` empties that file before jq reads it.
+ */
+function extractName(input: string, key: string, simple: boolean, cwd: string): string {
+  const dir = dirname(input);
+  const stem = basename(input, extname(input));
+  const at = (name: string) => (isAbsolute(name) ? name : resolve(cwd, name));
+  for (let n = 1; ; n++) {
+    const name = join(dir, `${stem}-${simple ? key : 'rows'}${n === 1 ? '' : `-${String(n)}`}.json`);
+    if (at(name) !== at(input) && !existsSync(at(name))) return name;
+  }
+}
+
+function notArrayHint(text: string, input: string, cwd: string): string {
   const plain = 'The file must hold an array of objects (one per row) or of arrays, for example [{"name":"Ann","score":7}].';
   let data: unknown;
   try {
@@ -71,7 +87,7 @@ function notArrayHint(text: string, input: string): string {
   if (key === undefined) return plain;
   const simple = /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
   const filter = simple ? `.${key}` : `.[${JSON.stringify(key)}]`;
-  const out = simple ? `${key}.json` : 'rows.json';
+  const out = extractName(input, key, simple, cwd);
   return `The file holds a JSON object; its property "${key}" holds an array. Save that array as a file of its own and pass that file, for example: jq '${filter.replace(/'/g, `'\\''`)}' ${quoteArg(input)} > ${quoteArg(out)}`;
 }
 
@@ -90,7 +106,7 @@ export async function tableToXlsx(ctx: CommandContext, command: string, input: s
       }
       if (error instanceof XlvError && error.code === 'XLV_E_INVALID_ROWS' && !text.trimStart().startsWith('[')) {
         // The library hint ("pass that property") is for code; on the command line the array has to be a file of its own (D-R08).
-        throw new XlvError(error.code, `"${input}" does not hold a JSON array.`, { hint: notArrayHint(text, input), details: { ...error.details, path: input }, cause: error });
+        throw new XlvError(error.code, `"${input}" does not hold a JSON array.`, { hint: notArrayHint(text, input, ctx.io.cwd), details: { ...error.details, path: input }, cause: error });
       }
       throw error;
     }

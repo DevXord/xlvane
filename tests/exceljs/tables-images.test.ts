@@ -180,8 +180,8 @@ describe('Images (xlvane)', () => {
   it('reads an image given by filename when the workbook is written, as exceljs (found by outside-project tests)', async () => {
     await withTempDir(async (dir) => {
       const png = join(dir, 'logo.png');
-      const { writeFileSync } = await import('node:fs');
-      writeFileSync(png, IMAGE);
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(png, IMAGE);
       // Batch writer: writeBuffer, writeFile, write.
       const wb = new ExcelJS.Workbook();
       const id = wb.addImage({ filename: png, extension: 'png' });
@@ -208,7 +208,7 @@ describe('Images (xlvane)', () => {
       bad.addWorksheet('S').addImage(bad.addImage({ filename: join(dir, 'missing.png'), extension: 'png' }), 'A1:B2');
       await expect(bad.xlsx.writeBuffer()).rejects.toThrow();
       const notImage = new ExcelJS.Workbook();
-      writeFileSync(join(dir, 'x.png'), 'not an image');
+      await writeFile(join(dir, 'x.png'), new TextEncoder().encode('not an image'));
       notImage.addWorksheet('S').addImage(notImage.addImage({ filename: join(dir, 'x.png') }), 'A1:B2');
       await expect(notImage.xlsx.writeBuffer()).rejects.toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_IMAGE' }));
     });

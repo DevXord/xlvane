@@ -109,7 +109,15 @@ describe('create with a JSON object that is not an array (L1)', () => {
       expect(r.code).toBe(3);
       expect(r.stderr).not.toContain('e.g. data.rows');
       expect(r.stderr).toContain('"rows"');
-      expect(r.stderr).toContain("jq '.rows' wrapped.json > rows.json");
+      expect(r.stderr).toContain("jq '.rows' wrapped.json > wrapped-rows.json");
+      // Never the input itself (jq … > input would empty it) and never an existing file.
+      await writeFile(join(dir, 'data.json'), JSON.stringify({ data: [{ a: 1 }] }));
+      await writeFile(join(dir, 'data-data.json'), 'keep');
+      const same = await cli(['create', 'data.json', 'out.xlsx'], { cwd: dir });
+      expect(same.stderr).toContain("jq '.data' data.json > data-data-2.json");
+      await writeFile(join(dir, 'odd.json'), JSON.stringify({ 'my rows': [{ a: 1 }] }));
+      const odd = await cli(['create', 'odd.json', 'out.xlsx'], { cwd: dir });
+      expect(odd.stderr).toContain(`jq '.["my rows"]' odd.json > odd-rows.json`);
       await writeFile(join(dir, 'plain.json'), JSON.stringify({ a: 1 }));
       const p = await cli(['create', 'plain.json', 'out.xlsx'], { cwd: dir });
       expect(p.stderr).not.toContain('e.g. data.rows');
