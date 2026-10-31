@@ -11,6 +11,9 @@ export default defineConfig({
     alias: [
       { find: /^xlvane\/node$/, replacement: fileURLToPath(new URL('packages/xlvane/src/node.ts', import.meta.url)) },
       { find: /^xlvane$/, replacement: fileURLToPath(new URL('packages/xlvane/src/index.ts', import.meta.url)) },
+      // @xlvane/compat's own package imports (D-R07), mapped to the sources as under the node condition.
+      { find: /^#xlvane-node$/, replacement: fileURLToPath(new URL('packages/xlvane/src/node.ts', import.meta.url)) },
+      { find: /^#node-fs$/, replacement: fileURLToPath(new URL('packages/compat/src/node-fs.ts', import.meta.url)) },
     ],
   },
   test: {

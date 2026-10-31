@@ -4,11 +4,12 @@ import { XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookIma
 import { colorOut, formulaOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges } from './defined-names';
-import { imageBytes, imageOut, mediaOut, tableOut, type ImageData } from './media';
+import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageData } from './media';
 import { Worksheet } from './model';
-import { xlvaneNode } from './node-api';
+import { readFileBytes, xlvaneNode } from './node-api';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
+import type { Image } from './compat-types';
 
 /** Node.js Buffer, when available, so `writeBuffer()` returns what exceljs returns there. */
 interface BufferCtor {
@@ -175,17 +176,20 @@ export class XlsxIO {
 
   /** Writes the workbook and returns the file contents (a Buffer in Node.js). */
   async writeBuffer(options?: XlsxWriteOptions): Promise<Uint8Array> {
+    await this.loadFiles();
     return asBuffer(this.bytes(options));
   }
 
   /** Writes the workbook to a file, replacing an existing file as exceljs does (Node.js). */
   async writeFile(path: string, options?: XlsxWriteOptions): Promise<void> {
     const { writeWorkbookFile } = await xlvaneNode('xlsx.writeFile()');
+    await this.loadFiles();
     await writeWorkbookFile(this.book(options), path, { overwrite: true, ...writeOptions(options) });
   }
 
   /** Writes the workbook to a writable stream and ends it. */
   async write(stream: WritableLike, options?: XlsxWriteOptions): Promise<void> {
+    await this.loadFiles();
     const bytes = asBuffer(this.bytes(options));
     stream.write(bytes);
     await new Promise<void>((resolve) => {
@@ -198,6 +202,11 @@ export class XlsxIO {
     throw new Error(
       '`XLSX#createInputStream` is deprecated. You should use `XLSX#read` instead. This method will be removed in version 5.0. Please follow upgrade instruction: https://github.com/exceljs/exceljs/blob/master/UPGRADE-4.0.md',
     );
+  }
+
+  /** Reads image files given by `filename`, as exceljs does when it writes (xlsx.js L426–429). */
+  private loadFiles(): Promise<void> {
+    return loadImageFiles(this.workbook._media, (path) => readFileBytes(path, 'workbook.addImage({ filename })'));
   }
 
   private book(options: XlsxWriteOptions | undefined) {
@@ -252,8 +261,6 @@ export class Workbook {
   _sheets: (Worksheet | undefined)[] = [];
   private _xlsx: XlsxIO | undefined;
   private _csv: CsvIO | undefined;
-  private order = 0;
-  private readonly orders = new Map<Worksheet, number>();
 
   get xlsx(): XlsxIO {
     this._xlsx ??= new XlsxIO(this);
@@ -317,8 +324,10 @@ export class Workbook {
   addWorksheet(name?: string, options?: WorksheetOptions): Worksheet {
     const id = this.nextId;
     const sheet = new Worksheet(this, id, name, options);
+    // exceljs: one more than the largest orderNo (lib/doc/workbook.js L81-85).
+    const last = this._sheets.reduce((acc, ws) => (ws?.orderNo !== undefined && ws.orderNo > acc ? ws.orderNo : acc), 0);
+    sheet.orderNo = last + 1;
     this._sheets[id] = sheet;
-    this.orders.set(sheet, ++this.order);
     return sheet;
   }
 
@@ -326,7 +335,6 @@ export class Workbook {
     const sheet = this.getWorksheet(id);
     if (sheet) {
       this._sheets[sheet.id] = undefined;
-      this.orders.delete(sheet);
     }
   }
 
@@ -398,7 +406,8 @@ export class Workbook {
 
   /** Worksheets in workbook order. */
   get worksheets(): Worksheet[] {
-    return this._sheets.filter((w): w is Worksheet => w !== undefined).sort((a, b) => (this.orders.get(a) ?? 0) - (this.orders.get(b) ?? 0));
+    // Sorted by orderNo, as exceljs (lib/doc/workbook.js L119-124); ties keep id order.
+    return this._sheets.filter((w): w is Worksheet => w !== undefined).sort((a, b) => (a.orderNo ?? 0) - (b.orderNo ?? 0));
   }
 
   eachSheet(iteratee: (sheet: Worksheet, id: number) => void): void {
@@ -410,18 +419,23 @@ export class Workbook {
 
   /**
    * Adds an image (PNG, JPEG or GIF, or EMF or WMF as Excel stores them; recognised from its bytes) and returns its id for
-   * `worksheet.addImage` and `addBackgroundImage`, as exceljs `workbook.addImage`. Give `buffer`
-   * or `base64`; `filename` throws `XLV_E_NOT_SUPPORTED` (read the file and pass `buffer`).
+   * `worksheet.addImage` and `addBackgroundImage`, as exceljs `workbook.addImage`. Give `buffer`,
+   * `base64` or `filename`; a file is read when the workbook is written (Node.js, Bun, Deno), as
+   * in exceljs.
    */
   addImage(image: ImageData): number {
-    imageBytes(image);
+    if (!(image && typeof image === 'object' && image.buffer === undefined && typeof image.base64 !== 'string' && typeof image.filename === 'string')) imageBytes(image);
     this._media.push({ ...image, type: 'image' });
     return this._media.length - 1;
   }
 
-  /** The image with this id, as exceljs `workbook.getImage`. */
-  getImage(id: number): ImageData | undefined {
-    return this._media[id];
+  /**
+   * The image with this id, as exceljs `workbook.getImage`. Typed `Image` as in exceljs
+   * (index.d.ts L1780); at run time an unknown id gives `undefined`, as in exceljs
+   * (lib/doc/workbook.js L149-151).
+   */
+  getImage(id: number): Image {
+    return this._media[id] as Image;
   }
 
   /**
@@ -447,8 +461,6 @@ export class Workbook {
       if (options.maxCols !== undefined) for (const count of perRow.values()) if (count > options.maxCols) limit('maxCols', options.maxCols, count);
     }
     this._sheets = [];
-    this.orders.clear();
-    this.order = 0;
     if (read.dateSystem === '1904') this.properties.date1904 = true;
     else delete this.properties.date1904;
     // exceljs assigns every core property from the file, so missing ones become undefined (workbook.js L184).
@@ -492,9 +504,11 @@ export class Workbook {
     this.calcProperties = read.calculation?.fullCalcOnLoad ? { fullCalcOnLoad: true } : {};
     const mediaIds = new Map<WorkbookImage, number>(read.images.map((img, i) => [img, i]));
     this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
-    for (const s of read.sheets) {
+    for (const [position, s] of read.sheets.entries()) {
       if (s.kind !== 'worksheet') continue;
       const ws = this.addWorksheet(s.name, { state: s.state });
+      // exceljs: the sheet's 0-based position in the file (lib/doc/workbook.js L203).
+      ws.orderNo = position;
       for (const c of use('cols') ? s.columns : []) {
         const last = Math.min(c.max, 16_384);
         for (let n = c.min; n <= last; n++) {

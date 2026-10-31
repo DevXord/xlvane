@@ -172,10 +172,46 @@ describe('Images (xlvane)', () => {
     expect(strFromU8(files['xl/drawings/drawing1.xml']!)).not.toContain('creationId');
   });
 
-  it('refuses unknown image data and file names', async () => {
+  it('refuses unknown image data', async () => {
     const wb = new ExcelJS.Workbook();
     expect(() => wb.addImage({ buffer: new Uint8Array([1, 2, 3]), extension: 'png' })).toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_IMAGE' }));
-    expect(() => wb.addImage({ filename: 'x.png', extension: 'png' })).toThrow(expect.objectContaining({ code: 'XLV_E_NOT_SUPPORTED' }));
+  });
+
+  it('reads an image given by filename when the workbook is written, as exceljs (found by outside-project tests)', async () => {
+    await withTempDir(async (dir) => {
+      const png = join(dir, 'logo.png');
+      const { writeFile } = await import('node:fs/promises');
+      await writeFile(png, IMAGE);
+      // Batch writer: writeBuffer, writeFile, write.
+      const wb = new ExcelJS.Workbook();
+      const id = wb.addImage({ filename: png, extension: 'png' });
+      wb.addWorksheet('S').addImage(id, 'B2:D5');
+      const back = new ExcelJS.Workbook();
+      await back.xlsx.load(await wb.xlsx.writeBuffer());
+      expect(Array.from((back.getImage(0) as { buffer: Uint8Array }).buffer)).toEqual(Array.from(IMAGE));
+      await wb.xlsx.writeFile(join(dir, 'a.xlsx'));
+      const fromFile = new ExcelJS.Workbook();
+      await fromFile.xlsx.readFile(join(dir, 'a.xlsx'));
+      expect(fromFile.getWorksheet('S')!.getImages()).toHaveLength(1);
+      // Streaming writer.
+      const sw = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 's.xlsx') });
+      const sid = sw.addImage({ filename: png, extension: 'png' });
+      const sheet = sw.addWorksheet('S');
+      sheet.addImage(sid, 'A1:B2');
+      sheet.addRow([1]).commit();
+      await sw.commit();
+      const streamed = new ExcelJS.Workbook();
+      await streamed.xlsx.readFile(join(dir, 's.xlsx'));
+      expect(streamed.getWorksheet('S')!.getImages()).toHaveLength(1);
+      // A missing or non-image file fails when written.
+      const bad = new ExcelJS.Workbook();
+      bad.addWorksheet('S').addImage(bad.addImage({ filename: join(dir, 'missing.png'), extension: 'png' }), 'A1:B2');
+      await expect(bad.xlsx.writeBuffer()).rejects.toThrow();
+      const notImage = new ExcelJS.Workbook();
+      await writeFile(join(dir, 'x.png'), new TextEncoder().encode('not an image'));
+      notImage.addWorksheet('S').addImage(notImage.addImage({ filename: join(dir, 'x.png') }), 'A1:B2');
+      await expect(notImage.xlsx.writeBuffer()).rejects.toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_IMAGE' }));
+    });
   });
 
   it('pictures move with spliced rows; a removed corner row is refused', async () => {

@@ -53,10 +53,22 @@ if (failures.length === 0) {
         continue;
       }
       const label = `require(esm) ${dir}/dist/${file}`;
+      // @xlvane/compat's no-node.js is what its package imports resolve to outside Node.js, Bun
+      // and Deno; it throws when loaded by design (D-R07), so loading must fail with its message.
+      const mustThrow = dir === 'packages/compat' && file === 'no-node.js';
       try {
         require(join(dist, file));
+        if (mustThrow) {
+          console.error(`\n> ${label}: loaded, but it must throw`);
+          failures.push(label);
+          continue;
+        }
         console.log(`\n> ${label}: ok`);
       } catch (error) {
+        if (mustThrow && error.code === undefined && /not available in this runtime/.test(error.message)) {
+          console.log(`\n> ${label}: throws as intended`);
+          continue;
+        }
         console.error(`\n> ${label}: ${error.code ?? ''} ${error.message}`);
         failures.push(label);
       }

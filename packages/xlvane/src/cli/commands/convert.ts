@@ -1,10 +1,11 @@
-import { extname } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { fromCSV, toCSV } from '../../csv';
 import { XlvError, type XlvWarning } from '../../errors';
 import { fromJSON, toJSON } from '../../table';
 import { flag, headerOption, str, usageError } from '../args';
 import { readBook, readText, writeOutput, wroteLine, type WriteOutcome } from '../files';
-import { commandLine } from '../output';
+import { commandLine, quoteArg } from '../output';
 import type { CommandContext, CommandOutcome, CommandSpec } from '../types';
 import { warningNote } from '../warnings';
 
@@ -57,6 +58,39 @@ function delimiterNote(ctx: CommandContext, command: string, text: string, input
   ctx.note(`note: the first line of ${input} has no "," but has ${other === 'tab' ? 'tabs' : '";"'}; every line became one column. Try: ${commandLine([command, ...args, '--delimiter', other])}`);
 }
 
+/** What to do with a JSON file that holds something other than an array of rows. */
+/**
+ * A file name for the extracted array next to the input: `<input name>-<property>.json` (or
+ * `-rows.json` for a property that is not a plain name), numbered while it names the input or an
+ * existing file, because `jq … > name` empties that file before jq reads it.
+ */
+function extractName(input: string, key: string, simple: boolean, cwd: string): string {
+  const dir = dirname(input);
+  const stem = basename(input, extname(input));
+  const at = (name: string) => (isAbsolute(name) ? name : resolve(cwd, name));
+  for (let n = 1; ; n++) {
+    const name = join(dir, `${stem}-${simple ? key : 'rows'}${n === 1 ? '' : `-${String(n)}`}.json`);
+    if (at(name) !== at(input) && !existsSync(at(name))) return name;
+  }
+}
+
+function notArrayHint(text: string, input: string, cwd: string): string {
+  const plain = 'The file must hold an array of objects (one per row) or of arrays, for example [{"name":"Ann","score":7}].';
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return plain;
+  }
+  if (typeof data !== 'object' || data === null) return plain;
+  const key = Object.keys(data).find((k) => Array.isArray((data as Record<string, unknown>)[k]));
+  if (key === undefined) return plain;
+  const simple = /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
+  const filter = simple ? `.${key}` : `.[${JSON.stringify(key)}]`;
+  const out = extractName(input, key, simple, cwd);
+  return `The file holds a JSON object; its property "${key}" holds an array. Save that array as a file of its own and pass that file, for example: jq '${filter.replace(/'/g, `'\\''`)}' ${quoteArg(input)} > ${quoteArg(out)}`;
+}
+
 /** Builds an xlsx file from CSV or JSON text (shared by convert and create). */
 export async function tableToXlsx(ctx: CommandContext, command: string, input: string, from: Format, preset: 'plain' | 'report'): Promise<Uint8Array> {
   const text = await readText(ctx, input);
@@ -69,6 +103,10 @@ export async function tableToXlsx(ctx: CommandContext, command: string, input: s
     } catch (error) {
       if (error instanceof XlvError && error.code === 'XLV_E_JSON_INVALID') {
         throw new XlvError(error.code, error.message, { hint: 'Fix the JSON file; the message gives the problem. The file must hold an array of objects or arrays.', details: { ...error.details, path: input }, cause: error });
+      }
+      if (error instanceof XlvError && error.code === 'XLV_E_INVALID_ROWS' && !text.trimStart().startsWith('[')) {
+        // The library hint ("pass that property") is for code; on the command line the array has to be a file of its own (D-R08).
+        throw new XlvError(error.code, `"${input}" does not hold a JSON array.`, { hint: notArrayHint(text, input, ctx.io.cwd), details: { ...error.details, path: input }, cause: error });
       }
       throw error;
     }

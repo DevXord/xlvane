@@ -215,3 +215,46 @@ describe('sheets with invalid references (D-903)', () => {
     expectXlvError(() => appendRows(xlsx, 'S', [[1]]), 'XLV_E_INVALID_CELL_REF');
   });
 });
+
+describe('appendRows below merged ranges (found by outside-project tests)', () => {
+  it('starts below a merge that reaches the last used row, also through chained merges', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    s.set('A1', 'h').set('A2', 1).set('A3', 'merged').merge('A3:C5').merge('D5:D7');
+    const result = appendRows(writeWorkbook(wb), 'S', [['x', 'y']]);
+    expect(result.warnings.map((w) => w.code)).not.toContain('XLV_W_MERGED_CELL_WRITE');
+    const sheet = readWorkbook(result.bytes).getSheet('S');
+    expect(sheet.cell('A8')?.value).toBe('x');
+    expect(sheet.cell('B8')?.value).toBe('y');
+    expect(sheet.cell('A4')).toBeUndefined();
+  });
+
+  it('also starts below merges that hold no value (found in review)', () => {
+    const only = createWorkbook();
+    only.addSheet('S').merge('A1:C3');
+    const a = appendRows(writeWorkbook(only), 'S', [['x'], ['y']]);
+    expect(a.warnings.map((w) => w.code)).not.toContain('XLV_W_MERGED_CELL_WRITE');
+    expect(readWorkbook(a.bytes).getSheet('S').cell('A4')?.value).toBe('x');
+    const gap = createWorkbook();
+    gap.addSheet('S').set('A1', 1).set('A2', 2).merge('A4:C5');
+    const b = appendRows(writeWorkbook(gap), 'S', [['x']]);
+    expect(readWorkbook(b.bytes).getSheet('S').cell('A6')?.value).toBe('x');
+  });
+
+  it('is linear in the number of merges', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    for (let i = 20_000; i >= 1; i--) s.merge(`A${String(i * 2)}:B${String(i * 2 + 1)}`);
+    const started = performance.now();
+    const r = appendRows(writeWorkbook(wb), 'S', [['x']]);
+    expect(readWorkbook(r.bytes).getSheet('S').cell('A40002')?.value).toBe('x');
+    expect(performance.now() - started).toBeLessThan(5_000);
+  });
+
+  it('ignores merges that end above the last used row', () => {
+    const wb = createWorkbook();
+    wb.addSheet('S').set('A1', 'm').merge('A1:B2').set('A3', 1);
+    const sheet = readWorkbook(appendRows(writeWorkbook(wb), 'S', [[2]]).bytes).getSheet('S');
+    expect(sheet.cell('A4')?.value).toBe(2);
+  });
+});

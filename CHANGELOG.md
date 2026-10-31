@@ -42,6 +42,7 @@ First release of `xlvane` and `@xlvane/compat`.
 - Formulas are not calculated: xlvane reads and writes formula text and the cached results stored in the file. Edited files ask spreadsheet applications to recalculate when they are opened.
 - Legacy `.xls` files and password-encrypted workbooks are not read (`XLV_E_UNSUPPORTED_CONTAINER`). Sheet and workbook protection passwords, which are not encryption, are supported.
 - Charts, shapes, pivot tables, slicers and form controls are not modelled: reading skips them (drawings with a warning), `editCells` keeps them unchanged, and `insertRows`/`deleteRows` refuse sheets where they would have to move.
+- `insertRows`/`deleteRows` also refuse sheets whose conditional formats use the [MS-XLSX] extension, which xlvane writes for data bars with an extension setting (`gradient`, `borderColor`, `negativeFillColor`, `negativeBorderColor`, `axisPosition`, `axisColor`, `direction`, or an `autoMin`/`autoMax` threshold) and for the icon sets `3Stars`, `3Triangles`, `5Boxes` and `NoIcons`; insert the rows before adding such rules, or add the rules again after the change.
 - `readTableStream` fixes its columns from the first rows it reads; `readTable` uses the whole sheet.
 - JSON has no date type: `fromJSON` keeps ISO date strings as text (`fromCSV` recognises them).
 - The command line reads files only, not standard input.

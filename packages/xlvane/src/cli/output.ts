@@ -100,13 +100,22 @@ function oneLine(text: string): string {
 
 /**
  * Control characters that a terminal would act on (C0 except tab and line feed, DEL, and C1,
- * which includes the 8-bit CSI U+009B) written as `\x1b`, so text from a file, such as a cell
+ * which includes the 8-bit CSI U+009B) written as `\x1b`, and bidirectional formatting characters
+ * written as `\u202e`, so text from a file, such as a cell
  * holding `_x001B_]0;title_x0007_`, cannot move the cursor, change the window title or hide
  * output (docs/decisions.md D-R02). Used for all human-readable output; `--json` is unchanged.
  */
 export function escapeControls(text: string): string {
-  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`);
+  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`).replace(BIDI, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
+
+/**
+ * The characters with the Unicode property Bidi_Control (checked against `/\p{Bidi_Control}/u` in
+ * Node.js 22, Unicode 16.0; tests/cli/release-fixes.test.ts). They reorder the text shown after
+ * them, so a cell holding "abc\u202Egnp.exe" would be displayed as "abcexe.png". Written as
+ * `\u202e` in human-readable output, like other control characters (D-R08).
+ */
+const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
 /** The colour sequences `Output` writes (styleText: bold, dim, red, green, yellow, cyan and their resets). */
 const OWN_STYLES = /\u001b\[(?:1|2|22|31|32|33|36|39)m/y;
@@ -121,7 +130,14 @@ export function terminalSafe(text: string, keepStyles: boolean): string {
   let start = 0;
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
-    const control = (code < 0x20 && code !== 0x0a && code !== 0x09) || (code >= 0x7f && code <= 0x9f);
+    const control =
+      (code < 0x20 && code !== 0x0a && code !== 0x09) ||
+      (code >= 0x7f && code <= 0x9f) ||
+      code === 0x061c ||
+      code === 0x200e ||
+      code === 0x200f ||
+      (code >= 0x202a && code <= 0x202e) ||
+      (code >= 0x2066 && code <= 0x2069);
     if (!control) continue;
     if (keepStyles && code === 0x1b) {
       OWN_STYLES.lastIndex = i;

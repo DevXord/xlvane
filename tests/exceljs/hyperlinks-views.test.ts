@@ -56,7 +56,8 @@ describe('hyperlink values', () => {
     expect(ws.getCell('A1').text).toBe('Bold link');
     const ws2 = (await roundTrip(wb)).getWorksheet('Links');
     expect(ws2.getCell('A1').value).toEqual({ text: { richText: [{ font: { bold: true }, text: 'Bold' }, { text: ' link' }] }, hyperlink: 'https://example.com' });
-    expect(ws2.getCell('A1').font).toMatchObject({ underline: 'single', color: { argb: 'FF0000FF' } });
+    // exceljs reads <u/> back as true (underline-xform.js L40-45; D-R09).
+    expect(ws2.getCell('A1').font).toMatchObject({ underline: true, color: { argb: 'FF0000FF' } });
   });
 
   it('is a hyperlink only when both text and hyperlink are set, as exceljs (cell.js L1078)', async () => {

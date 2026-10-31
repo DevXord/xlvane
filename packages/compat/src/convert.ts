@@ -491,8 +491,9 @@ export interface SheetLayoutIn {
  * The first exceljs view and the tab colour (X4-11, X4-12). xlvane writes one view: frozen panes
  * (`xSplit`/`ySplit` in columns and rows) or a split window (`xSplit`/`ySplit` in 1/20 point, as
  * exceljs), plus `zoomScale`, `showGridLines`, `showRowColHeaders`, `rightToLeft` and `style`.
- * `topLeftCell`, `activeCell` and `activePane` are not written; xlvane writes the default
- * top-left cell and active pane.
+ * `activeCell` is written for every view; `topLeftCell` only for a normal view (a split view's
+ * exceljs `topLeftCell` is `pane@topLeftCell`, which the core does not write); `activePane`
+ * follows from the panes.
  */
 export function layoutIn(ws: Worksheet): SheetLayoutIn {
   const v = ws.views[0];
@@ -753,7 +754,10 @@ function fontOut(f: FontStyle): Partial<Font> {
   if (f.bold) font.bold = true;
   if (f.italic) font.italic = true;
   if (f.strike) font.strike = true;
-  if (f.underline) font.underline = f.underline === true ? 'single' : f.underline;
+  // exceljs writes `true` and 'single' alike as <u/> and reads <u/> back as `true`
+  // (lib/xlsx/xform/style/underline-xform.js L14-30, L40-45); xlvane reads <u/> and
+  // <u val="single"/> as 'single', so single underlines come back as `true` here.
+  if (f.underline) font.underline = f.underline === true || f.underline === 'single' ? true : f.underline;
   const color = colorOut(f.color);
   if (color) font.color = color;
   if (f.vertAlign && f.vertAlign !== 'baseline') font.vertAlign = f.vertAlign;

@@ -29,8 +29,8 @@ export async function buildSmoke(outDir = join(root, 'node_modules/.cache/xlvane
     dts: false,
     clean: false,
     logLevel: 'warn',
-    // No alias for xlvane/node: @xlvane/compat loads it only through a non-literal specifier
-    // when a file is read or written by name, so it never enters the bundle.
+    // No alias for xlvane/node: @xlvane/compat loads it only through its package import
+    // #xlvane-node, which resolves to dist/no-node.js without the node condition (D-R07).
     alias: packages
       ? {}
       : {

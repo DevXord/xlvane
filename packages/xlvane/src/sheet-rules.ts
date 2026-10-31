@@ -315,6 +315,18 @@ const CF_NEEDS_FORMULA: readonly ConditionalFormatType[] = [
   'notContainsErrors',
   'timePeriod',
 ];
+/** An example condition per rule type, for the hint when `formulas` is missing (A1 = top-left cell). */
+const CF_FORMULA_EXAMPLE: Partial<Record<ConditionalFormatType, string>> = {
+  containsText: '"ISNUMBER(SEARCH(\\"x\\",A1))"',
+  notContainsText: '"ISERROR(SEARCH(\\"x\\",A1))"',
+  beginsWith: '"LEFT(A1,1)=\\"x\\""',
+  endsWith: '"RIGHT(A1,1)=\\"x\\""',
+  containsBlanks: '"ISBLANK(A1)"',
+  notContainsBlanks: '"NOT(ISBLANK(A1))"',
+  containsErrors: '"ISERROR(A1)"',
+  notContainsErrors: '"NOT(ISERROR(A1))"',
+  timePeriod: '"A1=TODAY()"',
+};
 const CF_TEXT_TYPES: readonly ConditionalFormatType[] = ['containsText', 'notContainsText', 'beginsWith', 'endsWith'];
 /** Data bar properties that exist only in the [MS-XLSX] extension (§2.6.30, SR-41). */
 const BAR_EXTENSION_KEYS = ['gradient', 'borderColor', 'negativeFillColor', 'negativeBorderColor', 'axisPosition', 'axisColor', 'direction'];
@@ -848,7 +860,7 @@ export function normalizeCfRule(rule: unknown, index: number, where: Where): Omi
       where,
       `${what}.formulas`,
       `A rule of type "${type}" needs its criteria in formulas.`,
-      type === 'cellIs' ? 'For example formulas: [100] with operator: "greaterThan".' : 'Pass the condition as a formula for the top-left cell of the range, for example formulas: ["ISNUMBER(SEARCH(\\"x\\",A1))"].',
+      type === 'cellIs' ? 'For example formulas: [100] with operator: "greaterThan".' : `Pass the condition as a formula for the top-left cell of the range, for example formulas: [${CF_FORMULA_EXAMPLE[type] ?? '"$B2>100"'}].`,
     );
   }
   let operator: ConditionalFormatOperator | null = null;

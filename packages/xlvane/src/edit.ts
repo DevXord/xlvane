@@ -1195,10 +1195,10 @@ export function editCells(input: Uint8Array | ArrayBuffer, edits: readonly CellE
 }
 
 /**
- * Appends rows below the last used row of a sheet in an existing XLSX file, editing the file
- * surgically like {@link editCells}. Object rows are placed under the matching header columns
- * (unknown keys throw `XLV_E_INVALID_ROWS` with suggestions); array rows start at the first
- * used column. A table whose last row is the sheet's last used row grows to include the new
+ * Appends rows below the last used row of a sheet (the rows of merged ranges count as used) in
+ * an existing XLSX file, editing the file surgically like {@link editCells}. Object rows are
+ * placed under the matching header columns (unknown keys throw `XLV_E_INVALID_ROWS` with
+ * suggestions); array rows start at the first used column. A table whose last row is the sheet's last used row grows to include the new
  * rows (its range and filter); if that table has a totals row the call is refused with
  * `XLV_E_NOT_SUPPORTED` and a hint to insert the rows above the totals row with `insertRows`.
  * Calculated columns are not filled in the new rows.
@@ -1235,6 +1235,12 @@ export function appendRows(
     firstCol = Math.min(firstCol, cell.col);
   }
   if (firstCol === Infinity) firstCol = 1;
+  // A merged range shows as one cell, so the rows it covers are used: a value appended inside it
+  // would be hidden (E-35). The new rows start below every merge, also one without a value.
+  for (const ref of target.merges) {
+    const merge = parseRange(ref);
+    if (merge !== null && merge.end.row > lastRow) lastRow = merge.end.row;
+  }
   if (lastRow + rows.length > MAX_ROWS) {
     throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Appending ${String(rows.length)} rows after row ${String(lastRow)} would pass the last row of the sheet.`, {
       location: { sheet: target.name },

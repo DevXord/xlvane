@@ -566,7 +566,8 @@ describe('Workbook', () => {
       });
       const wb2 = await roundTrip(wb);
       const expected = [
-        { ...defaults, state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: undefined, activePane: 'bottomRight' },
+        // The active cell comes back as in exceljs (sheet-view-xform.js L81-85, L167-169).
+        { ...defaults, state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: undefined, activeCell: 'D5', activePane: 'bottomRight' },
         { ...defaults, state: 'split', xSplit: 0, ySplit: 1500, topLeftCell: undefined, activePane: 'bottomLeft' },
         { ...defaults, state: 'split', xSplit: 1500, ySplit: 0, topLeftCell: undefined, activePane: 'topRight' },
       ];
@@ -592,9 +593,10 @@ describe('Workbook', () => {
       const wb2 = await roundTrip(wb);
       expect(wb2.views).toEqual(wb.views);
       expect(wb2.getWorksheet('one').views).toEqual([frozen]);
-      // xlvane writes every sheet view with workbookViewId 0 and no topLeftCell or activeCell
-      // for a split view (docs/exceljs-compat.md).
-      expect(wb2.getWorksheet('two').views).toEqual([{ ...split, workbookViewId: 0, topLeftCell: undefined, activeCell: undefined }]);
+      // xlvane writes every sheet view with workbookViewId 0 and no topLeftCell for a split view;
+      // the active cell is kept, as exceljs writes and reads it (sheet-view-xform.js L81-85,
+      // L167-169; docs/exceljs-compat.md).
+      expect(wb2.getWorksheet('two').views).toEqual([{ ...split, workbookViewId: 0, topLeftCell: undefined }]);
     });
   });
 });

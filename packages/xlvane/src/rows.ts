@@ -864,7 +864,9 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
  *
  * Refused with `XLV_E_NOT_SUPPORTED`, leaving the file unchanged: a drawing that holds charts,
  * shapes or anything besides pictures; embedded objects, form controls, scenarios, cell watches,
- * custom sheet views, extended content that refers to cells (data bars, sparklines, slicers) and
+ * custom sheet views, extended content that refers to cells (data bars, sparklines, slicers —
+ * including the extended data bar settings and the icon sets `3Stars`, `3Triangles`, `5Boxes`, `NoIcons`
+ * that xlvane itself writes) and
  * other related parts xlvane does not know; charts or pivot tables anywhere in the workbook that
  * may refer to the sheet; data tables; an array formula the change would split; and formulas it
  * cannot rewrite safely (docs/facts/ref-adjust.md).

@@ -3,12 +3,15 @@
 // writing go through xlvane (convert.ts).
 import { hashPassword, shiftFormula, XlvError } from 'xlvane';
 import type { DefinedNames } from './defined-names';
-import { imageRange, Table, type ImageRangeInput, type SheetMedia, type TableProperties } from './media';
+import { imageRange, Table, type ImageRangeInput, type SheetImageMedia, type SheetMedia, type TableProperties } from './media';
 import { DataValidations, defaultHeaderFooter, defaultPageSetup } from './sheet-rules';
 import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, moveSqref, movePosition, type SpliceChange } from './splice';
 import type { Alignment, Borders, CellValue, Color, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, Protection, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
 import type { Range, WorksheetProperties } from './compat-types';
 import { Dimensions } from './range';
+
+/** `results` of `fillFormula`, typed as exceljs (index.d.ts L1327). */
+type FillFormulaResults = ((r: number, c: number) => string | number) | number[] | number[][];
 
 /**
  * Value types, as in exceljs `lib/doc/enums.js` (ValueType).
@@ -613,6 +616,9 @@ export class Row {
     if (!cell) {
       cell = new Cell(this, n);
       this._cells[n - 1] = cell;
+      // exceljs creates the cell's Column when it creates the cell (lib/doc/row.js L48,
+      // worksheet.js L243-261), so worksheet.columns covers every used column.
+      if (this.worksheet._columns.length < n) this.worksheet.getColumn(n);
     }
     return cell;
   }
@@ -1024,6 +1030,12 @@ export function parseRangeArgs(args: readonly unknown[]): { top: number; left: n
  */
 export class Worksheet {
   readonly id: number;
+  /**
+   * The position of the sheet in `workbook.worksheets`, as exceljs `orderNo`: one more than the
+   * largest of the other sheets for a new sheet (lib/doc/workbook.js L81-85), the 0-based position
+   * in the file for a loaded one (L203). Worksheets are listed in this order.
+   */
+  orderNo: number | undefined;
   state: 'visible' | 'hidden' | 'veryHidden';
   views: WorksheetView[];
   autoFilter: string | { from: string | { row: number; column: number }; to: string | { row: number; column: number } } | null = null;
@@ -1224,8 +1236,10 @@ export class Worksheet {
   _committedRows = 0;
 
   private get lastRowNumber(): number {
+    // Rows up to _committedRows were dropped by a streaming writer: stop there, so that a loop of
+    // addRow(...).commit() stays linear instead of rescanning every dropped row.
     let n = this._rows.length;
-    while (n > 0 && this._rows[n - 1] === undefined) n--;
+    while (n > this._committedRows && this._rows[n - 1] === undefined) n--;
     return Math.max(n, this._committedRows);
   }
 
@@ -1629,10 +1643,10 @@ export class Worksheet {
   }
 
   getSheetValues(): CellValue[][] {
+    // Every row object, also an empty one (which gives []), as exceljs (lib/doc/worksheet.js
+    // L571-579).
     const out: CellValue[][] = [];
-    this.eachRow((row) => {
-      out[row.number] = row.values;
-    });
+    for (const row of this._rows) if (row) out[row.number] = row.values;
     return out;
   }
 
@@ -1687,7 +1701,7 @@ export class Worksheet {
    * formula, ref, result }`, the others `{ sharedFormula: topLeft, result }` (shared) or their
    * result (array). `results` is a function `(row, col) => result`, a flat array or a 2-D array.
    */
-  fillFormula(range: string, formula: string, results?: unknown, shareType: 'shared' | 'array' = 'shared'): void {
+  fillFormula(range: string, formula: string, results?: FillFormulaResults, shareType: 'shared' | 'array' = 'shared'): void {
     const { top, left, bottom, right } = parseRangeArgs([range]);
     const width = right - left + 1;
     const master = `${columnLetter(left)}${String(top)}`;
@@ -1893,9 +1907,13 @@ export class Worksheet {
     return table;
   }
 
-  /** The table with this name, or `undefined`. */
-  getTable(name: string): Table | undefined {
-    return Object.hasOwn(this.tables, name) ? this.tables[name] : undefined;
+  /**
+   * The table with this name. Typed `Table` as in exceljs (index.d.ts L1365), so exceljs code
+   * type-checks unchanged; at run time a missing name gives `undefined`, as exceljs does
+   * (lib/doc/worksheet.js L797-799).
+   */
+  getTable(name: string): Table {
+    return (Object.hasOwn(this.tables, name) ? this.tables[name] : undefined) as Table;
   }
 
   /** Removes the table; its cells are kept, as in exceljs. */
@@ -1913,9 +1931,12 @@ export class Worksheet {
     this._media.push({ type: 'image', imageId, range: imageRange(this, range) });
   }
 
-  /** The pictures of the sheet, as exceljs `getImages()`: `{ type, imageId, range }`. */
-  getImages(): SheetMedia[] {
-    return this._media.filter((m) => m.type === 'image');
+  /**
+   * The pictures of the sheet, as exceljs `getImages()`: `{ type, imageId, range }`; `range` is
+   * always set for a picture (index.d.ts L1342-1346 types it as required).
+   */
+  getImages(): SheetImageMedia[] {
+    return this._media.filter((m): m is SheetImageMedia => m.type === 'image' && m.range !== undefined);
   }
 
   /** Uses an image of the workbook as the sheet background. */

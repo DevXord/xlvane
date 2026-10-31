@@ -32,16 +32,22 @@ function streamValueIn(cell: ModelCell, masters: Map<string, { formula: string; 
   return valueIn(cell);
 }
 import type { DefinedNames } from './defined-names';
-import { xlvaneNode } from './node-api';
-import { imageAnchorIn, imageBytes, type ImageData } from './media';
+import { readFileBytes, xlvaneNode } from './node-api';
+import { imageAnchorIn, imageBytes, loadImageFiles, type ImageData } from './media';
 import { Dimensions } from './range';
 import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
+import type { Image } from './compat-types';
 import { Workbook } from './workbook';
 
-/** An unbounded async queue: producers push synchronously, the stream pulls. */
+/**
+ * An unbounded async queue: producers push synchronously, the stream pulls. Items are taken by
+ * index (`head`) instead of `Array#shift`, which copies the array and made a loop of
+ * `addRow(...).commit()` quadratic; the taken part is dropped once it is half the array.
+ */
 class Channel<T> implements AsyncIterable<T> {
-  private readonly items: T[] = [];
+  private items: T[] = [];
+  private head = 0;
   private waiting: { resolve: (r: IteratorResult<T>) => void; reject: (e: unknown) => void } | null = null;
   private closed = false;
   private error: unknown = undefined;
@@ -68,7 +74,8 @@ class Channel<T> implements AsyncIterable<T> {
   fail(error: unknown): void {
     this.closed = true;
     this.error = error;
-    this.items.length = 0;
+    this.items = [];
+    this.head = 0;
     if (this.waiting) {
       const w = this.waiting;
       this.waiting = null;
@@ -83,8 +90,15 @@ class Channel<T> implements AsyncIterable<T> {
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: (): Promise<IteratorResult<T>> => {
-        const item = this.items.shift();
-        if (item !== undefined) return Promise.resolve({ value: item, done: false });
+        if (this.head < this.items.length) {
+          const item = this.items[this.head] as T;
+          this.items[this.head++] = undefined as T;
+          if (this.head >= 1024 && this.head * 2 >= this.items.length) {
+            this.items = this.items.slice(this.head);
+            this.head = 0;
+          }
+          return Promise.resolve({ value: item, done: false });
+        }
         if (this.error !== undefined) return Promise.reject(this.error);
         if (this.closed) return Promise.resolve({ value: undefined as T, done: true });
         return new Promise((resolve, reject) => {
@@ -93,6 +107,12 @@ class Channel<T> implements AsyncIterable<T> {
       },
     };
   }
+}
+
+function trimTrailing<T>(items: (T | undefined)[]): (T | undefined)[] {
+  let n = items.length;
+  while (n > 0 && items[n - 1] === undefined) n--;
+  return items.slice(0, n);
 }
 
 /** A writable Node.js stream. */
@@ -175,7 +195,9 @@ export class WorksheetWriter extends Worksheet {
     return {
       name: this.name,
       state: this.state,
-      columns: this.columns.map((c) => columnIn(c, this.writer._useStyles)),
+      // Columns created by cell access are default ones and are not written; dropping the trailing
+      // ones keeps the layout of a sheet whose later rows use more columns unchanged.
+      columns: trimTrailing(this.columns.map((c) => columnIn(c, this.writer._useStyles))),
       ...(layout.freeze ? { freeze: layout.freeze } : {}),
       ...(Object.keys(layout.view).length > 0 ? { view: layout.view } : {}),
       ...(layout.tabColor !== undefined ? { tabColor: layout.tabColor } : {}),
@@ -351,8 +373,8 @@ export class WorkbookWriter {
     return this._book.addImage(image);
   }
 
-  /** The image with this id. */
-  getImage(id: number): ImageData | undefined {
+  /** The image with this id (typed `Image` as in exceljs, index.d.ts L1780; `undefined` for an unknown id). */
+  getImage(id: number): Image {
     return this._book.getImage(id);
   }
 
@@ -377,27 +399,29 @@ export class WorkbookWriter {
     if (this.done) return this.done;
     const meta = this.meta();
     this.written = JSON.stringify(meta);
-    const images = this._book._media.map((m) => imageBytes(m));
-    // archiver's zlib level (workbook-writer.js L33; X4-25) becomes the Deflate level of the parts.
-    const zip = (this.options.zip ?? {}) as { zlib?: { level?: unknown } };
-    const level = zip.zlib?.level;
-    const spec: WriteWorkbookStreamOptions = {
-      sheets: this.sheets,
-      sharedStrings: this.options.useSharedStrings === true,
-      ...meta,
-      ...(images.length > 0 ? { images } : {}),
-      ...(typeof level === 'number' && Number.isInteger(level) && level >= 0 && level <= 9 ? { compressionLevel: level } : {}),
-    };
+    const media = this._book._media;
     const options = this.options;
-    if (options.filename !== undefined) {
-      const filename = options.filename;
-      // exceljs replaces an existing file, so overwrite is on.
-      this.done = xlvaneNode('stream.xlsx.WorkbookWriter({ filename })').then(({ writeWorkbookStreamFile }) => writeWorkbookStreamFile(filename, spec, { overwrite: true }));
-    } else if (options.stream !== undefined) {
-      const out = options.stream;
-      this.done = (async () => {
-        const stream = writeWorkbookStream(spec);
-        const reader = stream.getReader();
+    this.done = (async () => {
+      // Image files given by name are read first, as exceljs does when it writes (xlsx.js L426–429).
+      await loadImageFiles(media, (path) => readFileBytes(path, 'workbook.addImage({ filename })'));
+      const images = media.map((m) => imageBytes(m));
+      // archiver's zlib level (workbook-writer.js L33; X4-25) becomes the Deflate level of the parts.
+      const zip = (options.zip ?? {}) as { zlib?: { level?: unknown } };
+      const level = zip.zlib?.level;
+      const spec: WriteWorkbookStreamOptions = {
+        sheets: this.sheets,
+        sharedStrings: options.useSharedStrings === true,
+        ...meta,
+        ...(images.length > 0 ? { images } : {}),
+        ...(typeof level === 'number' && Number.isInteger(level) && level >= 0 && level <= 9 ? { compressionLevel: level } : {}),
+      };
+      if (options.filename !== undefined) {
+        // exceljs replaces an existing file, so overwrite is on.
+        const { writeWorkbookStreamFile } = await xlvaneNode('stream.xlsx.WorkbookWriter({ filename })');
+        await writeWorkbookStreamFile(options.filename, spec, { overwrite: true });
+      } else if (options.stream !== undefined) {
+        const out = options.stream;
+        const reader = writeWorkbookStream(spec).getReader();
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -408,10 +432,10 @@ export class WorkbookWriter {
         await new Promise<void>((resolve) => {
           out.end(() => resolve());
         });
-      })();
-    } else {
-      this.done = Promise.reject(notSupportedLater('A WorkbookWriter without filename or stream'));
-    }
+      } else {
+        throw notSupportedLater('A WorkbookWriter without filename or stream');
+      }
+    })();
     // Errors are reported by commit(); avoid an unhandled rejection before that.
     this.done.catch(() => undefined);
     return this.done;

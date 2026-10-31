@@ -131,7 +131,8 @@ export const editCommand: CommandSpec = {
     const output = str(ctx.args, 'output');
     const force = flag(ctx.args, 'force');
     const dryRun = flag(ctx.args, 'dry-run');
-    if (output === undefined && !force && !dryRun) {
+    // A dry run fails where the real run would (D-R08): without --output, changing the file in place needs --force.
+    if (output === undefined && !force) {
       throw new XlvError('XLV_E_FILE_EXISTS', `"${file}" would be changed in place.`, {
         hint: 'Add --force to change the file in place, or write the result to a new file with --output <path>.',
         details: { path: file },
@@ -164,8 +165,7 @@ export const editCommand: CommandSpec = {
         bytes = r.bytes;
         warnings.push(...r.warnings);
       }
-      // A dry run of an in-place edit reports the replacement without needing --force.
-      const w = await writeOutput(ctx, output ?? file, bytes, { force: force || (dryRun && output === undefined), dryRun });
+      const w = await writeOutput(ctx, output ?? file, bytes, { force, dryRun });
       const unique = [...new Map(warnings.map((x) => [`${x.code}|${x.message}`, x])).values()];
       const result = {
         input: file,
