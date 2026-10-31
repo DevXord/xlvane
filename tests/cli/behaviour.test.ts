@@ -188,13 +188,13 @@ describe('migrate', () => {
       const report = await cli(['migrate', 'my-app'], { cwd: dir });
       expect(report.code).toBe(0);
       expect(report.stdout).toContain('- "exceljs": "^4.4.0"');
-      expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/exceljs@^1"');
+      expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/compat@^1"');
       expect(report.stdout).toContain('src/report.js:4:3  addImage({ filename })');
       expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before);
       const forced = await cli(['migrate', 'my-app', '--force'], { cwd: dir });
       expect(forced.code).toBe(0);
-      expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before.replace('"^4.4.0"', '"npm:@xlvane/exceljs@^1"'));
-      expect((await cli(['migrate', 'my-app'], { cwd: dir })).stdout).toContain('already uses npm:@xlvane/exceljs@^1');
+      expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before.replace('"^4.4.0"', '"npm:@xlvane/compat@^1"'));
+      expect((await cli(['migrate', 'my-app'], { cwd: dir })).stdout).toContain('already uses npm:@xlvane/compat@^1');
     });
   });
 

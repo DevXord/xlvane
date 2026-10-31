@@ -1,4 +1,4 @@
-// Bundles tests/runtimes/smoke.ts into one self-contained ES module (xlvane, @xlvane/exceljs and
+// Bundles tests/runtimes/smoke.ts into one self-contained ES module (xlvane, @xlvane/compat and
 // fflate included, no node: imports) for the runtime runners in tests/runtimes/ (D-904, D-R01).
 // Usage: node scripts/build-smoke.mjs [outDir]   (default node_modules/.cache/xlvane-runtimes)
 import { readFile, writeFile } from 'node:fs/promises';
@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
  * - default: from the sources (the src folders of the packages), for every runtime;
  * - `{ packages: true }`: from the built packages as a user's bundler sees them (package exports,
  *   dist files, browser platform, no aliases), writing `smoke-packages.js`. It checks that
- *   @xlvane/exceljs bundles for browsers and Cloudflare Workers without node: imports (D-R01).
+ *   @xlvane/compat bundles for browsers and Cloudflare Workers without node: imports (D-R01).
  *   Run `npm run build` first.
  */
 export async function buildSmoke(outDir = join(root, 'node_modules/.cache/xlvane-runtimes'), { packages = false } = {}) {
@@ -29,13 +29,13 @@ export async function buildSmoke(outDir = join(root, 'node_modules/.cache/xlvane
     dts: false,
     clean: false,
     logLevel: 'warn',
-    // No alias for xlvane/node: @xlvane/exceljs loads it only through a non-literal specifier
+    // No alias for xlvane/node: @xlvane/compat loads it only through a non-literal specifier
     // when a file is read or written by name, so it never enters the bundle.
     alias: packages
       ? {}
       : {
           xlvane: join(root, 'packages/xlvane/src/index.ts'),
-          '@xlvane/exceljs': join(root, 'packages/exceljs/src/index.ts'),
+          '@xlvane/compat': join(root, 'packages/compat/src/index.ts'),
         },
     deps: { alwaysBundle: [/./], onlyBundle: false },
     outputOptions: { codeSplitting: false },

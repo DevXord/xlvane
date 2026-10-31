@@ -42,7 +42,7 @@ type TotalsFunction = 'none' | 'average' | 'countNums' | 'count' | 'max' | 'min'
  *
  * @example
  * ```ts
- * import type { TableColumnProperties } from '@xlvane/exceljs';
+ * import type { TableColumnProperties } from '@xlvane/compat';
  *
  * const column: TableColumnProperties = { name: 'Revenue', totalsRowFunction: 'sum', filterButton: true };
  * ```
@@ -63,7 +63,7 @@ export interface TableColumnProperties {
  *
  * @example
  * ```ts
- * import type { TableProperties } from '@xlvane/exceljs';
+ * import type { TableProperties } from '@xlvane/compat';
  *
  * const table: TableProperties = {
  *   name: 'Sales',
@@ -105,7 +105,7 @@ const SUBTOTAL: Readonly<Record<string, number>> = { average: 101, countNums: 10
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * const table = sheet.addTable({ name: 'Sales', ref: 'A1', columns: [{ name: 'Region' }, { name: 'Revenue' }], rows: [['North', 1200]] });
@@ -179,7 +179,7 @@ export class TableColumn {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * const table = sheet.addTable({
@@ -554,7 +554,7 @@ export function tableOut(ws: Worksheet, def: TableDefinition): Table {
  *
  * @example
  * ```ts
- * import type { ImageData } from '@xlvane/exceljs';
+ * import type { ImageData } from '@xlvane/compat';
  *
  * declare const png: Uint8Array;
  * const image: ImageData = { buffer: png, extension: 'png' };
@@ -587,7 +587,7 @@ interface AnchorModel {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.Workbook();
  * const sheet = workbook.addWorksheet('Report');
@@ -658,7 +658,7 @@ export class Anchor implements AnchorModel {
  *
  * @example
  * ```ts
- * import type { ImageRangeInput } from '@xlvane/exceljs';
+ * import type { ImageRangeInput } from '@xlvane/compat';
  *
  * const cells: ImageRangeInput = 'B2:D6';
  * const sized: ImageRangeInput = { tl: { col: 1, row: 1 }, ext: { width: 160, height: 90 } };
@@ -732,7 +732,7 @@ export function imageBytes(image: ImageData): Uint8Array {
     bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
   } else if (image.filename !== undefined) {
-    throw new XlvError('XLV_E_NOT_SUPPORTED', 'workbook.addImage({ filename }) is not supported: @xlvane/exceljs does not read files by name in every runtime.', {
+    throw new XlvError('XLV_E_NOT_SUPPORTED', 'workbook.addImage({ filename }) is not supported: @xlvane/compat does not read files by name in every runtime.', {
       hint: "Read the file and pass its contents: workbook.addImage({ buffer: fs.readFileSync(filename), extension: 'png' }).",
       details: { feature: 'image filename' },
     });

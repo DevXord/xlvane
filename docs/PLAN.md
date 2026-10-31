@@ -44,7 +44,7 @@ Monorepo z workspace'ami npm:
 | Paczka | Licencja | Zawartość | Zależności w czasie działania |
 |---|---|---|---|
 | `xlvane` | MIT | Rdzeń (odczyt, zapis, style, streaming), API zadaniowe, CLI | tylko `fflate` |
-| `@xlvane/exceljs` | MIT | Warstwa zgodności z API `exceljs` jako główny punkt wejścia paczki, żeby działał alias `"exceljs": "npm:@xlvane/exceljs@^1"` | tylko `xlvane` |
+| `@xlvane/compat` | MIT | Warstwa zgodności z API `exceljs` jako główny punkt wejścia paczki, żeby działał alias `"exceljs": "npm:@xlvane/compat@^1"` | tylko `xlvane` |
 | `@xlvane/mcp` | MIT | Serwer MCP dla agentów | `xlvane` i oficjalne SDK MCP |
 | `@xlvane/pro` | komercyjna | **Nie w tym repozytorium.** Osobne, prywatne repozytorium | — |
 
@@ -71,7 +71,7 @@ Agenci mają wybierać xlvane, bo z nim **rzeczywiście** wykonują zadanie szyb
    - `editCells(file, edits)`, `appendRows(file, sheet, rows)`.
    - `diff(a, b)`: różnice między skoroszytami. Agent sprawdza nim swoją pracę, a człowiek przegląda zmianę.
    - `toCSV`, `toJSON`, `fromCSV`, `fromJSON`.
-2. **Zgodność z `exceljs`.** Modele znają API `exceljs` z danych treningowych. Kod, który agent napisze pod `exceljs`, ma działać z `@xlvane/exceljs` bez zmian.
+2. **Zgodność z `exceljs`.** Modele znają API `exceljs` z danych treningowych. Kod, który agent napisze pod `exceljs`, ma działać z `@xlvane/compat` bez zmian.
 3. **Typy z przykładami.** Każdy publiczny symbol ma w TSDoc opis i działający przykład. Agenci czytają pliki `.d.ts` w `node_modules`.
 4. **Błędy, z których agent sam się poprawi.** Każdy błąd ma stały kod (`XLV_E_SHEET_NOT_FOUND`), miejsce (arkusz i komórka), podpowiedź naprawy z listą dostępnych opcji („Available sheets: Sales, Costs”) i link do opisu w dokumentacji. `error.toJSON()` zwraca to samo jako dane.
 5. **Serwer MCP** (`@xlvane/mcp`). Agent pracuje na arkuszach bez pisania kodu, przez narzędzia `inspect_workbook`, `read_table`, `write_table`, `edit_cells`, `convert`, `diff`, `validate`. Domyślnie tylko odczyt i tylko w katalogach wskazanych przy uruchomieniu, a zapis wymaga flagi `--allow-write`.
@@ -139,11 +139,11 @@ Wkleić jako `CLAUDE.md` w katalogu głównym:
 # Zasady projektu xlvane
 
 ## Cel
-Biblioteka XLSX na MIT dla ludzi i agentów AI: odczyt, zapis, style, streaming, API zadaniowe, zgodność z exceljs (paczka @xlvane/exceljs), czytelne CLI, serwer MCP (paczka @xlvane/mcp). Plan: docs/PLAN.md.
+Biblioteka XLSX na MIT dla ludzi i agentów AI: odczyt, zapis, style, streaming, API zadaniowe, zgodność z exceljs (paczka @xlvane/compat), czytelne CLI, serwer MCP (paczka @xlvane/mcp). Plan: docs/PLAN.md.
 
 ## Twarde reguły
 - Paczka `xlvane` ma jedną zależność w czasie działania: `fflate`. Parser XML piszemy sami. Każda nowa zależność wymaga mojej zgody i wpisu w docs/decisions.md.
-- `@xlvane/exceljs` może zależeć tylko od `xlvane`. `@xlvane/mcp` może zależeć tylko od `xlvane` i oficjalnego SDK MCP.
+- `@xlvane/compat` może zależeć tylko od `xlvane`. `@xlvane/mcp` może zależeć tylko od `xlvane` i oficjalnego SDK MCP.
 - W tym repozytorium nie ma kodu wersji Pro. Rdzeń udostępnia tylko udokumentowane interfejsy rozszerzeń (np. `FormulaEngine`).
 - Tylko ESM, bez top-level await. Działa w Node, Bun, Deno, przeglądarce i Cloudflare Workers; API rdzenia używa `Uint8Array` i Web Streams, a operacje na plikach są w osobnym podmodule dla Node.
 - Pliki wejściowe są niezaufane: limity ZIP, XML bez DTD i encji, brak zanieczyszczenia prototypu, ochrona CSV przed wstrzykiwaniem formuł. Każda reguła ma test.
@@ -175,7 +175,7 @@ Szacunki są orientacyjne i dotyczą pracy z Claude Code przy bieżącym przegl�
 
 ### Faza 0: Szkielet monorepo (0,5 dnia)
 
-> Utwórz monorepo z workspace'ami npm: `packages/xlvane`, `packages/exceljs` i `packages/mcp`, zgodnie z CLAUDE.md. ESM-only, tsdown, Vitest, fast-check, publint, @arethetypeswrong/cli, licencja MIT w każdej paczce. Sprawdź w aktualnej dokumentacji bieżące wersje narzędzi i to, czy tsdown jest nadal zalecanym następcą tsup. Dodaj `SECURITY.md`. Dodaj plik polityki depgate dla repozytorium, jeśli depgate jest już dostępny.
+> Utwórz monorepo z workspace'ami npm: `packages/xlvane`, `packages/compat` i `packages/mcp`, zgodnie z CLAUDE.md. ESM-only, tsdown, Vitest, fast-check, publint, @arethetypeswrong/cli, licencja MIT w każdej paczce. Sprawdź w aktualnej dokumentacji bieżące wersje narzędzi i to, czy tsdown jest nadal zalecanym następcą tsup. Dodaj `SECURITY.md`. Dodaj plik polityki depgate dla repozytorium, jeśli depgate jest już dostępny.
 
 **Kryteria:** build, testy i `check:pkg` przechodzą na pustych modułach, `xlvane` zależy tylko od `fflate`.
 
@@ -205,7 +205,7 @@ Szacunki są orientacyjne i dotyczą pracy z Claude Code przy bieżącym przegl�
 
 ### Faza 5: Zgodność z exceljs (1–2 tygodnie)
 
-> Przeanalizuj publiczne API exceljs 4.4.0 i najczęściej używane jego części (np. przez przegląd kodu otwartych projektów, które go używają). Zaimplementuj paczkę `packages/exceljs` (`@xlvane/exceljs`), której główny punkt wejścia udostępnia ten podzbiór: `Workbook`, `xlsx.readFile`, `xlsx.writeBuffer`, `addWorksheet`, `getWorksheet`, `columns`, `addRow`, `getRow`, `getCell`, `eachRow`, style, scalanie, strumieniowy `WorkbookWriter`. Musi działać zarówno `import ExcelJS from "exceljs"`, jak i `const ExcelJS = require("exceljs")` z CommonJS; sprawdź w dokumentacji Node, jak `require(esm)` obsługuje eksport domyślny, i zapisz decyzję w docs/decisions.md. Przenieś odpowiednie testy exceljs (licencja MIT, zachowaj informację o autorstwie). Udokumentuj, co jest wspierane, a co nie, w docs/exceljs-compat.md. Dodaj test, w którym przykładowy projekt napisany pod exceljs działa bez zmian w kodzie po aliasie `"exceljs": "npm:@xlvane/exceljs@^1"`.
+> Przeanalizuj publiczne API exceljs 4.4.0 i najczęściej używane jego części (np. przez przegląd kodu otwartych projektów, które go używają). Zaimplementuj paczkę `packages/compat` (`@xlvane/compat`), której główny punkt wejścia udostępnia ten podzbiór: `Workbook`, `xlsx.readFile`, `xlsx.writeBuffer`, `addWorksheet`, `getWorksheet`, `columns`, `addRow`, `getRow`, `getCell`, `eachRow`, style, scalanie, strumieniowy `WorkbookWriter`. Musi działać zarówno `import ExcelJS from "exceljs"`, jak i `const ExcelJS = require("exceljs")` z CommonJS; sprawdź w dokumentacji Node, jak `require(esm)` obsługuje eksport domyślny, i zapisz decyzję w docs/decisions.md. Przenieś odpowiednie testy exceljs (licencja MIT, zachowaj informację o autorstwie). Udokumentuj, co jest wspierane, a co nie, w docs/exceljs-compat.md. Dodaj test, w którym przykładowy projekt napisany pod exceljs działa bez zmian w kodzie po aliasie `"exceljs": "npm:@xlvane/compat@^1"`.
 
 **Kryteria:** przeniesione testy przechodzą dla wspieranego podzbioru, jasna tabela zgodności, działająca migracja aliasem z ESM i z CommonJS.
 
@@ -245,7 +245,7 @@ Ręcznie po Pana stronie: konfiguracja trusted publishing dla `xlvane` i `@xlvan
 
 Decyzja Pana: 1.0.0 ma być pełnoprawnym zamiennikiem `exceljs`, więc publikacja (faza 10) następuje dopiero po fazach A–E. Każda faza zaczyna się w trybie planowania i czeka na Pana zgodę. Każda nowa funkcja jest też przyjazna dla AI: widać ją w `inspect()` i w `xlvane inspect`/`read --json`, ma kody błędów `XLV_E_*` z podpowiedzią i jest opisana w SKILL.md oraz llms-full.txt (bez tekstów zachęcających agentów do wyboru paczki).
 
-- **Faza A: treść komórek i metadane skoroszytu.** Rich text, hiperłącza, notatki (komentarze z VML), właściwości dokumentu (`docProps`), nazwy zdefiniowane, kolor zakładki i widoki arkusza, domyślny styl kolumny, daty jak w exceljs (format 14 tylko w `@xlvane/exceljs`). Fakty brakujące w kontenerze (ECMA-376 Part 1, [MS-OI29500]) z drugiego raportu sesji lokalnej.
+- **Faza A: treść komórek i metadane skoroszytu.** Rich text, hiperłącza, notatki (komentarze z VML), właściwości dokumentu (`docProps`), nazwy zdefiniowane, kolor zakładki i widoki arkusza, domyślny styl kolumny, daty jak w exceljs (format 14 tylko w `@xlvane/compat`). Fakty brakujące w kontenerze (ECMA-376 Part 1, [MS-OI29500]) z drugiego raportu sesji lokalnej.
 - **Faza B: operacje na wierszach.** `insertRow(s)`, `spliceRows`, `duplicateRow` z przesuwaniem scaleń, formuł, nazw i zakresów.
 - **Faza C: reguły arkusza.** Walidacja danych, formatowanie warunkowe, ochrona arkusza, ustawienia wydruku (`pageSetup`, `headerFooter`, obszar wydruku).
 - **Faza D: tabele i obrazy.** `addTable`, `addImage` (rysunki).

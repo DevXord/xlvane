@@ -8,7 +8,7 @@ import { columnLetter } from './model';
  *
  * @example
  * ```ts
- * import ExcelJS, { type NameCell } from '@xlvane/exceljs';
+ * import ExcelJS, { type NameCell } from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.Workbook();
  * workbook.definedNames.add('Data!$B$2', 'total');
@@ -29,7 +29,7 @@ export interface NameCell {
  *
  * @example
  * ```ts
- * import ExcelJS, { type DecodedLocation } from '@xlvane/exceljs';
+ * import ExcelJS, { type DecodedLocation } from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.Workbook();
  * const location: DecodedLocation = { sheetName: 'Data', row: 2, col: 2 };
@@ -101,7 +101,7 @@ function sheetPrefix(sheetName: string | undefined): string {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.Workbook();
  * workbook.definedNames.add('Data!$A$1:$A$3', 'items');
@@ -214,7 +214,7 @@ const RANGE = /[$](\w+)[$](\d+)(:[$](\w+)[$](\d+))?/;
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.Workbook();
  * workbook.addWorksheet('Data');

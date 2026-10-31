@@ -1,5 +1,5 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/workbook.spec.js (MIT, Copyright (c) 2014-2019 Guyon Roche),
-// changes: Mocha/Chai → Vitest; `verquire('exceljs')` → @xlvane/exceljs; data validation
+// changes: Mocha/Chai → Vitest; `verquire('exceljs')` → @xlvane/compat; data validation
 // removed from the helper workbook (not supported); the
 // model-serialisation test stays skipped as upstream; the `duplicateRow` tests are ported in
 // full (phase B); the rich-text fonts are written with spread objects (same values).

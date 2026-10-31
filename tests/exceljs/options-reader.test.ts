@@ -1,5 +1,5 @@
 // xlvane tests for the xlsx read/write options, the WorkbookReader options and events, and the
-// module enums of @xlvane/exceljs (docs/decisions.md D-E03; docs/facts/exceljs.md X4-25, X4-26).
+// module enums of @xlvane/compat (docs/decisions.md D-E03; docs/facts/exceljs.md X4-25, X4-26).
 // The exceljs behaviour they follow is cited from exceljs 4.4.0 (bench/node_modules/exceljs).
 import { describe, expect, it } from 'vitest';
 import { readWorkbook } from '../../packages/xlvane/src/read';

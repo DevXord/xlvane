@@ -15,7 +15,7 @@ import { Dimensions } from './range';
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const cell = new ExcelJS.Workbook().addWorksheet('S').getCell('A1');
  * cell.value = 42;
@@ -55,7 +55,7 @@ export type ValueType = (typeof ValueType)[keyof typeof ValueType];
  *
  * @example
  * ```ts
- * import { FormulaType } from '@xlvane/exceljs';
+ * import { FormulaType } from '@xlvane/compat';
  *
  * console.log(FormulaType.Master); // 1
  * ```
@@ -69,7 +69,7 @@ export type FormulaType = (typeof FormulaType)[keyof typeof FormulaType];
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const cell = new ExcelJS.Workbook().addWorksheet('S').getCell('A1');
  * cell.value = { error: ExcelJS.ErrorValue.NotApplicable };
@@ -97,9 +97,9 @@ export type ErrorValue = (typeof ErrorValue)[keyof typeof ErrorValue];
 
 const COMPAT_DOCS = 'https://github.com/DevXord/xlvane/blob/main/docs/exceljs-compat.md';
 
-/** Throws `XLV_E_NOT_SUPPORTED` for exceljs features that @xlvane/exceljs does not implement (D-502). */
+/** Throws `XLV_E_NOT_SUPPORTED` for exceljs features that @xlvane/compat does not implement (D-502). */
 export function notSupported(feature: string): never {
-  throw new XlvError('XLV_E_NOT_SUPPORTED', `${feature} is not supported by @xlvane/exceljs.`, {
+  throw new XlvError('XLV_E_NOT_SUPPORTED', `${feature} is not supported by @xlvane/compat.`, {
     hint: `See ${COMPAT_DOCS} for what is supported. Remove this call or keep using exceljs for this file.`,
     details: { feature },
   });
@@ -190,7 +190,7 @@ function checkValue(value: unknown): CellValue {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * const cell = sheet.getCell('B2');
@@ -496,7 +496,7 @@ export class Cell {
 
   /**
    * Kept for exceljs code that calls it: exceljs deletes the cell's internal references here
-   * (lib/doc/cell.js L41–47), after which the cell must not be used. In @xlvane/exceljs the cell
+   * (lib/doc/cell.js L41–47), after which the cell must not be used. In @xlvane/compat the cell
    * stays usable and nothing changes; memory is freed when the cell is no longer referenced.
    */
   destroy(): void {}
@@ -524,7 +524,7 @@ function withoutEmpty(style: Style): Style {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * const row = sheet.addRow(['Tea', 3.5]);
@@ -582,7 +582,7 @@ export class Row {
 
   /**
    * Kept for exceljs code that calls it: exceljs deletes the row's internal references here
-   * (lib/doc/row.js L34–38), after which the row must not be used. In @xlvane/exceljs the row
+   * (lib/doc/row.js L34–38), after which the row must not be used. In @xlvane/compat the row
    * stays usable and nothing changes; memory is freed when the row is no longer referenced.
    */
   destroy(): void {}
@@ -794,7 +794,7 @@ const DEFAULT_COLUMN_WIDTH = 9;
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * sheet.columns = [{ header: 'Name', key: 'name', width: 20 }, { header: 'Total', key: 'total' }];
@@ -1013,7 +1013,7 @@ export function parseRangeArgs(args: readonly unknown[]): { top: number; left: n
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Sales', { views: [{ state: 'frozen', ySplit: 1 }] });
  * sheet.columns = [{ header: 'Region', key: 'region', width: 15 }, { header: 'Revenue', key: 'revenue' }];
@@ -1531,7 +1531,7 @@ export class Worksheet {
 
   /**
    * @internal Refuses a splice that tables or pictures cannot follow, before anything changes:
-   * tables do not move in @xlvane/exceljs (as in exceljs), so rows or columns may not be inserted
+   * tables do not move in @xlvane/compat (as in exceljs), so rows or columns may not be inserted
    * or removed at or before a table's last row or column; a picture corner in a removed row or
    * column has no place to go.
    */
@@ -1540,7 +1540,7 @@ export class Worksheet {
       const r = parseRangeArgs([t.table.tableRef]);
       const end = change.axis === 'row' ? r.bottom : r.right;
       if (change.at <= end && (change.count > 0 || change.inserts > 0)) {
-        throw new XlvError('XLV_E_NOT_SUPPORTED', `${method} would move or cut table "${t.name}" (${t.table.tableRef}), which does not follow splices in @xlvane/exceljs.`, {
+        throw new XlvError('XLV_E_NOT_SUPPORTED', `${method} would move or cut table "${t.name}" (${t.table.tableRef}), which does not follow splices in @xlvane/compat.`, {
           location: { sheet: this.name },
           hint: 'Splice below or to the right of the table, or move it: set table.ref and call table.commit() after the splice. xlvane insertRows/deleteRows move tables in files.',
           details: { method, table: t.name },

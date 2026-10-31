@@ -1,9 +1,9 @@
-// xlvane tests for workbook.csv in @xlvane/exceljs (docs/decisions.md D-E03, docs/facts/exceljs.md
+// xlvane tests for workbook.csv in @xlvane/compat (docs/decisions.md D-E03, docs/facts/exceljs.md
 // X4-23, X4-24): exceljs 4.4.0 options and output, CSV-injection escaping, and the documented
 // fixes of exceljs bugs. The expected text of exceljs itself was observed with exceljs 4.4.0
 // (bench/node_modules) on the same input.
 import { describe, expect, it } from 'vitest';
-import { csvValue, formatDate, parseDate } from '../../packages/exceljs/src/csv';
+import { csvValue, formatDate, parseDate } from '../../packages/compat/src/csv';
 import { ExcelJS } from './helpers';
 
 const text = async (wb: any, options?: unknown): Promise<string> => new TextDecoder('utf-8', { ignoreBOM: true }).decode(await wb.csv.writeBuffer(options));

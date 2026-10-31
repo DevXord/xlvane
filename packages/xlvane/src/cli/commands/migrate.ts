@@ -6,15 +6,15 @@ import { readText, resolvePath, writeOutput, wroteLine, type WriteOutcome } from
 import { commandLine, plural, type Output } from '../output';
 import type { CommandContext, CommandSpec } from '../types';
 
-/** The dependency value that installs @xlvane/exceljs under the name exceljs (npm alias). */
-export const ALIAS = 'npm:@xlvane/exceljs@^1';
+/** The dependency value that installs @xlvane/compat under the name exceljs (npm alias). */
+export const ALIAS = 'npm:@xlvane/compat@^1';
 const SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const;
 const SOURCE = /\.(?:js|mjs|cjs|jsx|ts|mts|cts|tsx)$/;
 const MAX_FILES = 10_000;
 const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 /**
- * exceljs API that @xlvane/exceljs does not support or supports only partly
+ * exceljs API that @xlvane/compat does not support or supports only partly
  * (docs/exceljs-compat.md). Matching is textual, so a hit is a place to look at, not proof.
  */
 const PATTERNS: readonly { readonly api: string; readonly status: 'not supported' | 'partly'; readonly re: RegExp }[] = [
@@ -147,9 +147,9 @@ async function run(ctx: CommandContext) {
         for (const c of changes) lines.push(`  ${c.section}: ${out.red(`- "exceljs": "${c.from}"`)}`, `  ${' '.repeat(c.section.length)}  ${out.green(`+ "exceljs": "${c.to}"`)}`);
       }
       lines.push(
-        `Node.js: require('exceljs') of @xlvane/exceljs needs Node.js 22.12 or later (package.json engines.node: ${typeof engines === 'string' ? `"${engines}"` : 'not set'}).`,
+        `Node.js: require('exceljs') of @xlvane/compat needs Node.js 22.12 or later (package.json engines.node: ${typeof engines === 'string' ? `"${engines}"` : 'not set'}).`,
       );
-      lines.push('', `Scanned ${plural(files.length, 'source file')}${limited ? ` (stopped at ${String(MAX_FILES)})` : ''} for exceljs API that @xlvane/exceljs does not fully support:`);
+      lines.push('', `Scanned ${plural(files.length, 'source file')}${limited ? ` (stopped at ${String(MAX_FILES)})` : ''} for exceljs API that @xlvane/compat does not fully support:`);
       if (findings.length === 0) lines.push('  none found.');
       for (const f of findings.slice(0, 200)) lines.push(`  ${f.status === 'partly' ? out.yellow('partly       ') : out.red('not supported')} ${f.file}:${String(f.line)}:${String(f.column)}  ${f.api}`);
       if (findings.length > 200) lines.push(out.dim(`  … ${String(findings.length - 200)} more; use --json for all`));
@@ -164,9 +164,9 @@ async function run(ctx: CommandContext) {
 
 export const migrateCommand: CommandSpec = {
   name: 'migrate',
-  summary: 'Switch a project from exceljs to @xlvane/exceljs',
+  summary: 'Switch a project from exceljs to @xlvane/compat',
   description:
-    'Prepares a project for @xlvane/exceljs, which offers the commonly used exceljs API. It shows the change to package.json ("exceljs": "npm:@xlvane/exceljs@^1", an npm alias, so the code keeps importing "exceljs") and lists places in the source code that use exceljs API outside the supported subset. Only files that mention exceljs are scanned (node_modules and dot folders are skipped), and matching is textual. package.json is changed only with --force; nothing else is changed.',
+    'Prepares a project for @xlvane/compat, which offers the commonly used exceljs API. It shows the change to package.json ("exceljs": "npm:@xlvane/compat@^1", an npm alias, so the code keeps importing "exceljs") and lists places in the source code that use exceljs API outside the supported subset. Only files that mention exceljs are scanned (node_modules and dot folders are skipped), and matching is textual. package.json is changed only with --force; nothing else is changed.',
   usage: '[project-dir] [options]',
   positionals: { min: 0, max: 1, names: ['project-dir'] },
   writes: true,

@@ -1,6 +1,6 @@
 // Builds a temporary project in which `exceljs` resolves to a given package directory, and runs
 // the sample scripts of tests/exceljs/sample-project in it. Used by alias.test.ts (exceljs =
-// @xlvane/exceljs, as installed by the alias "exceljs": "npm:@xlvane/exceljs@^1") and by
+// @xlvane/compat, as installed by the alias "exceljs": "npm:@xlvane/compat@^1") and by
 // cross-check.test.ts (exceljs = the real exceljs 4.4.0 from bench/node_modules).
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, stat, writeFile } from 'node:fs/promises';
@@ -50,7 +50,7 @@ export async function expectedSummary(): Promise<Record<string, unknown>> {
 }
 
 /**
- * Differences between @xlvane/exceljs and exceljs 4.4.0 that are documented in
+ * Differences between @xlvane/compat and exceljs 4.4.0 that are documented in
  * docs/exceljs-compat.md. Each entry removes one key of the summary before comparing; the
  * list is empty when the two agree on everything the sample checks.
  */

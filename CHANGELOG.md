@@ -2,7 +2,7 @@
 
 ## 1.0.0
 
-First release of `xlvane` and `@xlvane/exceljs`.
+First release of `xlvane` and `@xlvane/compat`.
 
 ### xlvane
 
@@ -32,9 +32,9 @@ First release of `xlvane` and `@xlvane/exceljs`.
 - **Agent Skill** (`skills/xlvane/SKILL.md`), the documentation and `llms-full.txt` are included in the package.
 - **Tested** in Node.js 22, 24 and 26, Bun, Deno, Chromium and Cloudflare Workers (workerd), and on 340 files of the Apache POI test corpus.
 
-### @xlvane/exceljs
+### @xlvane/compat
 
-- **The exceljs 4.4.0 API** on xlvane, for switching with `"exceljs": "npm:@xlvane/exceljs@^1"`: workbooks, worksheets, rows, columns, cells, styles, rich text, hyperlinks, notes, formulas (incl. shared and array formulas and `fillFormula`), merges, defined names, data validation, conditional formatting, protection, page setup, tables, images, row and column operations, `workbook.csv`, streaming `WorkbookWriter`/`WorkbookReader`, and the documented deep imports.
+- **The exceljs 4.4.0 API** on xlvane, for switching with `"exceljs": "npm:@xlvane/compat@^1"`: workbooks, worksheets, rows, columns, cells, styles, rich text, hyperlinks, notes, formulas (incl. shared and array formulas and `fillFormula`), merges, defined names, data validation, conditional formatting, protection, page setup, tables, images, row and column operations, `workbook.csv`, streaming `WorkbookWriter`/`WorkbookReader`, and the documented deep imports.
 - Where exceljs writes data the specification or Excel rejects, or loses data, xlvane writes valid data and keeps it; every difference is listed in docs/exceljs-compat.md. Row and column operations move formulas, merges, notes and names as a spreadsheet application does. CSV output escapes formula-like text by default (`formulaInjection: 'off'` gives exceljs's output).
 
 ### Limitations

@@ -1,5 +1,5 @@
 // Deep imports that exceljs 4.4.0 documents (README: "exceljs/dist/es5" for older Node.js, and
-// the browser bundles in dist/). @xlvane/exceljs maps them to its main entry (docs/exceljs-compat.md).
+// the browser bundles in dist/). @xlvane/compat maps them to its main entry (docs/exceljs-compat.md).
 const paths = ['exceljs/dist/es5', 'exceljs/dist/es5/index.js', 'exceljs/dist/exceljs.js', 'exceljs/dist/exceljs.min.js'];
 const out = {};
 for (const p of paths) {

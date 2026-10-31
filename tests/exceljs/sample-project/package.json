@@ -1,9 +1,9 @@
 {
   "name": "exceljs-sample-project",
   "private": true,
-  "description": "Code written for exceljs 4.4.0, run unchanged against @xlvane/exceljs installed as \"exceljs\" (tests/exceljs/alias.test.ts).",
+  "description": "Code written for exceljs 4.4.0, run unchanged against @xlvane/compat installed as \"exceljs\" (tests/exceljs/alias.test.ts).",
   "type": "module",
   "dependencies": {
-    "exceljs": "npm:@xlvane/exceljs@^1"
+    "exceljs": "npm:@xlvane/compat@^1"
   }
 }

@@ -44,7 +44,7 @@ const RUNTIMES = {
 async function main() {
   // The source bundle runs everywhere; the bundle made from the built packages (as a user's
   // bundler would make it, D-R01) runs in the two runtimes without Node.js modules.
-  const build = spawnSync('npm', ['run', 'build', '-w', 'packages/xlvane', '-w', 'packages/exceljs'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
+  const build = spawnSync('npm', ['run', 'build', '-w', 'packages/xlvane', '-w', 'packages/compat'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
   if (build.status !== 0) throw new Error(`npm run build failed:\n${build.stdout}\n${build.stderr}`);
   const bundle = await buildSmoke();
   const packaged = await buildSmoke(undefined, { packages: true });

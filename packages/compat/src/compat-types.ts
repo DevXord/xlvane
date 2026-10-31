@@ -1,5 +1,5 @@
 // exceljs 4.4.0 type names that code written for exceljs uses (index.d.ts line numbers in each
-// TSDoc), so that such code type-checks against @xlvane/exceljs (docs/decisions.md D-R01).
+// TSDoc), so that such code type-checks against @xlvane/compat (docs/decisions.md D-R01).
 // Shapes follow exceljs (MIT); where a value is a Node.js Buffer in exceljs it is a Uint8Array here.
 import type { CsvIO } from './csv';
 import type { Worksheet } from './model';
@@ -12,7 +12,7 @@ import type { XlsxIO } from './workbook';
  *
  * @example
  * ```ts
- * import type { Buffer } from '@xlvane/exceljs';
+ * import type { Buffer } from '@xlvane/compat';
  * const value: Buffer | undefined = new Uint8Array(0);
  * console.log(value);
  * ```
@@ -24,7 +24,7 @@ export type Buffer = Uint8Array;
  *
  * @example
  * ```ts
- * import { PaperSize } from '@xlvane/exceljs';
+ * import { PaperSize } from '@xlvane/compat';
  *
  * const size: PaperSize = PaperSize.A4;
  * console.log(size); // 9
@@ -65,7 +65,7 @@ export type PaperSize = (typeof PaperSize)[keyof typeof PaperSize];
  *
  * @example
  * ```ts
- * import type { GradientStop } from '@xlvane/exceljs';
+ * import type { GradientStop } from '@xlvane/compat';
  * const value: GradientStop | undefined = { position: 0, color: { argb: 'FFFFFFFF' } };
  * console.log(value);
  * ```
@@ -80,7 +80,7 @@ export interface GradientStop {
  *
  * @example
  * ```ts
- * import type { FillGradientAngle } from '@xlvane/exceljs';
+ * import type { FillGradientAngle } from '@xlvane/compat';
  * const value: FillGradientAngle | undefined = { type: 'gradient', gradient: 'angle', degree: 90, stops: [{ position: 0, color: { argb: 'FFFFFFFF' } }, { position: 1, color: { argb: 'FF0070C0' } }] };
  * console.log(value);
  * ```
@@ -97,7 +97,7 @@ export interface FillGradientAngle {
  *
  * @example
  * ```ts
- * import type { FillGradientPath } from '@xlvane/exceljs';
+ * import type { FillGradientPath } from '@xlvane/compat';
  * const value: FillGradientPath | undefined = { type: 'gradient', gradient: 'path', center: { left: 0.5, top: 0.5 }, stops: [] };
  * console.log(value);
  * ```
@@ -114,7 +114,7 @@ export interface FillGradientPath {
  *
  * @example
  * ```ts
- * import type { BorderDiagonal } from '@xlvane/exceljs';
+ * import type { BorderDiagonal } from '@xlvane/compat';
  * const value: BorderDiagonal | undefined = { style: 'thin', color: { argb: 'FF000000' }, up: true, down: false };
  * console.log(value);
  * ```
@@ -129,7 +129,7 @@ export interface BorderDiagonal extends Border {
  *
  * @example
  * ```ts
- * import type { Margins } from '@xlvane/exceljs';
+ * import type { Margins } from '@xlvane/compat';
  * const value: Margins | undefined = { top: 0.75, left: 0.7, bottom: 0.75, right: 0.7, header: 0.3, footer: 0.3 };
  * console.log(value);
  * ```
@@ -148,7 +148,7 @@ export interface Margins {
  *
  * @example
  * ```ts
- * import type { DataValidationOperator } from '@xlvane/exceljs';
+ * import type { DataValidationOperator } from '@xlvane/compat';
  * const value: DataValidationOperator | undefined = 'between';
  * console.log(value);
  * ```
@@ -160,7 +160,7 @@ export type DataValidationOperator = 'between' | 'notBetween' | 'equal' | 'notEq
  *
  * @example
  * ```ts
- * import type { RichText } from '@xlvane/exceljs';
+ * import type { RichText } from '@xlvane/compat';
  * const value: RichText | undefined = { text: 'Bold', font: { bold: true } };
  * console.log(value);
  * ```
@@ -175,7 +175,7 @@ export interface RichText {
  *
  * @example
  * ```ts
- * import type { CellRichTextValue } from '@xlvane/exceljs';
+ * import type { CellRichTextValue } from '@xlvane/compat';
  * const value: CellRichTextValue | undefined = { richText: [{ text: 'a' }, { text: 'b', font: { italic: true } }] };
  * console.log(value);
  * ```
@@ -189,7 +189,7 @@ export interface CellRichTextValue {
  *
  * @example
  * ```ts
- * import type { CellHyperlinkValue } from '@xlvane/exceljs';
+ * import type { CellHyperlinkValue } from '@xlvane/compat';
  * const value: CellHyperlinkValue | undefined = { text: 'Site', hyperlink: 'https://example.com' };
  * console.log(value);
  * ```
@@ -205,7 +205,7 @@ export interface CellHyperlinkValue {
  *
  * @example
  * ```ts
- * import type { Address } from '@xlvane/exceljs';
+ * import type { Address } from '@xlvane/compat';
  * const value: Address | undefined = undefined;
  * console.log(value);
  * ```
@@ -223,7 +223,7 @@ export interface Address {
  *
  * @example
  * ```ts
- * import type { CellModel } from '@xlvane/exceljs';
+ * import type { CellModel } from '@xlvane/compat';
  * const value: CellModel | undefined = undefined;
  * console.log(value);
  * ```
@@ -247,7 +247,7 @@ export interface CellModel {
  *
  * @example
  * ```ts
- * import type { RowModel } from '@xlvane/exceljs';
+ * import type { RowModel } from '@xlvane/compat';
  * const value: RowModel | undefined = undefined;
  * console.log(value);
  * ```
@@ -269,7 +269,7 @@ export interface RowModel {
  *
  * @example
  * ```ts
- * import type { AutoFilter } from '@xlvane/exceljs';
+ * import type { AutoFilter } from '@xlvane/compat';
  * const value: AutoFilter | undefined = 'A1:C1';
  * console.log(value);
  * ```
@@ -281,7 +281,7 @@ export type AutoFilter = string | { from: string | { row: number; column: number
  *
  * @example
  * ```ts
- * import type { Image } from '@xlvane/exceljs';
+ * import type { Image } from '@xlvane/compat';
  * const value: Image | undefined = { extension: 'png', base64: 'iVBORw0KGgo=' };
  * console.log(value);
  * ```
@@ -298,7 +298,7 @@ export interface Image {
  *
  * @example
  * ```ts
- * import type { ImageRange } from '@xlvane/exceljs';
+ * import type { ImageRange } from '@xlvane/compat';
  * const value: ImageRange | undefined = { tl: { col: 0, row: 0 }, br: { col: 2, row: 3 } };
  * console.log(value);
  * ```
@@ -313,7 +313,7 @@ export interface ImageRange {
  *
  * @example
  * ```ts
- * import type { IAnchorPosition } from '@xlvane/exceljs';
+ * import type { IAnchorPosition } from '@xlvane/compat';
  * const value: IAnchorPosition | undefined = { col: 1, row: 2 };
  * console.log(value);
  * ```
@@ -328,7 +328,7 @@ export interface IAnchorPosition {
  *
  * @example
  * ```ts
- * import type { ImagePosition } from '@xlvane/exceljs';
+ * import type { ImagePosition } from '@xlvane/compat';
  * const value: ImagePosition | undefined = { tl: { col: 0, row: 0 }, ext: { width: 120, height: 60 } };
  * console.log(value);
  * ```
@@ -343,7 +343,7 @@ export interface ImagePosition {
  *
  * @example
  * ```ts
- * import type { ImageHyperlinkValue } from '@xlvane/exceljs';
+ * import type { ImageHyperlinkValue } from '@xlvane/compat';
  * const value: ImageHyperlinkValue | undefined = { hyperlink: 'https://example.com' };
  * console.log(value);
  * ```
@@ -358,7 +358,7 @@ export interface ImageHyperlinkValue {
  *
  * @example
  * ```ts
- * import type { Location } from '@xlvane/exceljs';
+ * import type { Location } from '@xlvane/compat';
  * const value: Location | undefined = { top: 1, left: 1, bottom: 3, right: 2 };
  * console.log(value);
  * ```
@@ -375,7 +375,7 @@ export interface Location {
  *
  * @example
  * ```ts
- * import type { Range } from '@xlvane/exceljs';
+ * import type { Range } from '@xlvane/compat';
  * const value: Range | undefined = undefined;
  * console.log(value);
  * ```
@@ -396,7 +396,7 @@ export interface Range extends Location {
  *
  * @example
  * ```ts
- * import type { Media } from '@xlvane/exceljs';
+ * import type { Media } from '@xlvane/compat';
  * const value: Media | undefined = undefined;
  * console.log(value);
  * ```
@@ -413,7 +413,7 @@ export interface Media {
  *
  * @example
  * ```ts
- * import type { WorksheetState } from '@xlvane/exceljs';
+ * import type { WorksheetState } from '@xlvane/compat';
  * const value: WorksheetState | undefined = 'hidden';
  * console.log(value);
  * ```
@@ -425,7 +425,7 @@ export type WorksheetState = 'visible' | 'hidden' | 'veryHidden';
  *
  * @example
  * ```ts
- * import type { CellIsOperators } from '@xlvane/exceljs';
+ * import type { CellIsOperators } from '@xlvane/compat';
  * const value: CellIsOperators | undefined = 'between';
  * console.log(value);
  * ```
@@ -437,7 +437,7 @@ export type CellIsOperators = 'equal' | 'greaterThan' | 'lessThan' | 'between';
  *
  * @example
  * ```ts
- * import type { ContainsTextOperators } from '@xlvane/exceljs';
+ * import type { ContainsTextOperators } from '@xlvane/compat';
  * const value: ContainsTextOperators | undefined = 'containsText';
  * console.log(value);
  * ```
@@ -449,7 +449,7 @@ export type ContainsTextOperators = 'containsText' | 'containsBlanks' | 'notCont
  *
  * @example
  * ```ts
- * import type { TimePeriodTypes } from '@xlvane/exceljs';
+ * import type { TimePeriodTypes } from '@xlvane/compat';
  * const value: TimePeriodTypes | undefined = 'today';
  * console.log(value);
  * ```
@@ -461,7 +461,7 @@ export type TimePeriodTypes = 'lastWeek' | 'thisWeek' | 'nextWeek' | 'yesterday'
  *
  * @example
  * ```ts
- * import type { IconSetTypes } from '@xlvane/exceljs';
+ * import type { IconSetTypes } from '@xlvane/compat';
  * const value: IconSetTypes | undefined = '3Arrows';
  * console.log(value);
  * ```
@@ -494,7 +494,7 @@ export type IconSetTypes =
  *
  * @example
  * ```ts
- * import type { CfvoTypes } from '@xlvane/exceljs';
+ * import type { CfvoTypes } from '@xlvane/compat';
  * const value: CfvoTypes | undefined = 'min';
  * console.log(value);
  * ```
@@ -506,7 +506,7 @@ export type CfvoTypes = 'percentile' | 'percent' | 'num' | 'min' | 'max' | 'form
  *
  * @example
  * ```ts
- * import type { Cvfo } from '@xlvane/exceljs';
+ * import type { Cvfo } from '@xlvane/compat';
  * const value: Cvfo | undefined = { type: 'percentile', value: 50 };
  * console.log(value);
  * ```
@@ -521,7 +521,7 @@ export interface Cvfo {
  *
  * @example
  * ```ts
- * import type { ExpressionRuleType } from '@xlvane/exceljs';
+ * import type { ExpressionRuleType } from '@xlvane/compat';
  * const value: ExpressionRuleType | undefined = { type: 'expression' } as ExpressionRuleType;
  * console.log(value);
  * ```
@@ -538,7 +538,7 @@ export interface ExpressionRuleType {
  *
  * @example
  * ```ts
- * import type { CellIsRuleType } from '@xlvane/exceljs';
+ * import type { CellIsRuleType } from '@xlvane/compat';
  * const value: CellIsRuleType | undefined = { type: 'cellIs' } as CellIsRuleType;
  * console.log(value);
  * ```
@@ -556,7 +556,7 @@ export interface CellIsRuleType {
  *
  * @example
  * ```ts
- * import type { AboveAverageRuleType } from '@xlvane/exceljs';
+ * import type { AboveAverageRuleType } from '@xlvane/compat';
  * const value: AboveAverageRuleType | undefined = { type: 'aboveAverage' } as AboveAverageRuleType;
  * console.log(value);
  * ```
@@ -573,7 +573,7 @@ export interface AboveAverageRuleType {
  *
  * @example
  * ```ts
- * import type { ColorScaleRuleType } from '@xlvane/exceljs';
+ * import type { ColorScaleRuleType } from '@xlvane/compat';
  * const value: ColorScaleRuleType | undefined = { type: 'colorScale' } as ColorScaleRuleType;
  * console.log(value);
  * ```
@@ -591,7 +591,7 @@ export interface ColorScaleRuleType {
  *
  * @example
  * ```ts
- * import type { IconSetRuleType } from '@xlvane/exceljs';
+ * import type { IconSetRuleType } from '@xlvane/compat';
  * const value: IconSetRuleType | undefined = { type: 'iconSet' } as IconSetRuleType;
  * console.log(value);
  * ```
@@ -612,7 +612,7 @@ export interface IconSetRuleType {
  *
  * @example
  * ```ts
- * import type { ContainsTextRuleType } from '@xlvane/exceljs';
+ * import type { ContainsTextRuleType } from '@xlvane/compat';
  * const value: ContainsTextRuleType | undefined = { type: 'containsText' } as ContainsTextRuleType;
  * console.log(value);
  * ```
@@ -630,7 +630,7 @@ export interface ContainsTextRuleType {
  *
  * @example
  * ```ts
- * import type { TimePeriodRuleType } from '@xlvane/exceljs';
+ * import type { TimePeriodRuleType } from '@xlvane/compat';
  * const value: TimePeriodRuleType | undefined = { type: 'timePeriod' } as TimePeriodRuleType;
  * console.log(value);
  * ```
@@ -647,7 +647,7 @@ export interface TimePeriodRuleType {
  *
  * @example
  * ```ts
- * import type { DataBarRuleType } from '@xlvane/exceljs';
+ * import type { DataBarRuleType } from '@xlvane/compat';
  * const value: DataBarRuleType | undefined = { type: 'dataBar' } as DataBarRuleType;
  * console.log(value);
  * ```
@@ -673,7 +673,7 @@ export interface DataBarRuleType {
  *
  * @example
  * ```ts
- * import type { RowValues } from '@xlvane/exceljs';
+ * import type { RowValues } from '@xlvane/compat';
  * const value: RowValues | undefined = [1, 'two', new Date(0)];
  * console.log(value);
  * ```
@@ -685,7 +685,7 @@ export type RowValues = CellValue[] | { [key: string]: CellValue } | undefined |
  *
  * @example
  * ```ts
- * import type { CalculationProperties } from '@xlvane/exceljs';
+ * import type { CalculationProperties } from '@xlvane/compat';
  * const value: CalculationProperties | undefined = { fullCalcOnLoad: true };
  * console.log(value);
  * ```
@@ -699,7 +699,7 @@ export interface CalculationProperties {
  *
  * @example
  * ```ts
- * import type { WorkbookProperties } from '@xlvane/exceljs';
+ * import type { WorkbookProperties } from '@xlvane/compat';
  * const value: WorkbookProperties | undefined = { date1904: false };
  * console.log(value);
  * ```
@@ -713,7 +713,7 @@ export interface WorkbookProperties {
  *
  * @example
  * ```ts
- * import type { JSZipGeneratorOptions } from '@xlvane/exceljs';
+ * import type { JSZipGeneratorOptions } from '@xlvane/compat';
  * const value: JSZipGeneratorOptions | undefined = { compression: 'DEFLATE', compressionOptions: { level: 9 } };
  * console.log(value);
  * ```
@@ -728,7 +728,7 @@ export interface JSZipGeneratorOptions {
  *
  * @example
  * ```ts
- * import type { Xlsx } from '@xlvane/exceljs';
+ * import type { Xlsx } from '@xlvane/compat';
  * const value: Xlsx | undefined = undefined;
  * console.log(value);
  * ```
@@ -740,7 +740,7 @@ export type Xlsx = XlsxIO;
  *
  * @example
  * ```ts
- * import type { Csv } from '@xlvane/exceljs';
+ * import type { Csv } from '@xlvane/compat';
  * const value: Csv | undefined = undefined;
  * console.log(value);
  * ```
@@ -752,7 +752,7 @@ export type Csv = CsvIO;
  *
  * @example
  * ```ts
- * import type { FastCsvParserOptionsArgs } from '@xlvane/exceljs';
+ * import type { FastCsvParserOptionsArgs } from '@xlvane/compat';
  * const value: FastCsvParserOptionsArgs | undefined = { delimiter: ';' } as FastCsvParserOptionsArgs;
  * console.log(value);
  * ```
@@ -782,7 +782,7 @@ export interface FastCsvParserOptionsArgs {
  *
  * @example
  * ```ts
- * import type { FastCsvFormatterOptionsArgs } from '@xlvane/exceljs';
+ * import type { FastCsvFormatterOptionsArgs } from '@xlvane/compat';
  * const value: FastCsvFormatterOptionsArgs | undefined = { delimiter: ';' } as FastCsvFormatterOptionsArgs;
  * console.log(value);
  * ```
@@ -807,7 +807,7 @@ export interface FastCsvFormatterOptionsArgs {
  *
  * @example
  * ```ts
- * import type { WorksheetModel } from '@xlvane/exceljs';
+ * import type { WorksheetModel } from '@xlvane/compat';
  * const value: WorksheetModel | undefined = undefined;
  * console.log(value);
  * ```
@@ -830,7 +830,7 @@ export interface WorksheetModel {
  *
  * @example
  * ```ts
- * import type { WorkbookModel } from '@xlvane/exceljs';
+ * import type { WorkbookModel } from '@xlvane/compat';
  * const value: WorkbookModel | undefined = undefined;
  * console.log(value);
  * ```
@@ -865,7 +865,7 @@ export interface WorkbookModel {
  *
  * @example
  * ```ts
- * import type { WorksheetViewCommon } from '@xlvane/exceljs';
+ * import type { WorksheetViewCommon } from '@xlvane/compat';
  *
  * const value: WorksheetViewCommon | undefined = undefined;
  * console.log(value);
@@ -886,7 +886,7 @@ export interface WorksheetViewCommon {
  *
  * @example
  * ```ts
- * import type { WorksheetViewNormal } from '@xlvane/exceljs';
+ * import type { WorksheetViewNormal } from '@xlvane/compat';
  *
  * const value: WorksheetViewNormal | undefined = { state: 'normal', style: 'pageLayout' };
  * console.log(value);
@@ -902,7 +902,7 @@ export interface WorksheetViewNormal {
  *
  * @example
  * ```ts
- * import type { WorksheetViewFrozen } from '@xlvane/exceljs';
+ * import type { WorksheetViewFrozen } from '@xlvane/compat';
  *
  * const value: WorksheetViewFrozen | undefined = { state: 'frozen', ySplit: 1 };
  * console.log(value);
@@ -921,7 +921,7 @@ export interface WorksheetViewFrozen {
  *
  * @example
  * ```ts
- * import type { WorksheetViewSplit } from '@xlvane/exceljs';
+ * import type { WorksheetViewSplit } from '@xlvane/compat';
  *
  * const value: WorksheetViewSplit | undefined = { state: 'split', xSplit: 2000, ySplit: 3000 };
  * console.log(value);
@@ -941,7 +941,7 @@ export interface WorksheetViewSplit {
  *
  * @example
  * ```ts
- * import type { WorkbookView } from '@xlvane/exceljs';
+ * import type { WorkbookView } from '@xlvane/compat';
  *
  * const value: WorkbookView | undefined = { x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: 0, visibility: 'visible' };
  * console.log(value);
@@ -962,7 +962,7 @@ export interface WorkbookView {
  *
  * @example
  * ```ts
- * import type { FillPattern } from '@xlvane/exceljs';
+ * import type { FillPattern } from '@xlvane/compat';
  *
  * const value: FillPattern | undefined = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
  * console.log(value);
@@ -980,7 +980,7 @@ export interface FillPattern {
  *
  * @example
  * ```ts
- * import type { CellSharedFormulaValue } from '@xlvane/exceljs';
+ * import type { CellSharedFormulaValue } from '@xlvane/compat';
  *
  * const value: CellSharedFormulaValue | undefined = { sharedFormula: 'A1', result: 2 };
  * console.log(value);
@@ -998,7 +998,7 @@ export interface CellSharedFormulaValue {
  *
  * @example
  * ```ts
- * import type { IAnchor } from '@xlvane/exceljs';
+ * import type { IAnchor } from '@xlvane/compat';
  *
  * const value: IAnchor | undefined = undefined;
  * console.log(value);
@@ -1018,7 +1018,7 @@ export interface IAnchor {
  *
  * @example
  * ```ts
- * import type { ConditionalFormattingBaseRule } from '@xlvane/exceljs';
+ * import type { ConditionalFormattingBaseRule } from '@xlvane/compat';
  *
  * const value: ConditionalFormattingBaseRule | undefined = { priority: 1 };
  * console.log(value);
@@ -1034,7 +1034,7 @@ export interface ConditionalFormattingBaseRule {
  *
  * @example
  * ```ts
- * import type { Top10RuleType } from '@xlvane/exceljs';
+ * import type { Top10RuleType } from '@xlvane/compat';
  *
  * const value: Top10RuleType | undefined = { type: 'top10', rank: 5, percent: false, bottom: false };
  * console.log(value);
@@ -1054,7 +1054,7 @@ export interface Top10RuleType {
  *
  * @example
  * ```ts
- * import type { WorksheetProperties } from '@xlvane/exceljs';
+ * import type { WorksheetProperties } from '@xlvane/compat';
  *
  * const value: WorksheetProperties | undefined = { tabColor: { argb: 'FFFF0000' } } as WorksheetProperties;
  * console.log(value);
@@ -1076,7 +1076,7 @@ export interface WorksheetProperties {
  *
  * @example
  * ```ts
- * import type { AddWorksheetOptions } from '@xlvane/exceljs';
+ * import type { AddWorksheetOptions } from '@xlvane/compat';
  *
  * const value: AddWorksheetOptions | undefined = { state: 'hidden' } as Partial<AddWorksheetOptions> as AddWorksheetOptions;
  * console.log(value);
@@ -1095,7 +1095,7 @@ export interface AddWorksheetOptions {
  *
  * @example
  * ```ts
- * import type { DefinedNamesRanges } from '@xlvane/exceljs';
+ * import type { DefinedNamesRanges } from '@xlvane/compat';
  *
  * const value: DefinedNamesRanges | undefined = { name: 'Totals', ranges: ['Sheet1!$A$1'] };
  * console.log(value);
@@ -1111,7 +1111,7 @@ export interface DefinedNamesRanges {
  *
  * @example
  * ```ts
- * import type { DefinedNamesModel } from '@xlvane/exceljs';
+ * import type { DefinedNamesModel } from '@xlvane/compat';
  *
  * const value: DefinedNamesModel | undefined = [];
  * console.log(value);
@@ -1124,7 +1124,7 @@ export type DefinedNamesModel = DefinedNamesRanges[];
  *
  * @example
  * ```ts
- * import type { TableStyleProperties } from '@xlvane/exceljs';
+ * import type { TableStyleProperties } from '@xlvane/compat';
  *
  * const value: TableStyleProperties | undefined = { theme: 'TableStyleMedium2', showRowStripes: true };
  * console.log(value);
@@ -1144,7 +1144,7 @@ export interface TableStyleProperties {
  *
  * @example
  * ```ts
- * import type { config } from '@xlvane/exceljs';
+ * import type { config } from '@xlvane/compat';
  *
  * type SetValue = typeof config.setValue;
  * const kind: SetValue | undefined = undefined;

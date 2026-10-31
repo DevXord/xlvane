@@ -1,4 +1,4 @@
-// xlvane-specific tests of phase A2 in @xlvane/exceljs: hyperlink values, worksheet tab colour
+// xlvane-specific tests of phase A2 in @xlvane/compat: hyperlink values, worksheet tab colour
 // and views, company and manager (D-A13; docs/facts/exceljs.md X4-10 … X4-13). Links are
 // written as the specification describes (D-A08), which differs from exceljs for links inside
 // the workbook; the differences are listed in docs/exceljs-compat.md.

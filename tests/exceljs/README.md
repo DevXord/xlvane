@@ -1,7 +1,7 @@
 # Ported exceljs specs
 
 The tests in this directory (except `alias.test.ts`, `cross-check.test.ts`, `stream-layout.test.ts`,
-`hyperlinks-views.test.ts` and their helpers) are ported from the exceljs test suite. They check that `@xlvane/exceljs` behaves like exceljs for the
+`hyperlinks-views.test.ts` and their helpers) are ported from the exceljs test suite. They check that `@xlvane/compat` behaves like exceljs for the
 supported subset described in [docs/exceljs-compat.md](../../docs/exceljs-compat.md).
 
 ## Source
@@ -74,7 +74,7 @@ Each skipped test names its reason in the title. The reasons are:
   of `createTestBook`. The two CSV tests of `workbook.spec.js` run: they
   build the CSV part of `createTestBook` (row 1 and the merged A2:B3 of
   `spec/utils/test-values-sheet.js`, downloaded once at tag v4.4.0) themselves.
-- **Images** (phase D): the ported image tests pass the image as `buffer`, because @xlvane/exceljs
+- **Images** (phase D): the ported image tests pass the image as `buffer`, because @xlvane/compat
   does not read files by name (`filename` throws `XLV_E_NOT_SUPPORTED`). One expectation differs
   on purpose and is marked `xlvane:` (a sized picture with `editAs: 'absolute'` reads back as
   `oneCell` without the tooltip). No table spec exists at the tag; `tables-images.test.ts` has

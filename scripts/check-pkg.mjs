@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const packages = ['packages/xlvane', 'packages/exceljs'];
+const packages = ['packages/xlvane', 'packages/compat'];
 const failures = [];
 /** Size budget of the library files in packages/xlvane/dist, gzip level 9, in bytes. Same number as in the README. */
 const SIZE_BUDGET_BYTES = 300_000;

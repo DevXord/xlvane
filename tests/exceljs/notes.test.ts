@@ -1,4 +1,4 @@
-// xlvane-specific tests of cell notes in @xlvane/exceljs (D-A14; docs/facts/exceljs.md X4-14).
+// xlvane-specific tests of cell notes in @xlvane/compat (D-A14; docs/facts/exceljs.md X4-14).
 // exceljs writes the author "Author" for every note and gives a one-run note back as a string;
 // the VML box settings (margins, protection, editAs) are written and read back since D-E07.
 import { strFromU8, unzipSync } from 'fflate';

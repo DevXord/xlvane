@@ -615,6 +615,9 @@ The maintainer approved these defaults for 1.0.0; each can be changed by the cal
 - Standards: the ECMA-376 and Microsoft Open Specifications documents are not in the repository (spec/ and `docs/Nowy folder/` are git-ignored); docs/facts cite them by clause and page with short quotations.
 - Open: the copyright holder in LICENSE is "DevXord" (D-012), to be confirmed by the maintainer. Whether the npm names `xlvane` and the scope `@xlvane` are free could not be checked from this environment.
 
+### D-R06 The compatibility package is named `@xlvane/compat` (2026-10-31)
+At the maintainer's decision the package published as `@xlvane/exceljs` until now is named `@xlvane/compat`, and its directory is packages/compat: the package name does not use the name of another project. Its README, description and documentation still say, descriptively, that it offers the exceljs 4.4.0 API, together with the statement that it is not affiliated with or endorsed by the exceljs project (D-R05). Users who want to keep `import ... from 'exceljs'` alias it in their own package.json: `"exceljs": "npm:@xlvane/compat@^1"`. The npm keyword is `exceljs-compatible`. Earlier entries of this file and of docs/CHANGELOG-dev.md keep the old name as history. No version was published under either name.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await

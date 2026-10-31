@@ -1,4 +1,4 @@
-// Load-then-save: every file of the POI corpus that @xlvane/exceljs loads must also be written by
+// Load-then-save: every file of the POI corpus that @xlvane/compat loads must also be written by
 // `xlsx.writeBuffer()` and read back (pre-release audit, docs/decisions.md D-R01). Files the layer
 // refuses to load (encrypted, legacy formats, files beyond the limits, …) are outside this test;
 // tests/corpus/poi.test.ts covers how the core reads them. Corpus licences: tests/corpus/LICENSES.md.

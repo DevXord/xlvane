@@ -18,7 +18,7 @@ export function binOf(pkg: string, bin: string): string {
   return join(dir, rel);
 }
 
-const DIRS = { xlvane: 'packages/xlvane', '@xlvane/exceljs': 'packages/exceljs' } as const;
+const DIRS = { xlvane: 'packages/xlvane', '@xlvane/compat': 'packages/compat' } as const;
 
 /**
  * Builds `name` into `<modules>/<install name>`; returns that directory. Declaration files are

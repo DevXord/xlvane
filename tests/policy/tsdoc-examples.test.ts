@@ -1,8 +1,8 @@
 // CLAUDE.md: "Every public symbol has TSDoc with a description and a working example; a test
 // checks that the examples compile." This test does both:
-// 1. Every ```ts block inside a /** ... */ comment in packages/xlvane/src and packages/exceljs/src
+// 1. Every ```ts block inside a /** ... */ comment in packages/xlvane/src and packages/compat/src
 //    is written to its own module in a temporary project, where `xlvane`, `xlvane/node` and
-//    `@xlvane/exceljs` resolve to the sources, and
+//    `@xlvane/compat` resolve to the sources, and
 //    the project is type-checked with one run of the repository's `tsc` (TypeScript 7 CLI).
 // 2. Every symbol exported from the public entry points (ENTRY_POINTS) has a TSDoc
 //    comment with an @example at its declaration.
@@ -14,14 +14,14 @@ import { describe, expect, it } from 'vitest';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SRC = join(ROOT, 'packages/xlvane/src');
-const EXCELJS_SRC = join(ROOT, 'packages/exceljs/src');
+const EXCELJS_SRC = join(ROOT, 'packages/compat/src');
 /** Markdown files whose ```ts blocks must compile too. */
 const MARKDOWN = ['skills/xlvane/SKILL.md', 'packages/xlvane/README.md'];
 /** Entry points whose exports must all carry an @example: [source dir, entry, label]. */
 const ENTRY_POINTS: readonly (readonly [string, string, string])[] = [
   [SRC, 'index.ts', 'packages/xlvane/src'],
   [SRC, 'node.ts', 'packages/xlvane/src'],
-  [EXCELJS_SRC, 'index.ts', 'packages/exceljs/src'],
+  [EXCELJS_SRC, 'index.ts', 'packages/compat/src'],
 ];
 
 interface Example {
@@ -124,7 +124,7 @@ describe('TSDoc examples', () => {
           paths: {
             xlvane: [join(SRC, 'index.ts')],
             'xlvane/node': [join(SRC, 'node.ts')],
-            '@xlvane/exceljs': [join(EXCELJS_SRC, 'index.ts')],
+            '@xlvane/compat': [join(EXCELJS_SRC, 'index.ts')],
           },
         },
         files: [join(ROOT, 'types/node-modules.d.ts')],

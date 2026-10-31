@@ -3,11 +3,11 @@
 English translation of section 7 of the plan. The Polish original in docs/PLAN.md takes precedence if the two ever disagree.
 
 ## Goal
-An MIT-licensed XLSX library for people and AI agents: reading, writing, styles, streaming, a task-oriented API, exceljs compatibility (package `@xlvane/exceljs`), a readable CLI, and later an MCP server (package `@xlvane/mcp`, planned for the "AI Friendly" stage after 1.0.0; it is not in this repository yet). Plan: docs/PLAN.md.
+An MIT-licensed XLSX library for people and AI agents: reading, writing, styles, streaming, a task-oriented API, exceljs compatibility (package `@xlvane/compat`), a readable CLI, and later an MCP server (package `@xlvane/mcp`, planned for the "AI Friendly" stage after 1.0.0; it is not in this repository yet). Plan: docs/PLAN.md.
 
 ## Hard rules
 - The `xlvane` package has exactly one runtime dependency: `fflate`. We write the XML parser ourselves. Every new dependency requires the maintainer's approval and an entry in docs/decisions.md.
-- `@xlvane/exceljs` may depend only on `xlvane`. `@xlvane/mcp` (planned, "AI Friendly" stage) may depend only on `xlvane` and the official MCP SDK.
+- `@xlvane/compat` may depend only on `xlvane`. `@xlvane/mcp` (planned, "AI Friendly" stage) may depend only on `xlvane` and the official MCP SDK.
 - This repository contains no Pro code. The core exposes only documented extension interfaces (e.g. `FormulaEngine`).
 - ESM only, no top-level await. Runs in Node, Bun, Deno, browsers and Cloudflare Workers. The core API uses `Uint8Array` and Web Streams; file operations live in a separate Node-only submodule.
 - Input files are untrusted: ZIP limits, XML without DTDs or entities, no prototype pollution, CSV formula-injection protection. Every rule has a test.

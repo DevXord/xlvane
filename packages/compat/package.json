@@ -1,11 +1,11 @@
 {
-  "name": "@xlvane/exceljs",
+  "name": "@xlvane/compat",
   "version": "1.0.0",
   "description": "The commonly used exceljs 4.4.0 API on top of xlvane, for switching with one line in package.json.",
   "keywords": [
     "xlsx",
     "excel",
-    "exceljs"
+    "exceljs-compatible"
   ],
   "license": "MIT",
   "homepage": "https://github.com/DevXord/xlvane#readme",
@@ -15,7 +15,7 @@
   "repository": {
     "type": "git",
     "url": "git+https://github.com/DevXord/xlvane.git",
-    "directory": "packages/exceljs"
+    "directory": "packages/compat"
   },
   "type": "module",
   "sideEffects": false,

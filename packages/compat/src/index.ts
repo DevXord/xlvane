@@ -1,5 +1,5 @@
-// Entry point of @xlvane/exceljs: the commonly used exceljs 4.4.0 API on top of xlvane, so that
-// `"exceljs": "npm:@xlvane/exceljs@^1"` switches a project with one line (docs/exceljs-compat.md).
+// Entry point of @xlvane/compat: the commonly used exceljs 4.4.0 API on top of xlvane, so that
+// `"exceljs": "npm:@xlvane/compat@^1"` switches a project with one line (docs/exceljs-compat.md).
 //
 // Module shape (docs/decisions.md D-501): the default export is an object with the same members
 // as exceljs's CommonJS export (lib/exceljs.nodejs.js: Workbook, ModelContainer, stream.xlsx,
@@ -124,7 +124,7 @@ export { Anchor, Table, TableColumn, type ImageData, type ImageRangeInput, type 
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * console.log(ExcelJS.RelationshipType.Worksheet); // 2
  * ```
@@ -147,7 +147,7 @@ export type RelationshipType = (typeof RelationshipType)[keyof typeof Relationsh
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * console.log(ExcelJS.DocumentType.Xlsx); // 1
  * ```
@@ -161,7 +161,7 @@ export type DocumentType = (typeof DocumentType)[keyof typeof DocumentType];
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * console.log(ExcelJS.ReadingOrder.RightToLeft); // 2
  * ```
@@ -175,7 +175,7 @@ export type ReadingOrder = (typeof ReadingOrder)[keyof typeof ReadingOrder];
  *
  * @example
  * ```ts
- * import { stream } from '@xlvane/exceljs';
+ * import { stream } from '@xlvane/compat';
  *
  * const writer = new stream.xlsx.WorkbookWriter({ filename: 'out.xlsx' });
  * writer.addWorksheet('Data').addRow([1]).commit();
@@ -204,7 +204,7 @@ export declare namespace stream {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * console.log(typeof ExcelJS.ModelContainer); // function
  * ```
@@ -220,7 +220,7 @@ export class ModelContainer {
  *
  * @example
  * ```ts
- * import ExcelJS, { type ExcelJSModule } from '@xlvane/exceljs';
+ * import ExcelJS, { type ExcelJSModule } from '@xlvane/compat';
  *
  * const lib: ExcelJSModule = ExcelJS;
  * const workbook = new lib.Workbook();
@@ -245,7 +245,7 @@ export interface ExcelJSModule {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.Workbook();
  * const sheet = workbook.addWorksheet('Sheet1');

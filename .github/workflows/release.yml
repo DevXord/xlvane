@@ -67,4 +67,4 @@ jobs:
       - run: npm run build
       - run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
       - run: npm stage publish -w packages/xlvane
-      - run: npm stage publish -w packages/exceljs
+      - run: npm stage publish -w packages/compat
