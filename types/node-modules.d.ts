@@ -6,6 +6,8 @@
 declare module 'node:fs/promises' {
   export interface Stats {
     readonly size: number;
+    /** File type and permission bits (https://nodejs.org/api/fs.html#statsmode). */
+    readonly mode: number;
     isFile(): boolean;
     isDirectory(): boolean;
     isSymbolicLink(): boolean;
@@ -29,6 +31,8 @@ declare module 'node:fs/promises' {
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;
   export function mkdtemp(prefix: string): Promise<string>;
   export function rm(path: string | URL, options?: { recursive?: boolean; force?: boolean }): Promise<void>;
+  /** https://nodejs.org/api/fs.html#fspromiseschmodpath-mode */
+  export function chmod(path: string | URL, mode: number): Promise<void>;
   export function rename(oldPath: string | URL, newPath: string | URL): Promise<void>;
   export function realpath(path: string | URL): Promise<string>;
   export function lstat(path: string | URL): Promise<Stats>;

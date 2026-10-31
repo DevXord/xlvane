@@ -1,10 +1,11 @@
 import { inspect } from '../../inspect';
 import { readTable } from '../../table';
+import { suggest } from '../../util/suggest';
 import { flag, headerOption, str, usageError } from '../args';
 import { readBook } from '../files';
 import { plural } from '../output';
 import type { CommandSpec } from '../types';
-import { warningLines } from './inspect';
+import { warningsBlock } from '../warnings';
 
 const TYPES = ['number', 'string', 'date', 'boolean', 'any'] as const;
 type ColumnType = (typeof TYPES)[number];
@@ -27,10 +28,12 @@ export interface ValidationProblem {
 
 function parseRules(text: string): ColumnRule[] {
   return text.split(',').map((part) => {
-    const m = /^\s*([^:]+?)\s*(?::\s*([a-z]+)(\?)?\s*)?$/.exec(part);
-    const type = (m?.[2] ?? 'any') as ColumnType;
+    const m = /^\s*([^:]+?)\s*(?::\s*([A-Za-z]+)(\?)?\s*)?$/.exec(part);
+    const type = (m?.[2] ?? 'any').toLowerCase() as ColumnType;
     if (!m || !(TYPES as readonly string[]).includes(type)) {
-      throw usageError(`Cannot read the column rule "${part.trim()}".`, `Write rules as "name:type" separated by commas; types: ${TYPES.join(', ')}; add "?" to allow empty cells, e.g. "id:number,note:string?".`, {
+      const close = m?.[2] !== undefined ? suggest(m[2], TYPES, 1) : [];
+      const didYouMean = close.length > 0 ? `Did you mean "${m![1]!}:${close[0]!}${m![3] ?? ''}"? ` : '';
+      throw usageError(`Cannot read the column rule "${part.trim()}".`, `${didYouMean}Write rules as "name:type" separated by commas; types: ${TYPES.join(', ')}; add "?" to allow empty cells, e.g. "id:number,note:string?".`, {
         command: 'validate',
         option: '--columns',
       });
@@ -87,7 +90,9 @@ export const validateCommand: CommandSpec = {
         const column = table.columns.find((c) => c.header === rule.name);
         if (!column) {
           const headers = table.columns.map((c) => c.header).filter((h): h is string => h !== null);
-          problems.push({ kind: 'missing-column', column: rule.name, cell: null, row: table.headerRow, message: `Column "${rule.name}" is missing. Header row: ${headers.map((h) => `"${h}"`).join(', ') || '(none)'}.` });
+          const close = suggest(rule.name, headers, 1);
+          const didYouMean = close.length > 0 ? ` Did you mean "${close[0]!}"?` : '';
+          problems.push({ kind: 'missing-column', column: rule.name, cell: null, row: table.headerRow, message: `Column "${rule.name}" is missing.${didYouMean} Header row: ${headers.map((h) => `"${h}"`).join(', ') || '(none)'}.` });
           continue;
         }
         table.rows.forEach((row, i) => {
@@ -111,13 +116,24 @@ export const validateCommand: CommandSpec = {
       render: (out) => {
         const lines: string[] = [];
         if (problems.length > 0) {
-          lines.push(`${out.red('Problems')} (${String(problems.length)}):`);
-          lines.push(...problems.slice(0, 100).map((p) => `  ${out.red('problem')} ${p.message}`));
+          const shown = problems.slice(0, 100);
+          const cellWidth = Math.max(0, ...shown.map((p) => (p.cell ?? '').length));
+          lines.push(out.bold(out.red(`Problems (${String(problems.length)}):`)));
+          // The cell first, aligned, then the message without the cell it starts with.
+          lines.push(
+            ...shown.map((p) => {
+              const text = p.cell !== null && p.message.startsWith(`${p.cell} `) ? p.message.slice(p.cell.length + 1) : p.message;
+              return `  ${out.red('problem')}  ${p.cell === null ? ''.padEnd(cellWidth) : out.bold(p.cell.padEnd(cellWidth))}  ${text}`.replace(/ +$/, '');
+            }),
+          );
           if (problems.length > 100) lines.push(out.dim(`  … ${String(problems.length - 100)} more; use --json for all`));
+          lines.push('');
         }
-        if (warnings.length > 0) lines.push(`Warnings (${String(warnings.length)}):`, ...warningLines(out, warnings));
+        if (warnings.length > 0) lines.push(...warningsBlock(out, warnings), '');
         const checked = sheetName !== null ? `, ${plural(rowsChecked, 'row')} of sheet "${sheetName}" checked against ${plural(rules.length, 'column rule')}` : '';
-        lines.push(ok ? `${out.green('OK')}: ${file}${checked}.` : `${out.red('Failed')}: ${file}${checked}${strict && problems.length === 0 ? ' (warnings count with --strict)' : ''}.`);
+        if (ok && warnings.length > 0) lines.push(`${out.yellow(`OK with ${plural(warnings.length, 'warning')}`)}: ${file}${checked}. Use --strict to fail on warnings.`);
+        else if (ok) lines.push(`${out.green('OK')}: ${file}${checked}.`);
+        else lines.push(`${out.red('Failed')}: ${file}${checked}${strict && problems.length === 0 ? ' (warnings count with --strict)' : ''}.`);
         return lines.join('\n');
       },
     };

@@ -169,8 +169,28 @@ export interface ImageOptions {
 
 /** Content type of a Drawings part (Part 1 §12.3.8, TD-30). */
 export const DRAWING_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.drawing+xml';
-/** Content types of the image formats (Part 1 §15.2.14 note, TD-31). */
-export const IMAGE_CONTENT_TYPES: Readonly<Record<ImageFormat, string>> = { png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif' };
+/**
+ * Formats `addImage` accepts: the {@link ImageFormat}s, and the Windows metafiles EMF and WMF,
+ * which files made by Excel contain and which are written back unchanged (TD-31a, D-R01).
+ */
+export type WrittenImageFormat = ImageFormat | 'emf' | 'wmf';
+/**
+ * Content types of the image formats (Part 1 §15.2.14 note, TD-31); EMF and WMF as Excel declares
+ * them in the files of the POI corpus (TD-31a).
+ */
+export const IMAGE_CONTENT_TYPES: Readonly<Record<WrittenImageFormat, string>> = { png: 'image/png', jpeg: 'image/jpeg', gif: 'image/gif', emf: 'image/x-emf', wmf: 'image/x-wmf' };
+
+/**
+ * EMF or WMF recognised from the first bytes, as observed in the image parts of the POI corpus
+ * (TD-31a): EMF starts with the record type 1 (`01 00 00 00`) and has " EMF" at offset 40; a
+ * placeable WMF starts with `D7 CD C6 9A`.
+ */
+function metafileFormat(bytes: Uint8Array): 'emf' | 'wmf' | null {
+  const b = (i: number): number => bytes[i] ?? -1;
+  if (b(0) === 0x01 && b(1) === 0 && b(2) === 0 && b(3) === 0 && b(40) === 0x20 && b(41) === 0x45 && b(42) === 0x4d && b(43) === 0x46) return 'emf';
+  if (b(0) === 0xd7 && b(1) === 0xcd && b(2) === 0xc6 && b(3) === 0x9a) return 'wmf';
+  return null;
+}
 const XDR_NS = { transitional: 'http://schemas.openxmlformats.org/drawingml/2006/spreadsheetDrawing', strict: 'http://purl.oclc.org/ooxml/drawingml/spreadsheetDrawing' } as const;
 const A_NS = { transitional: 'http://schemas.openxmlformats.org/drawingml/2006/main', strict: 'http://purl.oclc.org/ooxml/drawingml/main' } as const;
 /** EMU per pixel at 96 pixels per inch: 914 400 / 96 (TD-33; the pixel size is a convention). */
@@ -392,13 +412,13 @@ function invalid(message: string, hint: string, details?: Record<string, string 
 }
 
 /** Checks the image bytes given to `NewWorkbook.addImage` and returns their format. */
-export function checkImage(bytes: unknown): { bytes: Uint8Array; format: ImageFormat } {
+export function checkImage(bytes: unknown): { bytes: Uint8Array; format: WrittenImageFormat } {
   const data = bytes instanceof Uint8Array ? bytes : bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : null;
   if (data === null) throw new XlvError('XLV_E_INVALID_IMAGE', 'addImage expects the bytes of an image (a Uint8Array).', { hint: 'Pass the file contents, for example new Uint8Array(await file.arrayBuffer()).' });
-  const format = imageFormat(data);
+  const format = imageFormat(data) ?? metafileFormat(data);
   if (format === null) {
-    throw new XlvError('XLV_E_INVALID_IMAGE', 'The image is not a PNG, JPEG or GIF file (recognised from its first bytes).', {
-      hint: 'Convert the image to PNG or JPEG first; xlvane writes PNG, JPEG and GIF images.',
+    throw new XlvError('XLV_E_INVALID_IMAGE', 'The image is not a PNG, JPEG, GIF, EMF or WMF file (recognised from its first bytes).', {
+      hint: 'Convert the image to PNG or JPEG first; xlvane writes PNG, JPEG and GIF images, and EMF and WMF images as they are.',
       details: { size: data.length },
     });
   }
@@ -540,9 +560,9 @@ const attr = (name: string, value: string | number): string => ` ${name}="${type
 export class MediaParts {
   private readonly byIndex = new Map<number, number>();
   private readonly byKey = new Map<string, number[]>();
-  private readonly list: { readonly bytes: Uint8Array; readonly format: ImageFormat }[] = [];
+  private readonly list: { readonly bytes: Uint8Array; readonly format: WrittenImageFormat }[] = [];
 
-  constructor(private readonly images: readonly { readonly bytes: Uint8Array; readonly format: ImageFormat }[]) {}
+  constructor(private readonly images: readonly { readonly bytes: Uint8Array; readonly format: WrittenImageFormat }[]) {}
 
   /** Target of image `index` relative to `xl/drawings/` or `xl/worksheets/`. */
   target(index: number): string {
@@ -570,7 +590,7 @@ export class MediaParts {
   }
 
   /** The formats used, for the `Default` content types. */
-  formats(): ImageFormat[] {
+  formats(): WrittenImageFormat[] {
     return [...new Set(this.list.map((img) => img.format))];
   }
 }

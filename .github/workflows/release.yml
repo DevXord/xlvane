@@ -59,7 +59,9 @@ jobs:
           package-manager-cache: false
       # Staged publishing needs npm 11.15.0 or later (F-NPM-02).
       - run: npm install -g npm@11.21.1
-      - run: npm ci
+      # Install scripts of dependencies do not run in the job that holds the OIDC permission
+      # (D-R03); the build needs none of them (only deno, workerd and fsevents have one).
+      - run: npm ci --ignore-scripts
       - run: npm run build
       - run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
       - run: npm stage publish -w packages/xlvane

@@ -189,3 +189,18 @@ describe('review fixes (D-E06): active cell of a view with several panes', () =>
     expect(view('<selection activeCell="C3" sqref="C3"/>')).toBe('C3');
   });
 });
+
+describe('streamed workbook windows (D-R03)', () => {
+  it('refuses activeTab beyond the streamed sheets', async () => {
+    const { writeWorkbookStream } = await import('../../packages/xlvane/src/stream-write');
+    const stream = writeWorkbookStream({ views: [{ activeTab: 5 }], sheets: [{ name: 'S', rows: [[1]] }] });
+    let code = '';
+    try {
+      const reader = stream.getReader();
+      for (;;) if ((await reader.read()).done) break;
+    } catch (error) {
+      code = (error as { code?: string }).code ?? 'CRASH';
+    }
+    expect(code).toBe('XLV_E_INVALID_OPTION');
+  });
+});

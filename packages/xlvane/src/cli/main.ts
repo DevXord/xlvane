@@ -6,7 +6,7 @@ import { checkPositionals, parseCommandArgs, usageError } from './args';
 import { COMMANDS } from './commands/index';
 import { withPath } from './files';
 import { commandHelp, welcome } from './help';
-import { commandLine, Output, useColor } from './output';
+import { commandLine, escapeControls, Output, termWidth, terminalSafe, useColor, wrap } from './output';
 import type { CliIO, CommandContext, CommandSpec } from './types';
 
 /** Version of the `--json` envelope (docs/cli-json.md). */
@@ -35,8 +35,15 @@ function optionArgs(argv: readonly string[]): readonly string[] {
  * `process`; the entry point (bin.ts) passes the real streams and environment.
  */
 export async function run(argv: readonly string[], io: CliIO): Promise<number> {
-  const out = new Output(useColor(io.env, io.stdoutIsTTY), io.stdoutIsTTY ? (io.columns ?? 100) : 100);
-  const err = new Output(useColor(io.env, io.stderrIsTTY), 100);
+  const width = termWidth(io.env, io.columns, io.stdoutIsTTY);
+  const out = new Output(useColor(io.env, io.stdoutIsTTY), width);
+  const err = new Output(useColor(io.env, io.stderrIsTTY), io.stderrIsTTY ? width : 100);
+  // JSON is compact for scripts and agents; indented only when a person looks at a terminal.
+  // Text for people never carries control characters from a file (cell text, sheet names, error
+  // messages): only the colour sequences of Output survive (D-R02). --json is not filtered.
+  const stdout = (text: string): void => io.stdout(terminalSafe(text, out.color));
+  const stderr = (text: string): void => io.stderr(terminalSafe(text, err.color));
+  const toJson = (value: unknown): string => `${io.stdoutIsTTY ? JSON.stringify(value, null, 2) : JSON.stringify(value)}\n`;
   const opts = optionArgs(argv);
   const json = opts.includes('--json');
   const [first, ...rest] = argv;
@@ -57,7 +64,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
         io.stdout(welcome(out, io.version, COMMANDS));
         return EXIT.ok;
       }
-      io.stdout(commandHelp(out, findCommand(topic)));
+      stdout(commandHelp(out, findCommand(topic)));
       return EXIT.ok;
     }
     if (first.startsWith('-')) {
@@ -67,7 +74,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     }
     spec = findCommand(first);
     if (optionArgs(rest).some((a) => a === '--help' || a === '-h')) {
-      io.stdout(commandHelp(out, spec));
+      stdout(commandHelp(out, spec));
       return EXIT.ok;
     }
     const args = parseCommandArgs(spec, rest);
@@ -82,15 +89,15 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
       verbose: args.values['verbose'] === true,
       state,
       note: (text) => {
-        if (!json && !quiet) io.stderr(`${err.dim(text)}\n`);
+        if (!json && !quiet) stderr(`${err.dim(escapeControls(text))}\n`);
       },
     };
     const outcome = await spec.run(ctx);
     if (json) {
-      io.stdout(`${JSON.stringify({ xlvane: JSON_VERSION, command: spec.name, ok: true, result: outcome.result }, null, 2)}\n`);
+      io.stdout(toJson({ xlvane: JSON_VERSION, command: spec.name, ok: true, result: outcome.result }));
     } else {
       const text = outcome.render(out);
-      if (text !== '') io.stdout(text.endsWith('\n') ? text : `${text}\n`);
+      if (text !== '') stdout(text.endsWith('\n') ? text : `${text}\n`);
     }
     return outcome.exitCode;
   } catch (thrown) {
@@ -100,11 +107,11 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     const tryCommand = suggestCommand(error, first, rest, spec);
     if (json) {
       const envelope: ErrorEnvelope = { xlvane: JSON_VERSION, command: spec?.name ?? null, ok: false, error: error.toJSON(), try: tryCommand };
-      io.stdout(`${JSON.stringify(envelope, null, 2)}\n`);
+      io.stdout(toJson(envelope));
     } else {
-      io.stderr(formatError(err, error, tryCommand));
+      stderr(formatError(err, error, tryCommand, optionArgs(argv).includes('--verbose')));
       if (error.code === 'XLV_E_INTERNAL' && optionArgs(argv).includes('--verbose') && thrown instanceof Error && thrown.stack) {
-        io.stderr(`${thrown.stack}\n`);
+        stderr(`${thrown.stack}\n`);
       }
     }
     return error.code === 'XLV_E_USAGE' ? EXIT.usage : EXIT.failure;
@@ -167,6 +174,10 @@ function suggestCommand(error: XlvError, first: string | undefined, rest: readon
     const close = suggest(error.location.sheet, d['available'] as readonly string[], 1);
     if (close.length > 0) return commandLine([spec.name, ...withOption(rest, 'sheet', close[0]!)]);
   }
+  if (error.code === 'XLV_E_NOT_ZIP' && typeof d['path'] === 'string' && /\.(csv|tsv|json)$/i.test(d['path'])) {
+    // The CLI can turn CSV and JSON into a workbook.
+    return commandLine(['convert', d['path'], d['path'].replace(/\.(csv|tsv|json)$/i, '.xlsx')]);
+  }
   if (error.code === 'XLV_E_FILE_READ' && suggestions.length > 0 && typeof d['path'] === 'string') {
     const path = d['path'];
     if (rest.includes(path)) return commandLine([spec.name, ...rest.map((a) => (a === path ? suggestions[0]! : a))]);
@@ -174,32 +185,36 @@ function suggestCommand(error: XlvError, first: string | undefined, rest: readon
   return null;
 }
 
-/** Where the problem is, as one line. */
+/** Where the problem is, as one line; `null` when the message already says it all. */
 function where(error: XlvError): string | null {
   const parts: string[] = [];
   const d = error.details;
-  if (typeof d['path'] === 'string') parts.push(d['path']);
+  // A file name the message already shows is not repeated.
+  if (typeof d['path'] === 'string' && !error.message.includes(d['path'])) parts.push(d['path']);
   const l = error.location;
   if (l.part) parts.push(`part ${l.part}`);
-  if (l.sheet) parts.push(`sheet "${l.sheet}"`);
+  if (l.sheet && !error.message.includes(`"${l.sheet}"`)) parts.push(`sheet "${l.sheet}"`);
   if (l.cell) parts.push(`cell ${l.cell}`);
   if (l.line !== undefined) parts.push(`line ${String(l.line)}${l.column !== undefined ? `, column ${String(l.column)}` : ''}`);
-  if (parts.length === 0 && error.code === 'XLV_E_USAGE') {
-    if (typeof d['option'] === 'string') parts.push(`option ${d['option']}`);
-    else if (typeof d['command'] === 'string') parts.push(`command line`);
-  }
+  if (parts.length === 0 && error.code === 'XLV_E_USAGE' && typeof d['option'] === 'string' && !error.message.includes(d['option'])) parts.push(`option ${d['option']}`);
   return parts.length > 0 ? parts.join(', ') : null;
 }
 
-/** An error in three parts: what happened, where, what to do next. */
-export function formatError(err: Output, error: XlvError, tryCommand: string | null): string {
-  const place = where(error);
+/**
+ * An error in three parts: what happened, where, what to do next; then a ready command and the
+ * code. The code line names the section of docs/errors.md; `--verbose` adds the full URL.
+ */
+export function formatError(err: Output, error: XlvError, tryCommand: string | null, verbose = false): string {
+  // Escaped before styling, so that a message quoting a cell or sheet name cannot add colour codes.
+  const place = ((p) => (p === null ? null : escapeControls(p)))(where(error));
+  const width = Math.min(err.width, 100);
+  const anchor = error.code.toLowerCase();
   return [
-    `${err.red(err.bold('Error:'))} ${error.message}`,
-    ...(place ? [`Where: ${place}`] : []),
-    `Fix:   ${error.hint}`,
-    ...(tryCommand ? [`Try:   ${err.cyan(tryCommand)}`] : []),
-    err.dim(`Code:  ${error.code} (${error.docsUrl})`),
+    `${err.red(err.bold('Error:'))} ${escapeControls(error.message)}`,
+    ...(place ? [`${err.bold('Where:')} ${place}`] : []),
+    wrap(escapeControls(error.hint), width, '       ', `${err.bold('Fix:')}   `),
+    ...(tryCommand ? [`${err.bold('Try:')}   ${err.cyan(escapeControls(tryCommand))}`] : []),
+    err.dim(`Code:  ${error.code} · docs/errors.md#${anchor}${verbose ? ` (${error.docsUrl})` : ''}`),
     '',
   ].join('\n');
 }

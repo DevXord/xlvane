@@ -99,7 +99,7 @@ describe('--json', () => {
 describe('the schema validator', () => {
   const set = new SchemaSet(DIR);
   it('rejects documents that break the schema', () => {
-    const ok = { xlvane: 1, command: 'convert', ok: true, result: { input: 'a.csv', output: 'a.xlsx', from: 'csv', to: 'xlsx', bytes: 1, written: true, replaced: false } };
+    const ok = { xlvane: 1, command: 'convert', ok: true, result: { input: 'a.csv', output: 'a.xlsx', from: 'csv', to: 'xlsx', bytes: 1, written: true, replaced: false, warnings: [] } };
     expect(set.validate('convert.schema.json', ok)).toEqual([]);
     expect(set.validate('convert.schema.json', { ...ok, extra: 1 })).not.toEqual([]);
     expect(set.validate('convert.schema.json', { ...ok, result: { ...ok.result, bytes: 'x' } })).not.toEqual([]);

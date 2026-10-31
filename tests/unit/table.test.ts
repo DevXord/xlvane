@@ -52,7 +52,7 @@ describe('readTable', () => {
   });
 
   it('can return dates as ISO strings', () => {
-    expect(readTable(sample(), { dates: 'iso' }).rows[0]?.['Date']).toBe('2024-01-31T00:00:00.000Z');
+    expect(readTable(sample(), { dates: 'iso' }).rows[0]?.['Date']).toBe('2024-01-31');
   });
 
   it('uses a given header row, or column letters without a header', () => {
@@ -190,9 +190,9 @@ describe('writeTable', () => {
   });
 
   it('rejects values that are not cell values', () => {
-    expectXlvError(() => writeTable([{ a: { nested: true } }]), 'XLV_E_TABLE_INVALID', { row: 2, key: 'a' });
-    expectXlvError(() => writeTable([5 as never]), 'XLV_E_TABLE_INVALID');
-    expectXlvError(() => writeTable('rows' as never), 'XLV_E_TABLE_INVALID');
+    expectXlvError(() => writeTable([{ a: { nested: true } }]), 'XLV_E_INVALID_ROWS', { row: 2, key: 'a' });
+    expectXlvError(() => writeTable([5 as never]), 'XLV_E_INVALID_ROWS');
+    expectXlvError(() => writeTable('rows' as never), 'XLV_E_INVALID_ROWS');
     expectXlvError(() => writeTable(rows, { preset: 'fancy' as never }), 'XLV_E_INVALID_OPTION');
   });
 });
@@ -202,7 +202,7 @@ describe('toJSON / fromJSON', () => {
     const json = toJSON(sample());
     expect(json.sheet).toBe('Sales');
     expect(json.columns).toEqual(['Name', 'Amount', 'Date', 'Note', 'Paid']);
-    expect(json.rows[0]).toEqual({ Name: 'Alice', Amount: 10.5, Date: '2024-01-31T00:00:00.000Z', Note: 'x', Paid: true });
+    expect(json.rows[0]).toEqual({ Name: 'Alice', Amount: 10.5, Date: '2024-01-31', Note: 'x', Paid: true });
     expect(JSON.parse(JSON.stringify(json))).toEqual(json);
   });
 
@@ -218,6 +218,6 @@ describe('toJSON / fromJSON', () => {
   it('rejects invalid JSON with its position', () => {
     const error = expectXlvError(() => fromJSON('[{"a":1},'), 'XLV_E_JSON_INVALID');
     expect(error.hint.length).toBeGreaterThan(0);
-    expectXlvError(() => fromJSON('{"a":1}'), 'XLV_E_TABLE_INVALID');
+    expectXlvError(() => fromJSON('{"a":1}'), 'XLV_E_INVALID_ROWS');
   });
 });

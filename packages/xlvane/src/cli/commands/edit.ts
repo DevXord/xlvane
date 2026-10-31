@@ -9,7 +9,7 @@ import { flag, list, str, usageError } from '../args';
 import { readBytes, readText, withPath, writeOutput, wroteLine } from '../files';
 import { plural } from '../output';
 import type { CommandSpec } from '../types';
-import { warningLines } from './inspect';
+import { warningLines } from '../warnings';
 
 /** "Sheet!A1=value", "'My sheet'!A1=value" or "A1=value". */
 const SET_PATTERN = /^(?:(?:'((?:[^']|'')+)'|([^!='][^!=]*))!)?([A-Za-z]{1,3}[1-9]\d{0,6})=([\s\S]*)$/;
@@ -78,7 +78,7 @@ export const editCommand: CommandSpec = {
   name: 'edit',
   summary: 'Change cells, insert, delete or append rows, keeping everything else',
   description:
-    'Changes cells, and inserts, deletes or appends rows, in an existing file while keeping the rest of it (styles, formulas, charts, other sheets) as it is. Values in --set are typed like CSV fields: numbers, true/false and ISO 8601 dates are recognised, "=..." is a formula, a leading apostrophe keeps the text as typed, and an empty value clears the cell. xlvane does not calculate formulas; the edited file asks spreadsheet programs to recalculate them when it is opened. Rows inserted with --insert-rows or deleted with --delete-rows move the rows below, and formulas on every sheet, merged cells, hyperlinks, notes, conditional formats, data validation and defined names follow them; sheets with tables, pictures or charts are refused. Row changes are applied first, then --set, then --append, so cell addresses in --set refer to the rows after the change. The result goes to --output, or replaces the input with --force.',
+    'Changes cells, and inserts, deletes or appends rows, in an existing file while keeping the rest of it (styles, formulas, charts, other sheets) as it is. Values in --set are typed like CSV fields: numbers, true/false and ISO 8601 dates are recognised, "=..." is a formula, a leading apostrophe keeps the text as typed, and an empty value clears the cell. xlvane does not calculate formulas; the edited file asks spreadsheet programs to recalculate them when it is opened. Rows inserted with --insert-rows or deleted with --delete-rows move the rows below, and formulas on every sheet, merged cells, hyperlinks, notes, conditional formats, data validation, defined names, tables and pictures follow them; drawings with charts or shapes, and a deletion that would cut a picture or remove the header row, totals row or all data rows of a table, are refused with an error. Row changes are applied first, then --set, then --append, so cell addresses in --set refer to the rows after the change. The result goes to --output, or replaces the input with --force.',
   usage: '<file> (--set <Sheet!A1=value>... | --append <rows.json> | --insert-rows <row> | --delete-rows <row[:row]>) [options]',
   positionals: { min: 1, max: 1, names: ['file'] },
   writes: true,
@@ -194,7 +194,7 @@ export const editCommand: CommandSpec = {
           ]
             .filter((p) => p !== '')
             .join(', ');
-          return [`${done.charAt(0).toUpperCase()}${done.slice(1)}.`, ...warningLines(out, unique), wroteLine(w)].join('\n');
+          return [`${done.charAt(0).toUpperCase()}${done.slice(1)}.`, ...warningLines(out, unique), wroteLine(w, out)].join('\n');
         },
       };
     } catch (error) {

@@ -48,7 +48,7 @@ describe('dist/cli.js', () => {
       expect(xlvane(['raed'], cwd).status).toBe(2);
       const missing = xlvane(['read', 'nope.xlsx'], cwd);
       expect(missing.status).toBe(3);
-      expect(missing.stderr).toMatch(/^Error: Cannot read "nope\.xlsx"/);
+      expect(missing.stderr).toMatch(/^Error: File not found: "nope\.xlsx"/);
       expect(xlvane(['read', 'report.xlsx'], cwd, { FORCE_COLOR: '1' }).stdout).toContain('\u001b[');
     });
   });

@@ -42,16 +42,22 @@ const RUNTIMES = {
 };
 
 async function main() {
+  // The source bundle runs everywhere; the bundle made from the built packages (as a user's
+  // bundler would make it, D-R01) runs in the two runtimes without Node.js modules.
+  const build = spawnSync('npm', ['run', 'build', '-w', 'packages/xlvane', '-w', 'packages/exceljs'], { cwd: root, encoding: 'utf8', shell: process.platform === 'win32' });
+  if (build.status !== 0) throw new Error(`npm run build failed:\n${build.stdout}\n${build.stderr}`);
   const bundle = await buildSmoke();
+  const packaged = await buildSmoke(undefined, { packages: true });
+  const runs = [...Object.entries(RUNTIMES).map(([name, run]) => [name, run, bundle]), ['browser (packages)', RUNTIMES.browser, packaged, 'browser'], ['workerd (packages)', RUNTIMES.workerd, packaged, 'workerd']];
   const rows = [];
   let failed = false;
-  for (const [name, run] of Object.entries(RUNTIMES)) {
-    if (skip.has(name)) {
+  for (const [name, run, file, key = name] of runs) {
+    if (skip.has(key)) {
       rows.push([name, 'skipped (XLV_SKIP_RUNTIMES)', '']);
       continue;
     }
     try {
-      const results = await run(bundle);
+      const results = await run(file);
       const bad = results.filter((r) => !r.ok);
       if (bad.length > 0 || results.length === 0) failed = true;
       rows.push([name, `${results.length - bad.length}/${results.length} passed`, bad.map((r) => `${r.name}: ${r.error ?? ''}`).join('\n    ')]);
@@ -60,7 +66,7 @@ async function main() {
       rows.push([name, 'error', String(error instanceof Error ? error.message : error)]);
     }
   }
-  for (const [name, status, detail] of rows) console.log(`${name.padEnd(8)} ${status}${detail ? `\n    ${detail}` : ''}`);
+  for (const [name, status, detail] of rows) console.log(`${name.padEnd(18)} ${status}${detail ? `\n    ${detail}` : ''}`);
   if (failed) process.exitCode = 1;
 }
 

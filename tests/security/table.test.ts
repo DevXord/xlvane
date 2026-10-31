@@ -20,7 +20,7 @@ describe('prototype keys as data', () => {
     const bytes = fromJSON('[{"__proto__":"p","a":1}]');
     expect(readTable(bytes).columns.map((c) => c.key)).toEqual(['__proto__', 'a']);
     expect(readTable(bytes).rows[0]?.['__proto__']).toBe('p');
-    expectXlvError(() => fromJSON('[{"__proto__":{"polluted":"yes"}}]'), 'XLV_E_TABLE_INVALID');
+    expectXlvError(() => fromJSON('[{"__proto__":{"polluted":"yes"}}]'), 'XLV_E_INVALID_ROWS');
     expectPrototypesUntouched();
   });
 

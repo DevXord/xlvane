@@ -151,7 +151,8 @@
                     "type": "array",
                     "items": {
                       "type": "string"
-                    }
+                    },
+                    "description": "Merged ranges, at most the first 100."
                   },
                   "headerRow": {
                     "oneOf": [
@@ -319,10 +320,35 @@
                     "items": {
                       "type": "object",
                       "properties": {
-                        "cell": { "anyOf": [{ "type": "null" }, { "type": "string" }] },
-                        "format": { "anyOf": [{ "type": "null" }, { "enum": ["png", "jpeg", "gif"] }] }
+                        "cell": {
+                          "anyOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "format": {
+                          "anyOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "enum": [
+                                "png",
+                                "jpeg",
+                                "gif"
+                              ]
+                            }
+                          ]
+                        }
                       },
-                      "required": ["cell", "format"],
+                      "required": [
+                        "cell",
+                        "format"
+                      ],
                       "additionalProperties": false
                     }
                   },
@@ -359,11 +385,24 @@
                     "items": {
                       "type": "object",
                       "properties": {
-                        "name": { "type": "string" },
-                        "ref": { "type": "string" },
-                        "columns": { "type": "array", "items": { "type": "string" } }
+                        "name": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "columns": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
                       },
-                      "required": ["name", "ref", "columns"],
+                      "required": [
+                        "name",
+                        "ref",
+                        "columns"
+                      ],
                       "additionalProperties": false
                     }
                   },
@@ -401,6 +440,15 @@
                       ],
                       "additionalProperties": false
                     }
+                  },
+                  "mergedRangeCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of merged ranges on the sheet."
+                  },
+                  "mergedRangesTruncated": {
+                    "type": "boolean",
+                    "description": "true when mergedRanges lists only the first 100."
                   }
                 },
                 "required": [
@@ -415,6 +463,8 @@
                   "cellCount",
                   "formulaCount",
                   "mergedRanges",
+                  "mergedRangeCount",
+                  "mergedRangesTruncated",
                   "headerRow",
                   "columns",
                   "columnsTruncated",

@@ -2,10 +2,10 @@
 // Runtime-neutral: the result is a Uint8Array; `xlvane/node` adds `writeWorkbookFile`.
 import { checkDefinedName, checkUniqueName, type DefinedName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
 import { normalizeProperties, type WorkbookProperties } from './doc-properties';
-import { XlvError } from './errors';
+import { XlvError, type XlvLocation } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
-import { checkImage, metricsOf, normalizeImage, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions, type StoredImage } from './images';
+import { checkImage, metricsOf, normalizeImage, resolveImage, type ImageAnchorInput, type ImageOptions, type WrittenImageFormat, type StoredImage } from './images';
 import { MAX_AUTHOR_LENGTH, type NoteBox, type NoteInput } from './notes';
 import { MAX_DATA_VALIDATIONS, normalizeConditionalFormat, normalizeDataValidation, type ConditionalFormatRuleInput, type DataValidation, type DataValidationRule, type StoredConditionalFormat } from './sheet-rules';
 import {
@@ -27,11 +27,12 @@ import {
   type SheetProtectionOptions,
   type WorkbookProtectionOptions,
 } from './printing';
-import { MAX_COLUMNS, MAX_ROWS, columnNumber, formatCellRef, formatRange, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
+import { MAX_COLUMNS, MAX_ROWS, columnLetters, columnNumber, formatCellRef, formatRange, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
 import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type NormalizedColor, type NormalizedStyle } from './style';
 import { normalizeTable, rangesOverlap, totalsFormula, type NormalizedTable, type TableInput } from './tables';
+import { sheetNotFound } from './util/sheet-not-found';
 import { suggest } from './util/suggest';
 import { firstLoneSurrogate } from './xml/writer';
 
@@ -174,7 +175,7 @@ export interface ColumnOptions {
  * ```
  */
 export interface RowOptions {
-  /** Height in points, 0 to 409. */
+  /** Height in points, 0 to 409.5. */
   readonly height?: number;
   readonly hidden?: boolean;
   /** Outline (grouping) level, 0 to 7 (`row@outlineLevel`; [MS-OI29500] §2.1.644 b). Default 0. */
@@ -371,8 +372,12 @@ const MAX_CELL_TEXT = 32_767;
 /** Widest column, in characters (Excel specifications and limits, W-04). */
 /** Widest column Office accepts ([MS-OI29500] §2.1.598 c). */
 const MAX_COLUMN_WIDTH = 255;
-/** Tallest row, in points (Excel specifications and limits, W-04). */
-const MAX_ROW_HEIGHT = 409;
+/**
+ * Tallest row, in points. The Excel specifications and limits page says 409 (W-04); a file saved
+ * by Microsoft Excel in the POI corpus has rows of 409.5 points, so 409.5 is accepted (W-04a,
+ * docs/decisions.md D-R01).
+ */
+const MAX_ROW_HEIGHT = 409.5;
 /** Most cells one call to {@link NewSheet.style} may touch. Implementation cap (D-206). */
 export const MAX_STYLE_RANGE_CELLS = 1_048_576;
 /** Longest sheet name ([MS-OI29500] §2.1.578 a; docs/facts/sml-write.md W2-20). */
@@ -419,6 +424,21 @@ export interface StoredCell {
 
 function invalidValue(sheet: string, cell: string, message: string, hint: string): XlvError {
   return new XlvError('XLV_E_INVALID_VALUE', message, { location: { sheet, cell }, hint });
+}
+
+/**
+ * Runs `fn` and adds `location` to an `XlvError` it throws without a sheet, so that errors of
+ * shared validators (styles, colours) say where the bad value was given (D-R03).
+ */
+function located<T>(location: XlvLocation, fn: () => T): T {
+  try {
+    return fn();
+  } catch (error) {
+    if (error instanceof XlvError && error.location.sheet === undefined) {
+      throw new XlvError(error.code, error.message, { location: { ...location, ...error.location }, hint: error.hint, details: error.details, cause: error });
+    }
+    throw error;
+  }
 }
 
 function invalidOption(message: string, hint: string, details?: Record<string, string | readonly string[]>): XlvError {
@@ -609,7 +629,7 @@ export class NewSheet {
    */
   set(ref: string, value: CellInput, style?: CellStyle): this {
     const at = this.address(ref);
-    const normalized = style === undefined ? null : normalizeStyle(style);
+    const normalized = style === undefined ? null : located({ sheet: this.name, cell: at.ref }, () => normalizeStyle(style));
     const { stored, isDate, hasTime } = this.convert(value, at.ref);
     let base = normalized ?? this.book.styleOf(this.getCell(at.row, at.col)?.style ?? 0);
     if (isDate && base.numFmt === undefined) base = { ...base, numFmt: hasTime ? DATE_TIME_FORMAT : DATE_FORMAT };
@@ -638,7 +658,7 @@ export class NewSheet {
    */
   style(range: string, style: CellStyle): this {
     const r = this.range(range);
-    const patch = normalizeStyle(style);
+    const patch = located({ sheet: this.name, cell: formatRange(r) }, () => normalizeStyle(style));
     const cells = (r.end.row - r.start.row + 1) * (r.end.col - r.start.col + 1);
     if (cells > MAX_STYLE_RANGE_CELLS) {
       throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The range ${range} has ${String(cells)} cells, more than ${String(MAX_STYLE_RANGE_CELLS)} can be styled at once.`, {
@@ -676,27 +696,30 @@ export class NewSheet {
    * ```
    */
   column(col: string | number, options: ColumnOptions): this {
-    const index = typeof col === 'number' ? col : typeof col === 'string' ? (columnNumber(col.toUpperCase()) ?? 0) : 0;
-    if (!Number.isInteger(index) || index < 1 || index > MAX_COLUMNS) throw invalidRef(col, this.name, 'column', '"C" or 3');
-    const o = readOptions(options, ['width', 'hidden', 'style', 'outlineLevel', 'collapsed'], 'column options');
-    const current = this.columnMap.get(index) ?? { width: null, hidden: false, style: 0, outlineLevel: 0, collapsed: false };
-    const width = o.get('width');
-    if (width !== undefined) {
-      if (typeof width !== 'number' || !(width >= 0 && width <= MAX_COLUMN_WIDTH)) {
-        throw invalidValue(this.name, '', `Column width ${String(width)} is not valid.`, `Use a width from 0 to ${String(MAX_COLUMN_WIDTH)} characters.`);
+    // Option errors name the sheet (D-R03).
+    return located({ sheet: this.name }, () => {
+      const index = typeof col === 'number' ? col : typeof col === 'string' ? (columnNumber(col.toUpperCase()) ?? 0) : 0;
+      if (!Number.isInteger(index) || index < 1 || index > MAX_COLUMNS) throw invalidRef(col, this.name, 'column', '"C" or 3');
+      const o = readOptions(options, ['width', 'hidden', 'style', 'outlineLevel', 'collapsed'], 'column options');
+      const current = this.columnMap.get(index) ?? { width: null, hidden: false, style: 0, outlineLevel: 0, collapsed: false };
+      const width = o.get('width');
+      if (width !== undefined) {
+        if (typeof width !== 'number' || !(width >= 0 && width <= MAX_COLUMN_WIDTH)) {
+          throw invalidValue(this.name, `${columnLetters(index)}:${columnLetters(index)}`, `Column width ${String(width)} of column ${columnLetters(index)} is not valid.`, `Use a width from 0 to ${String(MAX_COLUMN_WIDTH)} characters.`);
+        }
+        current.width = width;
       }
-      current.width = width;
-    }
-    const hidden = o.get('hidden');
-    if (hidden !== undefined) {
-      if (typeof hidden !== 'boolean') throw invalidOption('Column option "hidden" must be true or false.', 'Use { hidden: true }.');
-      current.hidden = hidden;
-    }
-    const style = o.get('style');
-    if (style !== undefined) current.style = this.book.intern(normalizeStyle(style));
-    readOutline(o, current, 'Column');
-    this.columnMap.set(index, current);
-    return this;
+      const hidden = o.get('hidden');
+      if (hidden !== undefined) {
+        if (typeof hidden !== 'boolean') throw invalidOption('Column option "hidden" must be true or false.', 'Use { hidden: true }.');
+        current.hidden = hidden;
+      }
+      const style = o.get('style');
+      if (style !== undefined) current.style = this.book.intern(located({ sheet: this.name, cell: `${columnLetters(index)}:${columnLetters(index)}` }, () => normalizeStyle(style)));
+      readOutline(o, current, 'Column');
+      this.columnMap.set(index, current);
+      return this;
+    });
   }
 
   /**
@@ -710,24 +733,27 @@ export class NewSheet {
    * ```
    */
   row(row: number, options: RowOptions): this {
-    if (typeof row !== 'number' || !Number.isInteger(row) || row < 1 || row > MAX_ROWS) throw invalidRef(row, this.name, 'row number', '1');
-    const o = readOptions(options, ['height', 'hidden', 'outlineLevel', 'collapsed'], 'row options');
-    const current = this.rowMap.get(row) ?? { height: null, hidden: false, outlineLevel: 0, collapsed: false };
-    const height = o.get('height');
-    if (height !== undefined) {
-      if (typeof height !== 'number' || !(height >= 0 && height <= MAX_ROW_HEIGHT)) {
-        throw invalidValue(this.name, '', `Row height ${String(height)} is not valid.`, `Use a height from 0 to ${String(MAX_ROW_HEIGHT)} points.`);
+    // Option errors name the sheet (D-R03).
+    return located({ sheet: this.name }, () => {
+      if (typeof row !== 'number' || !Number.isInteger(row) || row < 1 || row > MAX_ROWS) throw invalidRef(row, this.name, 'row number', '1');
+      const o = readOptions(options, ['height', 'hidden', 'outlineLevel', 'collapsed'], 'row options');
+      const current = this.rowMap.get(row) ?? { height: null, hidden: false, outlineLevel: 0, collapsed: false };
+      const height = o.get('height');
+      if (height !== undefined) {
+        if (typeof height !== 'number' || !(height >= 0 && height <= MAX_ROW_HEIGHT)) {
+          throw invalidValue(this.name, `${String(row)}:${String(row)}`, `Row height ${String(height)} of row ${String(row)} is not valid.`, `Use a height from 0 to ${String(MAX_ROW_HEIGHT)} points.`);
+        }
+        current.height = height;
       }
-      current.height = height;
-    }
-    const hidden = o.get('hidden');
-    if (hidden !== undefined) {
-      if (typeof hidden !== 'boolean') throw invalidOption('Row option "hidden" must be true or false.', 'Use { hidden: true }.');
-      current.hidden = hidden;
-    }
-    readOutline(o, current, 'Row');
-    this.rowMap.set(row, current);
-    return this;
+      const hidden = o.get('hidden');
+      if (hidden !== undefined) {
+        if (typeof hidden !== 'boolean') throw invalidOption('Row option "hidden" must be true or false.', 'Use { hidden: true }.');
+        current.hidden = hidden;
+      }
+      readOutline(o, current, 'Row');
+      this.rowMap.set(row, current);
+      return this;
+    });
   }
 
   /**
@@ -742,29 +768,32 @@ export class NewSheet {
    * ```
    */
   properties(options: SheetPropertiesOptions): this {
-    const o = readOptions(options, ['defaultRowHeight', 'summaryBelow', 'summaryRight', 'outlineLevelRow', 'outlineLevelCol'], 'sheet properties');
-    const next = { ...this.sheetProps };
-    const h = o.get('defaultRowHeight');
-    if (h !== undefined) {
-      if (typeof h !== 'number' || !(h >= 0 && h <= MAX_ROW_HEIGHT)) {
-        throw invalidOption(`The default row height ${String(h)} is not valid.`, `Use a height from 0 to ${String(MAX_ROW_HEIGHT)} points, for example { defaultRowHeight: 18 }.`);
+    // Option errors name the sheet (D-R03).
+    return located({ sheet: this.name }, () => {
+      const o = readOptions(options, ['defaultRowHeight', 'summaryBelow', 'summaryRight', 'outlineLevelRow', 'outlineLevelCol'], 'sheet properties');
+      const next = { ...this.sheetProps };
+      const h = o.get('defaultRowHeight');
+      if (h !== undefined) {
+        if (typeof h !== 'number' || !(h >= 0 && h <= MAX_ROW_HEIGHT)) {
+          throw invalidOption(`The default row height ${String(h)} is not valid.`, `Use a height from 0 to ${String(MAX_ROW_HEIGHT)} points, for example { defaultRowHeight: 18 }.`);
+        }
+        next.defaultRowHeight = h;
       }
-      next.defaultRowHeight = h;
-    }
-    for (const key of ['summaryBelow', 'summaryRight'] as const) {
-      const v = o.get(key);
-      if (v === undefined) continue;
-      if (typeof v !== 'boolean') throw invalidOption(`The sheet property "${key}" must be true or false.`, `For example { ${key}: false }.`);
-      next[key] = v;
-    }
-    for (const key of ['outlineLevelRow', 'outlineLevelCol'] as const) {
-      const v = o.get(key);
-      if (v === undefined) continue;
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 7) throw invalidOption(`The sheet property "${key}" must be a whole number from 0 to 7.`, `For example { ${key}: 2 }.`);
-      next[key] = v;
-    }
-    this.sheetProps = next;
-    return this;
+      for (const key of ['summaryBelow', 'summaryRight'] as const) {
+        const v = o.get(key);
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw invalidOption(`The sheet property "${key}" must be true or false.`, `For example { ${key}: false }.`);
+        next[key] = v;
+      }
+      for (const key of ['outlineLevelRow', 'outlineLevelCol'] as const) {
+        const v = o.get(key);
+        if (v === undefined) continue;
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v > 7) throw invalidOption(`The sheet property "${key}" must be a whole number from 0 to 7.`, `For example { ${key}: 2 }.`);
+        next[key] = v;
+      }
+      this.sheetProps = next;
+      return this;
+    });
   }
 
   /**
@@ -812,19 +841,22 @@ export class NewSheet {
    * ```
    */
   freeze(options: FreezeOptions): this {
-    const o = readOptions(options, ['rows', 'cols'], 'freeze options');
-    const count = (key: string, max: number): number => {
-      const v = o.get(key) ?? 0;
-      if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v >= max) {
-        throw invalidOption(`freeze option "${key}" must be a whole number from 0 to ${String(max - 1)}.`, `For example { ${key}: 1 }.`);
-      }
-      return v;
-    };
-    const rows = count('rows', MAX_ROWS);
-    const cols = count('cols', MAX_COLUMNS);
-    this.frozen = rows === 0 && cols === 0 ? null : { rows, cols };
-    if (this.frozen !== null && this.viewSettings.split !== null) this.viewSettings = { ...this.viewSettings, split: null };
-    return this;
+    // Option errors name the sheet (D-R03).
+    return located({ sheet: this.name }, () => {
+      const o = readOptions(options, ['rows', 'cols'], 'freeze options');
+      const count = (key: string, max: number): number => {
+        const v = o.get(key) ?? 0;
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < 0 || v >= max) {
+          throw invalidOption(`freeze option "${key}" must be a whole number from 0 to ${String(max - 1)}.`, `For example { ${key}: 1 }.`);
+        }
+        return v;
+      };
+      const rows = count('rows', MAX_ROWS);
+      const cols = count('cols', MAX_COLUMNS);
+      this.frozen = rows === 0 && cols === 0 ? null : { rows, cols };
+      if (this.frozen !== null && this.viewSettings.split !== null) this.viewSettings = { ...this.viewSettings, split: null };
+      return this;
+    });
   }
 
   /**
@@ -839,7 +871,7 @@ export class NewSheet {
    * ```
    */
   tabColor(color: Color | null): this {
-    this.tab = color === null ? null : normalizeColor(color, 'tabColor');
+    this.tab = color === null ? null : located({ sheet: this.name }, () => normalizeColor(color, 'tabColor'));
     return this;
   }
 
@@ -855,71 +887,74 @@ export class NewSheet {
    * ```
    */
   view(options: SheetViewOptions): this {
-    const o = readOptions(options, ['zoom', 'showGridLines', 'showRowColHeaders', 'rightToLeft', 'layout', 'split', 'topLeftCell', 'activeCell', 'zoomScaleNormal', 'showRuler'], 'view options');
-    const next: { -readonly [K in keyof SheetView]: SheetView[K] } = { ...this.viewSettings };
-    const zoom = o.get('zoom');
-    if (zoom !== undefined) {
-      if (typeof zoom !== 'number' || !Number.isInteger(zoom) || zoom < 10 || zoom > 400) {
-        throw invalidOption('The view option "zoom" must be a whole number from 10 to 400 (percent).', 'For example { zoom: 80 }.');
+    // Option errors name the sheet (D-R03).
+    return located({ sheet: this.name }, () => {
+      const o = readOptions(options, ['zoom', 'showGridLines', 'showRowColHeaders', 'rightToLeft', 'layout', 'split', 'topLeftCell', 'activeCell', 'zoomScaleNormal', 'showRuler'], 'view options');
+      const next: { -readonly [K in keyof SheetView]: SheetView[K] } = { ...this.viewSettings };
+      const zoom = o.get('zoom');
+      if (zoom !== undefined) {
+        if (typeof zoom !== 'number' || !Number.isInteger(zoom) || zoom < 10 || zoom > 400) {
+          throw invalidOption('The view option "zoom" must be a whole number from 10 to 400 (percent).', 'For example { zoom: 80 }.');
+        }
+        next.zoom = zoom;
       }
-      next.zoom = zoom;
-    }
-    const zoomNormal = o.get('zoomScaleNormal');
-    if (zoomNormal !== undefined) {
-      // 10 to 400, or 0 for the automatic setting (Part 1 §18.3.1.87; W2-51).
-      if (typeof zoomNormal !== 'number' || !Number.isInteger(zoomNormal) || (zoomNormal !== 0 && (zoomNormal < 10 || zoomNormal > 400))) {
-        throw invalidOption('The view option "zoomScaleNormal" must be 0 (automatic) or a whole number from 10 to 400.', 'For example { zoomScaleNormal: 100 }.');
+      const zoomNormal = o.get('zoomScaleNormal');
+      if (zoomNormal !== undefined) {
+        // 10 to 400, or 0 for the automatic setting (Part 1 §18.3.1.87; W2-51).
+        if (typeof zoomNormal !== 'number' || !Number.isInteger(zoomNormal) || (zoomNormal !== 0 && (zoomNormal < 10 || zoomNormal > 400))) {
+          throw invalidOption('The view option "zoomScaleNormal" must be 0 (automatic) or a whole number from 10 to 400.', 'For example { zoomScaleNormal: 100 }.');
+        }
+        next.zoomScaleNormal = zoomNormal;
       }
-      next.zoomScaleNormal = zoomNormal;
-    }
-    for (const key of ['topLeftCell', 'activeCell'] as const) {
-      if (!o.has(key)) continue;
-      const v = o.get(key);
-      if (v === null) {
-        next[key] = null;
-        continue;
+      for (const key of ['topLeftCell', 'activeCell'] as const) {
+        if (!o.has(key)) continue;
+        const v = o.get(key);
+        if (v === null) {
+          next[key] = null;
+          continue;
+        }
+        const cell = typeof v === 'string' ? parseCellRef(v.toUpperCase()) : null;
+        if (cell === null) throw invalidOption(`The view option "${key}" must be a cell reference such as "B2".`, `For example { ${key}: "B2" }.`);
+        next[key] = formatCellRef(cell.row, cell.col);
       }
-      const cell = typeof v === 'string' ? parseCellRef(v.toUpperCase()) : null;
-      if (cell === null) throw invalidOption(`The view option "${key}" must be a cell reference such as "B2".`, `For example { ${key}: "B2" }.`);
-      next[key] = formatCellRef(cell.row, cell.col);
-    }
-    for (const key of ['showGridLines', 'showRowColHeaders', 'rightToLeft', 'showRuler'] as const) {
-      const v = o.get(key);
-      if (v === undefined) continue;
-      if (typeof v !== 'boolean') throw invalidOption(`The view option "${key}" must be true or false.`, `For example { ${key}: false }.`);
-      next[key] = v;
-    }
-    const layout = o.get('layout');
-    if (layout !== undefined) {
-      if (layout !== 'normal' && layout !== 'pageBreakPreview' && layout !== 'pageLayout') {
-        throw invalidOption(`The view option "layout" is ${JSON.stringify(String(layout).slice(0, 30))}.`, 'Use "normal", "pageBreakPreview" or "pageLayout".');
+      for (const key of ['showGridLines', 'showRowColHeaders', 'rightToLeft', 'showRuler'] as const) {
+        const v = o.get(key);
+        if (v === undefined) continue;
+        if (typeof v !== 'boolean') throw invalidOption(`The view option "${key}" must be true or false.`, `For example { ${key}: false }.`);
+        next[key] = v;
       }
-      next.layout = layout;
-    }
-    let unfreeze = false;
-    if (o.has('split')) {
-      const split = o.get('split');
-      if (split === null) next.split = null;
-      else {
-        const p = readOptions(split, ['x', 'y'], 'view option "split"');
-        const at = (key: string): number => {
-          const v = p.get(key) ?? 0;
-          if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_SPLIT_POINTS) {
-            throw invalidOption(`The split position "${key}" must be a number of points from 0 to ${String(MAX_SPLIT_POINTS)}.`, 'For example { split: { x: 100, y: 50 } }.');
-          }
-          return v;
-        };
-        const x = at('x');
-        const y = at('y');
-        // Office does not support a split pane at 0, 0 ([MS-OI29500] §2.1.640 e).
-        if (x === 0 && y === 0) throw invalidOption('A split needs "x" or "y" greater than 0.', 'For example { split: { y: 50 } }, or { split: null } to remove it.');
-        next.split = { x, y };
-        unfreeze = true;
+      const layout = o.get('layout');
+      if (layout !== undefined) {
+        if (layout !== 'normal' && layout !== 'pageBreakPreview' && layout !== 'pageLayout') {
+          throw invalidOption(`The view option "layout" is ${JSON.stringify(String(layout).slice(0, 30))}.`, 'Use "normal", "pageBreakPreview" or "pageLayout".');
+        }
+        next.layout = layout;
       }
-    }
-    this.viewSettings = next;
-    if (unfreeze) this.frozen = null;
-    return this;
+      let unfreeze = false;
+      if (o.has('split')) {
+        const split = o.get('split');
+        if (split === null) next.split = null;
+        else {
+          const p = readOptions(split, ['x', 'y'], 'view option "split"');
+          const at = (key: string): number => {
+            const v = p.get(key) ?? 0;
+            if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_SPLIT_POINTS) {
+              throw invalidOption(`The split position "${key}" must be a number of points from 0 to ${String(MAX_SPLIT_POINTS)}.`, 'For example { split: { x: 100, y: 50 } }.');
+            }
+            return v;
+          };
+          const x = at('x');
+          const y = at('y');
+          // Office does not support a split pane at 0, 0 ([MS-OI29500] §2.1.640 e).
+          if (x === 0 && y === 0) throw invalidOption('A split needs "x" or "y" greater than 0.', 'For example { split: { y: 50 } }, or { split: null } to remove it.');
+          next.split = { x, y };
+          unfreeze = true;
+        }
+      }
+      this.viewSettings = next;
+      if (unfreeze) this.frozen = null;
+      return this;
+    });
   }
 
   /**
@@ -1195,16 +1230,26 @@ export class NewSheet {
       t.columns.forEach((c, i) => {
         const value = values[i];
         const ref = formatCellRef(r, start.col + i);
-        if (value !== undefined) this.set(ref, value as CellInput);
+        // A calculated column fills every data cell left empty (undefined or null).
+        if (value !== undefined && value !== null) this.set(ref, value as CellInput);
         else if (c.calculatedColumnFormula !== null) this.set(ref, { formula: c.calculatedColumnFormula });
+        else if (value === null) this.set(ref, null);
       });
     }
     if (t.totalsRow) {
       t.columns.forEach((c, i) => {
         const ref = formatCellRef(end.row, start.col + i);
         const f = totalsFormula(t.displayName, c);
-        if (f !== null) this.set(ref, { formula: f });
-        else if (c.totalsRowLabel !== null) this.set(ref, c.totalsRowLabel);
+        if (f !== null) {
+          // A cell that already holds this formula keeps its cached result, so a table read from
+          // a file and written again shows its totals before recalculation (D-R01).
+          const old = this.getCell(end.row, start.col + i)?.value;
+          this.set(ref, { formula: f });
+          if (old?.kind === 'formula' && old.text === f && old.result !== null && old.group === undefined) {
+            const cell = this.getCell(end.row, start.col + i)!;
+            this.putCell(end.row, start.col + i, { ...cell, value: { kind: 'formula', text: f, result: old.result } });
+          }
+        } else if (c.totalsRowLabel !== null) this.set(ref, c.totalsRowLabel);
       });
     }
     this.tableList.push(t);
@@ -1740,12 +1785,7 @@ export class NewWorkbook {
   getSheet(name: string): NewSheet {
     const found = this.list.find((s) => s.name === name);
     if (found) return found;
-    const names = this.list.map((s) => s.name);
-    const close = suggest(String(name), names);
-    throw new XlvError('XLV_E_SHEET_NOT_FOUND', `The workbook has no sheet named "${String(name).slice(0, 100)}".`, {
-      hint: `${close.length > 0 ? `Did you mean "${close[0] ?? ''}"? ` : ''}Available sheets: ${names.length > 0 ? names.join(', ') : '(none)'}.`,
-      details: { name: String(name).slice(0, 100), available: names },
-    });
+    throw sheetNotFound(name, this.list.map((s) => s.name));
   }
 
   /**
@@ -1856,10 +1896,11 @@ export class NewWorkbook {
     return this.dxfList;
   }
 
-  private readonly imageData: { readonly bytes: Uint8Array; readonly format: ImageFormat }[] = [];
+  private readonly imageData: { readonly bytes: Uint8Array; readonly format: WrittenImageFormat }[] = [];
 
   /**
-   * Adds an image (the bytes of a PNG, JPEG or GIF file, recognised from its first bytes) and
+   * Adds an image (the bytes of a PNG, JPEG or GIF file, recognised from its first bytes; EMF and
+   * WMF files, as Excel stores them, are written unchanged) and
    * returns its number for `NewSheet.addImage` and `NewSheet.background`. Other formats throw
    * `XLV_E_INVALID_IMAGE`. Identical images are stored once in the file.
    *
@@ -1884,7 +1925,7 @@ export class NewWorkbook {
   }
 
   /** @internal */
-  imageList(): readonly { readonly bytes: Uint8Array; readonly format: ImageFormat }[] {
+  imageList(): readonly { readonly bytes: Uint8Array; readonly format: WrittenImageFormat }[] {
     return this.imageData;
   }
 }
@@ -1911,6 +1952,26 @@ export function createWorkbook(options?: CreateWorkbookOptions): NewWorkbook {
     throw invalidOption(`Date system ${JSON.stringify(String(dateSystem).slice(0, 20))} is not valid.`, 'Use "1900" (the default) or "1904".');
   }
   return new NewWorkbook(dateSystem, normalizeProperties(o.get('properties')));
+}
+
+/**
+ * Checks that `activeTab` and `firstSheet` of every workbook window name an existing sheet: both
+ * are 0-based sheet indexes (CT_BookView; the default window written without `views()` uses the
+ * active sheet's index the same way). Throws `XLV_E_INVALID_OPTION`.
+ */
+export function checkBookViews(views: readonly WorkbookViewOptions[], sheetNames: readonly string[]): void {
+  const count = sheetNames.length;
+  views.forEach((view, i) => {
+    for (const key of ['activeTab', 'firstSheet'] as const) {
+      const n = view[key];
+      if (n === undefined || n < count) continue;
+      const listed = sheetNames.slice(0, 10).map((name, k) => `${String(k)} = "${name}"`).join(', ');
+      throw new XlvError('XLV_E_INVALID_OPTION', `views[${String(i)}].${key} is ${String(n)}, but the workbook has ${String(count)} sheet${count === 1 ? '' : 's'} (indexes 0 to ${String(count - 1)}).`, {
+        hint: `Use a sheet index from 0 to ${String(count - 1)}; ${key === 'activeTab' ? 'activeTab is the sheet shown when the file opens' : 'firstSheet is the first sheet tab shown'}. Sheets: ${listed}${count > 10 ? ', …' : ''}.`,
+        details: { option: key, value: n },
+      });
+    }
+  });
 }
 
 /**
@@ -1945,6 +2006,7 @@ export function writeWorkbook(workbook: NewWorkbook, options: WriteWorkbookOptio
       hint: 'A workbook needs at least one visible sheet. Add one or create a sheet with { state: "visible" }.',
     });
   }
+  checkBookViews(workbook.bookViews, sheets.map((s) => s.name));
   const o = readOptions(options, ['sharedStrings', 'compressionLevel'], 'write options');
   const shared = o.get('sharedStrings') ?? true;
   if (typeof shared !== 'boolean') throw invalidOption('The write option "sharedStrings" must be true or false.', 'Use { sharedStrings: false } for inline strings.');

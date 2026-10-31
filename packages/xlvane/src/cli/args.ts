@@ -8,7 +8,7 @@ import type { CommandSpec, OptionSpec, ParsedArgs } from './types';
 
 /** Options every command accepts. */
 export const GLOBAL_OPTIONS: Readonly<Record<string, OptionSpec>> = {
-  json: { type: 'boolean', description: 'Print one JSON document to stdout (docs/cli-json.md)' },
+  json: { type: 'boolean', description: 'Print one JSON document to stdout (node_modules/xlvane/docs/cli-json.md)' },
   quiet: { type: 'boolean', short: 'q', description: 'Print only results and errors' },
   verbose: { type: 'boolean', description: 'Print more detail, including stack traces of internal errors' },
   help: { type: 'boolean', short: 'h', description: 'Show help for the command' },

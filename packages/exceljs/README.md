@@ -1,6 +1,6 @@
 # @xlvane/exceljs
 
-The commonly used part of the [exceljs](https://github.com/exceljs/exceljs) 4.4.0 API, built on [xlvane](../xlvane). Code written for exceljs keeps working after one change in `package.json`:
+The [exceljs](https://github.com/exceljs/exceljs) 4.4.0 API, built on [xlvane](https://www.npmjs.com/package/xlvane), with the differences listed in docs/exceljs-compat.md (link below). Code written for exceljs keeps working after one change in `package.json`:
 
 ```json
 "dependencies": {
@@ -22,7 +22,7 @@ await workbook.xlsx.writeFile('sales.xlsx');
 ```
 
 - Requires Node.js 22.12 or later for `require()` (the package is an ES module; `require()` of ES modules works without a flag from 22.12). ESM `import` works the same way, and named imports such as `import { Workbook } from 'exceljs'` work too.
-- Methods and options outside the supported subset throw an `XlvError` with code `XLV_E_NOT_SUPPORTED` and the name of the feature. Nothing is dropped silently.
-- What is supported, partly supported and not supported, with the source of each exceljs behaviour: [docs/exceljs-compat.md](../../docs/exceljs-compat.md).
+- The few exceljs features that are not offered (row and column operations on a streamed worksheet, which exceljs itself does not have, and deep imports of exceljs internals such as `exceljs/lib/...`) throw an `XlvError` with code `XLV_E_NOT_SUPPORTED` and the name of the feature, or fail to resolve. Nothing is dropped silently.
+- What is supported, partly supported and not supported, with the source of each exceljs behaviour: [docs/exceljs-compat.md](https://github.com/DevXord/xlvane/blob/main/docs/exceljs-compat.md) (also in `node_modules/xlvane/docs/exceljs-compat.md` after installing). Errors are described in `node_modules/xlvane/docs/errors.md`.
 
 License: MIT

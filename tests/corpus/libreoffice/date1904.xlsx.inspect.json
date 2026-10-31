@@ -30,6 +30,8 @@
       "cellCount": 2,
       "formulaCount": 0,
       "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
       "formulas": [],
       "richTextCellCount": 0,
       "richTextCells": [],
@@ -64,8 +66,8 @@
             "empty": 0
           },
           "samples": [
-            "1904-01-01T00:00:00.000",
-            "2024-01-31T00:00:00.000"
+            "1904-01-01",
+            "2024-01-31"
           ]
         }
       ],

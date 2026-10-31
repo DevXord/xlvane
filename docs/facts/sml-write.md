@@ -265,3 +265,6 @@ CT_SheetView attributes `showRuler` (default true), `topLeftCell` (ST_CellRef), 
 
 ## Still to verify
 The open points of phase 2 were checked on 2026-10-30 against ECMA-376 Part 1, [MS-OI29500] and [MS-XLSX] (D-1104); each entry above carries the result. Still PROVISIONAL: the formula length (W2-21, in none of the three documents) and the part names (W2-32, a convention).
+
+### W-04a — Row height 409.5 — OBSERVED (2026-10-31, D-R01)
+`tests/corpus/poi/CVLKRA-KYC_Download_File_Structure_V3.1.xlsx` (docProps/app.xml: `<Application>Microsoft Excel</Application>`) has `<row … ht="409.5" customHeight="1">` in `xl/worksheets/sheet2.xml`, above the 409 points of the Excel limits page (W-04). The writer accepts row heights up to 409.5. NOT CHECKED: an [MS-OI29500] limit on `row@ht`.

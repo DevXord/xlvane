@@ -1,27 +1,31 @@
 import { inspect, type InspectReport } from '../../inspect';
-import { str } from '../args';
+import { str, usageError } from '../args';
 import { readBook } from '../files';
 import { plural, showValue, type Output } from '../output';
-import type { CommandSpec } from '../types';
+import type { CommandContext, CommandSpec } from '../types';
+import { warningsBlock } from '../warnings';
 
-/** Warnings as lines; the code is always written out, colour only marks it. */
-export function warningLines(out: Output, warnings: InspectReport['warnings']): string[] {
-  return warnings.map((w) => {
-    const at = [w.location.sheet ? `sheet "${w.location.sheet}"` : '', w.location.cell ?? '', w.location.part ?? ''].filter((p) => p !== '').join(', ');
-    const count = w.count > 1 ? ` (${String(w.count)} times)` : '';
-    return `  ${out.yellow('warning')} ${w.code}: ${w.message}${at ? ` [${at}]` : ''}${count}`;
-  });
+/** A whole-number option of 1 or more. */
+function countOption(ctx: CommandContext, name: string): number | undefined {
+  const v = str(ctx.args, name);
+  if (v === undefined) return undefined;
+  if (!/^\d+$/.test(v) || Number(v) < 1 || !Number.isSafeInteger(Number(v))) {
+    throw usageError(`The option "--${name}" must be a whole number of 1 or more, not "${v}".`, `For example --${name} 20.`, { command: 'inspect', option: `--${name}` });
+  }
+  return Number(v);
 }
 
 export const inspectCommand: CommandSpec = {
   name: 'inspect',
   summary: 'See sheets, columns and problems in a workbook',
   description:
-    'Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected header rows, column types with sample values, merged cells, formulas, rich-text cells, column styles, hyperlinks, notes, document properties, defined names, and warnings such as macros or external links. Macros are never run and links are never followed. With --json the result is the inspect() report described in docs/inspect-json.md.',
+    'Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected header rows, column types with sample values, merged cells, formulas, rich-text cells, column styles, hyperlinks, notes, document properties, defined names, and warnings such as macros or external links. Macros are never run and links are never followed. Built-in hidden names such as _xlnm._FilterDatabase are listed only with --verbose. With --json the result is the inspect() report described in node_modules/xlvane/docs/inspect-json.md.',
   usage: '<file> [options]',
   positionals: { min: 1, max: 1, names: ['file'] },
   options: {
     sheet: { type: 'string', value: 'name', description: 'Describe only this sheet' },
+    'max-columns': { type: 'string', value: 'n', description: 'Columns described per sheet (default 200)' },
+    'formula-samples': { type: 'string', value: 'n', description: 'Example formulas per sheet (default 10)' },
   },
   examples: [
     { command: 'xlvane inspect report.xlsx', description: 'Describe every sheet and list warnings' },
@@ -32,7 +36,9 @@ export const inspectCommand: CommandSpec = {
   async run(ctx) {
     const file = ctx.args.positionals[0]!;
     const { workbook } = await readBook(ctx, file);
-    const full = inspect(workbook);
+    const maxColumns = countOption(ctx, 'max-columns');
+    const formulaSamples = countOption(ctx, 'formula-samples');
+    const full = inspect(workbook, { ...(maxColumns !== undefined ? { maxColumns } : {}), ...(formulaSamples !== undefined ? { formulaSamples } : {}) });
     const name = str(ctx.args, 'sheet');
     let report: InspectReport = full;
     if (name !== undefined) {
@@ -42,23 +48,28 @@ export const inspectCommand: CommandSpec = {
     return {
       result: report,
       exitCode: 0,
-      render: (out) => renderReport(out, file, report),
+      render: (out) => renderReport(out, file, report, ctx.verbose),
     };
   },
 };
 
-function renderReport(out: Output, file: string, r: InspectReport): string {
+function renderReport(out: Output, file: string, r: InspectReport, verbose: boolean): string {
   const lines = [
     `${out.bold(file)}: ${r.format}, ${plural(r.sheetCount, 'sheet')}, date system ${r.dateSystem}${r.conformance === 'strict' ? ', Strict conformance' : ''}`,
   ];
   if (r.hasMacros) lines.push('Contains macros (not run).');
   if (r.externalLinkCount > 0) lines.push(`Links to ${plural(r.externalLinkCount, 'other workbook')} (not followed).`);
   const props = Object.entries(r.properties);
-  if (props.length > 0) lines.push(`Properties: ${props.map(([k, v]) => `${k} ${JSON.stringify(v)}`).join(', ')}`);
-  if (r.definedNames.length > 0) {
-    const shown = r.definedNames.slice(0, 5).map((n) => `${n.name}${n.sheet === null ? '' : ` (sheet "${n.sheet}")`}${n.hidden ? ' (hidden)' : ''} =${n.refersTo}`);
-    const more = r.definedNames.length > 5 || r.definedNamesTruncated ? `, … (${r.definedNamesTruncated ? 'more than ' : ''}${String(r.definedNames.length)} in total; see --json)` : '';
-    lines.push(`Defined names: ${shown.join(', ')}${more}`);
+  if (props.length > 0) {
+    const keyWidth = Math.max(...props.map(([k]) => k.length));
+    lines.push(out.bold('Properties:'), ...props.map(([k, v]) => `  ${k.padEnd(keyWidth)}  ${v}`));
+  }
+  // Built-in names Excel keeps hidden (_xlnm._FilterDatabase and the like) only with --verbose.
+  const names = verbose ? r.definedNames : r.definedNames.filter((n) => !(n.hidden && n.name.startsWith('_xlnm.')));
+  if (names.length > 0) {
+    const shown = names.slice(0, 5).map((n) => `${n.name}${n.sheet === null ? '' : ` (sheet "${n.sheet}")`}${n.hidden ? ' (hidden)' : ''} =${n.refersTo}`);
+    const more = names.length > 5 || r.definedNamesTruncated ? `, … (${r.definedNamesTruncated ? 'more than ' : ''}${String(names.length)} in total; see --json)` : '';
+    lines.push(`${out.bold('Defined names:')} ${shown.join(', ')}${more}`);
   }
   for (const s of r.sheets) {
     lines.push('');
@@ -75,16 +86,16 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
       `${out.bold(`Sheet "${s.name}"`)}${state}: ${s.usedRange}, ${plural(s.rowCount, 'row')} × ${plural(s.columnCount, 'column')}, ${plural(s.cellCount, 'cell')}, ${plural(s.formulaCount, 'formula')}`,
     );
     lines.push(s.headerRow ? `  Header row: ${String(s.headerRow.row)} (${s.headerRow.confidence} confidence)` : '  Header row: none detected');
-    if (s.mergedRanges.length > 0) lines.push(`  Merged: ${s.mergedRanges.slice(0, 10).join(', ')}${s.mergedRanges.length > 10 ? `, … (${String(s.mergedRanges.length)} in total)` : ''}`);
+    if (s.mergedRangeCount > 0) lines.push(`  Merged: ${s.mergedRanges.slice(0, 10).join(', ')}${s.mergedRangeCount > 10 ? `, … (${String(s.mergedRangeCount)} in total)` : ''}`);
     if (s.columns.length > 0) {
       lines.push(
         out.table(
           ['Column', 'Header', 'Type', 'Samples'],
-          s.columns.map((c) => [c.letter, c.header ?? '', c.dominantType, c.samples.map((v) => (c.dominantType === 'date' && typeof v === 'string' ? v.replace(/T00:00:00\.000$/, '') : showValue(v))).join(', ')]),
+          s.columns.map((c) => [c.letter, c.header ?? '', c.dominantType, c.samples.map((v) => (c.dominantType === 'date' && typeof v === 'string' ? v.replace('T', ' ') : showValue(v))).join(', ')]),
           '  ',
         ),
       );
-      if (s.columnsTruncated) lines.push(`  … more columns; see --json`);
+      if (s.columnsTruncated) lines.push(`  … ${plural(s.columnCount - s.columns.length, 'more column')}; use --max-columns ${String(s.columnCount)} to see them`);
     }
     if (s.formulas.length > 0) lines.push(`  Formulas: ${s.formulas.slice(0, 3).map((f) => `${f.cell} =${f.formula ?? '(shared)'}`).join(', ')}`);
     if (s.richTextCellCount > 0) lines.push(`  Rich text: ${plural(s.richTextCellCount, 'cell')} (${s.richTextCells.slice(0, 5).join(', ')}${s.richTextCellCount > 5 ? ', …' : ''})`);
@@ -106,9 +117,7 @@ function renderReport(out: Output, file: string, r: InspectReport): string {
       lines.push(`  Printing: ${parts.filter((p) => p !== null).join(', ')}`);
     }
   }
-  if (r.warnings.length > 0) {
-    lines.push('', 'Warnings:', ...warningLines(out, r.warnings));
-  }
+  if (r.warnings.length > 0) lines.push('', ...warningsBlock(out, r.warnings));
   return lines.join('\n');
 }
 

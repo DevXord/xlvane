@@ -2,12 +2,13 @@
 // Quoting follows RFC 4180 (PROVISIONAL until the RFC text is checked, CSV-01 … CSV-04); the
 // formula-injection rules follow OWASP "CSV Injection" (CSV-10). The parser is a single forward
 // scan without regular expressions over untrusted text, so its run time is linear.
-import { XlvError } from './errors';
+import { isoDate } from './util/iso-date';
+import { XlvError, type XlvWarning } from './errors';
 import type { DateSystem, Workbook } from './model';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, parseRange } from './sml/cell-ref';
 import { parseIsoDateTime } from './sml/dates';
 import { addTableSheet, pickSheet } from './table';
-import type { ReadLimits } from './limits';
+import { DEFAULT_READ_LIMITS, type ReadLimits } from './limits';
 import { booleanOption, oneOfOption, openInput, readOptions } from './util/options';
 import { createWorkbook, writeWorkbook } from './write';
 
@@ -40,23 +41,12 @@ export interface ToCSVOptions {
   readonly formulaInjection?: 'escape' | 'off';
   /** Read limits for byte input; see `ReadLimits`. */
   readonly limits?: Partial<ReadLimits>;
+  /** Called once for each warning of the workbook, as in `readTable` (`ReadTableOptions.onWarning`). */
+  readonly onWarning?: (warning: XlvWarning) => void;
 }
 
 /** First characters that make spreadsheet applications treat a CSV field as a formula (CSV-10). */
 const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠']);
-
-function pad2(n: number): string {
-  return n < 10 ? `0${String(n)}` : String(n);
-}
-
-/** ISO 8601: the date alone at midnight, otherwise date and time without a zone (D-306). */
-function isoDate(d: Date): string {
-  const date = `${String(d.getUTCFullYear()).padStart(4, '0')}-${pad2(d.getUTCMonth() + 1)}-${pad2(d.getUTCDate())}`;
-  const ms = d.getUTCMilliseconds();
-  if (d.getUTCHours() === 0 && d.getUTCMinutes() === 0 && d.getUTCSeconds() === 0 && ms === 0) return date;
-  const time = `${pad2(d.getUTCHours())}:${pad2(d.getUTCMinutes())}:${pad2(d.getUTCSeconds())}`;
-  return `${date}T${time}${ms === 0 ? '' : `.${String(ms).padStart(3, '0')}`}`;
-}
 
 /**
  * Converts a sheet to CSV text. Fields that contain the delimiter, a quote, CR or LF are
@@ -75,7 +65,7 @@ function isoDate(d: Date): string {
  * ```
  */
 export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCSVOptions): string {
-  const o = readOptions(options, ['sheet', 'range', 'delimiter', 'newline', 'bom', 'formulaInjection', 'limits'], 'toCSV options');
+  const o = readOptions(options, ['sheet', 'range', 'delimiter', 'newline', 'bom', 'formulaInjection', 'limits', 'onWarning'], 'toCSV options');
   const delimiter = o.get('delimiter') ?? ',';
   if (typeof delimiter !== 'string' || delimiter.length !== 1 || delimiter === '"' || delimiter === '\r' || delimiter === '\n') {
     throw new XlvError('XLV_E_INVALID_OPTION', 'The option "delimiter" must be one character other than a quote, CR or LF.', {
@@ -86,7 +76,7 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
   const newline = oneOfOption('newline', o.get('newline'), ['\r\n', '\n'], '\r\n');
   const bom = booleanOption('bom', o.get('bom'), false);
   const injection = oneOfOption('formulaInjection', o.get('formulaInjection'), ['escape', 'off'], 'escape');
-  const workbook = openInput(input, o.get('limits'));
+  const workbook = openInput(input, o.get('limits'), o.get('onWarning'));
   const sheet = pickSheet(workbook, o.get('sheet'));
 
   let startRow = 1;
@@ -157,9 +147,12 @@ export interface FromCSVOptions {
   /** The first line holds column names. Default `true`. */
   readonly header?: boolean;
   /**
-   * `"infer"` (default): plain decimal numbers (up to 15 significant digits, no leading zeros),
-   * `true`/`false` and ISO 8601 dates become numbers, booleans and dates; everything else stays
-   * text. `"text"`: every field stays text.
+   * `"infer"` (default): plain decimal numbers, `true`/`false` and ISO 8601 dates become
+   * numbers, booleans and dates; everything else stays text. A number needs no leading zeros and
+   * at most 15 significant digits, or, with 16 or 17 digits, a fraction or exponent written in
+   * the shortest form (as `toCSV` writes it, e.g. `0.30000000000000004`); whole numbers with more
+   * than 15 digits (IDs) and numbers too large or too small for a double (`1e400`, `1e-400`)
+   * stay text. `"text"`: every field stays text.
    */
   readonly types?: 'infer' | 'text';
   /** Sheet name. Default `"Sheet1"`. */
@@ -170,6 +163,11 @@ export interface FromCSVOptions {
   readonly dateSystem?: DateSystem;
   /** Largest input in characters. Default 256 Mi. */
   readonly maxChars?: number;
+  /**
+   * Most fields (cells, empty ones included) the text may hold, which bounds the memory used.
+   * Default 5 000 000, the `maxCells` read limit (`DEFAULT_READ_LIMITS.maxCells`).
+   */
+  readonly maxCells?: number;
 }
 
 const DEFAULT_MAX_CHARS = 256 * 1024 * 1024;
@@ -185,15 +183,22 @@ function malformed(message: string, line: number, column: number, hint: string):
  * Splits CSV text into rows of fields (RFC 4180 with CRLF, LF or CR line ends). Throws
  * `XLV_E_CSV_MALFORMED` for an unterminated quoted field or text after a closing quote.
  */
-export function parseCsvRows(text: string, delimiter: string): string[][] {
+export function parseCsvRows(text: string, delimiter: string, maxCells: number = Number.POSITIVE_INFINITY): string[][] {
   const rows: string[][] = [];
   if (text.length === 0) return rows;
+  let cells = 0;
   let row: string[] = [];
   let i = 0;
   let line = 1;
   let lineStart = 0;
   const n = text.length;
   const limitCheck = (): void => {
+    if (++cells > maxCells) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The CSV text has more than ${String(maxCells)} fields (line ${String(line)}).`, {
+        hint: 'Raise the maxCells option if you trust the input, or split the file.',
+        details: { limit: 'maxCells', value: maxCells, line },
+      });
+    }
     if (row.length > MAX_COLUMNS) {
       throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Line ${String(line)} has more than ${String(MAX_COLUMNS)} fields.`, {
         hint: `A sheet has ${String(MAX_COLUMNS)} columns. Check the delimiter option; the file may use another separator.`,
@@ -298,13 +303,26 @@ function inferNumber(s: string): number | null {
     if (i === expStart) return null;
   }
   if (i !== n) return null;
-  // More than 15 significant digits would lose precision in a double: keep such values (IDs,
-  // account numbers) as text.
-  const digits = s.slice(intStart, intStart + intDigits + (fracDigits > 0 ? fracDigits + 1 : 0)).replace('.', '').replace(/^0+/, '');
-  if (digits.length > 15) return null;
   const value = Number(s);
-  return Number.isFinite(value) ? value : null;
+  // Overflow (1e400) and underflow (1e-400 would become 0, 1e-320 a subnormal that has lost
+  // digits) keep the text, so no digits are lost silently.
+  if (!Number.isFinite(value)) return null;
+  const digits = s.slice(intStart, intStart + intDigits + (fracDigits > 0 ? fracDigits + 1 : 0)).replace('.', '').replace(/^0+/, '');
+  if (value === 0 ? /[1-9]/.test(digits) : Math.abs(value) < MIN_NORMAL) return null;
+  // Up to 15 significant digits a decimal number survives a double exactly (D-307). Longer
+  // numbers are numbers only when the text is the shortest form JavaScript writes for the value
+  // (what toCSV writes, up to 17 digits, e.g. 0.30000000000000004), so they round-trip; a whole
+  // number with more than 15 digits stays text, because such fields are nearly always IDs or
+  // account numbers whose digits a spreadsheet would not keep (D-R02).
+  if (digits.length > 15) {
+    const whole = fracDigits === 0 && !/[eE]/.test(s);
+    if (whole || String(value) !== s) return null;
+  }
+  return value;
 }
+
+/** Smallest positive normal double (2^-1022); smaller values have fewer significant digits. */
+const MIN_NORMAL = 2.2250738585072014e-308;
 
 /** The value of a CSV field with `types: "infer"` (also used by `xlvane edit --set`). */
 export function inferValue(s: string, minDate: number): string | number | boolean | Date | null {
@@ -326,8 +344,9 @@ export function inferValue(s: string, minDate: number): string | number | boolea
  * Builds an XLSX workbook from CSV text (or UTF-8 bytes) and returns the file's bytes. Fields are
  * never turned into formulas: a field such as `=HYPERLINK(...)` becomes text. With
  * `types: "infer"` (default), plain numbers, booleans and ISO 8601 dates are converted; numbers
- * with leading zeros or more than 15 significant digits stay text, so codes and IDs keep their
- * digits. Throws `XLV_E_CSV_MALFORMED` with the line and column of a broken quoted field.
+ * with leading zeros, whole numbers with more than 15 digits and numbers a double cannot hold
+ * stay text, so codes and IDs keep their digits, and numbers written by `toCSV` read back as the
+ * same numbers. More than `maxCells` fields give `XLV_E_LIMIT_EXCEEDED`. Throws `XLV_E_CSV_MALFORMED` with the line and column of a broken quoted field.
  *
  * @example
  * ```ts
@@ -337,7 +356,7 @@ export function inferValue(s: string, minDate: number): string | number | boolea
  * ```
  */
 export function fromCSV(input: string | Uint8Array, options?: FromCSVOptions): Uint8Array {
-  const o = readOptions(options, ['delimiter', 'header', 'types', 'sheet', 'preset', 'dateSystem', 'maxChars'], 'fromCSV options');
+  const o = readOptions(options, ['delimiter', 'header', 'types', 'sheet', 'preset', 'dateSystem', 'maxChars', 'maxCells'], 'fromCSV options');
   const delimiter = o.get('delimiter') ?? ',';
   if (typeof delimiter !== 'string' || delimiter.length !== 1 || delimiter === '"' || delimiter === '\r' || delimiter === '\n') {
     throw new XlvError('XLV_E_INVALID_OPTION', 'The option "delimiter" must be one character other than a quote, CR or LF.', {
@@ -350,6 +369,11 @@ export function fromCSV(input: string | Uint8Array, options?: FromCSVOptions): U
   const maxChars = o.get('maxChars') ?? DEFAULT_MAX_CHARS;
   if (typeof maxChars !== 'number' || !(maxChars > 0)) {
     throw new XlvError('XLV_E_INVALID_OPTION', 'The option "maxChars" must be a positive number.', { hint: 'For example { maxChars: 1e9 }, or Infinity.', details: { option: 'maxChars' } });
+  }
+
+  const maxCells = o.get('maxCells') ?? DEFAULT_READ_LIMITS.maxCells;
+  if (typeof maxCells !== 'number' || !(maxCells > 0)) {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "maxCells" must be a positive number.', { hint: 'For example { maxCells: 20_000_000 }, or Infinity.', details: { option: 'maxCells' } });
   }
 
   let text: string;
@@ -378,7 +402,7 @@ export function fromCSV(input: string | Uint8Array, options?: FromCSVOptions): U
   }
   if (text.charCodeAt(0) === 0xfeff) text = text.slice(1);
 
-  const parsed = parseCsvRows(text, delimiter);
+  const parsed = parseCsvRows(text, delimiter, maxCells);
   const headerFields = header ? (parsed.shift() ?? []) : [];
   const width = parsed.reduce((w, r) => Math.max(w, r.length), headerFields.length);
   const dateSystem = o.get('dateSystem');

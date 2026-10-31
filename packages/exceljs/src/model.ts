@@ -6,7 +6,9 @@ import type { DefinedNames } from './defined-names';
 import { imageRange, Table, type ImageRangeInput, type SheetMedia, type TableProperties } from './media';
 import { DataValidations, defaultHeaderFooter, defaultPageSetup } from './sheet-rules';
 import { adjustFormulaText, checkInteger, copyFormula, copyPlain, formulaNotAdjustable, invalidArgument, moveSpan, moveSqref, movePosition, type SpliceChange } from './splice';
-import type { Alignment, Borders, CellValue, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, Protection, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
+import type { Alignment, Borders, CellValue, Color, ColumnDefn, Comment, ConditionalFormattingOptions, DataValidation, Fill, Font, HeaderFooter, PageSetup, Protection, RowBreak, Style, WorksheetOptions, WorksheetProtection, WorksheetView } from './types';
+import type { Range, WorksheetProperties } from './compat-types';
+import { Dimensions } from './range';
 
 /**
  * Value types, as in exceljs `lib/doc/enums.js` (ValueType).
@@ -45,6 +47,8 @@ export const ValueType: {
   Boolean: 9,
   Error: 10,
 } as const);
+/** A value of {@link ValueType}, so that `ExcelJS.ValueType` also works as a type, as with the exceljs enum. */
+export type ValueType = (typeof ValueType)[keyof typeof ValueType];
 
 /**
  * Formula types, as in exceljs `lib/doc/enums.js` (FormulaType).
@@ -57,6 +61,8 @@ export const ValueType: {
  * ```
  */
 export const FormulaType: { readonly None: 0; readonly Master: 1; readonly Shared: 2 } = Object.freeze({ None: 0, Master: 1, Shared: 2 } as const);
+/** A value of {@link FormulaType} (usable as a type, as the exceljs enum). */
+export type FormulaType = (typeof FormulaType)[keyof typeof FormulaType];
 
 /**
  * Error values, as in exceljs `lib/doc/enums.js` (ErrorValue).
@@ -86,6 +92,8 @@ export const ErrorValue: {
   Value: '#VALUE!',
   Num: '#NUM!',
 } as const);
+/** A value of {@link ErrorValue} (usable as a type, as the exceljs enum). */
+export type ErrorValue = (typeof ErrorValue)[keyof typeof ErrorValue];
 
 const COMPAT_DOCS = 'https://github.com/DevXord/xlvane/blob/main/docs/exceljs-compat.md';
 
@@ -245,15 +253,15 @@ export class Cell {
   }
 
   /** The ValueType (Merge for the non-master cells of a merged range). */
-  get type(): number {
+  get type(): ValueType {
     if (this._master) return ValueType.Merge;
-    return typeOf(this._value);
+    return typeOf(this._value) as ValueType;
   }
 
   /** The type of the value shown: for a formula, the type of its result. */
-  get effectiveType(): number {
+  get effectiveType(): ValueType {
     const v = this.value;
-    if (isRecord(v) && ('formula' in v || 'sharedFormula' in v)) return typeOf(v['result']);
+    if (isRecord(v) && ('formula' in v || 'sharedFormula' in v)) return typeOf(v['result']) as ValueType;
     return this._master ? this._master.effectiveType : this.type;
   }
 
@@ -314,7 +322,7 @@ export class Cell {
   }
 
   /** `FormulaType.Shared` for a `{ sharedFormula }` value, `Master` for other formulas, otherwise `None` (lib/doc/cell.js L807). */
-  get formulaType(): number {
+  get formulaType(): FormulaType {
     const v = this.value;
     if (!isRecord(v)) return FormulaType.None;
     if (typeof v['sharedFormula'] === 'string') return FormulaType.Shared;
@@ -486,6 +494,13 @@ export class Cell {
     this.definedNames.removeAllNames(this.fullAddress);
   }
 
+  /**
+   * Kept for exceljs code that calls it: exceljs deletes the cell's internal references here
+   * (lib/doc/cell.js L41–47), after which the cell must not be used. In @xlvane/exceljs the cell
+   * stays usable and nothing changes; memory is freed when the cell is no longer referenced.
+   */
+  destroy(): void {}
+
   /** @internal */
   _merge(master: Cell): void {
     this._master = master;
@@ -564,6 +579,13 @@ export class Row {
     const max = Number(this.worksheet.properties['outlineLevelRow'] ?? 0);
     return !!(this._outlineLevel && this._outlineLevel >= max);
   }
+
+  /**
+   * Kept for exceljs code that calls it: exceljs deletes the row's internal references here
+   * (lib/doc/row.js L34–38), after which the row must not be used. In @xlvane/exceljs the row
+   * stays usable and nothing changes; memory is freed when the row is no longer referenced.
+   */
+  destroy(): void {}
 
   findCell(col: number): Cell | undefined {
     return this._cells[col - 1];
@@ -1005,7 +1027,8 @@ export class Worksheet {
   state: 'visible' | 'hidden' | 'veryHidden';
   views: WorksheetView[];
   autoFilter: string | { from: string | { row: number; column: number }; to: string | { row: number; column: number } } | null = null;
-  properties: Record<string, unknown>;
+  /** Sheet properties (exceljs `WorksheetProperties`); unknown keys are kept as given. */
+  properties: WorksheetProperties & Record<string, unknown>;
   /** Printing settings, with the defaults of exceljs (lib/doc/worksheet.js L64–90). */
   pageSetup: PageSetup;
   /** Headers and footers, with the defaults of exceljs. */
@@ -1038,7 +1061,7 @@ export class Worksheet {
     this.state = options?.state ?? 'visible';
     this.views = options?.views ? [...options.views] : [];
     // exceljs's defaults of a new worksheet (lib/doc/worksheet.js L52–60; D-E06).
-    this.properties = { defaultRowHeight: 15, dyDescent: 55, outlineLevelCol: 0, outlineLevelRow: 0, ...(options?.properties as Record<string, unknown> | undefined) };
+    this.properties = { defaultRowHeight: 15, dyDescent: 55, outlineLevelCol: 0, outlineLevelRow: 0, ...(options?.properties as Record<string, unknown> | undefined) } as WorksheetProperties & Record<string, unknown>;
     this.pageSetup = defaultPageSetup(options?.pageSetup);
     this.headerFooter = defaultHeaderFooter(options?.headerFooter);
     this.name = name ?? `sheet${String(id)}`;
@@ -1067,7 +1090,7 @@ export class Worksheet {
     return this.properties['tabColor'];
   }
   set tabColor(value: unknown) {
-    this.properties['tabColor'] = value;
+    this.properties['tabColor'] = value as Partial<Color>;
   }
 
   // ---- columns ------------------------------------------------------------------------------
@@ -1483,7 +1506,7 @@ export class Worksheet {
       }
     }
     // Data validations and conditional formats follow their cells, as merges do (exceljs leaves them; X4-15).
-    const validations: Record<string, DataValidation | undefined> = {};
+    const validations = Object.create(null) as Record<string, DataValidation | undefined>;
     for (const [key, v] of Object.entries(this.dataValidations.model)) {
       const next = v === undefined ? null : moveSqref(key, change);
       if (next !== null) validations[next] = v;
@@ -1631,21 +1654,15 @@ export class Worksheet {
     return this.getRow(Number(r)).getCell(c as number | string);
   }
 
-  get dimensions(): { top: number; left: number; bottom: number; right: number; tl: string; br: string } | null {
-    let top = 0;
-    let left = 0;
-    let bottom = 0;
-    let right = 0;
-    this.eachRow((row) => {
-      const d = row.dimensions;
-      if (!d) return;
-      if (!top) top = row.number;
-      bottom = row.number;
-      if (!left || d.min < left) left = d.min;
-      if (d.max > right) right = d.max;
-    });
-    if (!top) return null;
-    return { top, left, bottom, right, tl: `${columnLetter(left)}${String(top)}`, br: `${columnLetter(right)}${String(bottom)}` };
+  /**
+   * The range of the cells with values, as an exceljs `Range` (worksheet.js L186): `top`, `left`,
+   * `bottom`, `right`, `tl`, `br`, `range`, `model` and `toString()`. An empty sheet gives the
+   * model `{ top: 0, left: 0, bottom: 0, right: 0 }` and the range "A1:A1", as in exceljs.
+   */
+  get dimensions(): Range {
+    const d = new Dimensions();
+    this.eachRow((row) => d.expandRow(row));
+    return d;
   }
 
   /** Rows from `start`, `length` of them, without creating missing rows (lib/doc/worksheet.js `findRows`). */
@@ -1721,7 +1738,7 @@ export class Worksheet {
     this._rows = [];
     this._merges.clear();
     if (typeof m['state'] === 'string') this.state = m['state'] as 'visible';
-    if (m['properties'] && typeof m['properties'] === 'object') this.properties = { ...(m['properties'] as Record<string, unknown>) };
+    if (m['properties'] && typeof m['properties'] === 'object') this.properties = { ...(m['properties'] as Record<string, unknown>) } as WorksheetProperties & Record<string, unknown>;
     if (Array.isArray(m['views'])) this.views = (m['views'] as WorksheetView[]).map((v) => ({ ...v }));
     this.autoFilter = (m['autoFilter'] as Worksheet['autoFilter']) ?? null;
     if (m['pageSetup']) this.pageSetup = { ...(m['pageSetup'] as PageSetup) };
@@ -1803,7 +1820,7 @@ export class Worksheet {
    * Removes conditional formatting: the entry at an index, the entries a filter function rejects,
    * or all of them for any other argument (lib/doc/worksheet.js L815–822).
    */
-  removeConditionalFormatting(filter?: number | ((cf: ConditionalFormattingOptions, index: number) => boolean)): void {
+  removeConditionalFormatting(filter?: number | ((cf: ConditionalFormattingOptions, index: number) => boolean) | string | boolean | null | Record<string, unknown>): void {
     if (typeof filter === 'number') this.conditionalFormattings.splice(filter, 1);
     else if (typeof filter === 'function') this.conditionalFormattings = this.conditionalFormattings.filter(filter);
     else this.conditionalFormattings = [];
@@ -1845,8 +1862,11 @@ export class Worksheet {
 
   // ---- tables and images (lib/doc/worksheet.js L724–807; D-D04) ------------------------------
 
-  /** Tables by name, as exceljs `worksheet.tables`. */
-  tables: Record<string, Table> = {};
+  /**
+   * Tables by name, as exceljs `worksheet.tables`. The object has no prototype, so names such as
+   * "constructor" or "__proto__" are plain entries (D-R01).
+   */
+  tables: Record<string, Table> = Object.create(null) as Record<string, Table>;
   /** @internal Pictures and the background, as exceljs `worksheet._media`. */
   _media: SheetMedia[] = [];
 
@@ -1875,7 +1895,7 @@ export class Worksheet {
 
   /** The table with this name, or `undefined`. */
   getTable(name: string): Table | undefined {
-    return this.tables[name];
+    return Object.hasOwn(this.tables, name) ? this.tables[name] : undefined;
   }
 
   /** Removes the table; its cells are kept, as in exceljs. */

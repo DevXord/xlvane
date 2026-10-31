@@ -1,10 +1,12 @@
 import { extname } from 'node:path';
 import { fromCSV, toCSV } from '../../csv';
-import { XlvError } from '../../errors';
+import { XlvError, type XlvWarning } from '../../errors';
 import { fromJSON, toJSON } from '../../table';
 import { flag, headerOption, str, usageError } from '../args';
 import { readBook, readText, writeOutput, wroteLine, type WriteOutcome } from '../files';
+import { commandLine } from '../output';
 import type { CommandContext, CommandOutcome, CommandSpec } from '../types';
+import { warningNote } from '../warnings';
 
 type Format = 'xlsx' | 'csv' | 'tsv' | 'json';
 
@@ -36,6 +38,23 @@ export interface ConvertResult {
   readonly bytes: number;
   readonly written: boolean;
   readonly replaced: boolean;
+  /** Warnings found while reading an XLSX input (docs/errors.md). */
+  readonly warnings: readonly XlvWarning[];
+}
+
+/**
+ * A note when CSV input read with "," looks like it uses ";" or tab: its first line has no comma
+ * but has one of those. Spreadsheet programs in many locales write ";".
+ */
+function delimiterNote(ctx: CommandContext, command: string, text: string, input: string): void {
+  if (str(ctx.args, 'delimiter') !== undefined) return;
+  const end = text.search(/\r|\n/);
+  const first = end === -1 ? text : text.slice(0, end);
+  if (first.includes(',')) return;
+  const other = first.includes(';') ? ';' : first.includes('\t') ? 'tab' : null;
+  if (other === null) return;
+  const args = ctx.argv.filter((a) => a !== '--json');
+  ctx.note(`note: the first line of ${input} has no "," but has ${other === 'tab' ? 'tabs' : '";"'}; every line became one column. Try: ${commandLine([command, ...args, '--delimiter', other])}`);
 }
 
 /** Builds an xlsx file from CSV or JSON text (shared by convert and create). */
@@ -55,18 +74,19 @@ export async function tableToXlsx(ctx: CommandContext, command: string, input: s
     }
   }
   if (columns !== undefined) throw usageError('The option "--columns" works with JSON input only.', 'For CSV input the first row names the columns.', { command, option: '--columns' });
+  if (from === 'csv') delimiterNote(ctx, command, text, input);
   return fromCSV(text, { ...base, delimiter: delimiterOf(ctx, command, from) });
 }
 
 export function convertOutcome(ctx: CommandContext, r: ConvertResult, w: WriteOutcome): CommandOutcome {
-  return { result: r, exitCode: 0, render: () => (ctx.quiet && w.written ? '' : wroteLine(w)) };
+  return { result: r, exitCode: 0, render: (out) => (ctx.quiet && w.written ? '' : wroteLine(w, out)) };
 }
 
 export const convertCommand: CommandSpec = {
   name: 'convert',
   summary: 'Convert between XLSX, CSV and JSON',
   description:
-    'Converts a sheet to CSV, TSV or JSON (an array of row objects), or CSV, TSV and JSON to a plain XLSX file. The formats come from the file extensions. CSV output escapes text cells that start with =, +, -, @ and similar characters, so that spreadsheet programs do not run them as formulas (OWASP CSV injection); dates are written as ISO 8601. Use "xlvane create" for a formatted report.',
+    'Converts a sheet to CSV, TSV or JSON (an array of row objects), or CSV, TSV and JSON to a plain XLSX file. The formats come from the file extensions. CSV output escapes text cells that start with =, +, -, @ and similar characters, so that spreadsheet programs do not run them as formulas (OWASP CSV injection); dates are written as ISO 8601 text without a time zone. CSV input gets numbers, true/false and ISO 8601 dates; JSON input keeps strings as text (JSON has no date type), so dates do not come back as dates from JSON. At most 5 000 000 CSV fields are read. Use "xlvane create" for a formatted report.',
   usage: '<input> <output> [options]',
   positionals: { min: 2, max: 2, names: ['input', 'output'] },
   writes: true,
@@ -92,8 +112,12 @@ export const convertCommand: CommandSpec = {
       throw usageError(`Cannot convert ${from.toUpperCase()} to ${to.toUpperCase()}.`, 'One side must be an .xlsx file: XLSX to CSV/TSV/JSON, or CSV/TSV/JSON to XLSX.', { command: 'convert' });
     }
     let data: Uint8Array | string;
+    let warnings: readonly XlvWarning[] = [];
     if (from === 'xlsx') {
       const { workbook } = await readBook(ctx, input);
+      warnings = workbook.warnings;
+      const note = warningNote(warnings, input);
+      if (note !== null) ctx.note(note);
       const sheet = str(ctx.args, 'sheet');
       const range = str(ctx.args, 'range');
       const where = { ...(sheet !== undefined ? { sheet } : {}), ...(range !== undefined ? { range } : {}) };
@@ -103,7 +127,7 @@ export const convertCommand: CommandSpec = {
       data = await tableToXlsx(ctx, 'convert', input, from, 'plain');
     }
     const w = await writeOutput(ctx, output, data, { force: flag(ctx.args, 'force'), dryRun: flag(ctx.args, 'dry-run') });
-    return convertOutcome(ctx, { input, output, from, to, bytes: w.bytes, written: w.written, replaced: w.replaced }, w);
+    return convertOutcome(ctx, { input, output, from, to, bytes: w.bytes, written: w.written, replaced: w.replaced, warnings }, w);
   },
 };
 
@@ -134,6 +158,6 @@ export const createCommand: CommandSpec = {
     if (to !== 'xlsx') throw usageError('"xlvane create" writes an .xlsx file.', 'Give an output name ending in .xlsx.', { command: 'create', output });
     const data = await tableToXlsx(ctx, 'create', input, from, 'report');
     const w = await writeOutput(ctx, output, data, { force: flag(ctx.args, 'force'), dryRun: flag(ctx.args, 'dry-run') });
-    return convertOutcome(ctx, { input, output, from, to, bytes: w.bytes, written: w.written, replaced: w.replaced }, w);
+    return convertOutcome(ctx, { input, output, from, to, bytes: w.bytes, written: w.written, replaced: w.replaced, warnings: [] }, w);
   },
 };

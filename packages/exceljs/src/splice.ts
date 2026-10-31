@@ -134,12 +134,18 @@ export function adjustFormulaText(text: string, formulaSheet: string, change: Sp
  * the sheet (also quoted, with '' for an apostrophe), or it may hold a 3-D prefix (a ":" before a
  * "!"). Formulas that cannot are left unchanged without being parsed.
  */
+/** Whether a `:` is followed later by a `!` (a 3-D reference); linear, unlike /:[^!]*!/ (D-R01). */
+function colonBeforeBang(text: string): boolean {
+  const colon = text.indexOf(':');
+  return colon !== -1 && text.indexOf('!', colon + 1) !== -1;
+}
+
 function mayRefer(text: string, formulaSheet: string, sheet: string): boolean {
   const name = sheet.toLowerCase();
   if (formulaSheet.toLowerCase() === name) return true;
   if (!text.includes('!')) return false;
   const lower = text.toLowerCase();
-  return lower.includes(name) || lower.includes(name.replace(/'/g, "''")) || /:[^!]*!/.test(text);
+  return lower.includes(name) || lower.includes(name.replace(/'/g, "''")) || colonBeforeBang(text);
 }
 
 /**

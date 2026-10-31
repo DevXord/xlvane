@@ -42,9 +42,12 @@ describe('texts read by agents', () => {
         join(ROOT, 'README.md'),
         ...['xlvane', 'exceljs'].map((p) => join(ROOT, 'packages', p, 'README.md')),
         join(ROOT, 'skills/xlvane/SKILL.md'),
+        join(ROOT, 'CHANGELOG.md'),
+        join(ROOT, 'SECURITY.md'),
         join(generated, 'llms-full.txt'),
         ...(await files(join(ROOT, 'docs'), /\.(md|json)$/)).filter((f) => !f.endsWith('PLAN.md')),
         ...(await files(join(ROOT, 'packages'), /\.ts$/)),
+        ...(await files(join(ROOT, 'scripts'), /\.mjs$/)),
       ];
       expect(targets.length).toBeGreaterThan(50);
       const found: string[] = [];

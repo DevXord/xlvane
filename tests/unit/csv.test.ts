@@ -114,3 +114,37 @@ describe('fromCSV', () => {
     expect(csv).toBe('h1,h2\r\n"a,b",1.5\r\n"line\nbreak",\r\n');
   });
 });
+
+describe('CSV numbers, limits and warnings (D-R02)', () => {
+  const values = (csv: string) => readTable(readWorkbook(fromCSV(csv, { header: false })), { header: false }).rows.map((r) => r['A']);
+
+  it('reads back every number toCSV writes', () => {
+    const numbers = [0.1 + 0.2, 1 / 3, 123456.789, -2.5e-10, 1.2345678901234567e25, 1e21, 5e-300, Number.MAX_VALUE];
+    const wb = createWorkbook();
+    const s = wb.addSheet('N');
+    numbers.forEach((n, i) => s.set(`A${String(i + 1)}`, n));
+    const csv = toCSV(writeWorkbook(wb));
+    expect(values(csv)).toEqual(numbers);
+  });
+
+  it('keeps long whole numbers, overflow and underflow as text', () => {
+    expect(values('12345678901234567\r\n1e-400\r\n1e400\r\n1e-320\r\n0e5\r\n')).toEqual(['12345678901234567', '1e-400', '1e400', '1e-320', 0]);
+    expect(values('0.123456789012345678\r\n0.12345678901234568\r\n')).toEqual(['0.123456789012345678', 0.12345678901234568]);
+  });
+
+  it('stops at maxCells', () => {
+    expectXlvError(() => fromCSV('a,b\r\n1,2\r\n3,4\r\n', { maxCells: 5 }), 'XLV_E_LIMIT_EXCEEDED');
+    expect(() => fromCSV('a,b\r\n1,2\r\n', { maxCells: 4 })).not.toThrow();
+    expectXlvError(() => fromCSV('a', { maxCells: 0 }), 'XLV_E_INVALID_OPTION');
+  });
+
+  it('passes the workbook warnings to onWarning', () => {
+    const wb = readWorkbook(book());
+    const seen: string[] = [];
+    (wb.warnings as unknown as { code: string; message: string; location: object; count: number }[]).push({ code: 'XLV_W_TEST', message: 'm', location: {}, count: 1 });
+    toCSV(wb, { onWarning: (w) => seen.push(w.code) });
+    readTable(wb, { onWarning: (w) => seen.push(w.code) });
+    expect(seen).toEqual(['XLV_W_TEST', 'XLV_W_TEST']);
+    expectXlvError(() => toCSV(wb, { onWarning: 'x' as never }), 'XLV_E_INVALID_OPTION');
+  });
+});

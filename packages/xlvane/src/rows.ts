@@ -512,6 +512,69 @@ function rewriteSortStates(text: string, part: string, sheet: Sheet, c: RowChang
   return edits.length === 0 ? text : applyEdits(text, edits);
 }
 
+/** A `from` or `to` marker of a drawing anchor: its row, row offset and where the row value is. */
+interface AnchorMarker {
+  readonly row: number;
+  readonly rowOff: number;
+  /** Offsets of the row value (between `<row>` and `</row>`) in the anchor text. */
+  readonly rowStart: number;
+  readonly rowEnd: number;
+}
+
+/**
+ * Reads the `row` and `rowOff` of the first `from` or `to` marker of an anchor with `indexOf`
+ * only, so that the work is linear in the anchor's size whatever its content (a regular
+ * expression here backtracked cubically on runs of white space, D-R03).
+ */
+function readMarker(anchor: string, pre: string, local: 'from' | 'to'): AnchorMarker | null {
+  const open = `<${pre}${local}>`;
+  const start = anchor.indexOf(open);
+  if (start < 0) return null;
+  const close = anchor.indexOf(`</${pre}${local}>`, start + open.length);
+  if (close < 0) return null;
+  const child = (name: string): { value: string; start: number; end: number } | null => {
+    const tag = `<${pre}${name}>`;
+    const a = anchor.indexOf(tag, start + open.length);
+    if (a < 0 || a > close) return null;
+    const b = anchor.indexOf(`</${pre}${name}>`, a + tag.length);
+    if (b < 0 || b > close) return null;
+    return { value: anchor.slice(a + tag.length, b), start: a + tag.length, end: b };
+  };
+  const row = child('row');
+  const rowOff = child('rowOff');
+  if (row === null || rowOff === null || !/^\s*\d+\s*$/.test(row.value)) return null;
+  return { row: Number(row.value), rowOff: Number(rowOff.value.trim()) || 0, rowStart: row.start, rowEnd: row.end };
+}
+
+/**
+ * Calls `change` for each `<v:shape …>…</v:shape>` of a VML part and joins the results, finding
+ * the elements with `indexOf` so that the work is linear even in a part that is not well-formed
+ * (a lazy regular expression here was quadratic on unclosed shapes, D-R03).
+ */
+function eachVmlShape(text: string, change: (shape: string) => string): string {
+  const out: string[] = [];
+  let pos = 0;
+  let from = 0;
+  for (;;) {
+    const at = text.indexOf('<v:shape', from);
+    if (at < 0) break;
+    const next = text.charCodeAt(at + 8);
+    // `<v:shapetype` and other names that only start with "v:shape" are not shapes.
+    if (!(next === 0x20 || next === 0x3e || next === 0x2f || next === 0x09 || next === 0x0a || next === 0x0d)) {
+      from = at + 8;
+      continue;
+    }
+    const end = text.indexOf('</v:shape>', at + 8);
+    if (end < 0) break;
+    const stop = end + '</v:shape>'.length;
+    out.push(text.slice(pos, at), change(text.slice(at, stop)));
+    pos = stop;
+    from = stop;
+  }
+  out.push(text.slice(pos));
+  return out.join('');
+}
+
 /** Rewrites the notes of the changed sheet: the Comments part and the note shapes of its VML part. */
 function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, sheetText: string, sheet: Sheet, c: RowChange): void {
   const rels = pkg.relationships(sheetPart);
@@ -528,7 +591,7 @@ function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, s
         if (out === '') edits.push([e.start.start, e.end.end, '']);
         else edits.push([e.start.start, e.start.end, setAttr(text.slice(e.start.start, e.start.end), 'ref', out)]);
       }
-      if (edits.length > 0) edit.write(comments.target, splice(text, edits));
+      if (edits.length > 0) edit.write(comments.target, applyEdits(text, edits));
     }
   }
   // The VML part of the notes is the one named by legacyDrawing (W2-48).
@@ -538,7 +601,7 @@ function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, s
   const text = edit.text(vml.target);
   if (text === undefined) return;
   let changed = false;
-  const out = text.replace(/<v:shape\b[\s\S]*?<\/v:shape>/g, (shape) => {
+  const out = eachVmlShape(text, (shape) => {
     if (!/ObjectType\s*=\s*["']Note["']/.test(shape)) return shape;
     const row = /<x:Row>\s*(\d+)\s*<\/x:Row>/.exec(shape);
     if (row === null) return shape;
@@ -608,11 +671,8 @@ function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string,
     const kind = e.local;
     if (kind === 'absoluteAnchor') continue;
     const anchor = text.slice(e.start.start, e.end.end);
-    const pre = e.start.qname.slice(0, e.start.qname.length - kind.length).replace(/[.]/g, '\\.');
-    const marker = (local: 'from' | 'to'): { row: number; rowOff: number } | null => {
-      const m = new RegExp(`<${pre}${local}>[\\s\\S]*?<${pre}row>\\s*(\\d+)\\s*</${pre}row>\\s*<${pre}rowOff>\\s*([^<]*?)\\s*</${pre}rowOff>`).exec(anchor);
-      return m === null ? null : { row: Number(m[1]), rowOff: Number(m[2]) || 0 };
-    };
+    const pre = e.start.qname.slice(0, e.start.qname.length - kind.length);
+    const marker = (local: 'from' | 'to'): AnchorMarker | null => readMarker(anchor, pre, local);
     const from = marker('from');
     const to = kind === 'twoCellAnchor' ? marker('to') : null;
     if (from === null || (kind === 'twoCellAnchor' && to === null)) throw notSupported(`A picture of sheet "${sheet.name}" has a position xlvane cannot read, so its rows cannot be moved.`, where);
@@ -622,12 +682,9 @@ function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string,
     const rows = [moveMarker(from.row), to === null ? null : moveMarker(to.row, to.rowOff === 0 && to.row > from.row)];
     if (rows.some((r) => r !== null && r > MAX_ROWS - 1)) throw notSupported(`Inserting rows would push a picture of sheet "${sheet.name}" beyond the last row.`, where);
     if (rows[0] === from.row && (to === null || rows[1] === to.row)) continue;
-    let k = 0;
-    const moved = anchor.replace(new RegExp(`(<${pre}row>)\\s*\\d+\\s*(</${pre}row>)`, 'g'), (all, open: string, close: string) => {
-      const value = rows[k++];
-      return value === null || value === undefined ? all : `${open}${String(value)}${close}`;
-    });
-    edits.push([e.start.start, e.end.end, moved]);
+    const markerEdits: [number, number, string][] = [[from.rowStart, from.rowEnd, String(rows[0])]];
+    if (to !== null && rows[1] !== null && rows[1] !== undefined) markerEdits.push([to.rowStart, to.rowEnd, String(rows[1])]);
+    edits.push([e.start.start, e.end.end, applyEdits(anchor, markerEdits)]);
   }
   if (edits.length > 0) edit.write(rel.target, applyEdits(text, edits));
 }
@@ -801,11 +858,16 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
  * Inserts empty rows into a sheet of an existing XLSX file and returns the new file. Rows below
  * move down, and every reference follows them as in a spreadsheet application: formulas on all
  * sheets (ranges that the new rows fall into grow), merged cells, hyperlinks, notes, the
- * autofilter, conditional formats, data validation, page breaks, defined names and tables (which
- * grow when rows are inserted inside them). Every other part of the file stays exactly as it was.
- * Sheets with pictures, charts, pivot tables or other content that xlvane cannot move are refused
- * with `XLV_E_NOT_SUPPORTED`, and so are
- * formulas it cannot rewrite safely (docs/facts/ref-adjust.md).
+ * autofilter, conditional formats, data validation, page breaks, defined names, tables (which
+ * grow when rows are inserted inside them) and pictures placed on the sheet. Every other part of
+ * the file stays exactly as it was.
+ *
+ * Refused with `XLV_E_NOT_SUPPORTED`, leaving the file unchanged: a drawing that holds charts,
+ * shapes or anything besides pictures; embedded objects, form controls, scenarios, cell watches,
+ * custom sheet views, extended content that refers to cells (data bars, sparklines, slicers) and
+ * other related parts xlvane does not know; charts or pivot tables anywhere in the workbook that
+ * may refer to the sheet; data tables; an array formula the change would split; and formulas it
+ * cannot rewrite safely (docs/facts/ref-adjust.md).
  *
  * @example
  * ```ts
@@ -827,7 +889,8 @@ export function insertRows(input: Uint8Array | ArrayBuffer, options: InsertRowsO
  * and references follow as in a spreadsheet application: ranges shrink, references to deleted
  * cells become `#REF!`, merged cells whose top-left cell is deleted are removed, and so are notes,
  * hyperlinks and other ranges that lie entirely in the deleted rows. Refusals are as for
- * {@link insertRows}.
+ * {@link insertRows}; in addition a deletion that would cut a picture, or remove a table's header
+ * row, totals row or all of its data rows, is refused.
  *
  * @example
  * ```ts

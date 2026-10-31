@@ -19,7 +19,7 @@ import type {
 import { XlvError } from 'xlvane';
 import { colorInFor, colorOut, styleIn, styleOut } from './convert';
 import { columnLetter, notSupported } from './model';
-import type { ConditionalFormattingRule, ConditionalFormattingOptions, DataValidation, HeaderFooter, PageSetup, RowBreak, Style } from './types';
+import type { Color, ConditionalFormattingRule, ConditionalFormattingOptions, DataValidation, HeaderFooter, PageSetup, RowBreak, Style } from './types';
 
 // ---------------------------------------------------------------------------------------------
 // Addresses
@@ -99,20 +99,32 @@ const MAX_EXPANDED_CELLS = 100_000;
  * ```
  */
 export class DataValidations {
-  model: Record<string, DataValidation | undefined>;
+  // An object without a prototype: keys such as "constructor" or "__proto__" are plain entries
+  // and cannot reach Object.prototype (docs/decisions.md D-R01).
+  private _model: Record<string, DataValidation | undefined> = Object.create(null) as Record<string, DataValidation | undefined>;
 
   constructor(model?: Record<string, DataValidation | undefined>) {
-    this.model = model ?? {};
+    if (model) this.model = model;
+  }
+
+  /** The validations by address or range, as exceljs `dataValidations.model`. Setting it copies the entries. */
+  get model(): Record<string, DataValidation | undefined> {
+    return this._model;
+  }
+  set model(value: Record<string, DataValidation | undefined>) {
+    const next = Object.create(null) as Record<string, DataValidation | undefined>;
+    for (const key of Object.keys(value ?? {})) next[key] = value[key];
+    this._model = next;
   }
 
   add(address: string, validation: DataValidation): DataValidation {
-    this.model[address] = validation;
+    this._model[address] = validation;
     return validation;
   }
 
   /** The validation of a cell: its own entry, or the entry of a range that contains it. */
   find(address: string): DataValidation | undefined {
-    const own = this.model[address];
+    const own = Object.hasOwn(this._model, address) ? this._model[address] : undefined;
     if (own !== undefined) return own;
     const cell = parseRange(address);
     if (!cell) return undefined;
@@ -127,7 +139,7 @@ export class DataValidations {
   }
 
   remove(address: string): void {
-    delete this.model[address];
+    delete this._model[address];
   }
 }
 
@@ -188,7 +200,11 @@ function validationIn(v: DataValidation): DataValidationRule {
   if (type !== 'none' && formulae[0] !== undefined) rule['formula1'] = formulaIn(formulae[0]);
   if ((operator === 'between' || operator === 'notBetween') && formulae[1] !== undefined) rule['formula2'] = formulaIn(formulae[1]);
   for (const k of ['allowBlank', 'showInputMessage', 'showErrorMessage'] as const) if (v[k]) rule[k] = true;
-  for (const k of ['errorStyle', 'errorTitle', 'error', 'promptTitle', 'prompt'] as const) if (v[k]) rule[k] = v[k];
+  // exceljs writes errorStyle as given, also "error", which its own sample data uses but which is
+  // no value of ST_DataValidationErrorStyle (stop, warning, information; SR-01, docs/facts/
+  // exceljs.md). "error" is written as the default, stop, which shows an error and refuses the
+  // value (docs/decisions.md D-R01).
+  for (const k of ['errorStyle', 'errorTitle', 'error', 'promptTitle', 'prompt'] as const) if (v[k] && !(k === 'errorStyle' && v[k] === 'error')) rule[k] = v[k];
   return rule as unknown as DataValidationRule;
 }
 
@@ -216,6 +232,9 @@ function excelToDate(v: number, date1904: boolean): Date {
 }
 
 /** The exceljs model of a validation read by xlvane, typed as exceljs reads it (data-validations-xform.js L165–264). */
+/** A number literal as formulas write it (F2-10). */
+const NUMBER_TEXT = /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/;
+
 function validationOut(d: XlvDataValidation, date1904: boolean): DataValidation {
   const type = d.type === 'none' ? 'any' : d.type;
   const out: Record<string, unknown> = { type };
@@ -225,7 +244,12 @@ function validationOut(d: XlvDataValidation, date1904: boolean): DataValidation 
   const formulae: unknown[] = [];
   for (const f of [d.formula1, d.formula2]) {
     if (f === null) continue;
-    if (type === 'whole' || type === 'textLength') formulae.push(Number.parseInt(f, 10));
+    // exceljs parses the formulas of these types as numbers (data-validations-xform.js L232–244),
+    // which turns a formula such as `$A$1` into NaN. xlvane keeps a formula that is not a number
+    // as its text, so it is written back unchanged (docs/decisions.md D-R01).
+    const numeric = NUMBER_TEXT.test(f.trim());
+    if (!numeric && (type === 'whole' || type === 'textLength' || type === 'decimal' || type === 'date')) formulae.push(f);
+    else if (type === 'whole' || type === 'textLength') formulae.push(Number.parseInt(f, 10));
     else if (type === 'decimal') formulae.push(Number.parseFloat(f));
     else if (type === 'date') formulae.push(excelToDate(Number.parseFloat(f), date1904));
     else formulae.push(f);
@@ -241,7 +265,7 @@ function validationOut(d: XlvDataValidation, date1904: boolean): DataValidation 
 
 /** The `worksheet.dataValidations` model of validations read by xlvane. */
 export function dataValidationsOut(list: readonly XlvDataValidation[], date1904: boolean): Record<string, DataValidation> {
-  const model: Record<string, DataValidation> = {};
+  const model = Object.create(null) as Record<string, DataValidation>;
   let budget = MAX_EXPANDED_CELLS;
   for (const d of list) {
     const v = validationOut(d, date1904);
@@ -471,7 +495,7 @@ function cfRuleIn(rule: ConditionalFormattingRule, ref: string): ConditionalForm
       break;
     }
     default:
-      return notSupported(`Conditional formatting rules of type "${String(rule.type)}"`);
+      return notSupported(`Conditional formatting rules of type "${String((rule as { type?: unknown }).type)}"`);
   }
   if (style) out['style'] = style;
   return out as unknown as ConditionalFormatRuleInput;
@@ -491,7 +515,17 @@ function cfvoOut(c: { type: string; value: string | null }): { type: string; val
 /** An exceljs rule from a rule read by xlvane, shaped as exceljs reads one (cf-rule-xform.js L269–280; X4-17). */
 function cfRuleOut(r: XlvConditionalFormatRule): ConditionalFormattingRule {
   const out: Record<string, unknown> = { type: r.type, priority: r.priority };
-  if (r.style) out['style'] = styleOut(r.style, typeof r.style.numFmt === 'string' ? r.style.numFmt : null);
+  if (r.style) {
+    const style = styleOut(r.style, typeof r.style.numFmt === 'string' ? r.style.numFmt : null);
+    // The core writes a solid fill of a rule with the same foreground and background colour and
+    // reads it back as one colour (SR-16). The layer gives it as `bgColor`, the key the exceljs
+    // README uses for rule fills, so such a rule reads back as it was written (D-R01).
+    const fill = style.fill as Record<string, unknown> | undefined;
+    if (fill && fill['type'] === 'pattern' && fill['pattern'] === 'solid' && fill['fgColor'] !== undefined && fill['bgColor'] === undefined) {
+      style.fill = { type: 'pattern', pattern: 'solid', bgColor: fill['fgColor'] as Partial<Color> };
+    }
+    out['style'] = style;
+  }
   if (r.formulas.length > 0) out['formulae'] = [...r.formulas];
   switch (r.type) {
     case 'cellIs':
@@ -714,8 +748,16 @@ export function pageSetupIn(ps: PageSetup): { options: PageSetupOptions; printAr
   const o: Record<string, unknown> = {};
   if (ps.margins) o['margins'] = ps.margins;
   if (ps.orientation === 'portrait' || ps.orientation === 'landscape') o['orientation'] = ps.orientation;
-  if (typeof ps.paperSize === 'number') o['paperSize'] = ps.paperSize;
-  for (const k of ['scale', 'fitToWidth', 'fitToHeight', 'copies', 'horizontalDpi', 'verticalDpi'] as const) if (typeof ps[k] === 'number') o[k] = ps[k];
+  // 0 for paperSize, copies and the resolutions is how some producers write "not set" (the schema
+  // allows it, Office does not: OI §2.1.638 b–d, §2.1.1514 b). exceljs reads and writes the 0;
+  // xlvane leaves the setting out, so the default applies (docs/decisions.md D-R01).
+  if (typeof ps.paperSize === 'number' && ps.paperSize !== 0) o['paperSize'] = ps.paperSize;
+  for (const k of ['scale', 'fitToWidth', 'fitToHeight', 'copies', 'horizontalDpi', 'verticalDpi'] as const) {
+    const v = ps[k];
+    if (typeof v !== 'number') continue;
+    if (v === 0 && (k === 'copies' || k === 'horizontalDpi' || k === 'verticalDpi')) continue;
+    o[k] = v;
+  }
   if (typeof ps.firstPageNumber === 'number') o['firstPageNumber'] = ps.firstPageNumber;
   if (ps.fitToPage) o['fitToPage'] = true;
   if (ps.pageOrder === 'overThenDown' || ps.pageOrder === 'downThenOver') o['pageOrder'] = ps.pageOrder;

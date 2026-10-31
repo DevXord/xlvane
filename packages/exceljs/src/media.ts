@@ -196,6 +196,8 @@ export class TableColumn {
 export class Table {
   /** @internal */
   table: TableModel;
+  /** @internal Read from a file: a custom style name is then written without the name (D-R01). */
+  readonly fromFile: boolean;
   private _cache: { ref: string; width: number; tableHeight: number } | undefined;
 
   /** @internal Use `worksheet.addTable()`. */
@@ -204,6 +206,7 @@ export class Table {
     table: TableProperties,
     store = true,
   ) {
+    this.fromFile = !store;
     this.table = table as TableModel;
     this.validate();
     if (store) this.store();
@@ -267,7 +270,7 @@ export class Table {
       }
     });
     // Excel's rules (names, columns, range), checked by the core on a scratch workbook.
-    createWorkbook().addSheet('S').addTable(tableInput(this));
+    createWorkbook().addSheet(this.worksheet.name).addTable(tableInput(this));
   }
 
   /** Writes the header, rows and totals into the worksheet's cells (exceljs `store`, table.js L180–234). */
@@ -476,7 +479,9 @@ export function tableInput(table: Table): {
     headerRow: t.headerRow !== false,
     totalsRow: t.totalsRow === true,
     style: {
-      theme: style.theme === undefined ? 'TableStyleMedium2' : style.theme,
+      // A table read from a file may name a custom style of that file's styles part, which xlvane
+      // does not write; the table is then written without a style name (D-R01).
+      theme: style.theme === undefined ? 'TableStyleMedium2' : table.fromFile && typeof style.theme === 'string' && !BUILT_IN_TABLE_STYLE.test(style.theme) ? null : style.theme,
       showFirstColumn: style.showFirstColumn === true,
       showLastColumn: style.showLastColumn === true,
       showRowStripes: style.showRowStripes === true,
@@ -497,6 +502,9 @@ export function tableInput(table: Table): {
     }),
   };
 }
+
+/** Built-in table style names (Part 1 Annex G.1; the core's check, TD-09). */
+const BUILT_IN_TABLE_STYLE = /^TableStyle(?:Light(?:[1-9]|1\d|2[01])|Medium(?:[1-9]|1\d|2[0-8])|Dark(?:[1-9]|1[01]))$/;
 
 /**
  * A table read from a file, in exceljs's shape (table-xform.js parse, X4-21) and with `ref` and
@@ -694,8 +702,17 @@ export function imageRange(ws: Worksheet, range: ImageRangeInput): NonNullable<S
 }
 
 /**
+ * Whether the bytes are an EMF or placeable WMF file, by the signatures the core uses for images
+ * read from files (TD-31a).
+ */
+function isMetafile(b: Uint8Array): boolean {
+  const emf = b[0] === 0x01 && b[1] === 0 && b[2] === 0 && b[3] === 0 && b[40] === 0x20 && b[41] === 0x45 && b[42] === 0x4d && b[43] === 0x46;
+  return emf || (b[0] === 0xd7 && b[1] === 0xcd && b[2] === 0xc6 && b[3] === 0x9a);
+}
+
+/**
  * The bytes of an image given to `workbook.addImage`, checked: PNG, JPEG or GIF by their first
- * bytes (core `imageFormat`, TD-31). A base64 string may be a data URL: everything up to the
+ * bytes (core `imageFormat`, TD-31), or an EMF or WMF file as Excel stores them (TD-31a). A base64 string may be a data URL: everything up to the
  * first comma is skipped, as exceljs does (xlsx.js addMedia).
  */
 export function imageBytes(image: ImageData): Uint8Array {
@@ -720,7 +737,7 @@ export function imageBytes(image: ImageData): Uint8Array {
       details: { feature: 'image filename' },
     });
   } else throw invalidImage('workbook.addImage needs { buffer } or { base64 }.');
-  if (imageFormat(bytes) === null) throw invalidImage('The image is not a PNG, JPEG or GIF file.');
+  if (imageFormat(bytes) === null && !isMetafile(bytes)) throw invalidImage('The image is not a PNG, JPEG, GIF, EMF or WMF file.');
   return bytes;
 }
 

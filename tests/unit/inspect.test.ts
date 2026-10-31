@@ -2,11 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { inspect } from '../../packages/xlvane/src/inspect';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { serialToDate } from '../../packages/xlvane/src/sml/dates';
+import { isoDate } from '../../packages/xlvane/src/util/iso-date';
 import { expectXlvError } from '../helpers/expect-error';
 import { buildXlsx, c, inline, row } from '../helpers/xlsx-builder';
 
-/** inspect() writes dates as ISO 8601 without a time zone: YYYY-MM-DDTHH:mm:ss.sss */
-const iso = (serial: number): string => (serialToDate(serial, '1900') as Date).toISOString().slice(0, 23);
+/** inspect() writes dates as ISO 8601 without a time zone, as CSV does: the date alone at midnight. */
+const iso = (serial: number): string => isoDate(serialToDate(serial, '1900') as Date);
 
 const STYLES = '<cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs>';
 
@@ -199,5 +200,40 @@ describe('inspect: phase A1 metadata (D-A07)', () => {
     expect(r.sheets[0]?.richTextCellCount).toBe(15);
     expect(r.sheets[0]?.richTextCells).toHaveLength(10);
     expect(r.properties).toEqual({});
+  });
+});
+
+describe('header detection (D-R02)', () => {
+  const header = (data: string) => inspect(buildXlsx({ sheets: [{ name: 'H', data }] })).sheets[0]?.headerRow ?? null;
+
+  it('accepts consecutive years as column names', () => {
+    const data = row(1, inline('A1', 'Region'), c('B1', 2023), c('C1', 2024)) + row(2, inline('A2', 'North'), c('B2', 15000), c('C2', 16000));
+    expect(header(data)).toEqual({ row: 1, confidence: 'high' });
+    const r = inspect(buildXlsx({ sheets: [{ name: 'H', data }] }));
+    expect(r.sheets[0]?.columns.map((col) => col.header)).toEqual(['Region', '2023', '2024']);
+  });
+
+  it('does not take a data row with years for a header', () => {
+    expect(header(row(1, inline('A1', 'Alice'), c('B1', 1985)) + row(2, inline('A2', 'Bob'), c('B2', 1990)))).toBeNull();
+    expect(header(row(1, inline('A1', 'North'), c('B1', 1950), c('C1', 2010)) + row(2, inline('A2', 'South'), c('B2', 5), c('C2', 6)))).toBeNull();
+  });
+
+  it('ignores a summary formula next to the column names', () => {
+    const data = row(1, inline('A1', 'Item'), inline('B1', 'Cost'), '<c r="C1"><f>SUM(B2:B3)</f><v>30</v></c>') + row(2, inline('A2', 'a'), c('B2', 10)) + row(3, inline('A3', 'b'), c('B3', 20));
+    expect(header(data)).toEqual({ row: 1, confidence: 'high' });
+  });
+
+  it('accepts repeated names with low confidence', () => {
+    const data = row(1, inline('A1', 'Amount'), inline('B1', 'Amount')) + row(2, c('A2', 1), c('B2', 2));
+    expect(header(data)).toEqual({ row: 1, confidence: 'low' });
+  });
+});
+
+describe('merged ranges in the report', () => {
+  it('lists at most 100 and gives the count', () => {
+    const merges = Array.from({ length: 150 }, (_, i) => `<mergeCell ref="A${String(2 * i + 1)}:B${String(2 * i + 1)}"/>`).join('');
+    const r = inspect(buildXlsx({ sheets: [{ name: 'M', data: row(1, c('A1', 1)), after: `<mergeCells count="150">${merges}</mergeCells>` }] }));
+    expect(r.sheets[0]?.mergedRanges).toHaveLength(100);
+    expect(r.sheets[0]).toMatchObject({ mergedRangeCount: 150, mergedRangesTruncated: true });
   });
 });

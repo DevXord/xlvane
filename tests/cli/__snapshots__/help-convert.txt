@@ -3,21 +3,27 @@ xlvane convert — Convert between XLSX, CSV and JSON
 Usage:
   xlvane convert <input> <output> [options]
 
-Converts a sheet to CSV, TSV or JSON (an array of row objects), or CSV, TSV and
-JSON to a plain XLSX file. The formats come from the file extensions. CSV output
-escapes text cells that start with =, +, -, @ and similar characters, so that
-spreadsheet programs do not run them as formulas (OWASP CSV injection); dates
-are written as ISO 8601. Use "xlvane create" for a formatted report.
+Converts a sheet to CSV, TSV or JSON (an array of row objects), or CSV, TSV and JSON to a plain XLSX
+file. The formats come from the file extensions. CSV output escapes text cells that start with =, +,
+-, @ and similar characters, so that spreadsheet programs do not run them as formulas (OWASP CSV
+injection); dates are written as ISO 8601 text without a time zone. CSV input gets numbers,
+true/false and ISO 8601 dates; JSON input keeps strings as text (JSON has no date type), so dates do
+not come back as dates from JSON. At most 5 000 000 CSV fields are read. Use "xlvane create" for a
+formatted report.
 
 Options:
-      --sheet <name>            Sheet to convert (default: the first visible sheet); for XLSX output, its name
+      --sheet <name>            Sheet to convert (default: the first visible sheet); for XLSX
+                                output, its name
       --range <A1:D20>          Convert only this range (XLSX input)
       --header <auto|none|row>  Header row for JSON output (default: detected)
       --delimiter <char>        CSV delimiter (default "," and tab for .tsv)
       --bom                     Start CSV output with a byte order mark (for Excel)
       --force                   Replace the output file if it exists
       --dry-run                 Show what would be written, without writing
-      --json                    Print one JSON document to stdout (docs/cli-json.md)
+
+Global options:
+      --json                    Print one JSON document to stdout
+                                (node_modules/xlvane/docs/cli-json.md)
   -q, --quiet                   Print only results and errors
       --verbose                 Print more detail, including stack traces of internal errors
   -h, --help                    Show help for the command

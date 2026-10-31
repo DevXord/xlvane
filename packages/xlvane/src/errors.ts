@@ -44,7 +44,7 @@ export const ERROR_CODES = [
   'XLV_E_HEADER_NOT_FOUND',
   'XLV_E_SCHEMA_INVALID',
   'XLV_E_ASYNC_SCHEMA',
-  'XLV_E_TABLE_INVALID',
+  'XLV_E_INVALID_ROWS',
   'XLV_E_JSON_INVALID',
   'XLV_E_CSV_MALFORMED',
   'XLV_E_NOT_SUPPORTED',
@@ -79,6 +79,7 @@ export const WARNING_CODES = [
   'XLV_W_UNUSUAL_HYPERLINK',
   'XLV_W_THREADED_COMMENTS',
   'XLV_W_DRAWING_CONTENT_NOT_READ',
+  'XLV_W_MERGED_CELL_WRITE',
 ] as const;
 
 /**
@@ -136,7 +137,7 @@ export interface XlvLocation {
   readonly part?: string;
   /** Sheet name as shown in the spreadsheet application. */
   readonly sheet?: string;
-  /** Cell reference in A1 style, for example `B7`. */
+  /** Cell reference in A1 style, for example `B7`; a range (`A1:C3`), or a whole row or column (`5:5`, `C:C`). */
   readonly cell?: string;
   /** 1-based line inside an XML part. */
   readonly line?: number;

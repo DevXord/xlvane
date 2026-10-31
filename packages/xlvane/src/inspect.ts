@@ -1,3 +1,4 @@
+import { isoDate } from './util/iso-date';
 import { XlvError, type XlvWarning } from './errors';
 import type { ReadLimits } from './limits';
 import type { Cell, CellType, Conformance, DateSystem, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
@@ -118,7 +119,12 @@ export interface InspectSheet {
   /** Cells with a value or formula. */
   readonly cellCount: number;
   readonly formulaCount: number;
+  /** Merged ranges, at most the first 100; see `mergedRangeCount`. */
   readonly mergedRanges: readonly string[];
+  /** Number of merged ranges on the sheet. */
+  readonly mergedRangeCount: number;
+  /** `true` when `mergedRanges` lists only the first 100. */
+  readonly mergedRangesTruncated: boolean;
   /** Detected header row (1-based) and how sure the detection is, or `null`. */
   readonly headerRow: { readonly row: number; readonly confidence: 'high' | 'low' } | null;
   readonly columns: readonly InspectColumn[];
@@ -219,6 +225,8 @@ const MAX_MERGE_CHECK_WORK = 5_000_000;
 const MAX_DEFINED_NAMES = 100;
 const MAX_RICH_TEXT_CELLS = 10;
 const MAX_HYPERLINK_SAMPLES = 10;
+/** Merged ranges listed per sheet; `mergedRangeCount` gives the total. */
+const MAX_MERGED_RANGES = 100;
 const TYPE_ORDER: readonly Exclude<CellType, 'empty'>[] = ['number', 'string', 'date', 'boolean', 'error'];
 
 interface ResolvedOptions {
@@ -276,9 +284,9 @@ function isWorkbook(input: unknown): input is Workbook {
   );
 }
 
-/** Formats a value for JSON: dates as `YYYY-MM-DDTHH:mm:ss.sss` (no time zone). */
+/** Formats a value for JSON: dates as ISO 8601 without a time zone (`isoDate`). */
 function jsonValue(value: string | number | boolean | Date): InspectValue {
-  if (value instanceof Date) return value.toISOString().slice(0, 23);
+  if (value instanceof Date) return isoDate(value);
   if (typeof value === 'string' && value.length > 100) return `${value.slice(0, 100)}…`;
   return value;
 }
@@ -329,7 +337,7 @@ export function inspect(input: Uint8Array | ArrayBuffer | Workbook, options?: In
 function propertiesJson(workbook: Workbook): Record<string, string> {
   const out: Record<string, string> = {};
   for (const [key, value] of Object.entries(workbook.properties)) {
-    if (value instanceof Date) out[key] = value.toISOString();
+    if (value instanceof Date) out[key] = value.toISOString(); // document properties are instants in UTC (W3CDTF), so they keep the zone
     else if (typeof value === 'string') out[key] = value;
   }
   return out;
@@ -386,7 +394,9 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     usedRange,
     cellCount: sheet.cellCount,
     formulaCount,
-    mergedRanges: [...sheet.merges],
+    mergedRanges: sheet.merges.slice(0, MAX_MERGED_RANGES),
+    mergedRangeCount: sheet.merges.length,
+    mergedRangesTruncated: sheet.merges.length > MAX_MERGED_RANGES,
     formulas,
     richTextCellCount,
     richTextCells,
@@ -444,7 +454,7 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     return {
       index: col,
       letter: columnLetters(col),
-      header: headerCell !== undefined && typeof headerCell.value === 'string' ? headerCell.value : null,
+      header: headerCell === undefined || headerCell.formula !== null ? null : typeof headerCell.value === 'string' ? headerCell.value : isYear(headerCell.value) ? String(headerCell.value) : null,
       dominantType,
       types: { ...stat.counts, empty: dataRowCount - nonEmpty },
       samples: stat.samples,
@@ -461,33 +471,45 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
 }
 
 /**
- * Header heuristic: the first of the leading non-empty rows whose cells are all distinct,
- * non-blank strings covering at least half of the used width. Confidence is high when the
- * next non-empty row contains a value that is not a string.
+ * Header heuristic (docs/decisions.md D-R02): the first of the leading non-empty rows in which
+ * - cells with a formula are left out (a total such as `=SUM(B3:B9)` may sit next to the names);
+ * - every other cell is non-blank text or a year: a whole number from 1900 to 2100, with the
+ *   years of the row consecutive (`2023 | 2024 | 2025`) and, in the next non-empty row, at least
+ *   one value below them that is not such a year (so a row of data with years is not taken);
+ * - at least one cell is text, and the cells cover at least half of the used width.
+ * Repeated names are allowed (`readTable` numbers them `name_2`, …). Confidence is high when the
+ * names are distinct and the next non-empty row holds a value that is not text.
  */
 export function detectHeader(
   rows: readonly (readonly Cell[])[],
   width: number,
   scanRows: number,
 ): { row: number; confidence: 'high' | 'low' } | null {
-  const candidates = rows.filter((r) => r.length > 0).slice(0, scanRows);
+  const nonEmpty = rows.filter((r) => r.length > 0);
+  const candidates = nonEmpty.slice(0, scanRows);
   for (let i = 0; i < candidates.length; i++) {
     const cells = candidates[i] ?? [];
     if (cells.length < Math.max(1, Math.ceil(width / 2))) continue;
-    const seen = new Set<string>();
-    const allText = cells.every((cell) => {
-      if (cell.type !== 'string' || typeof cell.value !== 'string') return false;
-      const key = cell.value.trim().toLowerCase();
-      if (key.length === 0 || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    if (!allText) continue;
-    const next = rows.filter((r) => r.length > 0).find((r) => (r[0]?.row ?? 0) > (cells[0]?.row ?? 0));
-    const confidence = next !== undefined && next.some((cell) => cell.type !== 'string' && cell.type !== 'empty') ? 'high' : 'low';
-    return { row: cells[0]?.row ?? 0, confidence };
+    const labels = cells.filter((cell) => cell.formula === null);
+    const years = labels.filter((cell) => isYear(cell.value));
+    const texts = labels.filter((cell) => cell.type === 'string' && typeof cell.value === 'string' && cell.value.trim() !== '');
+    if (texts.length === 0 || texts.length + years.length !== labels.length) continue;
+    const next = nonEmpty[i + 1];
+    if (years.length > 0) {
+      const consecutive = years.every((cell, k) => k === 0 || Math.abs((cell.value as number) - (years[k - 1]!.value as number)) === 1);
+      const below = next?.filter((cell) => years.some((y) => y.col === cell.col)) ?? [];
+      if (!consecutive || !below.some((cell) => cell.value !== null && !isYear(cell.value))) continue;
+    }
+    const distinct = new Set(texts.map((cell) => (cell.value as string).trim().toLowerCase())).size === texts.length;
+    const typed = next !== undefined && next.some((cell) => cell.type !== 'string' && cell.type !== 'empty');
+    return { row: cells[0]?.row ?? 0, confidence: distinct && typed ? 'high' : 'low' };
   }
   return null;
+}
+
+/** A whole number from 1900 to 2100, read as a year in a header row. */
+function isYear(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1900 && value <= 2100;
 }
 
 /** Warns when cells lie outside the declared dimension (a dimension larger than the cells is normal). */

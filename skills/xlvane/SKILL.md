@@ -126,6 +126,23 @@ out.addSheet('Report').pageSetup({ orientation: 'landscape', margins: { left: 0.
 
 Protection flags are `true` when the action is locked. `protect({ password: 'secret' })` stores a SHA-512 verifier; it is not encryption. `verifyPassword(sheet.protection, 'secret')` checks a password.
 
+Data validation and conditional formatting:
+
+```ts
+import { createWorkbook, readWorkbook } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const sheet = readWorkbook(bytes).getSheet('Orders');
+console.log(sheet.dataValidations.length, sheet.conditionalFormats.map((f) => f.sqref));
+
+const out = createWorkbook();
+out.addSheet('Orders')
+  .validate('A2:A500', { type: 'list', formula1: '"Open,Shipped,Paid"', showErrorMessage: true, error: 'Pick a status.' })
+  .conditionalFormat('C2:C500', [{ type: 'cellIs', operator: 'greaterThan', formulas: [1000], style: { fill: { pattern: 'solid', fgColor: 'FFC7CE' } } }]);
+```
+
+Rules Office would reject throw `XLV_E_INVALID_OPTION` naming the property (for example `rules[0].operator`).
+
 Tables:
 
 ```ts
@@ -150,7 +167,7 @@ const { bytes: wider } = insertRows(bytes, { sheet: 'Sales', at: 5, count: 2, st
 const { bytes: shorter } = deleteRows(wider, { sheet: 'Sales', at: 5, count: 2 });
 ```
 
-Formulas on every sheet, merged cells, links, notes, conditional formats, data validation and defined names follow the rows; references to deleted cells become `#REF!`. Tables move, grow and shrink with their rows. Sheets with pictures or charts are refused with `XLV_E_NOT_SUPPORTED`.
+Formulas on every sheet, merged cells, links, notes, conditional formats, data validation and defined names follow the rows; references to deleted cells become `#REF!`. Tables and pictures move with their rows. Drawings with charts or shapes, and a deletion that would cut a picture or remove a table's header row, totals row or all of its data rows, are refused with `XLV_E_NOT_SUPPORTED`.
 
 `inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount`, `styledColumns`, `hyperlinkCount` and `noteCount`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
 
@@ -187,5 +204,7 @@ Common cases:
 ## Things to know
 
 - Formulas are not calculated. After `editCells`, cached results that depend on edited cells are out of date until a spreadsheet program recalculates them (the file asks it to on opening).
-- Dates in spreadsheets have no time zone; xlvane returns them as `Date` objects whose UTC fields hold the spreadsheet's date and time.
+- Dates in spreadsheets have no time zone; xlvane returns them as `Date` objects whose UTC fields hold the spreadsheet's date and time. As text (`toCSV`, `toJSON`, `readTable({ dates: 'iso' })`, `inspect`, `xlvane read --json`) they are ISO 8601 without a zone: `2024-01-31` or `2024-01-31T13:45:00`.
+- JSON has no date type: `fromJSON` keeps ISO date strings as text. Convert them to `Date` before `fromJSON`/`writeTable` if they should be dates. `fromCSV` does recognise ISO dates.
+- `xlvane read --json` returns the first 50 rows; check `truncated` and use `--limit all` for every row. Warnings found while reading are in `result.warnings`.
 - `.xls` (the old binary format) and encrypted files are not supported and are reported with an error code.

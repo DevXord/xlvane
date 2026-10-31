@@ -68,7 +68,8 @@
                 "additionalProperties": {
                   "$ref": "common.schema.json#/$defs/scalar"
                 }
-              }
+              },
+              "description": "Rows shown (at most --limit, default 50); dates are ISO 8601 text without a time zone."
             },
             "rowNumbers": {
               "type": "array",
@@ -79,10 +80,19 @@
             },
             "totalRows": {
               "type": "integer",
-              "minimum": 0
+              "minimum": 0,
+              "description": "Data rows in the table, shown or not."
             },
             "truncated": {
-              "type": "boolean"
+              "type": "boolean",
+              "description": "true when rows holds fewer rows than totalRows; use --limit all for every row."
+            },
+            "warnings": {
+              "type": "array",
+              "description": "Warnings found while reading the input (docs/errors.md).",
+              "items": {
+                "$ref": "common.schema.json#/$defs/warning"
+              }
             }
           },
           "required": [
@@ -93,7 +103,8 @@
             "rows",
             "rowNumbers",
             "totalRows",
-            "truncated"
+            "truncated",
+            "warnings"
           ],
           "additionalProperties": false
         }

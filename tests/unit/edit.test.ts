@@ -202,7 +202,7 @@ describe('appendRows', () => {
   });
 
   it('rejects unknown keys with a suggestion', () => {
-    const error = expectXlvError(() => appendRows(base(), 'Data', [{ nmae: 'x' }]), 'XLV_E_TABLE_INVALID');
+    const error = expectXlvError(() => appendRows(base(), 'Data', [{ nmae: 'x' }]), 'XLV_E_INVALID_ROWS');
     expect(error.hint).toContain('name');
   });
 });

@@ -71,7 +71,7 @@ describe('writing', () => {
     await withFixtures(async (dir) => {
       const r = await cli(['create', 'data.json', 'out.xlsx', '--dry-run'], { cwd: dir });
       expect(r.code).toBe(0);
-      expect(r.stdout).toMatch(/^Dry run: would write out\.xlsx \(\d+ bytes\)\. Nothing was written\.\n$/);
+      expect(r.stdout).toMatch(/^Dry run: would write out\.xlsx \(\d+\.\d kB\)\. Nothing was written\.\n$/);
       await expect(stat(join(dir, 'out.xlsx'))).rejects.toThrow();
       const inPlace = await cli(['edit', 'report.xlsx', '--set', 'Sales!B2=1', '--dry-run'], { cwd: dir });
       expect(inPlace.stdout).toContain('Dry run: would replace report.xlsx');
@@ -172,7 +172,7 @@ describe('validate', () => {
     await withFixtures(async (dir) => {
       const r = await cli(['validate', 'report.xlsx', '--sheet', 'Sales', '--columns', 'Region:string,Revenue:number,Date:date,Owner:string'], { cwd: dir });
       expect(r.code).toBe(1);
-      expect(r.stdout).toContain('C4 is empty; "Date" needs a value.');
+      expect(r.stdout).toContain('  problem  C4  is empty; "Date" needs a value.');
       expect(r.stdout).toContain('Column "Owner" is missing.');
       const ok = await cli(['validate', 'report.xlsx', '--sheet', 'Sales', '--columns', 'Region:string,Revenue:number,Date:date?'], { cwd: dir });
       expect(ok.code).toBe(0);
@@ -221,13 +221,14 @@ describe('read and inspect', () => {
       expect(r.stdout).toBe(
         [
           'Region  Revenue  Date',
-          'North   1200     2024-01-31',
-          'South   980      2024-02-29',
-          'Total   2180',
-          'Sheet "Sales", A1:C4, header in row 1: 3 rows.',
+          'North      1200  2024-01-31',
+          'South       980  2024-02-29',
+          'Total      2180',
           '',
         ].join('\n'),
       );
+      // The summary goes to stderr, so that redirected output holds only the table.
+      expect(r.stderr).toBe('Sheet "Sales", A1:C4, header in row 1: 3 rows.\n');
     });
   });
 

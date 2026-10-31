@@ -1,6 +1,6 @@
 // Reading option objects given by callers: own enumerable properties only, each read once,
 // unknown names rejected with a "Did you mean" hint (the same rules as D-201).
-import { XlvError } from '../errors';
+import { XlvError, type XlvWarning } from '../errors';
 import type { ReadLimits } from '../limits';
 import type { Workbook } from '../model';
 import { readWorkbook } from '../read';
@@ -64,8 +64,19 @@ export function isWorkbook(input: unknown): input is Workbook {
   );
 }
 
-/** Accepts bytes or an already read workbook. */
-export function openInput(input: unknown, limits: unknown): Workbook {
-  if (isWorkbook(input)) return input;
-  return readWorkbook(input as Uint8Array, limits === undefined ? undefined : { limits: limits as Partial<ReadLimits> });
+/**
+ * Accepts bytes or an already read workbook. With `onWarning`, every warning of the workbook is
+ * passed to it once, so functions that return their own result type (`readTable`, `toCSV`,
+ * `toJSON`) still let callers see what was skipped or repaired while reading (D-R02).
+ */
+export function openInput(input: unknown, limits: unknown, onWarning?: unknown): Workbook {
+  if (onWarning !== undefined && typeof onWarning !== 'function') {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "onWarning" must be a function.', {
+      hint: 'For example { onWarning: (w) => console.warn(w.code, w.message) }.',
+      details: { option: 'onWarning' },
+    });
+  }
+  const workbook = isWorkbook(input) ? input : readWorkbook(input as Uint8Array, limits === undefined ? undefined : { limits: limits as Partial<ReadLimits> });
+  if (onWarning !== undefined) for (const warning of workbook.warnings) (onWarning as (w: XlvWarning) => void)(warning);
+  return workbook;
 }

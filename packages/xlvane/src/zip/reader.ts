@@ -33,6 +33,11 @@ export interface ZipReader {
   read(entry: ZipEntry | string): Uint8Array;
   /** Total number of decompressed bytes returned so far. */
   readonly bytesRead: number;
+  /**
+   * The compressed bytes of a stored or Deflate entry as they are in the archive, without
+   * inflating them, or `null` when they cannot be copied as they are (D-R03).
+   */
+  raw?(entry: ZipEntry): { readonly method: 0 | 8; readonly crc32: number; readonly uncompressedSize: number; readonly body: Uint8Array } | null;
 }
 
 const SIG_LOCAL = 0x04034b50;
@@ -486,6 +491,16 @@ class Reader implements ZipReader {
 
   find(name: string): ZipEntry | undefined {
     return this.byName.get(name.toLowerCase());
+  }
+
+  raw(entry: ZipEntry): { readonly method: 0 | 8; readonly crc32: number; readonly uncompressedSize: number; readonly body: Uint8Array } | null {
+    if (entry.method === METHOD_STORED && entry.compressedSize === entry.uncompressedSize) {
+      return { method: 0, crc32: entry.crc32, uncompressedSize: entry.uncompressedSize, body: this.b.slice(entry.dataOffset, entry.dataOffset + entry.compressedSize) };
+    }
+    if (entry.method === METHOD_DEFLATE) {
+      return { method: 8, crc32: entry.crc32, uncompressedSize: entry.uncompressedSize, body: this.b.slice(entry.dataOffset, entry.dataOffset + entry.compressedSize) };
+    }
+    return null;
   }
 
   read(entryOrName: ZipEntry | string): Uint8Array {

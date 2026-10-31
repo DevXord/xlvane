@@ -6,6 +6,7 @@ import { CsvIO } from './csv';
 import { DefinedNames, extractRanges } from './defined-names';
 import { imageBytes, imageOut, mediaOut, tableOut, type ImageData } from './media';
 import { Worksheet } from './model';
+import { xlvaneNode } from './node-api';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
 
@@ -150,7 +151,7 @@ export class XlsxIO {
   /** Reads an XLSX file (Node.js). */
   async readFile(path: string, options?: XlsxReadOptions): Promise<Workbook> {
     const o = readOptions(options);
-    const { readWorkbookFile } = await import('xlvane/node');
+    const { readWorkbookFile } = await xlvaneNode('xlsx.readFile()');
     this.workbook._fill(await readWorkbookFile(path), o);
     return this.workbook;
   }
@@ -179,7 +180,7 @@ export class XlsxIO {
 
   /** Writes the workbook to a file, replacing an existing file as exceljs does (Node.js). */
   async writeFile(path: string, options?: XlsxWriteOptions): Promise<void> {
-    const { writeWorkbookFile } = await import('xlvane/node');
+    const { writeWorkbookFile } = await xlvaneNode('xlsx.writeFile()');
     await writeWorkbookFile(this.book(options), path, { overwrite: true, ...writeOptions(options) });
   }
 
@@ -408,7 +409,7 @@ export class Workbook {
   _media: ImageData[] = [];
 
   /**
-   * Adds an image (PNG, JPEG or GIF, recognised from its bytes) and returns its id for
+   * Adds an image (PNG, JPEG or GIF, or EMF or WMF as Excel stores them; recognised from its bytes) and returns its id for
    * `worksheet.addImage` and `addBackgroundImage`, as exceljs `workbook.addImage`. Give `buffer`
    * or `base64`; `filename` throws `XLV_E_NOT_SUPPORTED` (read the file and pass `buffer`).
    */
@@ -475,10 +476,17 @@ export class Workbook {
     // Images: the media list as exceljs reads it, one entry per image part (X4-22).
     this._media = mediaOut(read.images);
     // bookViews and calcPr as exceljs reads them (workbook-view-xform.js L19–43; calcPr gives {}; X4-28).
+    // The indexes count every sheet of the file; chart sheets are not loaded (D-R01), so an index
+    // is mapped to the worksheet it falls on, or to the worksheet before a chart sheet.
+    const sheetIndex = (i: number): number => {
+      let n = -1;
+      for (let k = 0; k <= i && k < read.sheets.length; k++) if (read.sheets[k]!.kind === 'worksheet') n++;
+      return Math.max(n, 0);
+    };
     this.views = read.views.map((v) => {
       const view: Record<string, unknown> = { x: v.x ?? 0, y: v.y ?? 0, width: v.width ?? 25000, height: v.height ?? 10000, visibility: v.visibility };
-      if (v.activeTab !== null) view['activeTab'] = v.activeTab;
-      if (v.firstSheet !== null) view['firstSheet'] = v.firstSheet;
+      if (v.activeTab !== null) view['activeTab'] = sheetIndex(v.activeTab);
+      if (v.firstSheet !== null) view['firstSheet'] = sheetIndex(v.firstSheet);
       return view;
     });
     this.calcProperties = read.calculation?.fullCalcOnLoad ? { fullCalcOnLoad: true } : {};
@@ -512,31 +520,47 @@ export class Workbook {
         if (f && f.kind === 'shared' && f.ref !== null && f.sharedIndex !== null) masters.set(f.sharedIndex, cell.ref);
       }
       // Cells that hold only a style keep it (D-E05), as exceljs reads them (cell-xform.js).
-      for (const cell of use('sheetData') ? s.styledCells() : []) ws.getCell(cell.row, cell.col).style = styleOut(cell.style, cell.numFmt);
+      let lastRow = 0;
+      for (const cell of use('sheetData') ? s.styledCells() : []) {
+        ws.getCell(cell.row, cell.col).style = styleOut(cell.style, cell.numFmt);
+        if (cell.row > lastRow) lastRow = cell.row;
+      }
       for (const cell of use('sheetData') ? s.cells() : []) {
         const target = ws.getCell(cell.row, cell.col);
         let value: CellValue;
         const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
         if (cell.formula && cell.formula.text !== null) value = formulaOut(cell.formula, plain, cell.ref, masters);
         else value = cell.richText ? richTextOut(cell.richText) : plain;
-        if (cell.hyperlink && use('hyperlinks')) {
+        const h = cell.hyperlink;
+        // A link with neither a target nor a location leads nowhere; exceljs, which reads only
+        // links with a relationship, drops it as well (X4-10).
+        if (h && use('hyperlinks') && (h.target !== null || (h.location !== null && h.location !== ''))) {
           // cell-xform.js L477–489: a linked cell becomes { text, hyperlink }, its text being the
           // value or the formula result (X4-10). xlvane also reads links stored only as a
-          // location, and the tooltip, which exceljs drops.
-          const h = cell.hyperlink;
-          const hyperlink = h.target !== null ? (h.location !== null ? `${h.target}#${h.location}` : h.target) : `#${h.location ?? ''}`;
+          // location, and the tooltip, which exceljs drops. A target that is itself a place in
+          // the workbook ("#Sheet2!A1", as some producers write it) is used as it is.
+          const hyperlink = h.target !== null ? (h.location !== null && !h.target.startsWith('#') ? `${h.target}#${h.location}` : h.target) : `#${h.location ?? ''}`;
           const text = cell.richText ? richTextOut(cell.richText) : plain;
           value = h.tooltip ? { text, hyperlink, tooltip: h.tooltip } : { text, hyperlink };
         }
         target.value = value;
         target.style = styleOut(cell.style, cell.numFmt);
-        const info = s.rowInfo(cell.row);
-        if (info) {
-          const row = ws.getRow(cell.row);
-          if (info.height !== null) row.height = info.height;
-          if (info.hidden) row.hidden = true;
-          if (info.outlineLevel) row.outlineLevel = info.outlineLevel;
-        }
+        if (cell.row > lastRow) lastRow = cell.row;
+      }
+      // Row height, visibility and outline level, also of rows without cells (exceljs keeps every
+      // row element, row-xform.js). The core gives row settings by number, so the rows up to the
+      // sheet's dimension or its last cell are looked at (D-R01).
+      const dim = /(\d+)$/.exec(s.dimension ?? '');
+      lastRow = use('sheetData') ? Math.min(Math.max(lastRow, dim ? Number(dim[1]) : 0), 1_048_576) : 0;
+      for (let r = 1; r <= lastRow; r++) {
+        const info = s.rowInfo(r);
+        if (!info) continue;
+        const row = ws.getRow(r);
+        // Excel shows rows up to 409.5 points (W-04, W-04a); a taller height in a file is read as
+        // 409.5, so the workbook can be written again (D-R01).
+        if (info.height !== null) row.height = Math.min(info.height, 409.5);
+        if (info.hidden) row.hidden = true;
+        if (info.outlineLevel) row.outlineLevel = info.outlineLevel;
       }
       // Notes are read for every cell, also one without a value; exceljs loses those (X4-14).
       for (const note of s.notes) ws.getCell(note.ref).note = noteOut(note);

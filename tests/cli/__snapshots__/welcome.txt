@@ -9,4 +9,4 @@ Common tasks:
 
 Commands: inspect, read, convert, create, edit, diff, validate, migrate
 More:  xlvane help <command>   ·   Docs: https://github.com/DevXord/xlvane
-For AI agents and scripts: add --json to any command (docs/cli-json.md)
+For AI agents and scripts: add --json to any command (node_modules/xlvane/docs/cli-json.md)

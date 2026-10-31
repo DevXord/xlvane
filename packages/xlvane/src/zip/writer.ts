@@ -14,7 +14,22 @@ import { crc32 } from './crc32';
 export interface ZipWriteEntry {
   /** Item name; printable ASCII, no leading slash. */
   readonly name: string;
+  /** The uncompressed bytes. Ignored when `raw` is given. */
   readonly data: Uint8Array;
+  /**
+   * Already compressed data copied unchanged from another archive (stored or Deflate), with its
+   * CRC-32 and uncompressed size, so that parts an edit does not change are neither inflated nor
+   * deflated again (D-R03).
+   */
+  readonly raw?: ZipRawData;
+}
+
+/** The compressed form of an entry, as read from an archive's central directory and data. */
+export interface ZipRawData {
+  readonly method: 0 | 8;
+  readonly crc32: number;
+  readonly uncompressedSize: number;
+  readonly body: Uint8Array;
 }
 
 /** Entries a ZIP without ZIP64 can hold (2-byte entry count in the EOCD, Z-02, Z-04). */
@@ -74,13 +89,22 @@ export function writeZip(entries: readonly ZipWriteEntry[], level = 6): Uint8Arr
     seen.add(key);
 
     const nameBytes = encoder.encode(name);
-    const crc = crc32(entry.data);
-    // Level 0 stores every entry (method 0); other levels deflate when that makes the entry smaller.
-    const deflated = entry.data.length === 0 || level === 0 ? null : deflateSync(entry.data, { level: level as 1 });
-    const useDeflate = deflated !== null && deflated.length < entry.data.length;
-    const body = useDeflate ? deflated : entry.data;
-    const method = useDeflate ? 8 : 0;
-    if (entry.data.length > MAX_32 || body.length > MAX_32 || offset > MAX_32) throw tooLarge('more than 4 GiB');
+    let crc: number;
+    let body: Uint8Array;
+    let method: number;
+    let size: number;
+    if (entry.raw !== undefined) {
+      ({ crc32: crc, body, method, uncompressedSize: size } = entry.raw);
+    } else {
+      crc = crc32(entry.data);
+      // Level 0 stores every entry (method 0); other levels deflate when that makes the entry smaller.
+      const deflated = entry.data.length === 0 || level === 0 ? null : deflateSync(entry.data, { level: level as 1 });
+      const useDeflate = deflated !== null && deflated.length < entry.data.length;
+      body = useDeflate ? deflated : entry.data;
+      method = useDeflate ? 8 : 0;
+      size = entry.data.length;
+    }
+    if (size > MAX_32 || body.length > MAX_32 || offset > MAX_32) throw tooLarge('more than 4 GiB');
 
     const local = new Uint8Array(30 + nameBytes.length);
     const lv = new DataView(local.buffer);
@@ -92,7 +116,7 @@ export function writeZip(entries: readonly ZipWriteEntry[], level = 6): Uint8Arr
     lv.setUint16(12, DOS_DATE, true);
     lv.setUint32(14, crc, true);
     lv.setUint32(18, body.length, true);
-    lv.setUint32(22, entry.data.length, true);
+    lv.setUint32(22, size, true);
     lv.setUint16(26, nameBytes.length, true);
     lv.setUint16(28, 0, true);
     local.set(nameBytes, 30);
@@ -108,7 +132,7 @@ export function writeZip(entries: readonly ZipWriteEntry[], level = 6): Uint8Arr
     cv.setUint16(14, DOS_DATE, true);
     cv.setUint32(16, crc, true);
     cv.setUint32(20, body.length, true);
-    cv.setUint32(24, entry.data.length, true);
+    cv.setUint32(24, size, true);
     cv.setUint16(28, nameBytes.length, true);
     // extra length, comment length, disk number, internal and external attributes stay 0
     cv.setUint32(42, offset, true);

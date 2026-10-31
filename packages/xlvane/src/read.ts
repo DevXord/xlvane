@@ -24,6 +24,7 @@ import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
 import { parseWorkbookPart } from './sml/workbook';
 import { DEFAULT_SHEET_PROPERTIES, DEFAULT_SHEET_VIEW, parseWorksheet, styledCellsOf, type NumberFormat, type WorksheetData } from './sml/worksheet';
+import { sheetNotFound } from './util/sheet-not-found';
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 import { openZip } from './zip/reader';
@@ -208,15 +209,7 @@ class ReadWorkbook implements Workbook {
   getSheet(name: string): Sheet {
     const sheet = this.sheets.find((s) => s.name === name);
     if (sheet !== undefined) return sheet;
-    const names = this.sheets.map((s) => s.name);
-    const close = suggest(String(name), names);
-    throw new XlvError('XLV_E_SHEET_NOT_FOUND', `The workbook has no sheet named "${String(name)}".`, {
-      location: { sheet: String(name) },
-      hint:
-        (close.length > 0 ? `Did you mean ${close.map((n) => `"${n}"`).join(' or ')}? ` : '') +
-        `Available sheets: ${names.map((n) => `"${n}"`).join(', ') || '(none)'}. Sheet names are case-sensitive.`,
-      details: { available: names },
-    });
+    throw sheetNotFound(name, this.sheets.map((s) => s.name));
   }
 }
 
@@ -322,13 +315,16 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
  */
 function resolveHyperlinks(pkg: OpcPackage, part: string, sheet: string, data: WorksheetData, warnings: WarningCollector): Hyperlink[] {
   if (data.hyperlinks.length === 0) return [];
-  const rels = pkg.relationships(part);
+  // One lookup table per part: a find over the relationships for each link was quadratic (D-R03).
+  const rels = new Map<string, (typeof relsList)[number]>();
+  const relsList = pkg.relationships(part);
+  for (const r of relsList) if (!rels.has(r.id)) rels.set(r.id, r);
   const links: Hyperlink[] = [];
   let unusual: string | null = null;
   for (const raw of data.hyperlinks) {
     let target: string | null = null;
     if (raw.relId !== null) {
-      const rel = rels.find((r) => r.id === raw.relId);
+      const rel = rels.get(raw.relId);
       if (rel === undefined || classifyRelationship(rel.type)?.name !== 'hyperlink') {
         warnings.add('XLV_W_INVALID_VALUE', `The hyperlink of ${raw.ref} refers to relationship "${raw.relId.slice(0, 40)}", which is not a hyperlink relationship of the sheet; its target is unknown.`, { part, sheet, cell: raw.ref });
       } else {

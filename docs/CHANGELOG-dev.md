@@ -2,6 +2,12 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Pre-release audit (2026-10-31)
+
+- Five audits: security and penetration test, use in real projects (packed tarballs in ESM/CJS/TS/Vite/esbuild/webpack/Bun/Deno/workerd), functional review, AI-friendliness, developer-friendliness.
+- Fixes: D-R01 (exceljs layer: bundling, types, load-then-save of every POI file, layer bugs and security), D-R02 (readable and safe console output with colour, warnings, CSV numbers and limits, docs), D-R03 (CPU denial-of-service fixes, editor, streaming limits, release job, tables, error locations).
+- Draft PR #1 (main-ktjbug → main) opened for the release.
+
 ## Phase E: closing exceljs compatibility (2026-10-31)
 
 - **Core** (D-E01, D-E02, D-E05): gradient fills, diagonal borders, all font properties, shrinkToFit, readingOrder, cell protection; array and shared formulas on write; outline levels, more view settings, workbook views, calcPr, write options; style-only cells kept on read.

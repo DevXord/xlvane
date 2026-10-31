@@ -1,12 +1,14 @@
 // File access of the CLI: reading with the library limits, a progress line for large files,
 // and writing that never replaces a file without --force (docs/decisions.md D-604).
-import { readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { chmod, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { XlvError } from '../errors';
 import type { Workbook } from '../model';
 import { readWorkbook } from '../read';
 import { readInput } from '../util/node-files';
 import { suggest } from '../util/suggest';
+import { usageError } from './args';
+import { escapeControls, humanSize, type Output } from './output';
 import type { CommandContext } from './types';
 
 /** Files above this size get a progress line on stderr (when it is a terminal). */
@@ -23,7 +25,7 @@ async function progress<T>(ctx: CommandContext, path: string, work: () => Promis
     try {
       const { size } = await stat(resolvePath(ctx, path));
       if (size > PROGRESS_BYTES) {
-        ctx.io.stderr(`Reading ${path} (${(size / 1024 / 1024).toFixed(1)} MB)…`);
+        ctx.io.stderr(`Reading ${escapeControls(path)} (${humanSize(size)})…`);
         shown = true;
       }
     } catch {
@@ -38,17 +40,29 @@ async function progress<T>(ctx: CommandContext, path: string, work: () => Promis
   }
 }
 
+/** Reads a file as bytes (size checked against the default limits), without a progress line. */
+async function readRaw(ctx: CommandContext, path: string): Promise<Uint8Array> {
+  ctx.state.lastFile = path;
+  if (path === '-') {
+    throw usageError('Reading from standard input ("-") is not supported.', 'Save the data to a file first and pass its path, for example: some-command > data.csv && xlvane convert data.csv data.xlsx.', { option: '-' });
+  }
+  const resolved = resolvePath(ctx, path);
+  try {
+    return await readInput(resolved, undefined);
+  } catch (error) {
+    throw await withFileHint(ctx, path, notFound(asTyped(error, resolved, path), path));
+  }
+}
+
 /** Reads a file as bytes (size checked against the default limits). */
 export async function readBytes(ctx: CommandContext, path: string): Promise<Uint8Array> {
-  ctx.state.lastFile = path;
-  return progress(ctx, path, async () => {
-    const resolved = resolvePath(ctx, path);
-    try {
-      return await readInput(resolved, undefined);
-    } catch (error) {
-      throw await withFileHint(ctx, path, asTyped(error, resolved, path));
-    }
-  });
+  return progress(ctx, path, () => readRaw(ctx, path));
+}
+
+/** "File not found" instead of the system error code, which people do not need to decode. */
+function notFound(error: unknown, path: string): unknown {
+  if (!(error instanceof XlvError) || error.details['code'] !== 'ENOENT') return error;
+  return new XlvError(error.code, `File not found: "${path}".`, { location: error.location, hint: 'Check the name and the folder; paths are relative to the current directory.', details: { ...error.details, path }, cause: error });
 }
 
 /** Shows the path as the user typed it, not resolved against the working directory. */
@@ -64,12 +78,15 @@ function asTyped(error: unknown, resolved: string, typed: string): unknown {
 
 /** Reads a workbook. */
 export async function readBook(ctx: CommandContext, path: string): Promise<{ bytes: Uint8Array; workbook: Workbook }> {
-  const bytes = await readBytes(ctx, path);
-  try {
-    return { bytes, workbook: readWorkbook(bytes) };
-  } catch (error) {
-    throw withPath(error, path);
-  }
+  // The progress line stays up while the file is parsed, which is where large files take time.
+  return progress(ctx, path, async () => {
+    const bytes = await readRaw(ctx, path);
+    try {
+      return { bytes, workbook: readWorkbook(bytes) };
+    } catch (error) {
+      throw withPath(error, path);
+    }
+  });
 }
 
 /** Reads a text file (UTF-8, BOM removed). */
@@ -124,15 +141,19 @@ export interface WriteOutcome {
 /**
  * Writes an output file. Without `force` an existing file is never replaced: the write is an
  * exclusive create ('wx'). With `force` the data goes to a temporary file in the same directory
- * that is then renamed over the target, so a failed write leaves the old file intact.
+ * that is then renamed over the target, so a failed write leaves the old file intact; the new
+ * file gets the permission bits of the old one (owner and group are not changed).
  */
 export async function writeOutput(ctx: CommandContext, path: string, data: Uint8Array | string, options: { force: boolean; dryRun: boolean }): Promise<WriteOutcome> {
   const target = resolvePath(ctx, path);
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
   let exists = false;
+  let mode: number | null = null;
   try {
     const info = await stat(target);
     exists = true;
+    // Permission bits of the file being replaced (fs.Stats.mode; the type bits are dropped).
+    mode = info.mode & 0o7777;
     if (!info.isFile()) {
       throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is a directory.`, { hint: 'Give a file name for the output.', details: { path, code: 'EISDIR' } });
     }
@@ -151,6 +172,8 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
       const temp = join(dirname(target), `.${basename(target)}.xlvane-${String(Date.now())}.tmp`);
       try {
         await writeFile(temp, bytes, { flag: 'wx' });
+        // The replacement keeps the permissions of the file it replaces, as editing in place would.
+        if (mode !== null) await chmod(temp, mode);
         await rename(temp, target);
       } catch (error) {
         await rm(temp, { force: true });
@@ -173,8 +196,12 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
   return { path, bytes: bytes.length, written: true, replaced: exists };
 }
 
-/** The line every writing command ends with. */
-export function wroteLine(w: WriteOutcome): string {
-  if (!w.written) return `Dry run: would ${w.replaced ? 'replace' : 'write'} ${w.path} (${String(w.bytes)} bytes). Nothing was written.`;
-  return `${w.replaced ? 'Replaced' : 'Wrote'} ${w.path} (${String(w.bytes)} bytes).`;
+/** The line every writing command ends with; green when something was written. */
+export function wroteLine(w: WriteOutcome, out?: Output): string {
+  if (!w.written) {
+    const text = `Dry run: would ${w.replaced ? 'replace' : 'write'} ${w.path} (${humanSize(w.bytes)}). Nothing was written.`;
+    return out ? out.dim(text) : text;
+  }
+  const verb = w.replaced ? 'Replaced' : 'Wrote';
+  return `${out ? out.green(verb) : verb} ${w.path} (${humanSize(w.bytes)}).`;
 }

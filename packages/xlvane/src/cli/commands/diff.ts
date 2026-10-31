@@ -52,7 +52,7 @@ export const diffCommand: CommandSpec = {
       result: r,
       exitCode: r.equal ? 0 : 1,
       render: (out) => {
-        if (r.equal) return `No differences between ${a} and ${b}.`;
+        if (r.equal) return `${out.green('No differences')} between ${a} and ${b}.`;
         const s = r.summary;
         const lines = [
           `${out.bold(`${a} → ${b}`)}: ${plural(s.cellsChanged, 'cell')} changed, ${String(s.cellsAdded)} added, ${String(s.cellsRemoved)} removed` +

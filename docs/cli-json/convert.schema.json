@@ -49,6 +49,13 @@
             },
             "replaced": {
               "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "description": "Warnings found while reading the input (docs/errors.md).",
+              "items": {
+                "$ref": "common.schema.json#/$defs/warning"
+              }
             }
           },
           "required": [
@@ -58,7 +65,8 @@
             "to",
             "bytes",
             "written",
-            "replaced"
+            "replaced",
+            "warnings"
           ],
           "additionalProperties": false
         }

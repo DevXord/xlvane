@@ -1,6 +1,7 @@
 // Task-oriented table functions: a sheet as a list of row objects and back (docs/decisions.md
 // D-303 … D-305). Built on the read model (read.ts) and the writer (write.ts).
-import { XlvError } from './errors';
+import { isoDate } from './util/iso-date';
+import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
 import type { ReadLimits } from './limits';
 import type { Cell, Sheet, Workbook } from './model';
@@ -65,12 +66,18 @@ export interface ReadTableOptions<S extends StandardSchemaV1 | undefined = undef
   readonly range?: string;
   /** A Standard Schema (Zod, Valibot, ArkType, …) that every row is validated with. */
   readonly schema?: S;
-  /** `"date"` (default) returns `Date` objects; `"iso"` returns ISO 8601 strings. */
+  /** `"date"` (default) returns `Date` objects; `"iso"` returns ISO 8601 text without a time zone, as `toCSV` writes it: `"2024-01-31"` at midnight, otherwise `"2024-01-31T13:45:00"`. */
   readonly dates?: 'date' | 'iso';
   /** Leave out rows without any value. Default `true`. */
   readonly skipEmptyRows?: boolean;
   /** Read limits for byte input; see `ReadLimits`. */
   readonly limits?: Partial<ReadLimits>;
+  /**
+   * Called once for each warning of the workbook (for example skipped damaged rows or a formula
+   * without a cached value), so they are not lost when the input is bytes. The same warnings are
+   * in `readWorkbook(bytes).warnings`; nothing is printed by xlvane itself.
+   */
+  readonly onWarning?: (warning: XlvWarning) => void;
 }
 
 /**
@@ -148,7 +155,7 @@ export interface TableResult<Row> {
   readonly issues: TableIssue[];
 }
 
-const READ_OPTIONS = ['sheet', 'table', 'header', 'range', 'schema', 'dates', 'skipEmptyRows', 'limits'];
+const READ_OPTIONS = ['sheet', 'table', 'header', 'range', 'schema', 'dates', 'skipEmptyRows', 'limits', 'onWarning'];
 const HEADER_SCAN_ROWS = 20;
 
 interface PreparedTable {
@@ -204,14 +211,14 @@ function setOwn(target: Record<string, unknown>, key: string, value: unknown): v
 function cellValue(cell: Cell | undefined, dates: 'date' | 'iso'): TableValue {
   if (cell === undefined) return null;
   const v = cell.value;
-  if (v instanceof Date) return dates === 'iso' ? v.toISOString() : v;
+  if (v instanceof Date) return dates === 'iso' ? isoDate(v) : v;
   return v;
 }
 
 function headerText(cell: Cell | undefined): string | null {
   const v = cell?.value;
   if (v === undefined || v === null) return null;
-  if (v instanceof Date) return v.toISOString();
+  if (v instanceof Date) return isoDate(v);
   return String(v);
 }
 
@@ -248,7 +255,7 @@ function pickTable(workbook: Workbook, o: Map<string, unknown>): { sheet: Sheet;
 
 function prepare(input: unknown, options: unknown): PreparedTable {
   const o = readOptions(options, READ_OPTIONS, 'readTable options');
-  const workbook = openInput(input, o.get('limits'));
+  const workbook = openInput(input, o.get('limits'), o.get('onWarning'));
   const table = pickTable(workbook, o);
   const sheet = table?.sheet ?? pickSheet(workbook, o.get('sheet'));
   const schema = checkSchema(o.get('schema'));
@@ -503,7 +510,7 @@ export interface JsonTable {
   readonly range: string | null;
   /** Column keys in sheet order. */
   readonly columns: string[];
-  /** Rows with numbers, strings, booleans, `null`, and dates as ISO 8601 strings. */
+  /** Rows with numbers, strings, booleans, `null`, and dates as ISO 8601 text without a time zone (`"2024-01-31"`, `"2024-01-31T13:45:00"`). */
   readonly rows: Record<string, string | number | boolean | null>[];
 }
 
@@ -532,7 +539,7 @@ export type ToJSONOptions = Omit<ReadTableOptions, 'schema' | 'dates'>;
  * ```
  */
 export function toJSON(input: Uint8Array | ArrayBuffer | Workbook, options?: ToJSONOptions): JsonTable {
-  const o = readOptions(options, ['sheet', 'header', 'range', 'skipEmptyRows', 'limits'], 'toJSON options');
+  const o = readOptions(options, ['sheet', 'table', 'header', 'range', 'skipEmptyRows', 'limits', 'onWarning'], 'toJSON options');
   const table = readTable(input, { ...Object.fromEntries(o), dates: 'iso' } as ReadTableOptions);
   return {
     sheet: table.sheet,
@@ -607,7 +614,7 @@ interface ResolvedColumn {
 }
 
 function tableError(message: string, hint: string, details: Record<string, string | number> = {}): XlvError {
-  return new XlvError('XLV_E_TABLE_INVALID', message, { hint, details });
+  return new XlvError('XLV_E_INVALID_ROWS', message, { hint, details });
 }
 
 function resolveColumns(spec: unknown, rows: readonly unknown[], arrays: boolean): ResolvedColumn[] {
@@ -753,7 +760,7 @@ export function writeTable(rows: readonly object[] | readonly (readonly unknown[
 /**
  * Writes JSON data as a formatted XLSX table: the same as {@link writeTable}, but also accepts
  * JSON text. Throws `XLV_E_JSON_INVALID` for text that is not valid JSON and
- * `XLV_E_TABLE_INVALID` when the data is not an array of objects or arrays. JSON keys such as
+ * `XLV_E_INVALID_ROWS` when the data is not an array of objects or arrays. JSON keys such as
  * `__proto__` become ordinary columns.
  *
  * @example

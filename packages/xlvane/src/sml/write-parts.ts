@@ -23,7 +23,7 @@ import {
 import type { DateSystem, SheetState, SheetView } from '../model';
 import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
-import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ImageFormat, type ResolvedImage } from '../images';
+import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ResolvedImage, type WrittenImageFormat } from '../images';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
 import { FormulaGroups } from './formula-groups';
@@ -96,7 +96,7 @@ export interface WritePackageInput {
   /** `workbookProtection` (SR-22, D-C08). */
   readonly workbookProtection?: NormalizedWorkbookProtection | null;
   /** Images added with `NewWorkbook.addImage`, by number (TD-31). */
-  readonly images?: readonly { readonly bytes: Uint8Array; readonly format: ImageFormat }[];
+  readonly images?: readonly { readonly bytes: Uint8Array; readonly format: WrittenImageFormat }[];
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -1018,7 +1018,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const types = contentTypesXml(n, shared, core !== null, app !== null, noteSheets, [
     ...tables.map((t) => [t.name, TABLE_CONTENT_TYPE] as const),
     ...drawings.map((d) => [d.name, DRAWING_CONTENT_TYPE] as const),
-    ...mediaEntries.map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as ImageFormat]] as const),
+    ...mediaEntries.map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as WrittenImageFormat]] as const),
   ]);
 
   const entries: ZipWriteEntry[] = [

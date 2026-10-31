@@ -1,13 +1,17 @@
 # `xlvane --json`, version 1
 
-Every `xlvane` command accepts `--json`. The command then prints exactly one JSON document to stdout, without colour. Progress lines and notes, which normally go to stderr, are not printed. The exit codes are the same as without `--json`. `--help` and `--version` always print text.
+Every `xlvane` command accepts `--json`. The command then prints exactly one JSON document to stdout, without colour, followed by a line feed. When stdout is not a terminal (a pipe, a file, a program reading the output) the document is on one line; on a terminal it is indented with two spaces. The data is the same either way. Progress lines and notes, which normally go to stderr, are not printed. The exit codes are the same as without `--json`. `--help` and `--version` always print text.
+
+Text in the JSON output is never changed. In the text output for people, control characters from files or arguments (for example the escape character in a cell) are written as `\x1b`, so that a file cannot send commands to the terminal (docs/decisions.md D-R02).
+
+Dates are ISO 8601 text without a time zone, as in CSV: `2024-01-31` at midnight, otherwise `2024-01-31T13:45:00` (with `.sss` when there are milliseconds). Sheet dates have no time zone. Document properties (`created`, `modified` in `inspect`) are instants and keep the `Z`.
 
 The schemas are JSON Schema (draft 2020-12) files in [docs/cli-json/](cli-json/). `tests/cli/json.test.ts` checks the output of every command against them. They use only this subset of JSON Schema:
 - `type`, `properties`, `required`, `additionalProperties`, `items`;
 - `enum`, `const`, `oneOf`, `anyOf`, `minimum`, `pattern`;
 - `$ref` to `$defs`.
 
-The field `xlvane` changes only when a field is removed or changes meaning; new fields may be added within a version.
+The field `xlvane` changes only when a field is removed or changes meaning; new fields may be added within a version, so programs should ignore fields they do not know. The schemas list every field of the current release and forbid others, so that the tests notice an undocumented field.
 
 ## Envelope
 
@@ -57,9 +61,9 @@ The error envelope is defined in [cli-json/common.schema.json](cli-json/common.s
 
 | Command | Schema | `result` |
 |---|---|---|
-| `inspect` | [cli-json/inspect.schema.json](cli-json/inspect.schema.json) | The `inspect()` report ([inspect-json.md](inspect-json.md)). With `--sheet`, only that sheet and its warnings. |
-| `read` | [cli-json/read.schema.json](cli-json/read.schema.json) | `sheet`, `headerRow`, `range`, `columns` (`key`, `header`, `letter`), `rows` (objects keyed by column key; dates as ISO 8601 strings in UTC), `rowNumbers`, `totalRows`, `truncated`. Without `--limit` every row is included. |
-| `convert` | [cli-json/convert.schema.json](cli-json/convert.schema.json) | `input`, `output`, `from`, `to`, `bytes`, `written` (`false` with `--dry-run`), `replaced`. |
+| `inspect` | [cli-json/inspect.schema.json](cli-json/inspect.schema.json) | The `inspect()` report ([inspect-json.md](inspect-json.md)). With `--sheet`, only that sheet and its warnings; `--max-columns` and `--formula-samples` set the options of the same names. |
+| `read` | [cli-json/read.schema.json](cli-json/read.schema.json) | `sheet`, `headerRow`, `range`, `columns` (`key`, `header`, `letter`), `rows` (objects keyed by column key; dates as ISO 8601 text without a time zone), `rowNumbers`, `totalRows`, `truncated`, `warnings` (found while reading the file). The first 50 rows are included unless `--limit` gives another number; `--limit all` includes every row. `truncated` is `true` when rows were left out. |
+| `convert` | [cli-json/convert.schema.json](cli-json/convert.schema.json) | `input`, `output`, `from`, `to`, `bytes`, `written` (`false` with `--dry-run`), `replaced`, `warnings` (found while reading an XLSX input; empty for CSV and JSON input). |
 | `create` | [cli-json/create.schema.json](cli-json/create.schema.json) | Same as `convert`. |
 | `edit` | [cli-json/edit.schema.json](cli-json/edit.schema.json) | `input`, `output`, `rowsInserted`, `rowsDeleted`, `rowSheet` (the sheet of the row options, or `null`), `cellsSet`, `rowsAppended`, `appendSheet`, `warnings`, `bytes`, `written`, `replaced`. |
 | `diff` | [cli-json/diff.schema.json](cli-json/diff.schema.json) | The `diff()` result: `equal`, `sheetsAdded`, `sheetsRemoved`, `sheets` (cell changes with `before` and `after`), `summary`. Every change is included. |

@@ -2,6 +2,22 @@
 // Color L236, Border L248, Borders L258, Alignment L280, Style L295, CellValue L384, FillPattern
 // L167, WorksheetViewFrozen L84); docs/exceljs-compat.md lists what is supported.
 
+import type {
+  AboveAverageRuleType,
+  CellHyperlinkValue,
+  CellIsRuleType,
+  CellRichTextValue,
+  CellSharedFormulaValue,
+  ColorScaleRuleType,
+  ContainsTextRuleType,
+  DataBarRuleType,
+  ExpressionRuleType,
+  GradientStop,
+  IconSetRuleType,
+  TimePeriodRuleType,
+  Top10RuleType,
+} from './compat-types';
+
 /**
  * A colour: `argb` such as `"FFFF0000"`, or a theme index (with optional tint), or an indexed colour.
  *
@@ -20,7 +36,7 @@ export interface Color {
 }
 
 /**
- * Font of a cell. `family`, `scheme` and `charset` are accepted and ignored when writing.
+ * Font of a cell (exceljs `Font`); every property is written and read back.
  *
  * @example
  * ```ts
@@ -93,7 +109,10 @@ export interface Fill {
   pattern?: FillPatterns;
   fgColor?: Partial<Color>;
   bgColor?: Partial<Color>;
-  [key: string]: unknown;
+  gradient?: 'angle' | 'path';
+  degree?: number;
+  center?: { left: number; top: number };
+  stops?: GradientStop[];
 }
 
 /**
@@ -256,7 +275,19 @@ export interface CellFormulaValue {
  * ];
  * ```
  */
-export type CellValue = null | undefined | number | string | boolean | Date | CellErrorValue | CellFormulaValue | Record<string, unknown>;
+export type CellValue =
+  | null
+  | undefined
+  | number
+  | string
+  | boolean
+  | Date
+  | CellErrorValue
+  | CellFormulaValue
+  | CellRichTextValue
+  | CellHyperlinkValue
+  | CellSharedFormulaValue
+  | Record<string, unknown>;
 
 /**
  * A column definition for `worksheet.columns`.
@@ -360,7 +391,7 @@ export interface DataValidation {
   operator?: 'between' | 'notBetween' | 'equal' | 'notEqual' | 'greaterThan' | 'lessThan' | 'greaterThanOrEqual' | 'lessThanOrEqual';
   error?: string;
   errorTitle?: string;
-  errorStyle?: 'stop' | 'warning' | 'information';
+  errorStyle?: 'stop' | 'warning' | 'information' | 'error';
   prompt?: string;
   promptTitle?: string;
   showErrorMessage?: boolean;
@@ -379,12 +410,16 @@ export interface DataValidation {
  * const rule: ConditionalFormattingRule = { type: 'cellIs', operator: 'greaterThan', formulae: [100], style: { font: { bold: true } } };
  * ```
  */
-export interface ConditionalFormattingRule {
-  type: 'expression' | 'cellIs' | 'top10' | 'aboveAverage' | 'colorScale' | 'iconSet' | 'containsText' | 'timePeriod' | 'dataBar';
-  priority?: number;
-  style?: Style;
-  [key: string]: unknown;
-}
+export type ConditionalFormattingRule =
+  | ExpressionRuleType
+  | CellIsRuleType
+  | Top10RuleType
+  | AboveAverageRuleType
+  | ColorScaleRuleType
+  | IconSetRuleType
+  | ContainsTextRuleType
+  | TimePeriodRuleType
+  | DataBarRuleType;
 
 /**
  * The argument of `worksheet.addConditionalFormatting()`: the range and its rules.
@@ -393,7 +428,7 @@ export interface ConditionalFormattingRule {
  * ```ts
  * import type { ConditionalFormattingOptions } from '@xlvane/exceljs';
  *
- * const cf: ConditionalFormattingOptions = { ref: 'B2:B20', rules: [{ type: 'top10', rank: 3, style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFFC7CE' } } } }] };
+ * const cf: ConditionalFormattingOptions = { ref: 'B2:B20', rules: [{ type: 'top10', rank: 3, percent: false, bottom: false, style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFFC7CE' } } } }] };
  * ```
  */
 export interface ConditionalFormattingOptions {

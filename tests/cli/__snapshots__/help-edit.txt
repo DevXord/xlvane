@@ -1,36 +1,43 @@
 xlvane edit — Change cells, insert, delete or append rows, keeping everything else
 
 Usage:
-  xlvane edit <file> (--set <Sheet!A1=value>... | --append <rows.json> | --insert-rows <row> | --delete-rows <row[:row]>) [options]
+  xlvane edit <file> (--set <Sheet!A1=value>... | --append <rows.json> | --insert-rows <row> |
+      --delete-rows <row[:row]>) [options]
 
-Changes cells, and inserts, deletes or appends rows, in an existing file while
-keeping the rest of it (styles, formulas, charts, other sheets) as it is. Values
-in --set are typed like CSV fields: numbers, true/false and ISO 8601 dates are
-recognised, "=..." is a formula, a leading apostrophe keeps the text as typed,
-and an empty value clears the cell. xlvane does not calculate formulas; the
-edited file asks spreadsheet programs to recalculate them when it is opened.
-Rows inserted with --insert-rows or deleted with --delete-rows move the rows
-below, and formulas on every sheet, merged cells, hyperlinks, notes, conditional
-formats, data validation and defined names follow them; sheets with tables,
-pictures or charts are refused. Row changes are applied first, then --set, then
---append, so cell addresses in --set refer to the rows after the change. The
-result goes to --output, or replaces the input with --force.
+Changes cells, and inserts, deletes or appends rows, in an existing file while keeping the rest of
+it (styles, formulas, charts, other sheets) as it is. Values in --set are typed like CSV fields:
+numbers, true/false and ISO 8601 dates are recognised, "=..." is a formula, a leading apostrophe
+keeps the text as typed, and an empty value clears the cell. xlvane does not calculate formulas; the
+edited file asks spreadsheet programs to recalculate them when it is opened. Rows inserted with
+--insert-rows or deleted with --delete-rows move the rows below, and formulas on every sheet, merged
+cells, hyperlinks, notes, conditional formats, data validation, defined names, tables and pictures
+follow them; drawings with charts or shapes, and a deletion that would cut a picture or remove the
+header row, totals row or all data rows of a table, are refused with an error. Row changes are
+applied first, then --set, then --append, so cell addresses in --set refer to the rows after the
+change. The result goes to --output, or replaces the input with --force.
+
+Actions:
+      --set <Sheet!A1=value>            Set a cell (repeatable)
+      --append <rows.json>              Append the rows of a JSON array below the last row
+      --insert-rows <row>               Insert empty rows before this row (needs --sheet)
+      --delete-rows <row[:row]>         Delete these rows (needs --sheet)
 
 Options:
-      --set <Sheet!A1=value>             Set a cell (repeatable)
-      --append <rows.json>               Append the rows of a JSON array below the last row
-      --insert-rows <row>                Insert empty rows before this row (needs --sheet)
-      --count <n>                        How many rows --insert-rows inserts (default 1)
-      --insert-style <above|below|none>  Format new rows like the row above or below (default none)
-      --delete-rows <row[:row]>          Delete these rows (needs --sheet)
-      --sheet <name>                     Sheet for --set without a sheet name, --append and the row options
-  -o, --output <path>                    Write the result to a new file
-      --force                            Replace the output file if it exists
-      --dry-run                          Show what would be written, without writing
-      --json                             Print one JSON document to stdout (docs/cli-json.md)
-  -q, --quiet                            Print only results and errors
-      --verbose                          Print more detail, including stack traces of internal errors
-  -h, --help                             Show help for the command
+      --count <n>                       How many rows --insert-rows inserts (default 1)
+      --insert-style <above|below|none>
+                                        Format new rows like the row above or below (default none)
+      --sheet <name>                    Sheet for --set without a sheet name, --append and the row
+                                        options
+  -o, --output <path>                   Write the result to a new file
+      --force                           Replace the output file if it exists
+      --dry-run                         Show what would be written, without writing
+
+Global options:
+      --json                            Print one JSON document to stdout
+                                        (node_modules/xlvane/docs/cli-json.md)
+  -q, --quiet                           Print only results and errors
+      --verbose                         Print more detail, including stack traces of internal errors
+  -h, --help                            Show help for the command
 
 Examples:
   xlvane edit report.xlsx --set "Sales!B2=1250" -o updated.xlsx

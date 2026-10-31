@@ -40,13 +40,17 @@ export interface StreamZip {
   readonly entries: readonly ZipEntry[];
   /** Finds an entry by name; names are compared case-insensitively (E-58). */
   find(name: string): ZipEntry | undefined;
-  /** Reads a whole entry, with the same limits and checks as `ZipReader.read`. */
-  read(entry: ZipEntry | string): Promise<Uint8Array>;
+  /**
+   * Reads a whole entry, with the same limits and checks as `ZipReader.read`. `maxBytes`, when
+   * given, replaces `maxEntryBytes` for this entry (parts held in memory use a lower bound than
+   * worksheets that are streamed).
+   */
+  read(entry: ZipEntry | string, maxBytes?: number): Promise<Uint8Array>;
   /**
    * Inflates an entry piece by piece. Limits apply to the bytes produced so far; size and CRC-32
    * are checked at the end. Problems are reported as an `XlvError` through the stream.
    */
-  stream(entry: ZipEntry | string): ReadableStream<Uint8Array>;
+  stream(entry: ZipEntry | string, maxBytes?: number): ReadableStream<Uint8Array>;
 }
 
 /**
@@ -176,10 +180,10 @@ class SourceZip implements StreamZip {
     return this.byName.get(name.toLowerCase());
   }
 
-  async read(entry: ZipEntry | string): Promise<Uint8Array> {
+  async read(entry: ZipEntry | string, maxBytes?: number): Promise<Uint8Array> {
     const chunks: Uint8Array[] = [];
     let length = 0;
-    const reader = this.stream(entry).getReader();
+    const reader = this.stream(entry, maxBytes).getReader();
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -197,7 +201,7 @@ class SourceZip implements StreamZip {
   }
 
   /** Checks that apply before any byte of `entry` is read, in the order of `ZipReader.read`. */
-  private precheck(entryOrName: ZipEntry | string): ZipEntry {
+  private precheck(entryOrName: ZipEntry | string, maxEntryBytes: number): ZipEntry {
     const entry = typeof entryOrName === 'string' ? this.find(entryOrName) : entryOrName;
     if (entry === undefined) {
       throw new XlvError('XLV_E_PART_MISSING', `The archive has no entry "${String(entryOrName)}".`, {
@@ -206,8 +210,8 @@ class SourceZip implements StreamZip {
       });
     }
     const { limits } = this;
-    if (entry.uncompressedSize > limits.maxEntryBytes) {
-      throw limitExceeded('maxEntryBytes', limits.maxEntryBytes, `ZIP entry "${entry.name}" declares ${entry.uncompressedSize} bytes, more than the limit.`, entry.name);
+    if (entry.uncompressedSize > maxEntryBytes) {
+      throw limitExceeded('maxEntryBytes', maxEntryBytes, `ZIP entry "${entry.name}" declares ${entry.uncompressedSize} bytes, more than the limit.`, entry.name);
     }
     if (this.produced + entry.uncompressedSize > limits.maxTotalBytes) {
       throw limitExceeded('maxTotalBytes', limits.maxTotalBytes, 'The decompressed parts of the file are larger than the limit.', entry.name);
@@ -227,7 +231,7 @@ class SourceZip implements StreamZip {
     return entry;
   }
 
-  stream(entryOrName: ZipEntry | string): ReadableStream<Uint8Array> {
+  stream(entryOrName: ZipEntry | string, maxBytes?: number): ReadableStream<Uint8Array> {
     let entry: ZipEntry;
     let pieces: AsyncIterator<Uint8Array> | null = null;
     let inflater: Inflate | null = null;
@@ -238,12 +242,13 @@ class SourceZip implements StreamZip {
     let finished = false;
     const zip = this;
     const { limits } = this;
+    const maxEntryBytes = Math.min(maxBytes ?? limits.maxEntryBytes, limits.maxEntryBytes);
 
     const take = (chunk: Uint8Array): void => {
       produced += chunk.length;
       zip.produced += chunk.length;
-      if (produced > limits.maxEntryBytes) {
-        throw limitExceeded('maxEntryBytes', limits.maxEntryBytes, `ZIP entry "${entry.name}" decompresses to more than the limit.`, entry.name);
+      if (produced > maxEntryBytes) {
+        throw limitExceeded('maxEntryBytes', maxEntryBytes, `ZIP entry "${entry.name}" decompresses to more than the limit.`, entry.name);
       }
       if (zip.produced > limits.maxTotalBytes) {
         throw limitExceeded('maxTotalBytes', limits.maxTotalBytes, 'The decompressed parts of the file are larger than the limit.', entry.name);
@@ -285,7 +290,7 @@ class SourceZip implements StreamZip {
 
     return new ReadableStream<Uint8Array>({
       start: () => {
-        entry = zip.precheck(entryOrName);
+        entry = zip.precheck(entryOrName, maxEntryBytes);
         pieces = zip.source.pieces(entry.dataOffset, entry.dataOffset + entry.compressedSize);
         if (entry.method === METHOD_DEFLATE) {
           inflater = new Inflate();

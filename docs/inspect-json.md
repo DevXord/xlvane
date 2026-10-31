@@ -41,7 +41,9 @@
 | `rowCount`, `columnCount` | number | size of `usedRange` |
 | `cellCount` | number | cells with a value or formula |
 | `formulaCount` | number | cells with a formula |
-| `mergedRanges` | string[] | merged ranges, e.g. `["A1:D1"]` |
+| `mergedRanges` | string[] | merged ranges, e.g. `["A1:D1"]`; at most the first 100 |
+| `mergedRangeCount` | number | number of merged ranges on the sheet |
+| `mergedRangesTruncated` | boolean | `true` when `mergedRanges` lists only the first 100 |
 | `headerRow` | `{ row, confidence }` or `null` | detected header row (1-based) and `"high"` or `"low"` confidence |
 | `columns` | array of column objects | one per column of `usedRange`, at most `maxColumns` |
 | `columnsTruncated` | boolean | `usedRange` has more columns than were described |
@@ -62,7 +64,12 @@
 | `conditionalFormatCount` | number | conditional formatting rules over all ranges (`Sheet.conditionalFormats`) |
 | `tables` | array | tables of the sheet (`Sheet.tables`): `name` (the name used in formulas), `ref` (header and totals rows included) and `columns` (column names); at most 20 tables and 50 columns each |
 
-**Header detection.** Among the first `headerScanRows` non-empty rows, the header row is the first one whose cells are all distinct, non-blank strings and cover at least half of the used width. The confidence is `"high"` when the next non-empty row contains a value that is not a string (number, date, boolean or error), otherwise `"low"`. This is a heuristic; check `confidence` before relying on it.
+**Header detection.** Among the first `headerScanRows` non-empty rows, the header row is the first one in which:
+- cells with a formula are left out (a total such as `=SUM(B3:B9)` may sit next to the column names);
+- every other cell is non-blank text or a year: a whole number from 1900 to 2100 (`Region | 2023 | 2024`). The years of the row must be consecutive, and in the next non-empty row at least one value below them must not be such a year, so that a data row with years (`Alice | 1985`) is not taken for a header;
+- at least one cell is text, and the cells cover at least half of the used width.
+
+Repeated names are allowed; `readTable` gives the second one the key `name_2`, and so on. The confidence is `"high"` when the names are distinct and the next non-empty row contains a value that is not text (number, date, boolean or error), otherwise `"low"`. A year used as a column name is reported as text in `header` (`"2023"`). This is a heuristic; check `confidence` before relying on it, or give the header row yourself (`readTable(…, { header: 2 })`, `xlvane read --header 2`).
 
 ## Column
 
@@ -75,7 +82,7 @@
 | `types` | `{ number, string, boolean, date, error, empty }` | counts over the data rows: the rows below the header row (or all rows without one) down to the end of `usedRange` |
 | `samples` | array | up to three distinct example values from the data rows |
 
-Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 characters) and dates as ISO 8601 strings **without a time zone** (`"2024-01-31T13:45:00.000"`), because spreadsheet dates have no time zone. Error cells appear as their code, e.g. `"#DIV/0!"`.
+Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 characters) and dates as ISO 8601 strings **without a time zone**, as in CSV: the date alone at midnight (`"2024-01-31"`), otherwise date and time (`"2024-01-31T13:45:00"`, with `.sss` when there are milliseconds), because spreadsheet dates have no time zone. Error cells appear as their code, e.g. `"#DIV/0!"`.
 
 ## Warning
 
@@ -112,6 +119,8 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
       "cellCount": 9,
       "formulaCount": 1,
       "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
       "formulas": [{ "cell": "C3", "formula": "SUM(C2:C2)" }],
       "richTextCellCount": 0,
       "richTextCells": [],
@@ -132,7 +141,7 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
       "columnCount": 3,
       "headerRow": { "row": 1, "confidence": "high" },
       "columns": [
-        { "index": 1, "letter": "A", "header": "Date", "dominantType": "date", "types": { "number": 0, "string": 0, "boolean": 0, "date": 2, "error": 0, "empty": 0 }, "samples": ["2024-01-31T00:00:00.000", "2024-02-01T00:00:00.000"] },
+        { "index": 1, "letter": "A", "header": "Date", "dominantType": "date", "types": { "number": 0, "string": 0, "boolean": 0, "date": 2, "error": 0, "empty": 0 }, "samples": ["2024-01-31", "2024-02-01"] },
         { "index": 2, "letter": "B", "header": "Customer", "dominantType": "string", "types": { "number": 0, "string": 1, "boolean": 0, "date": 0, "error": 0, "empty": 1 }, "samples": ["ACME"] },
         { "index": 3, "letter": "C", "header": "Amount", "dominantType": "number", "types": { "number": 2, "string": 0, "boolean": 0, "date": 0, "error": 0, "empty": 0 }, "samples": [100.5] }
       ],

@@ -6,7 +6,32 @@ Read, inspect and write XLSX files; input files are treated as untrusted. ESM on
 npm install xlvane
 ```
 
-The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access.
+The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access: after installing, they are in `node_modules/xlvane/`. Links below point to the same files on GitHub.
+
+## Quick start
+
+```ts
+import { inspect, readTable, writeTable } from 'xlvane';
+import { readWorkbookFile } from 'xlvane/node';
+
+const workbook = await readWorkbookFile('orders.xlsx');
+console.log(inspect(workbook).sheets.map((s) => [s.name, s.usedRange])); // what is in the file
+const { rows } = readTable(workbook, { sheet: 'Orders' }); // [{ Customer: 'Ann', Total: 120.5 }, …]
+const big = rows.filter((row) => typeof row['Total'] === 'number' && row['Total'] > 100);
+const bytes = writeTable(big, { sheet: 'Big orders' }); // a formatted .xlsx file as a Uint8Array
+```
+
+From a shell: `npx xlvane inspect orders.xlsx`, then `npx xlvane read orders.xlsx --sheet Orders`.
+
+## Contents
+
+- [Command line in 5 minutes](#command-line-in-5-minutes)
+- [Reading a workbook](#reading-a-workbook) · [Writing a workbook](#writing-a-workbook) (rich text, hyperlinks, notes, images, printing, [data validation and conditional formatting](#data-validation-and-conditional-formatting), [tables](#tables))
+- [Tasks in one call](#tasks-in-one-call): tables of rows, CSV, JSON, editing files, diff · [inserting and deleting rows](#inserting-and-deleting-rows)
+- [Large files: streaming](#large-files-streaming)
+- [Inspecting a workbook](#inspecting-a-workbook) · [Errors and warnings](#errors-and-warnings) · [Untrusted input and limits](#untrusted-input-and-limits)
+- [Limitations](#limitations) · [Package size](#package-size)
+- exceljs users: [`@xlvane/exceljs`](https://www.npmjs.com/package/@xlvane/exceljs) and `xlvane migrate`
 
 ## Tested environments
 
@@ -30,8 +55,9 @@ xlvane help edit                          # usage and examples of one command
 
 - Nothing is overwritten without `--force`. Commands that write accept `--dry-run` and end with the path they wrote.
 - Errors say what happened, where, and what to do next, often with a ready-to-run `Try:` command; typos get "Did you mean …?".
-- `--json` prints one JSON document per command with a documented schema ([docs/cli-json.md](../../docs/cli-json.md)). Exit codes: 0 success, 1 a check found something (`diff`, `validate`), 2 usage error, 3 input or file error.
-- Colour is used only on a terminal and never carries information alone; `NO_COLOR` turns it off.
+- `--json` prints one JSON document per command with a documented schema ([docs/cli-json.md](https://github.com/DevXord/xlvane/blob/main/docs/cli-json.md)). Exit codes: 0 success, 1 a check found something (`diff`, `validate`), 2 usage error, 3 input or file error.
+- Colour (red errors, yellow warnings, green results, bold headings) is used only on a terminal and never carries information alone; `NO_COLOR` or `TERM=dumb` turn it off, `FORCE_COLOR=1` turns it on. Control characters from files, such as an escape character in a cell, are shown as `\x1b` and never reach the terminal.
+- Tables and summaries go to separate streams: `xlvane read report.xlsx > out.txt` writes only the table; the row count and warnings notes go to stderr.
 - `xlvane migrate` prepares a project for `@xlvane/exceljs`.
 
 ## Reading a workbook
@@ -39,6 +65,7 @@ xlvane help edit                          # usage and examples of one command
 ```ts
 import { readWorkbook } from 'xlvane';
 
+declare const bytes: Uint8Array; // the file's contents
 const workbook = readWorkbook(bytes); // Uint8Array or ArrayBuffer
 const sheet = workbook.getSheet('Sales');
 console.log(sheet.cell('B2')?.value);
@@ -81,7 +108,7 @@ In Node.js, `writeWorkbookFile(workbook, 'sales.xlsx')` from `xlvane/node` write
 - Workbook: `workbook.views([{ x, y, width, height, firstSheet, activeTab, visibility }])` sets the workbook windows and `workbook.calculation({ fullCalcOnLoad: true })` asks applications to recalculate when the file is opened.
 - Writer options: `writeWorkbook(workbook, { sharedStrings: false })` writes text inline instead of in a shared string table; `{ compressionLevel: 0 }` (0–9, default 6) stores or compresses the parts. The same options work for `writeWorkbookFile` and, with `compressionLevel`, `writeWorkbookStream`.
 - Invalid input is rejected when it is set, with an `XlvError` saying what and where, for example `XLV_E_INVALID_SHEET_NAME` or `XLV_E_INVALID_STYLE` with the allowed values.
-- The output is deterministic: the same workbook always gives the same bytes. The test suite opens written files that use all of these features in LibreOffice and checks the values, styles and layout it sees.
+- The output is deterministic: the same workbook always gives the same bytes. The exception is a protection password (`protect({ password })`), whose verifier gets a random salt; pass a fixed salt through `hashPassword` for identical bytes. The test suite opens written files that use all of these features in LibreOffice and checks the values, styles and layout it sees.
 
 Reading returns the same information: `cell.style`, `cell.formula`, `sheet.columns`, `sheet.rowInfo(row)`, `sheet.properties`, `sheet.freeze` and `sheet.autoFilter`.
 
@@ -171,6 +198,28 @@ console.log(read.pageSetup.orientation, read.printArea, read.printTitles, read.p
 - **Protection:** `protect(flags)` turns on sheet protection. Each flag is `true` when the action is locked, as in the file: `protect({ sort: false })` keeps sorting allowed. Flags not given keep the schema defaults. `protect({ password: 'secret' })` stores a SHA-512 password verifier (100,000 iterations, random salt; `hashPassword` gives a fixed salt or another algorithm), and `workbook.protect({ password })` protects the workbook structure. A protection password is not encryption: the content stays readable, and spreadsheet applications only refuse changes without it. Reading gives `sheet.protection` and `workbook.protection`; `verifyPassword(protection, password)` checks a password against them, including legacy 4-digit verifiers.
 - **Reading** gives `sheet.pageSetup` (with defaults), `sheet.headerFooter`, `sheet.pageBreaks`, `sheet.printArea` and `sheet.printTitles`. `writeWorkbookStream` takes the same settings per sheet (`pageSetup`, `headerFooter`, `pageBreaks`, `printArea`, `printTitles`, `protect`).
 
+### Data validation and conditional formatting
+
+```ts
+import { createWorkbook, readWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook();
+const sheet = workbook.addSheet('Orders').set('A1', 'Status').set('B1', 'Quantity').set('C1', 'Total');
+sheet.validate('A2:A500', { type: 'list', formula1: '"Open,Shipped,Paid"', showErrorMessage: true, error: 'Pick a status from the list.' });
+sheet.validate('B2:B500', { type: 'whole', operator: 'greaterThan', formula1: 0, showInputMessage: true, prompt: 'Quantity, at least 1' });
+sheet.conditionalFormat('C2:C500', [
+  { type: 'cellIs', operator: 'greaterThan', formulas: [1000], style: { fill: { pattern: 'solid', fgColor: 'FFC7CE' } } },
+  { type: 'colorScale', colorScale: { cfvo: [{ type: 'min' }, { type: 'max' }], colors: ['F8696B', '63BE7B'] } },
+]);
+
+const read = readWorkbook(writeWorkbook(workbook)).getSheet('Orders');
+console.log(read.dataValidations.length, read.conditionalFormats.map((f) => f.sqref));
+```
+
+- **Data validation:** `validate(range, rule)` with `type` `list`, `whole`, `decimal`, `date`, `time`, `textLength` or `custom`, an `operator`, `formula1`/`formula2`, input and error messages. `validate(range, null)` removes the validations added for exactly that range. Rules that Office would reject (a missing `formula1`, a message longer than the Office limit) throw `XLV_E_INVALID_OPTION` naming the property.
+- **Conditional formatting:** `conditionalFormat(range, rules)` with `cellIs`, `expression`, `colorScale`, `dataBar`, `iconSet`, `top10`, `aboveAverage`, `containsText`, `timePeriod`, `duplicateValues` and the other rule types of the file format; `style` is a differential style (font, fill, border, number format). Priorities are numbered in the order the rules are added unless given.
+- **Reading** gives `sheet.dataValidations` and `sheet.conditionalFormats`; `insertRows` and `deleteRows` move them with their rows, and `editCells` keeps them unchanged.
+
 ### Tables
 
 ```ts
@@ -201,6 +250,8 @@ console.log(readTable(bytes, { table: 'Sales' }).rows); // [{ Region: 'North', R
 import { readTable, writeTable, editCells, appendRows, diff, toCSV, fromCSV, toJSON, fromJSON } from 'xlvane';
 import { z } from 'zod'; // or any Standard Schema library: Valibot, ArkType, …
 
+declare const bytes: Uint8Array; // the file's contents
+
 // Rows as objects, validated; problems come with cell addresses.
 const { rows, issues } = readTable(bytes, { sheet: 'Orders', schema: z.object({ Customer: z.string(), Total: z.number() }) });
 
@@ -222,8 +273,11 @@ const fromData = fromJSON([{ sku: 'A-1', stock: 12 }]);
 ```
 
 - `readTable` finds the header row like `inspect()`, or takes `header: 3` or `header: false`. With a schema, `rows` has the schema's output type. Asynchronous schemas need `readTableAsync`.
+- Warnings about the file (for example a shared formula that could not be expanded) are in `workbook.warnings`; `readTable`, `readTableAsync`, `toJSON` and `toCSV` also pass each of them to `onWarning`: `readTable(bytes, { onWarning: (w) => console.warn(w.code, w.message) })`.
+- Dates: `readTable` returns `Date`s (their UTC fields hold the sheet's date and time); `dates: "iso"`, `toJSON` and `toCSV` give ISO 8601 text without a time zone, `2024-01-31` or `2024-01-31T13:45:00`.
 - `editCells` and `appendRows` change only the cells they write, plus new entries in the shared strings and styles. Charts, comments, conditional formatting, data validation, defined names and every other part are kept byte for byte. xlvane does not calculate formulas. When the workbook has formulas, the result carries `XLV_W_FORMULAS_NOT_RECALCULATED` and the file asks spreadsheet applications to recalculate on load.
-- `fromCSV` never creates formulas. It converts plain numbers, booleans and ISO dates (`types: "infer"`); numbers with leading zeros or more than 15 digits stay text.
+- `fromCSV` never creates formulas. It converts plain numbers, booleans and ISO dates (`types: "infer"`); numbers with leading zeros, whole numbers with more than 15 digits (IDs) and numbers a double cannot hold (`1e400`, `1e-400`) stay text. Every number `toCSV` writes reads back as the same number, except whole numbers above 15 digits. At most `maxCells` fields are read (default 5 000 000).
+- Round trips: XLSX → CSV → XLSX keeps numbers, booleans and dates. XLSX → JSON → XLSX keeps numbers and booleans, but dates come back as text, because JSON has no date type and `fromJSON` does not guess; convert such fields to `Date` before `fromJSON` or `writeTable`.
 - Shared formulas are translated to each cell when reading. If a formula cannot be translated safely, its `formula.text` is `null` and the reader reports `XLV_W_SHARED_FORMULA_NOT_EXPANDED`.
 
 ### Inserting and deleting rows
@@ -241,7 +295,7 @@ const { bytes: shorter } = deleteRows(wider, { sheet: 'Orders', at: 10, count: 3
 - Like `editCells`, they change an existing file in place and keep every other part as it was.
 - References follow the rows as in a spreadsheet application: formulas on every sheet, merged cells, hyperlinks, notes, the autofilter, conditional formats, data validation, page breaks and defined names. A range grows when rows are inserted inside it and shrinks when some of its rows are deleted; a reference whose cells are all deleted becomes `#REF!`. The rules are in docs/facts/ref-adjust.md (observed in LibreOffice; not yet checked against Excel).
 - Tables move, grow and shrink with their rows; deleting a table's header row, totals row or all of its data rows is refused.
-- Sheets with pictures, charts, pivot tables or form controls, and formulas xlvane cannot rewrite safely (for example 3-D references such as `Jan:Mar!A1` that include the sheet), are refused with `XLV_E_NOT_SUPPORTED`. Data that would be pushed past row 1048576 gives `XLV_E_LIMIT_EXCEEDED`.
+- Pictures move with their rows. Drawings with charts, shapes or form controls, a deletion that would cut a picture, parts xlvane cannot rewrite (charts or pivot tables that may refer to the sheet), and formulas xlvane cannot rewrite safely (for example 3-D references such as `Jan:Mar!A1` that include the sheet) are refused with `XLV_E_NOT_SUPPORTED`. Data that would be pushed past row 1048576 gives `XLV_E_LIMIT_EXCEEDED`.
 - Sheet views (selection, frozen panes) are not changed.
 - `adjustFormula` and `adjustRange` apply the same rules to formula text you hold yourself.
 
@@ -250,6 +304,10 @@ const { bytes: shorter } = deleteRows(wider, { sheet: 'Orders', at: 10, count: 3
 ```ts
 import { openWorkbookStream, writeWorkbookStream, readTableStream } from 'xlvane';
 import { openWorkbookStreamFile, writeWorkbookStreamFile } from 'xlvane/node';
+import { z } from 'zod';
+
+declare const file: Blob; // a File from an <input>, or fs.openAsBlob(path) in Node.js
+const schema = z.object({ id: z.number(), value: z.number() });
 
 // Read row by row: worksheet cells are never all in memory. A Blob (File, fs.openAsBlob) also
 // keeps the file itself out of memory.
@@ -272,6 +330,7 @@ const stream = writeWorkbookStream({ sheets: [{ name: 'Data', rows: rows() }] })
 - Streamed text is stored in the cells (inline strings) by default. Pass `sharedStrings: true` for a shared string table, which is smaller when values repeat but kept in memory until the end.
 - Rows come in file order. A shared formula whose master cell comes later in the file cannot be translated while streaming.
 - `maxCells` does not apply when streaming; single parts may decompress to 4 GiB (`STREAM_LIMIT_DEFAULTS`). All other limits apply.
+- `readTableStream` differs from `readTable` in what it can see in advance: it detects the header row among the first rows it reads and fixes the columns there (the columns of the header row, or of the first rows without one), so a column that first appears further down is not part of the objects. `readTable` takes the columns of the whole sheet. For files that fit in memory, `readTable` gives the complete table.
 
 ## Benchmark
 
@@ -289,19 +348,20 @@ The streaming reader of exceljs was faster than xlvane's in this run (4.60 s aga
 
 ## Inspecting a workbook
 
-`inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas, rich-text cells, column styles, document properties, defined names and warnings. The schema is documented in [docs/inspect-json.md](../../docs/inspect-json.md).
+`inspect()` returns plain JSON data about the structure of a workbook: sheets and their visibility, used ranges, a detected header row, column types with example values, merged cells, formulas, rich-text cells, column styles, document properties, defined names and warnings. The schema is documented in [docs/inspect-json.md](https://github.com/DevXord/xlvane/blob/main/docs/inspect-json.md).
 
 ```ts
 import { inspect } from 'xlvane';
 import { inspectFile } from 'xlvane/node';
 
+declare const bytes: Uint8Array;
 const report = inspect(bytes);          // or: await inspectFile('report.xlsx')
 console.log(JSON.stringify(report, null, 2));
 ```
 
 ## Errors and warnings
 
-Problems with input files throw `XlvError` with a stable `code` (for example `XLV_E_SHEET_NOT_FOUND`), a `location` (part, sheet, cell), a `hint` saying what to do next and a `docsUrl`. `error.toJSON()` returns the same as data. Recoverable oddities are reported as warnings in `workbook.warnings`. All codes are described in [docs/errors.md](../../docs/errors.md).
+Problems with input files throw `XlvError` with a stable `code` (for example `XLV_E_SHEET_NOT_FOUND`), a `location` (part, sheet, cell), a `hint` saying what to do next and a `docsUrl`. `error.toJSON()` returns the same as data. Recoverable oddities are reported as warnings in `workbook.warnings`. All codes are described in [docs/errors.md](https://github.com/DevXord/xlvane/blob/main/docs/errors.md).
 
 ## Untrusted input and limits
 
@@ -331,8 +391,13 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 ## Package size
 
-**Size budget:** 300 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 171.1 kB on 2026-10-30, after phase C). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 20.3 kB). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
+**Size budget:** 300 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 208.6 kB on 2026-10-31). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 25.7 kB on 2026-10-31). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
-Not supported: password-protected workbooks and legacy `.xls` files (both rejected with `XLV_E_UNSUPPORTED_CONTAINER`).
+## Limitations
+
+- xlvane does not calculate formulas. It reads and writes formula text and the cached results stored in the file; edited files ask spreadsheet applications to recalculate when they are opened.
+- Password-protected (encrypted) workbooks and legacy `.xls` files are rejected with `XLV_E_UNSUPPORTED_CONTAINER`. A sheet protection password is not encryption and is supported.
+- Charts, shapes, pivot tables, slicers and form controls are not modelled: reading skips them (with a warning for drawings), `editCells` keeps them unchanged, and row operations refuse sheets where they would have to move.
+- The command line reads files, not standard input.
 
 License: MIT

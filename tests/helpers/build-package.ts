@@ -20,14 +20,17 @@ export function binOf(pkg: string, bin: string): string {
 
 const DIRS = { xlvane: 'packages/xlvane', '@xlvane/exceljs': 'packages/exceljs' } as const;
 
-/** Builds `name` into `<modules>/<install name>`; returns that directory. */
-export async function buildPackage(name: keyof typeof DIRS, modules: string, installAs: string = name): Promise<string> {
+/**
+ * Builds `name` into `<modules>/<install name>`; returns that directory. Declaration files are
+ * built only with `{ dts: true }` (slower; needed by type tests of the published package).
+ */
+export async function buildPackage(name: keyof typeof DIRS, modules: string, installAs: string = name, options: { readonly dts?: boolean } = {}): Promise<string> {
   const target = join(modules, installAs);
   await mkdir(target, { recursive: true });
   const cwd = join(REPO, DIRS[name]);
   // tsdown's JS entry run by this Node.js binary: no shell and no `npx`, which is `npx.cmd` on
   // Windows and cannot be spawned without a shell.
-  const build = spawnSync(process.execPath, [binOf('tsdown', 'tsdown'), '--out-dir', join(target, 'dist'), '--no-dts'], { cwd, encoding: 'utf8', timeout: 180_000 });
+  const build = spawnSync(process.execPath, [binOf('tsdown', 'tsdown'), '--out-dir', join(target, 'dist'), ...(options.dts === true ? [] : ['--no-dts'])], { cwd, encoding: 'utf8', timeout: 180_000 });
   if (build.status !== 0) throw new Error(`build of ${name} failed (${build.error?.message ?? `exit ${String(build.status)}`}):\n${build.stdout}\n${build.stderr}`);
   await copyFile(join(cwd, 'package.json'), join(target, 'package.json'));
   return target;

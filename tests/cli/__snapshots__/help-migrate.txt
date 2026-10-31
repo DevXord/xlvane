@@ -3,18 +3,18 @@ xlvane migrate — Switch a project from exceljs to @xlvane/exceljs
 Usage:
   xlvane migrate [project-dir] [options]
 
-Prepares a project for @xlvane/exceljs, which offers the commonly used exceljs
-API. It shows the change to package.json ("exceljs": "npm:@xlvane/exceljs@^1",
-an npm alias, so the code keeps importing "exceljs") and lists places in the
-source code that use exceljs API outside the supported subset. Only files that
-mention exceljs are scanned (node_modules and dot folders are skipped), and
-matching is textual. package.json is changed only with --force; nothing else is
-changed.
+Prepares a project for @xlvane/exceljs, which offers the commonly used exceljs API. It shows the
+change to package.json ("exceljs": "npm:@xlvane/exceljs@^1", an npm alias, so the code keeps
+importing "exceljs") and lists places in the source code that use exceljs API outside the supported
+subset. Only files that mention exceljs are scanned (node_modules and dot folders are skipped), and
+matching is textual. package.json is changed only with --force; nothing else is changed.
 
 Options:
-      --force    Replace the output file if it exists
-      --dry-run  Show what would be written, without writing
-      --json     Print one JSON document to stdout (docs/cli-json.md)
+      --force    Change package.json (without it, only the report is printed)
+      --dry-run  Show the change to package.json without writing it
+
+Global options:
+      --json     Print one JSON document to stdout (node_modules/xlvane/docs/cli-json.md)
   -q, --quiet    Print only results and errors
       --verbose  Print more detail, including stack traces of internal errors
   -h, --help     Show help for the command
@@ -28,4 +28,3 @@ Examples:
       The report as JSON
 
 Exit codes: 0 success, 2 usage error, 3 input or file error.
-Related: xlvane help

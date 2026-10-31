@@ -113,7 +113,7 @@ function fontIn(f: Partial<Font> | undefined): CellStyle['font'] {
 
 function fillIn(f: Fill | undefined): CellStyle['fill'] {
   if (!f) return undefined;
-  if (f.type === 'gradient') return gradientIn(f as Record<string, unknown>);
+  if (f.type === 'gradient') return gradientIn(f as unknown as Record<string, unknown>);
   if (f.type !== 'pattern') return notSupported(`A fill of type "${String(f.type)}"`);
   if (!f.pattern || f.pattern === 'none') return undefined;
   const out: Record<string, unknown> = { pattern: f.pattern };
@@ -281,13 +281,21 @@ export function resultIn(r: unknown): { result?: CellInput } {
   return { result: r as number };
 }
 
+/** The cached result of a formula as a plain value (`null` without one). */
+function resultValue(r: unknown): CellInput {
+  return resultIn(r).result ?? null;
+}
+
 /**
  * The range of each shared formula of a worksheet, by master address, as exceljs computes it on
  * write (cell-xform.js L94–160; X4-29): from the master to the last of its dependents, or the
- * `ref` of a `{ formula, ref }` master that is not an array formula.
+ * `ref` of a `{ formula, ref }` master that is not an array formula. Only groups the core can write
+ * as shared formulas are returned.
  */
 export function sharedFormulaRanges(ws: Worksheet): Map<string, string> {
-  const bounds = new Map<string, { top: number; left: number; bottom: number; right: number }>();
+  type Box = { top: number; left: number; bottom: number; right: number };
+  const bounds = new Map<string, Box>();
+  const arrays: Box[] = [];
   const grow = (master: string, row: number, col: number): void => {
     const b = bounds.get(master);
     if (!b) {
@@ -300,22 +308,57 @@ export function sharedFormulaRanges(ws: Worksheet): Map<string, string> {
     b.bottom = Math.max(b.bottom, row);
     b.right = Math.max(b.right, col);
   };
+  const box = (ref: string, fallback: string): Box => {
+    const [a, b = a] = ref.split(':');
+    const s = decodeAddress(a ?? fallback);
+    const e = decodeAddress(b ?? fallback);
+    return { top: Math.min(s.row, e.row), left: Math.min(s.col, e.col), bottom: Math.max(s.row, e.row), right: Math.max(s.col, e.col) };
+  };
+  const formulaMasters = new Set<string>();
   for (const row of ws._rows) {
     for (const cell of row?._cells ?? []) {
       const v = cell?.value;
       if (!cell || !isRecord(v)) continue;
       if (typeof v['sharedFormula'] === 'string') grow(v['sharedFormula'].replace(/\$/g, '').toUpperCase(), cell.row, cell.col);
-      else if (typeof v['formula'] === 'string' && v['shareType'] !== 'array' && typeof v['ref'] === 'string') {
-        const [a, b = a] = v['ref'].split(':');
-        const s = decodeAddress(a ?? cell.address);
-        const e = decodeAddress(b ?? cell.address);
-        grow(cell.address, s.row, s.col);
-        grow(cell.address, e.row, e.col);
+      else if (typeof v['formula'] === 'string') {
+        formulaMasters.add(cell.address);
+        if (typeof v['ref'] !== 'string') continue;
+        const r = box(v['ref'], cell.address);
+        if (v['shareType'] === 'array') arrays.push(r);
+        else {
+          grow(cell.address, r.top, r.left);
+          grow(cell.address, r.bottom, r.right);
+        }
       }
     }
   }
+  // A group is written as a shared formula only when the core can write it: its master holds a
+  // formula, is the top-left cell of the range, and the range overlaps no other group or array
+  // formula (F2-15). Other groups, which files can contain, are written as ordinary formulas by
+  // valueIn (docs/decisions.md D-R01).
+  const groups = [...bounds].filter(([master, b]) => {
+    if (!formulaMasters.has(master)) return false;
+    const m = decodeAddress(master);
+    return m.row === b.top && m.col === b.left;
+  });
+  const overlaps = (a: Box, b: Box): boolean => a.top <= b.bottom && b.top <= a.bottom && a.left <= b.right && b.left <= a.right;
+  const bad = new Set<string>();
+  const sorted = [...groups].sort((x, y) => x[1].top - y[1].top);
+  for (let i = 0; i < sorted.length; i++) {
+    const [mi, bi] = sorted[i]!;
+    for (let j = i + 1; j < sorted.length && sorted[j]![1].top <= bi.bottom; j++) {
+      const [mj, bj] = sorted[j]!;
+      if (overlaps(bi, bj)) {
+        bad.add(mi);
+        bad.add(mj);
+      }
+    }
+    if (arrays.some((a) => overlaps(a, bi))) bad.add(mi);
+  }
   const out = new Map<string, string>();
-  for (const [master, b] of bounds) out.set(master, `${columnLetter(b.left)}${String(b.top)}:${columnLetter(b.right)}${String(b.bottom)}`);
+  for (const [master, b] of groups) {
+    if (!bad.has(master)) out.set(master, `${columnLetter(b.left)}${String(b.top)}:${columnLetter(b.right)}${String(b.bottom)}`);
+  }
   return out;
 }
 
@@ -333,7 +376,15 @@ export function valueIn(cell: Cell, sharedRanges?: ReadonlyMap<string, string>):
     }
     // Shared and array formulas (D-E02; X4-29): a dependent names its master, a master gets the
     // range of its dependents, an array formula its `ref`.
-    if (typeof v['sharedFormula'] === 'string') return { sharedFormula: v['sharedFormula'].replace(/\$/g, '').toUpperCase(), ...resultIn(v['result']) } as CellInput;
+    if (typeof v['sharedFormula'] === 'string') {
+      const master = v['sharedFormula'].replace(/\$/g, '').toUpperCase();
+      if (sharedRanges === undefined || sharedRanges.has(master)) return { sharedFormula: master, ...resultIn(v['result']) } as CellInput;
+      // A group the core cannot write as shared (see sharedFormulaRanges): the formula of this
+      // cell, translated from its master as exceljs's `cell.formula` does, or else its result.
+      const text = cell.formula;
+      if (text !== undefined) return { formula: text, ...resultIn(v['result']) } as CellInput;
+      return resultValue(v['result']);
+    }
     if (typeof v['formula'] === 'string') {
       const base = { formula: v['formula'], ...resultIn(v['result']) };
       if (v['shareType'] === 'array' && typeof v['ref'] === 'string') return { ...base, array: v['ref'] } as CellInput;
@@ -462,7 +513,11 @@ export function layoutIn(ws: Worksheet): SheetLayoutIn {
     if (v.state === 'frozen') freeze = { rows: v.ySplit ?? 0, cols: v.xSplit ?? 0 };
     else if (v.state === 'split' && ((v.xSplit ?? 0) > 0 || (v.ySplit ?? 0) > 0)) view.split = { x: (v.xSplit ?? 0) / 20, y: (v.ySplit ?? 0) / 20 };
   }
-  const tab = ws.properties['tabColor'] as Partial<Color> | undefined;
+  let tab = ws.properties['tabColor'] as Partial<Color> | undefined;
+  // The exceljs README sets a red tab with the 7-digit argb "FFC0000", which exceljs writes as
+  // given (sheet-properties-xform.js L27, color-xform.js L19–20) although an ARGB value has 8 hex digits (ST_UnsignedIntHex).
+  // xlvane completes such a value with a final 0 ("FFC00000"), keeping the alpha FF (D-R01).
+  if (tab && typeof tab.argb === 'string' && /^[0-9A-Fa-f]{7}$/.test(tab.argb)) tab = { ...tab, argb: `${tab.argb}0` };
   return { freeze, view, tabColor: colorIn(tab, `the tab colour of worksheet "${ws.name}"`) };
 }
 
@@ -511,6 +566,25 @@ export function sheetPropertiesIn(props: Record<string, unknown>): SheetProperti
   return out as SheetPropertiesOptions;
 }
 
+/**
+ * Runs `run`; an XlvError without a sheet in its location gets the worksheet (and the cell), so
+ * an error found while writing says where the value came from (D-R01).
+ */
+function at<T>(sheet: string, cell: string | undefined, run: () => T): T {
+  try {
+    return run();
+  } catch (error) {
+    if (!(error instanceof XlvError) || error.location.sheet !== undefined) throw error;
+    const where = cell === undefined ? `Worksheet "${sheet}"` : `Worksheet "${sheet}", cell ${cell}`;
+    throw new XlvError(error.code, `${where}: ${error.message}`, {
+      location: { ...error.location, sheet, ...(cell === undefined ? {} : { cell }) },
+      hint: error.hint,
+      details: error.details,
+      cause: error,
+    });
+  }
+}
+
 /** Builds an xlvane workbook from the exceljs model (D-503). */
 export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, meta: WorkbookMeta = {}): NewWorkbook {
   const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}) });
@@ -543,7 +617,7 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   // exceljs writes calcPr always, with calcId 171027 (workbook-calc-properties-xform.js); xlvane
   // writes it only for fullCalcOnLoad, without an application's calcId (X4-28).
   if (meta.calcProperties?.['fullCalcOnLoad']) book.calculation({ fullCalcOnLoad: true });
-  for (const ws of sheets) {
+  for (const ws of sheets) at(ws.name, undefined, () => {
     const sheet = book.addSheet(ws.name, { state: ws.state });
     const useStyles = meta.useStyles !== false;
     const sharedRanges = sharedFormulaRanges(ws);
@@ -574,17 +648,19 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         });
       }
       row._cells.forEach((cell) => {
-        if (!cell) return;
-        const note = noteIn(cell);
-        if (note) sheet.note(cell.address, note);
-        const style = useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {};
-        const value = cell.type === ValueType.Merge ? null : valueIn(cell, sharedRanges);
-        if (value === null && Object.keys(style).length === 0) return;
-        sheet.set(cell.address, value, style);
-        const link = cell.type === ValueType.Merge ? null : linkIn(cell);
-        if (link) sheet.link(cell.address, link);
+        if (cell) at(ws.name, cell.address, () => writeCell(cell));
       });
     });
+    function writeCell(cell: Cell): void {
+      const note = noteIn(cell);
+      if (note) sheet.note(cell.address, note);
+      const style = useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {};
+      const value = cell.type === ValueType.Merge ? null : valueIn(cell, sharedRanges);
+      if (value === null && Object.keys(style).length === 0) return;
+      sheet.set(cell.address, value, style);
+      const link = cell.type === ValueType.Merge ? null : linkIn(cell);
+      if (link) sheet.link(cell.address, link);
+    }
     for (const m of ws._merges.values()) sheet.merge(`${columnLetter(m.left)}${String(m.top)}:${columnLetter(m.right)}${String(m.bottom)}`);
     const layout = layoutIn(ws);
     if (layout.freeze) sheet.freeze(layout.freeze);
@@ -613,7 +689,7 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         sheet.addImage(id, anchor, hyperlink === undefined ? {} : { hyperlink });
       }
     }
-  }
+  });
   // exceljs writes each name's ranges joined by commas, without a sheet scope (defined-name-xform.js L5).
   for (const d of meta.definedNames ?? []) book.defineName(d.name, d.ranges.join(','));
   return book;

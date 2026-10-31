@@ -64,7 +64,8 @@ export interface CsvWriteOptions {
 }
 
 // lib/csv/csv.js L13–23.
-const SPECIAL_VALUES: Record<string, unknown> = {
+// A Map, so fields such as "constructor" or "__proto__" stay text (D-R01).
+const SPECIAL_VALUES: ReadonlyMap<string, unknown> = new Map<string, unknown>(Object.entries({
   true: true,
   false: false,
   '#N/A': { error: '#N/A' },
@@ -74,7 +75,7 @@ const SPECIAL_VALUES: Record<string, unknown> = {
   '#NULL!': { error: '#NULL!' },
   '#VALUE!': { error: '#VALUE!' },
   '#NUM!': { error: '#NUM!' },
-};
+}));
 const DEFAULT_DATE_FORMATS = ['YYYY-MM-DD[T]HH:mm:ssZ', 'YYYY-MM-DD[T]HH:mm:ss', 'MM-DD-YYYY', 'YYYY-MM-DD'];
 // docs/facts/csv.md CSV-10 (OWASP CSV Injection).
 const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠']);
@@ -501,7 +502,7 @@ export function csvValue(datum: string, dateFormats: readonly string[]): unknown
     const date = parseDate(datum, format);
     if (date) return date;
   }
-  const special = SPECIAL_VALUES[datum];
+  const special = SPECIAL_VALUES.get(datum);
   if (special !== undefined) return typeof special === 'object' ? { ...special } : special;
   return datum;
 }
@@ -545,6 +546,14 @@ function formatterOptions(raw: Record<string, unknown> | undefined): FormatterOp
 /** One field as fast-csv FieldFormatter.format writes it. */
 function formatField(value: unknown, index: number, f: FormatterOptions, forceQuote: boolean): string {
   const text = `${value === null || value === undefined ? '' : String(value)}`.replace(/\0/g, '');
+  // Without a quote character a CR, LF or delimiter in a field would split it into other fields or
+  // rows (D-R01).
+  if (f.quote === '' && (/[\r\n]/.test(text) || (f.delimiter !== '' && text.includes(f.delimiter)))) {
+    throw new XlvError('XLV_E_INVALID_OPTION', `Field ${String(index + 1)} contains a line break or the delimiter, which cannot be written with quote: false.`, {
+      hint: 'Leave formatterOptions.quote at its default (") so such fields are quoted, or remove the line breaks from the value.',
+      details: { option: 'quote', field: index + 1 },
+    });
+  }
   if (f.quote !== '' && text.includes(f.quote)) return `${f.quote}${text.split(f.quote).join(f.escapedQuote)}${f.quote}`;
   const q = f.quoteColumns;
   const quoteThis = forceQuote || q === true || (Array.isArray(q) && q[index] === true);
@@ -591,8 +600,13 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   const map = options.map ?? defaultWriteMap(options.dateFormat, options.dateUTC === true);
   const includeEmptyRows = options.includeEmptyRows === undefined || options.includeEmptyRows;
   const lines: string[] = [];
-  const escape = (out: unknown): [unknown, boolean] =>
-    injection === 'escape' && typeof out === 'string' && out.length > 0 && INJECTION_START.has(out[0]!) ? [`'${out}`, f.quote !== ''] : [out, false];
+  // NUL characters are removed from fields (formatField), so the check looks past them: "\0=cmd"
+  // is written as "=cmd" and must be escaped too (D-R01).
+  const escape = (out: unknown): [unknown, boolean] => {
+    if (injection !== 'escape' || typeof out !== 'string') return [out, false];
+    const first = out.replace(/\0/g, '')[0];
+    return first !== undefined && INJECTION_START.has(first) ? [`'${out}`, f.quote !== ''] : [out, false];
+  };
   if (f.headers) {
     lines.push(
       f.headers

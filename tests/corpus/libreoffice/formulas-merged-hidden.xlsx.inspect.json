@@ -30,6 +30,8 @@
       "cellCount": 21,
       "formulaCount": 11,
       "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
       "formulas": [
         {
           "cell": "B1",
@@ -161,6 +163,8 @@
       "mergedRanges": [
         "A1:D1"
       ],
+      "mergedRangeCount": 1,
+      "mergedRangesTruncated": false,
       "formulas": [],
       "richTextCellCount": 0,
       "richTextCells": [],
@@ -273,6 +277,8 @@
       "cellCount": 1,
       "formulaCount": 0,
       "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
       "formulas": [],
       "richTextCellCount": 0,
       "richTextCells": [],

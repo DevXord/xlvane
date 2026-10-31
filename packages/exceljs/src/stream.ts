@@ -32,7 +32,9 @@ function streamValueIn(cell: ModelCell, masters: Map<string, { formula: string; 
   return valueIn(cell);
 }
 import type { DefinedNames } from './defined-names';
+import { xlvaneNode } from './node-api';
 import { imageAnchorIn, imageBytes, type ImageData } from './media';
+import { Dimensions } from './range';
 import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import { Workbook } from './workbook';
@@ -390,7 +392,7 @@ export class WorkbookWriter {
     if (options.filename !== undefined) {
       const filename = options.filename;
       // exceljs replaces an existing file, so overwrite is on.
-      this.done = import('xlvane/node').then(({ writeWorkbookStreamFile }) => writeWorkbookStreamFile(filename, spec, { overwrite: true }));
+      this.done = xlvaneNode('stream.xlsx.WorkbookWriter({ filename })').then(({ writeWorkbookStreamFile }) => writeWorkbookStreamFile(filename, spec, { overwrite: true }));
     } else if (options.stream !== undefined) {
       const out = options.stream;
       this.done = (async () => {
@@ -586,40 +588,6 @@ function readerOptions(raw: Record<string, unknown>): Required<WorkbookReaderOpt
   return out as Required<WorkbookReaderOptions>;
 }
 
-/** The range of the rows read so far, as exceljs's `Dimensions` (lib/doc/range.js). */
-class ReaderDimensions {
-  top = 0;
-  left = 0;
-  bottom = 0;
-  right = 0;
-
-  /** @internal */
-  expandRow(row: Row): void {
-    const d = row.dimensions;
-    if (!d) return;
-    if (!this.top || row.number < this.top) this.top = row.number;
-    if (!this.left || d.min < this.left) this.left = d.min;
-    if (!this.bottom || row.number > this.bottom) this.bottom = row.number;
-    if (!this.right || d.max > this.right) this.right = d.max;
-  }
-
-  get model(): { top: number; left: number; bottom: number; right: number } {
-    return { top: this.top, left: this.left, bottom: this.bottom, right: this.right };
-  }
-
-  get tl(): string {
-    return `${columnLetter(this.left || 1)}${String(this.top || 1)}`;
-  }
-
-  get br(): string {
-    return `${columnLetter(this.right || 1)}${String(this.bottom || 1)}`;
-  }
-
-  get range(): string {
-    return `${this.tl}:${this.br}`;
-  }
-}
-
 /**
  * A worksheet read by {@link WorkbookReader}, as exceljs `WorksheetReader`: iterate its rows with
  * `for await`, or call `read()` and listen to `row` and `finished` events.
@@ -637,7 +605,8 @@ class ReaderDimensions {
  * ```
  */
 export class WorksheetReader extends Emitter implements AsyncIterable<Row> {
-  readonly dimensions: ReaderDimensions = new ReaderDimensions();
+  /** The range of the rows read so far, as exceljs's `Range` (lib/doc/range.js). */
+  readonly dimensions: Dimensions = new Dimensions();
 
   /** @internal */
   constructor(
@@ -732,7 +701,7 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
 
   private async open(input: string | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array>): Promise<Awaited<ReturnType<typeof openWorkbookStream>>> {
     if (typeof input === 'string') {
-      const { openWorkbookStreamFile } = await import('xlvane/node');
+      const { openWorkbookStreamFile } = await xlvaneNode('stream.xlsx.WorkbookReader(filename)');
       return openWorkbookStreamFile(input);
     }
     if (input instanceof Uint8Array || input instanceof ArrayBuffer) return openWorkbookStream(input);

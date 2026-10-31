@@ -16,7 +16,7 @@ const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SRC = join(ROOT, 'packages/xlvane/src');
 const EXCELJS_SRC = join(ROOT, 'packages/exceljs/src');
 /** Markdown files whose ```ts blocks must compile too. */
-const MARKDOWN = ['skills/xlvane/SKILL.md'];
+const MARKDOWN = ['skills/xlvane/SKILL.md', 'packages/xlvane/README.md'];
 /** Entry points whose exports must all carry an @example: [source dir, entry, label]. */
 const ENTRY_POINTS: readonly (readonly [string, string, string])[] = [
   [SRC, 'index.ts', 'packages/xlvane/src'],
@@ -174,7 +174,7 @@ function exportedNames(text: string, ownModule: string): Map<string, string> {
 /** Whether the declaration of `name` in `text` is preceded by a /** comment with @example. */
 function hasExample(text: string, name: string): boolean {
   const decl = new RegExp(
-    `^export\\s+(?:declare\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:function|class|interface|type|const|let|enum)\\s+${name.replace(/\$/g, '\\$')}\\b`,
+    `^export\\s+(?:declare\\s+)?(?:abstract\\s+)?(?:async\\s+)?(?:function|class|interface|type|const|let|enum|namespace)\\s+${name.replace(/\$/g, '\\$')}\\b`,
     'm',
   );
   const m = decl.exec(text);

@@ -1,11 +1,12 @@
 // Streaming reader: worksheets are decompressed and parsed incrementally, and each row is handed
 // on and then dropped, so memory does not grow with the number of rows (docs/decisions.md
 // D-401, D-402). The workbook part, shared strings and styles are read in full first.
+import { isoDate } from './util/iso-date';
 import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import { resolveLimits, type ReadLimits } from './limits';
+import { DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Conformance, DateSystem, SheetKind, SheetState, WorkbookFormat } from './model';
 import { openPackage } from './opc/package';
 import type { Note } from './notes';
@@ -17,7 +18,7 @@ import { createWorksheetParser } from './sml/worksheet';
 import type { StandardSchemaV1 } from './standard-schema';
 import type { TableColumn, TableIssue, TableRow, TableValue } from './table';
 import { oneOfOption, readOptions } from './util/options';
-import { suggest } from './util/suggest';
+import { sheetNotFound } from './util/sheet-not-found';
 import { WarningCollector } from './util/warnings';
 import { createXmlByteStreamParser } from './xml/parser';
 import type { ZipEntry, ZipReader } from './zip/reader';
@@ -124,7 +125,9 @@ export interface WorkbookStream {
 export interface OpenWorkbookStreamOptions {
   /**
    * Read limits. Streaming defaults differ from `DEFAULT_READ_LIMITS`: `maxCells` does not apply
-   * (memory does not grow with cells), `maxEntryBytes` is 4 GiB and `maxTotalBytes` 8 GiB.
+   * (memory does not grow with cells), `maxEntryBytes` is 4 GiB for worksheets (inflated piece by
+   * piece) and `maxTotalBytes` 8 GiB. Parts held in memory whole (shared strings, styles, the
+   * workbook, relationships, notes) keep the batch bound of 256 MiB unless `maxEntryBytes` is given.
    */
   readonly limits?: Partial<ReadLimits>;
 }
@@ -143,13 +146,21 @@ const GiB = 1024 * 1024 * 1024;
  */
 export const STREAM_LIMIT_DEFAULTS: Partial<ReadLimits> = Object.freeze({ maxCells: Infinity, maxEntryBytes: 4 * GiB, maxTotalBytes: 8 * GiB });
 
-/** A ZipReader over entries loaded in advance, so the OPC layer can stay synchronous. */
+/**
+ * A ZipReader over entries loaded in advance, so the OPC layer can stay synchronous. These parts
+ * (relationships, workbook, shared strings, styles, comments, VML) are held in memory whole, so
+ * each is bounded by the batch reader's `maxEntryBytes` (256 MiB by default), not by the larger
+ * streaming bound meant for worksheets that are inflated piece by piece (D-R03).
+ */
 class PreloadedZip implements ZipReader {
   readonly entries: readonly ZipEntry[];
   bytesRead = 0;
   private readonly data = new Map<string, Uint8Array>();
 
-  constructor(private readonly zip: StreamZip) {
+  constructor(
+    private readonly zip: StreamZip,
+    private readonly maxBufferedBytes: number,
+  ) {
     this.entries = zip.entries;
   }
 
@@ -157,7 +168,7 @@ class PreloadedZip implements ZipReader {
     for (const name of names) {
       const entry = this.zip.find(name);
       if (entry === undefined || this.data.has(entry.name)) continue;
-      const bytes = await this.zip.read(entry);
+      const bytes = await this.zip.read(entry, this.maxBufferedBytes);
       this.data.set(entry.name, bytes);
       this.bytesRead += bytes.length;
     }
@@ -218,7 +229,10 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
   const userLimits = o.get('limits');
   const limits = resolveLimits({ ...STREAM_LIMIT_DEFAULTS, ...(userLimits as Partial<ReadLimits> | undefined) });
   const zip = await openZipSource(input, limits);
-  const preloaded = new PreloadedZip(zip);
+  // An explicit maxEntryBytes from the caller also bounds the buffered parts; otherwise the batch
+  // default does.
+  const maxBuffered = (userLimits as Partial<ReadLimits> | undefined)?.maxEntryBytes ?? DEFAULT_READ_LIMITS.maxEntryBytes;
+  const preloaded = new PreloadedZip(zip, maxBuffered);
   await preloaded.load(zip.entries.filter((e) => e.name.toLowerCase() === '[content_types].xml' || e.name.toLowerCase().endsWith('.rels')).map((e) => e.name));
   const pkg = openPackage(preloaded, limits);
   await preloaded.load(workbookPartsToLoad(pkg).map(zipName));
@@ -229,12 +243,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
   const sheetEntry = (name: string) => {
     const entry = info.sheets.find((s) => s.name === name);
     if (entry !== undefined) return entry;
-    const names = info.sheets.map((s) => s.name);
-    const close = suggest(String(name), names);
-    throw new XlvError('XLV_E_SHEET_NOT_FOUND', `The workbook has no sheet named "${String(name).slice(0, 100)}".`, {
-      hint: `${close.length > 0 ? `Did you mean "${close[0] ?? ''}"? ` : ''}Available sheets: ${names.join(', ') || '(none)'}. Sheet names are case-sensitive.`,
-      details: { name: String(name).slice(0, 100), available: names },
-    });
+    throw sheetNotFound(name, info.sheets.map((s) => s.name));
   };
 
   const noteCache = new Map<string, readonly Note[]>();
@@ -429,7 +438,7 @@ export async function* readTableStream(
   let headerRow: number | null = null;
   const value = (cell: Cell | undefined): TableValue => {
     const v = cell?.value ?? null;
-    return v instanceof Date && dates === 'iso' ? v.toISOString() : v;
+    return v instanceof Date && dates === 'iso' ? isoDate(v) : v;
   };
   const decide = (): TableColumn[] => {
     const nonEmpty = buffered.filter((r) => r.cells.length > 0);
@@ -452,7 +461,7 @@ export async function* readTableStream(
     for (let col = minCol; col <= maxCol; col++) {
       const letter = columnLetters(col);
       const cell = headerRow === null ? undefined : source.find((c) => c.col === col);
-      const text = cell === undefined || cell.value === null ? null : cell.value instanceof Date ? cell.value.toISOString() : String(cell.value);
+      const text = cell === undefined || cell.value === null ? null : cell.value instanceof Date ? isoDate(cell.value) : String(cell.value);
       const base = text === null || text.trim() === '' ? letter : text.trim();
       let key = base;
       for (let n = 2; used.has(key); n++) key = `${base}_${String(n)}`;

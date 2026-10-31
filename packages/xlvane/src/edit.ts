@@ -12,7 +12,7 @@ import type { Cell, RichTextRun, Sheet, Workbook } from './model';
 import { openPackage, relationshipsPartName, type OpcPackage } from './opc/package';
 import { partKey, zipNameToPartName } from './opc/part-name';
 import { readWorkbook, toBytes } from './read';
-import { formatCellRef, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
+import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { classifyRelationship, relationshipTypes, SML_NS } from './sml/namespaces';
 import { isDateFormat } from './sml/numfmt';
 import { parseSharedStrings } from './sml/shared-strings';
@@ -27,7 +27,7 @@ import { decodeXml, normalizeLineEnds, parseXml, type XmlSpan } from './xml/pars
 import { childNamed, childrenNamed, parseXmlTree, type XmlElement } from './xml/tree';
 import { encodeXstring, escapeAttr, escapeText } from './xml/writer';
 import { createWorkbook, type CellInput, type StoredValue } from './write';
-import { openZip } from './zip/reader';
+import { openZip, type ZipEntry, type ZipReader } from './zip/reader';
 import { writeZip, type ZipWriteEntry } from './zip/writer';
 
 /**
@@ -128,8 +128,30 @@ export function openTag(tag: string): string {
   return tag.endsWith('/>') ? `${tag.slice(0, -2).trimEnd()}>` : tag;
 }
 
-/** Applies replacements given as [start, end, text] on `source`; ranges must not overlap. */
+/**
+ * Applies replacements given as [start, end, text] on `source`; ranges must not overlap.
+ * Several insertions at one position end up in reverse order of `edits`, before a replacement
+ * that starts there. The text is built in one pass, so the cost is linear in its size (D-R03).
+ */
 export function splice(source: string, edits: readonly [number, number, string][]): string {
+  if (edits.length === 0) return source;
+  // Ascending start; at one start, ascending end (insertions before the replacement), and for the
+  // same span the later edit first, which is the order the earlier end-to-start splicing gave.
+  const order = edits.map((edit, i) => ({ edit, i })).sort((a, b) => a.edit[0] - b.edit[0] || a.edit[1] - b.edit[1] || b.i - a.i);
+  const out: string[] = [];
+  let pos = 0;
+  for (const { edit } of order) {
+    const [start, end, text] = edit;
+    if (start < pos) return spliceSlow(source, edits);
+    out.push(source.slice(pos, start), text);
+    pos = end;
+  }
+  out.push(source.slice(pos));
+  return out.join('');
+}
+
+/** The earlier end-to-start splicing, kept for overlapping edits (which callers do not produce). */
+function spliceSlow(source: string, edits: readonly [number, number, string][]): string {
   const sorted = [...edits].sort((a, b) => b[0] - a[0] || b[1] - a[1]);
   let out = source;
   for (const [start, end, text] of sorted) out = out.slice(0, start) + text + out.slice(end);
@@ -186,8 +208,17 @@ export function scan(text: string, part: string, limits: ReadLimits, keep: (loca
 // ---------------------------------------------------------------------------------------------
 // Package access
 
+/**
+ * The parts of a package being edited. Entries are inflated only when an edit reads them; parts
+ * that no edit touches are copied to the new archive in their compressed form, so their bytes do
+ * not change and unreferenced entries cost neither time nor memory (D-R03).
+ */
 export class PackageEditor {
-  private readonly entries: { name: string; data: Uint8Array }[];
+  private readonly zip: ZipReader;
+  private readonly entries: readonly ZipEntry[];
+  /** Entry names by part key (and `[content_types].xml`), so lookups do not scan all entries. */
+  private readonly byKey = new Map<string, ZipEntry>();
+  private readonly data = new Map<string, Uint8Array>();
   private readonly changed = new Map<string, Uint8Array>();
   private readonly removed = new Set<string>();
   private readonly added: { name: string; data: Uint8Array }[] = [];
@@ -199,28 +230,41 @@ export class PackageEditor {
     readonly limits: ReadLimits,
     readonly pkg: OpcPackage,
   ) {
-    const zip = openZip(bytes, limits);
-    this.entries = zip.entries.map((e) => ({ name: e.name, data: zip.read(e) }));
+    this.zip = openZip(bytes, limits);
+    this.entries = this.zip.entries;
+    for (const e of this.entries) {
+      if (e.name === '' || e.name.endsWith('/')) continue;
+      const key = e.name.toLowerCase() === '[content_types].xml' ? CONTENT_TYPES_KEY : partKey(zipNameToPartName(e.name));
+      if (!this.byKey.has(key)) this.byKey.set(key, e);
+    }
   }
 
-  private entryOf(partName: string): { name: string; data: Uint8Array } | undefined {
-    const key = partKey(partName);
-    return this.entries.find((e) => e.name !== '' && !e.name.endsWith('/') && partKey(zipNameToPartName(e.name)) === key);
+  private entryOf(partName: string): ZipEntry | undefined {
+    return this.byKey.get(partName === '/[Content_Types].xml' ? CONTENT_TYPES_KEY : partKey(partName));
+  }
+
+  private bytesOf(entry: ZipEntry): Uint8Array {
+    let bytes = this.data.get(entry.name);
+    if (bytes === undefined) {
+      bytes = this.zip.read(entry);
+      this.data.set(entry.name, bytes);
+    }
+    return bytes;
   }
 
   /** The text of a part (or of `[Content_Types].xml`), normalised and as last written. */
   text(partName: string): string | undefined {
     const cached = this.texts.get(partKey(partName));
     if (cached !== undefined) return cached;
-    const entry = partName === '/[Content_Types].xml' ? this.entries.find((e) => e.name.toLowerCase() === '[content_types].xml') : this.entryOf(partName);
+    const entry = this.entryOf(partName);
     if (entry === undefined) return undefined;
-    return normalizeLineEnds(decodeXml(entry.data, partName));
+    return normalizeLineEnds(decodeXml(this.bytesOf(entry), partName));
   }
 
   write(partName: string, text: string): void {
     this.texts.set(partKey(partName), text);
     const data = this.encoder.encode(asUtf8(text));
-    const entry = partName === '/[Content_Types].xml' ? this.entries.find((e) => e.name.toLowerCase() === '[content_types].xml') : this.entryOf(partName);
+    const entry = this.entryOf(partName);
     if (entry) {
       this.changed.set(entry.name, data);
       return;
@@ -244,12 +288,24 @@ export class PackageEditor {
     const out: ZipWriteEntry[] = [];
     for (const e of this.entries) {
       if (this.removed.has(e.name)) continue;
-      out.push({ name: e.name, data: this.changed.get(e.name) ?? e.data });
+      const changed = this.changed.get(e.name);
+      if (changed !== undefined) {
+        out.push({ name: e.name, data: changed });
+        continue;
+      }
+      // Unchanged entries keep their compressed bytes; an entry already inflated is written from
+      // those bytes (it was checked then), as is one whose form cannot be copied.
+      const inflated = this.data.get(e.name);
+      const raw = inflated === undefined ? (this.zip.raw?.(e) ?? null) : null;
+      out.push(raw !== null ? { name: e.name, data: EMPTY_BYTES, raw } : { name: e.name, data: inflated ?? this.bytesOf(e) });
     }
     out.push(...this.added);
     return writeZip(out);
   }
 }
+
+const CONTENT_TYPES_KEY = '\u0000[content_types]';
+const EMPTY_BYTES = new Uint8Array(0);
 
 /** Adds an Override to `[Content_Types].xml`. */
 function addContentType(edit: PackageEditor, partName: string, contentType: string): void {
@@ -831,6 +887,131 @@ function checkFormulaGroups(sheet: Sheet, ref: string, at: { row: number; col: n
 }
 
 // ---------------------------------------------------------------------------------------------
+// Tables of edited sheets (D-R03)
+
+/** Rows that appendRows adds below the last used row of a sheet. */
+interface AppendedRows {
+  readonly sheet: string;
+  /** The last used row before the append (0 for an empty sheet). */
+  readonly lastRow: number;
+  readonly count: number;
+}
+
+/** Column names of a table: 1 to 255 characters on one line, unique ignoring case (TD-04). */
+const MAX_COLUMN_NAME = 255;
+
+/**
+ * Keeps the Table Definition parts of an edited sheet in step with its cells:
+ * - a header cell of a table holds the column name (OI §2.1.681 i, TD-05), so editing it renames
+ *   `tableColumn@name`; a value that is not text, an empty or multi-line name and a name another
+ *   column of the table already has are refused (`XLV_E_INVALID_VALUE`). Structured references
+ *   to the old name in formulas are not rewritten;
+ * - rows appended directly below a table's last row (appendRows) join the table: `ref` and an
+ *   `autoFilter` that covers the header and data rows grow with them, as when rows are inserted
+ *   inside a table (TD-11). A table whose totals row is the last used row is refused instead of
+ *   moving its totals row, with a hint to insert the rows above the totals row with insertRows.
+ */
+function syncTables(edit: PackageEditor, plan: EditPlan, appended: AppendedRows | null): void {
+  const sheet = plan.sheet;
+  const tables = sheet.tables;
+  for (const table of tables) {
+    const range = parseRange(table.ref.trim().toUpperCase());
+    if (range === null) continue;
+    const header = table.headerRowCount > 0 ? range.start.row : null;
+    const totals = table.totalsRowCount > 0 ? 1 : 0;
+    const where = { part: table.part, sheet: sheet.name };
+
+    const renames = new Map<number, string>();
+    if (header !== null) {
+      for (const [ref, c] of plan.cells) {
+        if (c.row !== header || c.col < range.start.col || c.col > range.end.col) continue;
+        const index = c.col - range.start.col;
+        const value = c.value;
+        const name = value !== null && value.kind === 'string' ? value.s : null;
+        const location = { part: sheet.part ?? '', sheet: sheet.name, cell: ref };
+        if (name === null || name.length === 0 || name.length > MAX_COLUMN_NAME || /[\r\n]/.test(name)) {
+          throw new XlvError('XLV_E_INVALID_VALUE', `${ref} is a header cell of table "${table.displayName}", so it must hold the column name as text of 1 to ${String(MAX_COLUMN_NAME)} characters on one line.`, {
+            location,
+            hint: 'Write the new column name as a string, for example "Revenue". To change the data, edit the rows below the header.',
+            details: { table: table.displayName, cell: ref },
+          });
+        }
+        renames.set(index, name);
+      }
+      if (renames.size > 0) {
+        const names = table.columns.map((column, i) => renames.get(i) ?? column.name);
+        const seen = new Map<string, number>();
+        names.forEach((name, i) => {
+          const key = name.toLowerCase();
+          const other = seen.get(key);
+          if (other !== undefined && (renames.has(i) || renames.has(other))) {
+            const cell = formatCellRef(header, range.start.col + (renames.has(i) ? i : other));
+            throw new XlvError('XLV_E_INVALID_VALUE', `Table "${table.displayName}" would have two columns named "${name.slice(0, 40)}".`, {
+              location: { part: sheet.part ?? '', sheet: sheet.name, cell },
+              hint: 'Column names must be unique in a table (case is ignored). Choose another name, for example with a suffix such as "_2".',
+              details: { table: table.displayName, cell },
+            });
+          }
+          seen.set(key, i);
+        });
+      }
+    }
+
+    let newEnd: number | null = null;
+    if (appended !== null && appended.count > 0 && range.end.row >= appended.lastRow && range.start.row <= appended.lastRow) {
+      if (totals === 1) {
+        throw new XlvError('XLV_E_NOT_SUPPORTED', `Table "${table.displayName}" of sheet "${sheet.name}" ends with a totals row on row ${String(range.end.row)}, so rows appended below it would fall outside the table.`, {
+          location: { ...where, cell: formatCellRef(range.end.row, range.start.col) },
+          hint: `Insert the rows above the totals row with insertRows(bytes, { sheet: "${sheet.name}", at: ${String(range.end.row)}, count: ${String(appended.count)} }), which grows the table, then fill them with editCells.`,
+          details: { table: table.displayName },
+        });
+      }
+      const end = appended.lastRow + appended.count;
+      if (end > range.end.row) {
+        newEnd = end;
+        const grown: CellRange = { start: range.start, end: { row: end, col: range.end.col } };
+        for (const other of tables) {
+          if (other === table) continue;
+          const r = parseRange(other.ref.trim().toUpperCase());
+          if (r !== null && r.start.row <= grown.end.row && r.end.row >= grown.start.row && r.start.col <= grown.end.col && r.end.col >= grown.start.col) {
+            throw new XlvError('XLV_E_NOT_SUPPORTED', `Growing table "${table.displayName}" to ${formatRange(grown)} for the appended rows would overlap table "${other.displayName}" (${other.ref}).`, {
+              location: where,
+              hint: 'Tables must not overlap. Append the rows to another sheet, or move one of the tables first.',
+              details: { table: table.displayName },
+            });
+          }
+        }
+      }
+    }
+    if (renames.size === 0 && newEnd === null) continue;
+
+    const text = edit.text(table.part);
+    if (text === undefined) continue;
+    const { root, elements } = scan(text, table.part, edit.limits, (local, depth, parent) => (depth === 2 && local === 'autoFilter') || (depth === 3 && local === 'tableColumn' && parent === 'tableColumns'));
+    const edits: [number, number, string][] = [];
+    if (newEnd !== null) {
+      const end = newEnd;
+      const grow = (r: CellRange): string => formatRange({ start: r.start, end: { row: end, col: r.end.col } });
+      edits.push([root.start.start, root.start.end, setAttr(text.slice(root.start.start, root.start.end), 'ref', grow(range))]);
+      const filter = elements.find((e) => e.local === 'autoFilter');
+      const filterRef = filter?.attrs.get('ref');
+      const filterRange = filterRef === undefined ? null : parseRange(filterRef.trim().toUpperCase());
+      // A filter that ends on the table's last row grows with it; any other filter is left alone.
+      if (filter !== undefined && filterRange !== null && filterRange.end.row === range.end.row) {
+        edits.push([filter.start.start, filter.start.end, setAttr(text.slice(filter.start.start, filter.start.end), 'ref', grow(filterRange))]);
+      }
+    }
+    elements
+      .filter((e) => e.local === 'tableColumn')
+      .forEach((e, i) => {
+        const name = renames.get(i);
+        if (name !== undefined) edits.push([e.start.start, e.start.end, setAttr(text.slice(e.start.start, e.start.end), 'name', name)]);
+      });
+    edit.write(table.part, splice(text, edits));
+  }
+}
+
+// ---------------------------------------------------------------------------------------------
 // Entry points
 
 interface EditPlan {
@@ -876,8 +1057,10 @@ function planEdits(workbook: Workbook, edits: readonly unknown[]): Map<string, E
     }
     const ref = formatCellRef(address.row, address.col);
     const value = o.get('value') ?? null;
-    const style = o.has('style') ? normalizeStyle(o.get('style')) : null;
+    let style: NormalizedStyle | null = null;
     try {
+      // Style errors carry the location of the edit, as value errors do (D-R03).
+      style = o.has('style') ? normalizeStyle(o.get('style')) : null;
       scratchSheet.set(ref, value as CellInput, undefined);
     } catch (error) {
       if (error instanceof XlvError) {
@@ -907,7 +1090,7 @@ function planEdits(workbook: Workbook, edits: readonly unknown[]): Map<string, E
   return plans;
 }
 
-function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, EditPlan>, limits: ReadLimits): EditResult {
+function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, EditPlan>, limits: ReadLimits, appended: AppendedRows | null = null): EditResult {
   const pkg = openPackage(openZip(bytes, limits), limits);
   const edit = new PackageEditor(bytes, limits, pkg);
   const warnings = new WarningCollector();
@@ -929,7 +1112,17 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
     // A cell that holds only a style keeps that style when it gets a value (D-E05).
     let styled: Map<string, Cell> | null = null;
     const styledCell = (ref: string): Cell | undefined => (styled ??= new Map([...plan.sheet.styledCells()].map((cell) => [cell.ref, cell]))).get(ref);
+    const merges = plan.sheet.merges.map((m) => ({ ref: m, range: parseRange(m.trim().toUpperCase()) }));
     for (const [ref, c] of plan.cells) {
+      if (c.value !== null) {
+        // Content of a merged range is stored in its top-left cell (E-35); a value elsewhere is not shown.
+        const merge = merges.find(({ range: r }) => r !== null && c.row >= r.start.row && c.row <= r.end.row && c.col >= r.start.col && c.col <= r.end.col && (c.row !== r.start.row || c.col !== r.start.col));
+        if (merge !== undefined && merge.range !== null) {
+          const topLeft = formatCellRef(merge.range.start.row, merge.range.start.col);
+          // Warnings of one sheet are grouped; `cells` lists the cells and the message names the first.
+          warnings.add('XLV_W_MERGED_CELL_WRITE', `A value was written into a merged range outside its top-left cell (first: ${ref} in ${merge.ref}). Spreadsheet applications show only the top-left cell (${topLeft}), so the value will not be visible. Write it to the top-left cell, or unmerge the range.`, { part, sheet: plan.sheet.name, cell: ref });
+        }
+      }
       const existing: Cell | undefined = plan.sheet.cell(ref) ?? styledCell(ref);
       if (isFormula(c.value) || existing?.formula) formulasChanged = true;
       if (c.value === null && c.style === null) {
@@ -945,6 +1138,7 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
       planned.push({ row: c.row, col: c.col, ref, xml: newCellXml(ref, c.value, xf, sst) });
     }
     if (text === undefined) continue;
+    syncTables(edit, plan, appended !== null && appended.sheet === plan.sheet.name ? appended : null);
     edit.write(part, editSheetXml(text, part, plan.sheet.name, planned, limits));
   }
   sst.finish();
@@ -973,6 +1167,9 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
  * they were. Each edit sets a value (as `NewSheet.set` does, with the same validation) and can
  * merge a style into the cell's current style. When the workbook contains formulas, the file
  * asks spreadsheet applications to recalculate on load (`XLV_W_FORMULAS_NOT_RECALCULATED`).
+ * Editing a table's header cell renames the table column, so the value must be a unique,
+ * non-empty name (`XLV_E_INVALID_VALUE` otherwise). A value written into a merged range outside
+ * its top-left cell gives `XLV_W_MERGED_CELL_WRITE`.
  *
  * @example
  * ```ts
@@ -1000,8 +1197,11 @@ export function editCells(input: Uint8Array | ArrayBuffer, edits: readonly CellE
 /**
  * Appends rows below the last used row of a sheet in an existing XLSX file, editing the file
  * surgically like {@link editCells}. Object rows are placed under the matching header columns
- * (unknown keys throw `XLV_E_TABLE_INVALID` with suggestions); array rows start at the first
- * used column.
+ * (unknown keys throw `XLV_E_INVALID_ROWS` with suggestions); array rows start at the first
+ * used column. A table whose last row is the sheet's last used row grows to include the new
+ * rows (its range and filter); if that table has a totals row the call is refused with
+ * `XLV_E_NOT_SUPPORTED` and a hint to insert the rows above the totals row with `insertRows`.
+ * Calculated columns are not filled in the new rows.
  *
  * @example
  * ```ts
@@ -1026,7 +1226,7 @@ export function appendRows(
   const workbook = readWorkbook(bytes, { limits });
   const target = pickSheet(workbook, sheet);
   if (!Array.isArray(rows)) {
-    throw new XlvError('XLV_E_TABLE_INVALID', 'appendRows expects an array of rows.', { hint: 'Pass an array of objects or arrays.' });
+    throw new XlvError('XLV_E_INVALID_ROWS', 'appendRows expects an array of rows.', { hint: 'Pass an array of objects or arrays.' });
   }
   let lastRow = 0;
   let firstCol = Infinity;
@@ -1053,7 +1253,7 @@ export function appendRows(
       return;
     }
     if (typeof row !== 'object' || row === null) {
-      throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(i + 1)} is not an object or an array.`, { location: { sheet: target.name }, hint: 'Pass objects keyed by header text, or arrays of values.', details: { row: i + 1 } });
+      throw new XlvError('XLV_E_INVALID_ROWS', `Row ${String(i + 1)} is not an object or an array.`, { location: { sheet: target.name }, hint: 'Pass objects keyed by header text, or arrays of values.', details: { row: i + 1 } });
     }
     if (columns === null) {
       const header = o.get('header') ?? 'auto';
@@ -1072,7 +1272,7 @@ export function appendRows(
       const col = known.get(key);
       if (col === undefined) {
         const close = suggest(key, [...known.keys()]);
-        throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(i + 1)} has the key "${key.slice(0, 40)}", which is not a column of sheet "${target.name}".`, {
+        throw new XlvError('XLV_E_INVALID_ROWS', `Row ${String(i + 1)} has the key "${key.slice(0, 40)}", which is not a column of sheet "${target.name}".`, {
           location: { sheet: target.name },
           hint: `${close.length > 0 ? `Did you mean "${close[0] ?? ''}"? ` : ''}Columns: ${[...known.keys()].join(', ')}.`,
           details: { row: i + 1, key: key.slice(0, 40) },
@@ -1083,6 +1283,6 @@ export function appendRows(
     }
   });
   if (edits.length === 0) return { bytes: bytes.slice(), warnings: [] };
-  return applyEdits(bytes, workbook, planEdits(workbook, edits), limits);
+  return applyEdits(bytes, workbook, planEdits(workbook, edits), limits, { sheet: target.name, lastRow, count: rows.length });
 }
 

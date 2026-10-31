@@ -37,6 +37,7 @@ import type { TableColumnSpec } from './table';
 import { normalizeTable, TABLE_CONTENT_TYPE, type TableInput } from './tables';
 import { readOptions } from './util/options';
 import {
+  checkBookViews,
   convertCellInput,
   createWorkbook,
   DATE_FORMAT,
@@ -379,7 +380,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     }
     const rows = s.get('rows');
     if (!isIterable(rows)) {
-      throw new XlvError('XLV_E_TABLE_INVALID', `sheets[${String(i)}].rows is not an iterable.`, { hint: 'Pass an array, a generator or an async iterable of rows.', details: { row: 0 } });
+      throw new XlvError('XLV_E_INVALID_ROWS', `sheets[${String(i)}].rows is not an iterable.`, { hint: 'Pass an array, a generator or an async iterable of rows.', details: { row: 0 } });
     }
     const links = s.get('hyperlinks');
     if (links !== undefined) {
@@ -442,7 +443,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
         const ro = readOptions(raw, ['values', 'style', 'styles', 'height', 'hidden', 'outlineLevel', 'collapsed', 'hyperlinks', 'notes'], `row ${String(r)} of sheet "${name}"`);
         const v = ro.get('values');
         if (!Array.isArray(v)) {
-          throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(r)} of sheet "${name}" is not an array of values.`, { location: { sheet: name }, hint: 'Yield arrays of values, or { values: [...] } objects.', details: { row: r } });
+          throw new XlvError('XLV_E_INVALID_ROWS', `Row ${String(r)} of sheet "${name}" is not an array of values.`, { location: { sheet: name }, hint: 'Yield arrays of values, or { values: [...] } objects.', details: { row: r } });
         }
         values = v;
         rowStyle = ro.get('style') as CellStyle | undefined;
@@ -561,6 +562,8 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
 
   /** The parts written after the sheets: filter ranges and styles are known only then. */
   function* closingParts(): Generator<ZipStreamEntry> {
+    // Workbook windows name sheets by index, known only once every sheet has been streamed.
+    checkBookViews(book.bookViews, prepared.map((p) => p.sheet.name));
     yield {
       name: 'xl/workbook.xml',
       data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection, { bookViews: book.bookViews, calculation: book.calcProps })),
@@ -680,7 +683,7 @@ export function writeTableStream(rows: Iterable<object> | AsyncIterable<object>,
     throw new XlvError('XLV_E_INVALID_OPTION', 'The option "preset" must be "report" or "plain".', { hint: 'Use preset: "report" or "plain".', details: { option: 'preset' } });
   }
   if (!isIterable(rows)) {
-    throw new XlvError('XLV_E_TABLE_INVALID', 'writeTableStream expects an iterable of row objects.', { hint: 'Pass an array, a generator or an async iterable.', details: { row: 0 } });
+    throw new XlvError('XLV_E_INVALID_ROWS', 'writeTableStream expects an iterable of row objects.', { hint: 'Pass an array, a generator or an async iterable.', details: { row: 0 } });
   }
   const cellStyles = columns.map((c) => (c.numFmt === undefined ? undefined : ({ numFmt: c.numFmt } as CellStyle)));
   async function* table(): AsyncGenerator<StreamRowInput> {
@@ -689,13 +692,13 @@ export function writeTableStream(rows: Iterable<object> | AsyncIterable<object>,
     for await (const row of iterate(rows as Iterable<object>)) {
       n++;
       if (typeof row !== 'object' || row === null || Array.isArray(row)) {
-        throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(n)} is not an object.`, { hint: 'Yield objects keyed by column, such as { id: 1, name: "Alice" }.', details: { row: n + 1 } });
+        throw new XlvError('XLV_E_INVALID_ROWS', `Row ${String(n)} is not an object.`, { hint: 'Yield objects keyed by column, such as { id: 1, name: "Alice" }.', details: { row: n + 1 } });
       }
       const values = columns.map((c): CellInput => {
         const v = Object.prototype.hasOwnProperty.call(row, c.key) ? (row as Record<string, unknown>)[c.key] : undefined;
         if (v === undefined || v === null) return null;
         if (typeof v === 'number' || typeof v === 'string' || typeof v === 'boolean' || v instanceof Date) return v;
-        throw new XlvError('XLV_E_TABLE_INVALID', `Row ${String(n)}, column "${c.key}" holds ${typeof v}, which is not a cell value.`, {
+        throw new XlvError('XLV_E_INVALID_ROWS', `Row ${String(n)}, column "${c.key}" holds ${typeof v}, which is not a cell value.`, {
           hint: 'Cell values are numbers, strings, booleans, Dates or null.',
           details: { row: n + 1, key: c.key },
         });
