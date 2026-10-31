@@ -16,7 +16,7 @@
     "fuzz": "vitest run --config vitest.fuzz.config.ts",
     "test:runtimes": "node scripts/run-runtimes.mjs",
     "build": "npm run build --workspaces",
-    "typecheck": "tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json",
+    "typecheck": "npm run build --silent && tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json",
     "check:pkg": "node scripts/check-pkg.mjs",
     "bench": "npm run build && npm ci --prefix bench && node bench/perf/run.mjs"
   },
