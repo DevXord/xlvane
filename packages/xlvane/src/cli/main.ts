@@ -140,20 +140,44 @@ function asXlvError(thrown: unknown): XlvError {
   });
 }
 
-/** Replaces the value of an option (--name value or --name=value) or appends it. */
-function withOption(args: readonly string[], name: string, value: string): string[] {
+/** "Sheet!" or "'My sheet'!" at the start of a --set value. */
+const SET_SHEET = /^(?:'((?:[^']|'')+)'|([^!='][^!=]*))!/;
+
+/**
+ * Replaces the sheet name `wrong` by `right` in the --sheet option and in the "Sheet!" prefix of
+ * --set values; `null` when `wrong` appears in neither.
+ */
+function withSheetName(args: readonly string[], wrong: string, right: string): string[] | null {
   const out = [...args];
+  let changed = false;
+  const setValue = (value: string): string => {
+    const m = SET_SHEET.exec(value);
+    if (m === null) return value;
+    const name = m[1] !== undefined ? m[1].replace(/''/g, "'") : m[2]!;
+    if (name !== wrong) return value;
+    changed = true;
+    const plain = m[1] === undefined && /^[^!=' ][^!=']*$/.test(right) && !/\s/.test(right);
+    return `${plain ? right : `'${right.replace(/'/g, "''")}'`}!${value.slice(m[0].length)}`;
+  };
   for (let i = 0; i < out.length; i++) {
-    if (out[i] === `--${name}` && i + 1 < out.length) {
-      out[i + 1] = value;
-      return out;
-    }
-    if (out[i]!.startsWith(`--${name}=`)) {
-      out[i] = `--${name}=${value}`;
-      return out;
+    const a = out[i]!;
+    if ((a === '--sheet' || a === '--set') && i + 1 < out.length) {
+      const value = out[i + 1]!;
+      if (a === '--sheet' && value === wrong) {
+        out[i + 1] = right;
+        changed = true;
+      } else if (a === '--set') {
+        out[i + 1] = setValue(value);
+      }
+      i++;
+    } else if (a === `--sheet=${wrong}`) {
+      out[i] = `--sheet=${right}`;
+      changed = true;
+    } else if (a.startsWith('--set=')) {
+      out[i] = `--set=${setValue(a.slice('--set='.length))}`;
     }
   }
-  return [...out, `--${name}`, value];
+  return changed ? out : null;
 }
 
 /** A ready-to-run command that fixes the error, when there is an obvious one. */
@@ -172,7 +196,10 @@ function suggestCommand(error: XlvError, first: string | undefined, rest: readon
   if (error.code === 'XLV_E_FILE_EXISTS') return commandLine([spec.name, ...rest, '--force']);
   if (error.code === 'XLV_E_SHEET_NOT_FOUND' && Array.isArray(d['available']) && typeof error.location.sheet === 'string') {
     const close = suggest(error.location.sheet, d['available'] as readonly string[], 1);
-    if (close.length > 0) return commandLine([spec.name, ...withOption(rest, 'sheet', close[0]!)]);
+    // The wrong name is fixed where it was typed (--sheet or the "Sheet!" of --set); a command that
+    // would repeat the same error is not suggested (D-R08).
+    const fixed = close.length > 0 ? withSheetName(rest, error.location.sheet, close[0]!) : null;
+    if (fixed !== null) return commandLine([spec.name, ...fixed]);
   }
   if (error.code === 'XLV_E_NOT_ZIP' && typeof d['path'] === 'string' && /\.(csv|tsv|json)$/i.test(d['path'])) {
     // The CLI can turn CSV and JSON into a workbook.
@@ -180,7 +207,9 @@ function suggestCommand(error: XlvError, first: string | undefined, rest: readon
   }
   if (error.code === 'XLV_E_FILE_READ' && suggestions.length > 0 && typeof d['path'] === 'string') {
     const path = d['path'];
-    if (rest.includes(path)) return commandLine([spec.name, ...rest.map((a) => (a === path ? suggestions[0]! : a))]);
+    // Only the argument that was read is replaced, not an --output that has the same name (D-R08).
+    const at = rest.findIndex((a, i) => a === path && rest[i - 1] !== '-o' && rest[i - 1] !== '--output');
+    if (at >= 0) return commandLine([spec.name, ...rest.map((a, i) => (i === at ? suggestions[0]! : a))]);
   }
   return null;
 }

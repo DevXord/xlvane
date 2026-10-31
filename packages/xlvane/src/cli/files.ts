@@ -1,7 +1,7 @@
 // File access of the CLI: reading with the library limits, a progress line for large files,
 // and writing that never replaces a file without --force (docs/decisions.md D-604).
 import { chmod, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { XlvError } from '../errors';
 import type { Workbook } from '../model';
 import { readWorkbook } from '../read';
@@ -40,8 +40,14 @@ async function progress<T>(ctx: CommandContext, path: string, work: () => Promis
   }
 }
 
+/** File names a workbook can be read from. */
+const isWorkbookName = (name: string): boolean => /\.(xlsx|xlsm|xltx|xltm)$/i.test(name);
+
+/** File names with the same extension as `path` (any name when `path` has none). */
+const sameExtension = (path: string) => (name: string): boolean => extname(name).toLowerCase() === extname(path).toLowerCase();
+
 /** Reads a file as bytes (size checked against the default limits), without a progress line. */
-async function readRaw(ctx: CommandContext, path: string): Promise<Uint8Array> {
+async function readRaw(ctx: CommandContext, path: string, accept: (name: string) => boolean): Promise<Uint8Array> {
   ctx.state.lastFile = path;
   if (path === '-') {
     throw usageError('Reading from standard input ("-") is not supported.', 'Save the data to a file first and pass its path, for example: some-command > data.csv && xlvane convert data.csv data.xlsx.', { option: '-' });
@@ -50,13 +56,16 @@ async function readRaw(ctx: CommandContext, path: string): Promise<Uint8Array> {
   try {
     return await readInput(resolved, undefined);
   } catch (error) {
-    throw await withFileHint(ctx, path, notFound(asTyped(error, resolved, path), path));
+    throw await withFileHint(ctx, path, notFound(asTyped(error, resolved, path), path), accept);
   }
 }
 
-/** Reads a file as bytes (size checked against the default limits). */
-export async function readBytes(ctx: CommandContext, path: string): Promise<Uint8Array> {
-  return progress(ctx, path, () => readRaw(ctx, path));
+/**
+ * Reads a file as bytes (size checked against the default limits). For a missing file, only
+ * names that `accept` allows are suggested (default: workbook files).
+ */
+export async function readBytes(ctx: CommandContext, path: string, accept: (name: string) => boolean = isWorkbookName): Promise<Uint8Array> {
+  return progress(ctx, path, () => readRaw(ctx, path, accept));
 }
 
 /** "File not found" instead of the system error code, which people do not need to decode. */
@@ -80,7 +89,7 @@ function asTyped(error: unknown, resolved: string, typed: string): unknown {
 export async function readBook(ctx: CommandContext, path: string): Promise<{ bytes: Uint8Array; workbook: Workbook }> {
   // The progress line stays up while the file is parsed, which is where large files take time.
   return progress(ctx, path, async () => {
-    const bytes = await readRaw(ctx, path);
+    const bytes = await readRaw(ctx, path, isWorkbookName);
     try {
       return { bytes, workbook: readWorkbook(bytes) };
     } catch (error) {
@@ -91,7 +100,7 @@ export async function readBook(ctx: CommandContext, path: string): Promise<{ byt
 
 /** Reads a text file (UTF-8, BOM removed). */
 export async function readText(ctx: CommandContext, path: string): Promise<string> {
-  const bytes = await readBytes(ctx, path);
+  const bytes = await readBytes(ctx, path, sameExtension(path));
   try {
     return new TextDecoder('utf-8', { fatal: true, ignoreBOM: false }).decode(bytes);
   } catch {
@@ -110,8 +119,12 @@ export function withPath(error: unknown, path: string): unknown {
   return error;
 }
 
-/** For a missing file, suggests files with a similar name in the same directory. */
-async function withFileHint(ctx: CommandContext, path: string, error: unknown): Promise<unknown> {
+/**
+ * For a missing file, suggests a file with a similar name in the same directory: only a name the
+ * command can read (`accept`), and never a file that another argument of the command already
+ * names, such as the other side of a diff (D-R08).
+ */
+async function withFileHint(ctx: CommandContext, path: string, error: unknown, accept: (name: string) => boolean): Promise<unknown> {
   if (!(error instanceof XlvError) || error.details['code'] !== 'ENOENT') return error;
   let names: string[];
   try {
@@ -119,7 +132,9 @@ async function withFileHint(ctx: CommandContext, path: string, error: unknown): 
   } catch {
     return error;
   }
-  const close = suggest(basename(path), names, 1);
+  const others = new Set(ctx.argv.filter((a) => a !== path && !a.startsWith('-')).map((a) => resolvePath(ctx, a)));
+  const candidates = names.filter((n) => accept(n) && !others.has(resolvePath(ctx, join(dirname(path), n))));
+  const close = suggest(basename(path), candidates, 1);
   if (close.length === 0) return error;
   const candidate = join(dirname(path), close[0]!).replace(/^\.\//, '');
   return new XlvError(error.code, error.message, {

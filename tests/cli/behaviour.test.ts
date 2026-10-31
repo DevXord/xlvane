@@ -73,7 +73,7 @@ describe('writing', () => {
       expect(r.code).toBe(0);
       expect(r.stdout).toMatch(/^Dry run: would write out\.xlsx \(\d+\.\d kB\)\. Nothing was written\.\n$/);
       await expect(stat(join(dir, 'out.xlsx'))).rejects.toThrow();
-      const inPlace = await cli(['edit', 'report.xlsx', '--set', 'Sales!B2=1', '--dry-run'], { cwd: dir });
+      const inPlace = await cli(['edit', 'report.xlsx', '--set', 'Sales!B2=1', '--dry-run', '--force'], { cwd: dir });
       expect(inPlace.stdout).toContain('Dry run: would replace report.xlsx');
     });
   });

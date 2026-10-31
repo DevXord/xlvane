@@ -4,7 +4,7 @@ import { XlvError, type XlvWarning } from '../../errors';
 import { fromJSON, toJSON } from '../../table';
 import { flag, headerOption, str, usageError } from '../args';
 import { readBook, readText, writeOutput, wroteLine, type WriteOutcome } from '../files';
-import { commandLine } from '../output';
+import { commandLine, quoteArg } from '../output';
 import type { CommandContext, CommandOutcome, CommandSpec } from '../types';
 import { warningNote } from '../warnings';
 
@@ -57,6 +57,24 @@ function delimiterNote(ctx: CommandContext, command: string, text: string, input
   ctx.note(`note: the first line of ${input} has no "," but has ${other === 'tab' ? 'tabs' : '";"'}; every line became one column. Try: ${commandLine([command, ...args, '--delimiter', other])}`);
 }
 
+/** What to do with a JSON file that holds something other than an array of rows. */
+function notArrayHint(text: string, input: string): string {
+  const plain = 'The file must hold an array of objects (one per row) or of arrays, for example [{"name":"Ann","score":7}].';
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return plain;
+  }
+  if (typeof data !== 'object' || data === null) return plain;
+  const key = Object.keys(data).find((k) => Array.isArray((data as Record<string, unknown>)[k]));
+  if (key === undefined) return plain;
+  const simple = /^[A-Za-z_][A-Za-z0-9_]*$/.test(key);
+  const filter = simple ? `.${key}` : `.[${JSON.stringify(key)}]`;
+  const out = simple ? `${key}.json` : 'rows.json';
+  return `The file holds a JSON object; its property "${key}" holds an array. Save that array as a file of its own and pass that file, for example: jq '${filter.replace(/'/g, `'\\''`)}' ${quoteArg(input)} > ${quoteArg(out)}`;
+}
+
 /** Builds an xlsx file from CSV or JSON text (shared by convert and create). */
 export async function tableToXlsx(ctx: CommandContext, command: string, input: string, from: Format, preset: 'plain' | 'report'): Promise<Uint8Array> {
   const text = await readText(ctx, input);
@@ -69,6 +87,10 @@ export async function tableToXlsx(ctx: CommandContext, command: string, input: s
     } catch (error) {
       if (error instanceof XlvError && error.code === 'XLV_E_JSON_INVALID') {
         throw new XlvError(error.code, error.message, { hint: 'Fix the JSON file; the message gives the problem. The file must hold an array of objects or arrays.', details: { ...error.details, path: input }, cause: error });
+      }
+      if (error instanceof XlvError && error.code === 'XLV_E_INVALID_ROWS' && !text.trimStart().startsWith('[')) {
+        // The library hint ("pass that property") is for code; on the command line the array has to be a file of its own (D-R08).
+        throw new XlvError(error.code, `"${input}" does not hold a JSON array.`, { hint: notArrayHint(text, input), details: { ...error.details, path: input }, cause: error });
       }
       throw error;
     }
