@@ -471,7 +471,7 @@ function viewAttributes(view: SheetView | undefined): string {
   if (!view.showRuler) xml += ' showRuler="0"';
   if (view.layout !== 'normal') xml += attr('view', view.layout);
   // CT_SheetView attribute order is not significant; topLeftCell before the zoom attributes as in sml.xsd L2332.
-  if (view.topLeftCell !== null && view.split === null) xml += attr('topLeftCell', view.topLeftCell);
+  if (view.topLeftCell !== null) xml += attr('topLeftCell', view.topLeftCell);
   if (view.zoom !== 100) xml += attr('zoomScale', view.zoom);
   if (view.zoomScaleNormal !== 0) xml += attr('zoomScaleNormal', view.zoomScaleNormal);
   return xml;
@@ -501,13 +501,16 @@ export function sheetHead(
   xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(attrsView)} workbookViewId="0"`;
   const split = sheet.view?.split ?? null;
   if (split !== null && !sheet.freeze) {
-    // A split window: positions in 1/20 point, xSplit for the vertical bar; topLeftCell is
-    // optional for state="split" ([MS-OI29500] §2.1.640 a, d; W2-51).
+    // A split window: positions in 1/20 point, xSplit for the vertical bar; pane@topLeftCell is
+    // optional for state="split" ([MS-OI29500] §2.1.640 a, d; W2-51). sheetView@topLeftCell (the
+    // top-left pane) is written above; the active cell is the selection of the active pane.
     const pane = split.x > 0 && split.y > 0 ? 'bottomRight' : split.y > 0 ? 'bottomLeft' : 'topRight';
     xml += '><pane';
     if (split.x > 0) xml += attr('xSplit', split.x * 20);
     if (split.y > 0) xml += attr('ySplit', split.y * 20);
-    xml += `${attr('activePane', pane)} state="split"/></sheetView>`;
+    xml += `${attr('activePane', pane)} state="split"/>`;
+    const active = sheet.view?.activeCell;
+    xml += active ? `<selection${attr('pane', pane)}${attr('activeCell', active)}${attr('sqref', active)}/></sheetView>` : '</sheetView>';
   } else if (sheet.freeze) {
     const { rows, cols } = sheet.freeze;
     const pane = rows > 0 && cols > 0 ? 'bottomRight' : rows > 0 ? 'bottomLeft' : 'topRight';

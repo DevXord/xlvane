@@ -132,4 +132,22 @@ describe('reading', () => {
     expect(sheet.tabColor).toBe('FF00B0F0');
     expect(sheet.view.zoom).toBe(90);
   });
+
+  it('keeps topLeftCell and activeCell with a split, in both writers (found by outside-project tests)', async () => {
+    for (const split of [{ x: 100, y: 50 }, { x: 0, y: 50 }, { x: 100, y: 0 }]) {
+      const pane = split.x > 0 && split.y > 0 ? 'bottomRight' : split.y > 0 ? 'bottomLeft' : 'topRight';
+      const wb = createWorkbook();
+      wb.addSheet('S').view({ split, activeCell: 'C5', topLeftCell: 'B3' });
+      const batch = writeWorkbook(wb);
+      const stream = writeWorkbookStream({ sheets: [{ name: 'S', view: { split, activeCell: 'C5', topLeftCell: 'B3' }, rows: [[1]] }] });
+      const streamed = new Uint8Array(await new Response(stream).arrayBuffer());
+      for (const bytes of [batch, streamed]) {
+        const view = readWorkbook(bytes).getSheet('S').view;
+        expect(view.split).toEqual(split);
+        expect(view.topLeftCell).toBe('B3');
+        expect(view.activeCell).toBe('C5');
+        expect(sheetXml(bytes)).toContain(`<selection pane="${pane}" activeCell="C5" sqref="C5"/>`);
+      }
+    }
+  });
 });

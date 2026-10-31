@@ -215,3 +215,24 @@ describe('sheets with invalid references (D-903)', () => {
     expectXlvError(() => appendRows(xlsx, 'S', [[1]]), 'XLV_E_INVALID_CELL_REF');
   });
 });
+
+describe('appendRows below merged ranges (found by outside-project tests)', () => {
+  it('starts below a merge that reaches the last used row, also through chained merges', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('S');
+    s.set('A1', 'h').set('A2', 1).set('A3', 'merged').merge('A3:C5').merge('D5:D7');
+    const result = appendRows(writeWorkbook(wb), 'S', [['x', 'y']]);
+    expect(result.warnings.map((w) => w.code)).not.toContain('XLV_W_MERGED_CELL_WRITE');
+    const sheet = readWorkbook(result.bytes).getSheet('S');
+    expect(sheet.cell('A8')?.value).toBe('x');
+    expect(sheet.cell('B8')?.value).toBe('y');
+    expect(sheet.cell('A4')).toBeUndefined();
+  });
+
+  it('ignores merges that end above the last used row', () => {
+    const wb = createWorkbook();
+    wb.addSheet('S').set('A1', 'm').merge('A1:B2').set('A3', 1);
+    const sheet = readWorkbook(appendRows(writeWorkbook(wb), 'S', [[2]]).bytes).getSheet('S');
+    expect(sheet.cell('A4')?.value).toBe(2);
+  });
+});

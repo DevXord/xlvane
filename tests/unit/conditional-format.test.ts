@@ -194,3 +194,22 @@ describe('review fixes (D-D05)', () => {
     expect(readWorkbook(bytes).getSheet('S').conditionalFormats[0]?.rules[0]?.text).toBe('a_x0041_b\tc');
   });
 });
+
+describe('hint for a missing formula (found by outside-project tests)', () => {
+  const hintFor = (rule: Record<string, unknown>): string => {
+    try {
+      createWorkbook().addSheet('S').conditionalFormat('A1:A9', [{ style: { font: { bold: true } }, ...rule } as never]);
+    } catch (error) {
+      return (error as { hint: string }).hint;
+    }
+    throw new Error('no error');
+  };
+
+  it('fits the rule type', () => {
+    expect(hintFor({ type: 'timePeriod', timePeriod: 'today' })).toContain('"A1=TODAY()"');
+    expect(hintFor({ type: 'timePeriod', timePeriod: 'today' })).not.toContain('SEARCH');
+    expect(hintFor({ type: 'containsBlanks' })).toContain('ISBLANK(A1)');
+    expect(hintFor({ type: 'containsText', text: 'x' })).toContain('SEARCH');
+    expect(hintFor({ type: 'expression' })).toContain('$B2>100');
+  });
+});
