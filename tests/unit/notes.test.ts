@@ -12,6 +12,9 @@ import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
 import { expectXlvError, expectXlvErrorAsync } from '../helpers/expect-error';
 import { buildXlsx, NS } from '../helpers/xlsx-builder';
 
+/** The notes without their box settings, which tests/unit/note-box.test.ts checks. */
+const withoutBox = (notes: readonly { box?: unknown }[]): unknown[] => notes.map(({ box: _box, ...rest }) => rest);
+
 const rels = (items: string): string =>
   `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${items}</Relationships>`;
 
@@ -151,7 +154,7 @@ describe('writing notes', () => {
 
   it('reads back what it wrote', () => {
     const sheet = readWorkbook(build()).getSheet('Budget');
-    expect(sheet.notes).toEqual([
+    expect(withoutBox(sheet.notes)).toEqual([
       { ref: 'A1', text: 'Ann: see <B2>', author: 'Ann', runs: [{ text: 'Ann: ', font: { bold: true } }, { text: 'see <B2>' }] },
       { ref: 'B2', text: 'Estimate & check', author: '' },
       { ref: 'C3', text: 'by Ann too', author: 'Ann' },
@@ -166,7 +169,7 @@ describe('writing notes', () => {
       b.addSheet('S').note('A1', 'one').note('A1', 'two').note('B1', 'gone').note('B1', null);
       return writeWorkbook(b);
     };
-    expect(readWorkbook(make()).getSheet('S').notes).toEqual([{ ref: 'A1', text: 'two', author: '' }]);
+    expect(withoutBox(readWorkbook(make()).getSheet('S').notes)).toEqual([{ ref: 'A1', text: 'two', author: '' }]);
     expect(make()).toEqual(make());
   });
 
@@ -218,7 +221,7 @@ describe('streaming notes and links per row', () => {
     );
     const wb = readWorkbook(bytes);
     const sheet = wb.getSheet('Data');
-    expect(sheet.notes).toEqual([
+    expect(withoutBox(sheet.notes)).toEqual([
       { ref: 'A1', text: 'Identifier', author: '' },
       { ref: 'B3', text: 'big', author: 'Ann', runs: [{ text: 'big', font: { italic: true } }] },
     ]);
@@ -234,7 +237,7 @@ describe('streaming notes and links per row', () => {
       yield { name: 'A', rows: [{ values: [1], notes: ['n'] }] };
     }
     const bytes = await bytesOf(writeWorkbookStream({ sheets: sheets() }));
-    expect(readWorkbook(bytes).getSheet('A').notes).toEqual([{ ref: 'A1', text: 'n', author: '' }]);
+    expect(withoutBox(readWorkbook(bytes).getSheet('A').notes)).toEqual([{ ref: 'A1', text: 'n', author: '' }]);
     await expectXlvErrorAsync(() => bytesOf(writeWorkbookStream({ sheets: [{ name: 'S', rows: [{ values: [1], notes: 'x' as never }] }] })), 'XLV_E_INVALID_OPTION');
     await expectXlvErrorAsync(() => bytesOf(writeWorkbookStream({ sheets: [{ name: 'S', rows: [{ values: [1], notes: [42 as never] }] }] })), 'XLV_E_INVALID_VALUE');
   });
@@ -246,7 +249,7 @@ describe('notes elsewhere', () => {
     wb.addSheet('S').set('A1', 1).note('A1', 'keep');
     const edited = editCells(writeWorkbook(wb), [{ sheet: 'S', cell: 'B1', value: 2 }]);
     const sheet = readWorkbook(edited.bytes).getSheet('S');
-    expect(sheet.notes).toEqual([{ ref: 'A1', text: 'keep', author: '' }]);
+    expect(withoutBox(sheet.notes)).toEqual([{ ref: 'A1', text: 'keep', author: '' }]);
     expect(sheet.cell('B1')?.value).toBe(2);
   });
 

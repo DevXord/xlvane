@@ -243,8 +243,9 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     if (entry.kind !== 'worksheet' || entry.part === null) return [];
     const cached = noteCache.get(entry.part);
     if (cached !== undefined) return cached;
-    const rel = pkg.relationships(entry.part).find((r) => !r.external && classifyRelationship(r.type)?.name === 'comments');
-    if (rel !== undefined) await preloaded.load([zipName(rel.target)]);
+    // The Comments part and the VML parts with the note boxes (W2-69).
+    const parts = pkg.relationships(entry.part).filter((r) => !r.external && ['comments', 'vmlDrawing'].includes(classifyRelationship(r.type)?.name ?? '') && pkg.hasPart(r.target));
+    if (parts.length > 0) await preloaded.load(parts.map((r) => zipName(r.target)));
     const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings));
     noteCache.set(entry.part, notes);
     return notes;

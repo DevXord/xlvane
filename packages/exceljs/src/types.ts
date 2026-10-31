@@ -322,8 +322,8 @@ export interface WorksheetOptions {
 
 /**
  * A cell note (`cell.note = string | Comment`), as in exceljs (index.d.ts `Comment`, lib/doc/note.js).
- * `texts` are rich text runs. `margins`, `protection` and `editAs` are kept on the object but not
- * written: xlvane writes every note box in the form of the ECMA-376 examples (D-A14).
+ * `texts` are rich text runs. `margins` (`inset` in centimetres: left, top, right, bottom),
+ * `protection` and `editAs` set the box that shows the note, as in exceljs (D-E07).
  *
  * @example
  * ```ts

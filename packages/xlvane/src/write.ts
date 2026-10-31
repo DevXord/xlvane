@@ -6,7 +6,7 @@ import { XlvError } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
 import { checkImage, metricsOf, normalizeImage, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions, type StoredImage } from './images';
-import { MAX_AUTHOR_LENGTH, type NoteInput } from './notes';
+import { MAX_AUTHOR_LENGTH, type NoteBox, type NoteInput } from './notes';
 import { MAX_DATA_VALIDATIONS, normalizeConditionalFormat, normalizeDataValidation, type ConditionalFormatRuleInput, type DataValidation, type DataValidationRule, type StoredConditionalFormat } from './sheet-rules';
 import {
   EMPTY_PRINT_DATA,
@@ -1285,6 +1285,46 @@ export interface StoredNote {
   readonly col: number;
   readonly value: Extract<StoredValue, { kind: 'string' }>;
   readonly author: string;
+  /** The settings of the note's box (W2-69). */
+  readonly box: NoteBox;
+}
+
+/** The box of a note without settings: automatic margins, locked, not moved or sized with cells. */
+export const DEFAULT_NOTE_BOX: NoteBox = Object.freeze({ autoMargins: true, margins: null, locked: true, lockText: true, anchor: 'absolute' });
+
+/** Most millimetres of a margin: the largest VML length in millimetres Office accepts ([MS-OI29500] §2.1.1789). */
+const MAX_NOTE_MARGIN_MM = 59_652;
+
+function normalizeNoteBox(box: unknown, ctx: ConvertContext, cell: string): NoteBox {
+  const usage = 'For example box: { margins: { left: 2, top: 1, right: 2, bottom: 1 }, lockText: false, anchor: "twoCell" } (margins in millimetres).';
+  const bad = (what: string): never => {
+    throw new XlvError('XLV_E_INVALID_OPTION', `The box of the note for ${cell}: ${what}`, { location: { sheet: ctx.sheet, cell }, hint: usage, details: { option: 'box' } });
+  };
+  if (typeof box !== 'object' || box === null || Array.isArray(box)) return bad('it must be an object.');
+  const o = box as Record<string, unknown>;
+  for (const k of Object.keys(o)) if (!['autoMargins', 'margins', 'locked', 'lockText', 'anchor'].includes(k)) bad(`"${k.slice(0, 40)}" is not a box setting (autoMargins, margins, locked, lockText, anchor).`);
+  for (const k of ['autoMargins', 'locked', 'lockText'] as const) if (o[k] !== undefined && typeof o[k] !== 'boolean') bad(`"${k}" must be true or false.`);
+  if (o['anchor'] !== undefined && o['anchor'] !== 'twoCell' && o['anchor'] !== 'oneCell' && o['anchor'] !== 'absolute') bad('"anchor" must be "twoCell", "oneCell" or "absolute".');
+  let margins: NoteBox['margins'] = null;
+  if (o['margins'] !== undefined) {
+    const m = o['margins'];
+    if (typeof m !== 'object' || m === null || Array.isArray(m)) return bad('"margins" must be { left, top, right, bottom } in millimetres.');
+    const mm = m as Record<string, unknown>;
+    for (const k of Object.keys(mm)) if (!['left', 'top', 'right', 'bottom'].includes(k)) bad(`"margins.${k.slice(0, 40)}" is not a margin (left, top, right, bottom).`);
+    const side = (k: 'left' | 'top' | 'right' | 'bottom'): number => {
+      const v = mm[k];
+      if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_NOTE_MARGIN_MM) return bad(`"margins.${k}" must be a number of millimetres from 0 to ${String(MAX_NOTE_MARGIN_MM)}.`);
+      return v;
+    };
+    margins = Object.freeze({ left: side('left'), top: side('top'), right: side('right'), bottom: side('bottom') });
+  }
+  return Object.freeze({
+    autoMargins: (o['autoMargins'] as boolean | undefined) ?? margins === null,
+    margins,
+    locked: (o['locked'] as boolean | undefined) ?? true,
+    lockText: (o['lockText'] as boolean | undefined) ?? true,
+    anchor: (o['anchor'] as NoteBox['anchor'] | undefined) ?? 'absolute',
+  });
 }
 
 /** The notes of a sheet in row, then column order (deterministic output). */
@@ -1300,12 +1340,14 @@ function normalizeNote(note: unknown, ctx: ConvertContext, cell: string): Omit<S
   const usage = 'Pass the text, or { text: "…", author: "Ann" }, or { runs: [{ text: "…", font: { bold: true } }] }.';
   let input: unknown = note;
   let author = '';
+  let box: NoteBox = DEFAULT_NOTE_BOX;
   if (typeof note === 'object' && note !== null && !Array.isArray(note)) {
     const keys = Object.keys(note);
-    const o = note as { text?: unknown; runs?: unknown; author?: unknown };
-    if (keys.some((k) => k !== 'text' && k !== 'runs' && k !== 'author') || (o.text === undefined) === (o.runs === undefined)) {
-      throw invalidValue(ctx.sheet, cell, `The note for ${cell} must have exactly one of "text" and "runs", and optionally "author".`, usage);
+    const o = note as { text?: unknown; runs?: unknown; author?: unknown; box?: unknown };
+    if (keys.some((k) => k !== 'text' && k !== 'runs' && k !== 'author' && k !== 'box') || (o.text === undefined) === (o.runs === undefined)) {
+      throw invalidValue(ctx.sheet, cell, `The note for ${cell} must have exactly one of "text" and "runs", and optionally "author" and "box".`, usage);
     }
+    if (o.box !== undefined) box = normalizeNoteBox(o.box, ctx, cell);
     if (o.author !== undefined) {
       if (typeof o.author !== 'string' || o.author.length > MAX_AUTHOR_LENGTH || firstLoneSurrogate(o.author) !== -1) {
         throw invalidValue(ctx.sheet, cell, `The author of the note for ${cell} must be text of at most ${String(MAX_AUTHOR_LENGTH)} characters.`, 'Pass the author as a string, for example author: "Ann".');
@@ -1324,7 +1366,7 @@ function normalizeNote(note: unknown, ctx: ConvertContext, cell: string): Omit<S
     if (!(error instanceof XlvError)) throw error;
     throw new XlvError(error.code, `The note for ${cell}: ${error.message}`, { location: { sheet: ctx.sheet, cell }, hint: error.hint, details: error.details });
   }
-  return { value: stored?.kind === 'string' ? stored : { kind: 'string', s: '' }, author };
+  return { value: stored?.kind === 'string' ? stored : { kind: 'string', s: '' }, author, box };
 }
 
 /** Where a value is converted: names the sheet in errors and gives the date system. */

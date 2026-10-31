@@ -916,13 +916,21 @@ function vmlXml(notes: readonly StoredNote[], block: number, blocks: number): st
     const style =
       `position:absolute;margin-left:${String((col + 1) * COLUMN_PT + 15 * PX_PT)}pt;margin-top:${String(top * ROW_PT + 10 * PX_PT)}pt;` +
       `width:${String(2 * COLUMN_PT)}pt;height:${String(4 * ROW_PT - 6 * PX_PT)}pt;z-index:${String(k + 1)};visibility:hidden`;
+    const box = note.box;
+    // W2-69: margins with explicit units (the unit of a bare number is not stated, R5 Item 10);
+    // o:insetmode on the shape, where Excel reads it ([MS-OI29500] §2.1.1811 f, i); Excel's
+    // reversed MoveWithCells/SizeWithCells (§2.1.1881, §2.1.1886); Locked/LockText only when
+    // false, since an omitted element means locked (Part 4 §19.4.2.37, §19.4.2.38).
+    const inset = box.margins === null ? '' : attr('inset', [box.margins.left, box.margins.top, box.margins.right, box.margins.bottom].map((v) => `${String(v)}mm`).join(','));
+    const anchorFlags = box.anchor === 'absolute' ? '<x:MoveWithCells/><x:SizeWithCells/>' : box.anchor === 'oneCell' ? '<x:SizeWithCells/>' : '';
     xml +=
-      `<v:shape${attr('id', `_x0000_s${String(block * 1024 + k + 1)}`)} type="#_x0000_t202"${attr('style', style)} fillcolor="#ffffe1" o:insetmode="auto">` +
+      `<v:shape${attr('id', `_x0000_s${String(block * 1024 + k + 1)}`)} type="#_x0000_t202"${attr('style', style)} fillcolor="#ffffe1"${attr('o:insetmode', box.autoMargins ? 'auto' : 'custom')}>` +
       '<v:fill color2="#ffffe1"/><v:shadow on="t" color="black" obscured="t"/><v:path o:connecttype="none"/>' +
-      '<v:textbox style="mso-direction-alt:auto"><div style="text-align:left"></div></v:textbox>' +
-      '<x:ClientData ObjectType="Note"><x:MoveWithCells/><x:SizeWithCells/>' +
+      `<v:textbox style="mso-direction-alt:auto"${inset}><div style="text-align:left"></div></v:textbox>` +
+      `<x:ClientData ObjectType="Note">${anchorFlags}` +
       `<x:Anchor>${[col + 1, 15, top, 10, col + 3, 15, top + 4, 4].join(', ')}</x:Anchor>` +
-      `<x:AutoFill>False</x:AutoFill><x:Row>${String(row)}</x:Row><x:Column>${String(col)}</x:Column></x:ClientData></v:shape>`;
+      `${box.locked ? '' : '<x:Locked>False</x:Locked>'}<x:AutoFill>False</x:AutoFill>${box.lockText ? '' : '<x:LockText>False</x:LockText>'}` +
+      `<x:Row>${String(row)}</x:Row><x:Column>${String(col)}</x:Column></x:ClientData></v:shape>`;
   });
   return `${xml}</xml>`;
 }

@@ -557,6 +557,22 @@
         "text": " is new this year"
       }
     ],
+    "b4box": {
+      "margins": {
+        "insetmode": "custom",
+        "inset": [
+          0.2,
+          0.15,
+          0.2,
+          0.1
+        ]
+      },
+      "protection": {
+        "locked": "False",
+        "lockText": "False"
+      },
+      "editAs": "twoCells"
+    },
     "a1": null
   },
   "edits": {

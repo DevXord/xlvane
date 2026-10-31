@@ -52,7 +52,12 @@ export async function run(ExcelJS, Workbook, dir) {
   sheet.getCell('A11').value = { text: 'Mail us', hyperlink: 'mailto:sales@example.com' };
   sheet.getCell('A12').value = { text: 'Go to total', hyperlink: '#Sales!C5' };
   sheet.getCell('A5').note = 'Checked by finance';
-  sheet.getCell('B4').note = { texts: [{ font: { bold: true }, text: 'Cocoa' }, { text: ' is new this year' }] };
+  sheet.getCell('B4').note = {
+    texts: [{ font: { bold: true }, text: 'Cocoa' }, { text: ' is new this year' }],
+    margins: { insetmode: 'custom', inset: [0.2, 0.15, 0.2, 0.1] },
+    protection: { locked: 'False', lockText: 'False' },
+    editAs: 'twoCells',
+  };
   // Data validation, conditional formatting, protection and printing (no password: xlvane
   // does not hash passwords yet).
   for (const a of ['B2', 'B3', 'B4']) sheet.getCell(a).dataValidation = { type: 'list', allowBlank: true, formulae: ['"Tea,Coffee,Cocoa"'] };
@@ -226,7 +231,12 @@ export async function run(ExcelJS, Workbook, dir) {
     company: { company: read.company ?? null, manager: read.manager ?? null },
     tabColor: ws.properties.tabColor ?? null,
     view: { state: view.state ?? null, zoomScale: view.zoomScale ?? null, showGridLines: view.showGridLines ?? null, topLeftCell: view.topLeftCell ?? null },
-    notes: { a5: ws.getCell('A5').note ?? null, b4texts: ws.getCell('B4').note?.texts ?? null, a1: ws.getCell('A1').note ?? null },
+    notes: {
+      a5: ws.getCell('A5').note ?? null,
+      b4texts: ws.getCell('B4').note?.texts ?? null,
+      b4box: { margins: ws.getCell('B4').note?.margins ?? null, protection: ws.getCell('B4').note?.protection ?? null, editAs: ws.getCell('B4').note?.editAs ?? null },
+      a1: ws.getCell('A1').note ?? null,
+    },
     edits: { rows: editRows, bold: editBold },
     rules: {
       b3validation: ws.getCell('B3').dataValidation ?? null,

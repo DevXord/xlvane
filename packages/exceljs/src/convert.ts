@@ -18,6 +18,8 @@ import {
   type HyperlinkTarget,
   type NewWorkbook,
   type Note as XlvNote,
+  type NoteBox,
+  type NoteBoxInput,
   type NoteInput,
   type RichTextRun,
   type SheetPropertiesOptions,
@@ -362,30 +364,69 @@ export function linkIn(cell: Cell): HyperlinkTarget | null {
 
 /**
  * The note of a cell for `NewSheet.note`, or `null`. exceljs writes every note with the author
- * "Author" (comments-xform.js L29–31; X4-14), so xlvane does too. `margins`, `protection` and
- * `editAs` are not written (D-A14).
+ * "Author" (comments-xform.js L29–31; X4-14), so xlvane does too, and with the box settings of
+ * `Note.DEFAULT_CONFIGS` merged with the note's `margins`, `protection` and `editAs`
+ * (lib/doc/note.js L51–64; X4-31; D-E07).
  */
 export function noteIn(cell: Cell): NoteInput | null {
   const note = cell.note;
   if (note === undefined) return null;
-  if (typeof note === 'string') return { text: note, author: NOTE_AUTHOR };
+  if (typeof note === 'string') return { text: note, author: NOTE_AUTHOR, box: noteBoxIn(undefined) };
   const texts = note.texts ?? [];
-  return texts.length === 0 ? { text: '', author: NOTE_AUTHOR } : { runs: runsIn(texts, cell.address), author: NOTE_AUTHOR };
+  const box = noteBoxIn(note);
+  return texts.length === 0 ? { text: '', author: NOTE_AUTHOR, box } : { runs: runsIn(texts, cell.address), author: NOTE_AUTHOR, box };
 }
 
 /** The author exceljs writes for every note. */
 export const NOTE_AUTHOR = 'Author';
 
+/** exceljs's default note box (lib/doc/note.js L51–64): automatic margins, inset 0.13/0.13/0.25/0.25 cm. */
+const DEFAULT_INSET_CM = [0.13, 0.13, 0.25, 0.25] as const;
+const EDIT_AS_IN = { absolute: 'absolute', oneCells: 'oneCell', twoCells: 'twoCell' } as const;
+const EDIT_AS_OUT = { absolute: 'absolute', oneCell: 'oneCells', twoCell: 'twoCells' } as const;
+
+/**
+ * The box settings of an exceljs note. exceljs gives `inset` in centimetres and writes them ×10 as
+ * millimetres (vml-textbox-xform.js L8–35); `editAs` 'absolute' writes MoveWithCells and
+ * SizeWithCells, 'oneCells' only SizeWithCells, 'twoCells' neither (vml-client-data-xform.js,
+ * vml-position-xform.js). Locked and LockText are locked unless given as "False".
+ */
+function noteBoxIn(note: Comment | undefined): NoteBoxInput {
+  const inset = note?.margins?.inset ?? DEFAULT_INSET_CM;
+  const mm = (i: number): number => Math.round(Number(inset[i] ?? DEFAULT_INSET_CM[i]) * 10 * 1e6) / 1e6;
+  const unlocked = (v: unknown): boolean => v === 'False' || v === false || v === 'false';
+  return {
+    autoMargins: (note?.margins?.insetmode ?? 'auto') === 'auto',
+    margins: { left: mm(0), top: mm(1), right: mm(2), bottom: mm(3) },
+    locked: !unlocked(note?.protection?.locked),
+    lockText: !unlocked(note?.protection?.lockText),
+    anchor: EDIT_AS_IN[note?.editAs ?? 'absolute'] ?? 'absolute',
+  };
+}
+
 /**
  * A note read by xlvane as exceljs gives it back: a string when it is one run without a font,
- * otherwise `{ texts }` (lib/doc/note.js `set model`; X4-14). exceljs also merges the VML box
- * settings into the object; xlvane does not read the VML (D-A12), so they are absent.
+ * otherwise `{ texts }` with the box settings from the VML part (`margins` in centimetres,
+ * `protection` as "True"/"False", `editAs`), as lib/doc/note.js `set model` and the VML xforms
+ * read them (X4-14, X4-31). exceljs also adds the raw `x:Anchor` text as `anchor`; xlvane does not.
  */
 export function noteOut(note: XlvNote): string | Comment {
   const runs = note.runs;
-  if (!runs || runs.length === 0) return note.text;
-  if (runs.length === 1 && !runs[0]!.font) return runs[0]!.text;
-  return { texts: richTextOut(runs).richText };
+  if (!runs || runs.length === 0 || (runs.length === 1 && !runs[0]!.font)) return runs?.length === 1 ? runs[0]!.text : note.text;
+  const out: Comment = { texts: richTextOut(runs).richText };
+  const box = note.box;
+  if (box !== undefined) Object.assign(out, noteBoxOut(box));
+  return out;
+}
+
+function noteBoxOut(box: NoteBox): Pick<Comment, 'margins' | 'editAs' | 'protection'> {
+  const cm = (v: number): number => Number((v / 10).toFixed(2));
+  const flag = (v: boolean): 'True' | 'False' => (v ? 'True' : 'False');
+  return {
+    margins: { insetmode: box.autoMargins ? 'auto' : 'custom', inset: box.margins === null ? [...DEFAULT_INSET_CM] : [cm(box.margins.left), cm(box.margins.top), cm(box.margins.right), cm(box.margins.bottom)] },
+    editAs: EDIT_AS_OUT[box.anchor],
+    protection: { locked: flag(box.locked), lockText: flag(box.lockText) },
+  };
 }
 
 /** Sheet layout from an exceljs view and `properties.tabColor`, applied to a new xlvane sheet. */

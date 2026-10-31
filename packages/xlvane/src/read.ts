@@ -5,7 +5,7 @@ import { isUnusualTarget, type Hyperlink } from './hyperlinks';
 import { readSheetDrawing, type MediaCache, type SheetImage, type WorkbookImage } from './images';
 import { DEFAULT_PAGE_SETUP, parsePrintArea, parsePrintTitles, type HeaderFooter, type PageSetup, type SheetProtection, type WorkbookProtection } from './printing';
 import { resolveLimits, type ReadLimits } from './limits';
-import { parseComments, THREADED_COMMENTS_REL, type Note } from './notes';
+import { parseComments, parseNoteBoxes, THREADED_COMMENTS_REL, type Note } from './notes';
 import { MAX_TABLES_PER_SHEET, parseTable, type TableDefinition } from './tables';
 import type { ConditionalFormat, DataValidation } from './sheet-rules';
 import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetProperties, SheetState, SheetView, Workbook, WorkbookFormat, WorkbookView } from './model';
@@ -371,7 +371,7 @@ function resolveHyperlinks(pkg: OpcPackage, part: string, sheet: string, data: W
 
 /**
  * The notes of a worksheet: the Comments part named by an internal relationship of the sheet
- * (W2-46), read as text; the VML part that draws them is not read. Threaded comments
+ * (W2-46), read as text, with the settings of their boxes from the sheet's VML parts (W2-69). Threaded comments
  * ([MS-XLSX] §2.3.7) are reported with `XLV_W_THREADED_COMMENTS`; their legacy placeholders are
  * ordinary notes.
  */
@@ -387,7 +387,22 @@ export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: 
     warnings.add('XLV_W_PART_MISSING', 'The sheet refers to a comments part that does not exist; its notes are not read.', { part: rel.target, sheet });
     return [];
   }
-  return parseComments(xml, { part: rel.target, sheet, limits, warnings });
+  const notes = parseComments(xml, { part: rel.target, sheet, limits, warnings });
+  if (notes.length === 0) return notes;
+  // The boxes that show the notes are VML shapes (Part 4 §19.4; W2-69). Header/footer VML parts
+  // have the same relationship type but no Note shapes, so every VML part of the sheet is read.
+  for (const vml of rels) {
+    if (vml.external || classifyRelationship(vml.type)?.name !== 'vmlDrawing') continue;
+    const text = pkg.readXml(vml.target);
+    if (text === undefined) continue;
+    const boxes = parseNoteBoxes(text, { part: vml.target, sheet, limits, warnings });
+    if (boxes.size === 0) continue;
+    for (let i = 0; i < notes.length; i++) {
+      const box = boxes.get(notes[i]!.ref);
+      if (box !== undefined && notes[i]!.box === undefined) notes[i] = Object.freeze({ ...notes[i]!, box });
+    }
+  }
+  return notes;
 }
 
 /**

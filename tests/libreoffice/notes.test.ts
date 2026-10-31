@@ -53,4 +53,22 @@ describe.skipIf(!available && !required)('LibreOffice and notes', () => {
       await rm(dir, { recursive: true, force: true });
     }
   });
+
+  it('keeps a note with a custom box, and xlvane reads the box LibreOffice writes (D-E07)', { timeout: 300_000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'xlvane-lo-note-box-'));
+    try {
+      const wb = createWorkbook();
+      wb.addSheet('Box').set('A1', 1).note('A1', { text: 'Editable', box: { margins: { left: 2, top: 1.5, right: 2, bottom: 1 }, lockText: false } });
+      await writeFile(join(dir, 'box.xlsx'), writeWorkbook(wb));
+      resave(dir, join(dir, 'box.xlsx'));
+      const out = await readFile(join(dir, 'out', 'box.xlsx'));
+      const note = readWorkbook(out).getSheet('Box').notes[0]!;
+      expect(note.text).toBe('Editable');
+      // Observed with LibreOffice 24.2.7.2 (W2-69): it keeps the note and writes its own box, with
+      // no inset, its own inset mode and the text locked again; xlvane reads that box.
+      expect(note.box).toEqual({ autoMargins: false, margins: null, locked: true, lockText: true, anchor: 'absolute' });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

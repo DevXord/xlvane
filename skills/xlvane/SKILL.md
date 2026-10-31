@@ -91,7 +91,7 @@ const sheet = readWorkbook(bytes).getSheet('Sales');
 console.log(sheet.hyperlinks.map((l) => `${l.ref} → ${l.target ?? l.location ?? ''}`), sheet.notes.map((n) => `${n.ref}: ${n.text}`));
 
 const out = createWorkbook({ properties: { company: 'Example Ltd' } });
-out.addSheet('Data').tabColor('FF0070C0').set('A1', 'Docs').link('A1', { url: 'https://example.com' }).note('B2', { text: 'Check', author: 'Ann' });
+out.addSheet('Data').tabColor('FF0070C0').set('A1', 'Docs').link('A1', { url: 'https://example.com' }).note('B2', { text: 'Check', author: 'Ann', box: { margins: { left: 2, top: 1, right: 2, bottom: 1 }, lockText: false } });
 ```
 
 Link targets are never opened. Notes are written hidden and need no cell value. `editCells` keeps existing links and notes but cannot add new ones.

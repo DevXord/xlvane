@@ -6,7 +6,7 @@
 // default styles after reading, docs/decisions.md D-206); the data validation and conditional
 // formatting tests build only their own sheet (tests/exceljs/sheet-rules-sheets.ts) and #1814
 // expects the dxf number format as a code string; notes read back without the box
-// settings margins, protection, editAs (D-A14);
+// settings margins, protection, editAs are written since D-E07;
 // the zip-option test uses its own sheet; tests that need createTestBook or images are skipped. One test added: names changed after the
 // first committed row.
 import { join } from 'node:path';
@@ -248,7 +248,7 @@ describe('WorkbookWriter', () => {
       ['writes notes', { margins: { insetmode: 'auto', inset: [0.13, 0.13, 0.25, 0.25] }, protection: { locked: 'True', lockText: 'True' }, editAs: 'twoCells' }],
       ['Cell annotation supports setting margins and protection properties', { margins: { insetmode: 'custom', inset: [0.25, 0.25, 0.35, 0.35] }, protection: { locked: 'False', lockText: 'False' }, editAs: 'oneCells' }],
     ] as const) {
-      it(`${title} (box settings are not written)`, async () => {
+      it(title, async () => {
         await withTempDir(async (dir) => {
           const filename = join(dir, 'wb.test.xlsx');
           const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename });
@@ -264,7 +264,8 @@ describe('WorkbookWriter', () => {
           expect(ws2.getCell('B1').note).toBe('five');
           expect(ws2.getCell('D1').value).toBe(7);
           expect(ws2.getCell('D1').note.texts).toEqual([{ font: { size: 12, color: { argb: 'FFFF6600' }, name: 'Calibri', scheme: 'minor' }, text: 'seven' }]);
-          expect(ws2.getCell('D1').note.margins).toBeUndefined();
+          // D-E07: the box settings are written to the VML part and read back (X4-31).
+          expect({ margins: ws2.getCell('D1').note.margins, protection: ws2.getCell('D1').note.protection, editAs: ws2.getCell('D1').note.editAs }).toEqual(box);
         });
       });
     }

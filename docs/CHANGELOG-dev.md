@@ -2,6 +2,14 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase E: closing exceljs compatibility (2026-10-31)
+
+- **Core** (D-E01, D-E02, D-E05): gradient fills, diagonal borders, all font properties, shrinkToFit, readingOrder, cell protection; array and shared formulas on write; outline levels, more view settings, workbook views, calcPr, write options; style-only cells kept on read.
+- **@xlvane/exceljs** (D-E03, D-E04, D-E07): `workbook.csv` (exceljs output plus CSV-injection protection), deep imports, enums, xlsx and WorkbookReader options and events, all styles, `fillFormula` and shared formulas, the missing API members, note box settings.
+- **Independent review** (D-E06): 6 bugs, 4 differences and a performance regression fixed.
+- **Sources:** fifth local review report (gradients, borders, alignment, protection, fonts, formulas, VML note box).
+- Remaining "partly" rows of docs/exceljs-compat.md are documented differences where xlvane follows the specification instead of an exceljs bug, or features exceljs's own streaming writer lacks.
+
 ## Phase D: tables and images (2026-10-30)
 
 - **Size budget** raised to 250 kB after measuring SheetJS and exceljs, then to 300 kB at the maintainer's request (D-D01); library now 190.4 kB.
