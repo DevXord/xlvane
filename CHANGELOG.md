@@ -15,7 +15,9 @@ First release of `xlvane` and `@xlvane/exceljs`.
 - **Hyperlinks** (external and in-workbook, written per ECMA-376), **notes** (comments, with rich text and author), **tab colour**, **sheet view** (zoom, grid lines, split) and **extended document properties** (`docProps/app.xml`: company, manager), read and written, also by the streaming writer.
 - **Pictures** (PNG, JPEG, GIF): `addImage` with range, corner or size anchors and a sheet background; reading gives `sheet.images` with anchors and image bytes; `insertRows`/`deleteRows` move them.
 - **Tables** (`addTable`, `sheet.tables`, `readTable(bytes, { table })`): header, totals row with `SUBTOTAL` functions, calculated columns and the 60 built-in table styles, read and written, also by the streaming writer; `insertRows`/`deleteRows` move them.
-- **Writing** with styles (fonts, fills, borders, alignment, number formats), column widths, row heights, merges, frozen panes, autofilter and hidden sheets; deterministic output. Style values and counts are checked against the limits Office documents in [MS-OI29500].
+- **Writing** with styles (fonts with every ECMA-376 property, pattern and gradient fills, borders including diagonals, alignment, number formats, cell protection), column widths, row heights, outline levels, merges, frozen and split panes, autofilter, hidden sheets, workbook views and full recalculation on load; deterministic output. Style values and counts are checked against the limits Office documents in [MS-OI29500]. Cells that have only a style are kept on read (`sheet.styledCells()`).
+- **Formulas**: plain, array and shared formulas read and written.
+- **Sheet rules**: data validation and conditional formatting (including Excel 2010 data bars and icon sets), sheet and workbook protection with passwords ([MS-OFFCRYPTO] §2.4.2.4; `hashPassword`, `verifyPassword`), page setup, headers and footers, page breaks, print area and print titles.
 - **Task API**:
   - `readTable` with Standard Schema validation, `writeTable`;
   - `toCSV`/`fromCSV` with CSV-injection escaping, `toJSON`/`fromJSON`;
@@ -32,5 +34,5 @@ First release of `xlvane` and `@xlvane/exceljs`.
 
 ### @xlvane/exceljs
 
-- **The commonly used exceljs 4.4.0 API** on xlvane, for switching with `"exceljs": "npm:@xlvane/exceljs@^1"`. Unsupported features throw `XLV_E_NOT_SUPPORTED` (docs/exceljs-compat.md).
-- Rich text values, workbook properties, `workbook.definedNames`, column styles, and dates written with built-in format 14 as exceljs writes them.
+- **The exceljs 4.4.0 API** on xlvane, for switching with `"exceljs": "npm:@xlvane/exceljs@^1"`: workbooks, worksheets, rows, columns, cells, styles, rich text, hyperlinks, notes, formulas (incl. shared and array formulas and `fillFormula`), merges, defined names, data validation, conditional formatting, protection, page setup, tables, images, row and column operations, `workbook.csv`, streaming `WorkbookWriter`/`WorkbookReader`, and the documented deep imports.
+- Where exceljs writes data the specification or Excel rejects, or loses data, xlvane writes valid data and keeps it; every difference is listed in docs/exceljs-compat.md. Row and column operations move formulas, merges, notes and names as a spreadsheet application does. CSV output escapes formula-like text by default (`formulaInjection: 'off'` gives exceljs's output).
