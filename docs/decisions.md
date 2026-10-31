@@ -628,6 +628,18 @@ Found by testing the packed packages in outside projects: tsdown folds `const sp
 
 **Tests.** vitest maps @xlvane/compat's package imports `#xlvane-node` and `#node-fs` (D-R07) to the sources, as it already did for `xlvane`; without this they resolved to packages/xlvane/dist, a second copy of xlvane.
 
+### D-R09 @xlvane/compat fixes from the comparison with exceljs 4.4.0 in outside projects (2026-10-31)
+Testing the packed package against exceljs 4.4.0 found the following; each fix cites the exceljs source and has a test in tests/exceljs/outside-project-fixes.test.ts.
+- `worksheet.columns` now has a column for every column a cell was created in, as exceljs (row.js L48, worksheet.js L243–261). Default columns are not written, so the usual auto-fit loop works after `addRow` and on loaded files.
+- The streaming `WorkbookWriter` is linear. Its queue no longer uses `Array#shift`, and the last-row lookup stops at the committed rows. 300 000 rows take 5.5 s against exceljs's 2.75 s (before: 75 s); the remaining factor is Deflate in JavaScript (fflate) against Node.js zlib, both at level 6.
+- The declarations follow exceljs's index.d.ts for `getTable` (`Table`), `workbook.getImage` (`Image`), `getImages()[i].range` (required) and `fillFormula` results. At run time a missing table or image still gives `undefined`, as in exceljs.
+- A single underline reads back as `true` (underline-xform.js).
+- A split view's `activeCell` round-trips (core D-R08). Its exceljs `topLeftCell` (`pane@topLeftCell`, the bottom-right pane) is still not written.
+- `getSheetValues()` gives `[]` for an existing empty row.
+- `worksheet.orderNo` follows exceljs (max+1 for a new sheet, the 0-based position in the file for a loaded one) and orders `worksheets`.
+- Tables read from a file keep their columns as read (no default `'none'` function or "Total" label).
+- Documented, not changed: `sheetId` is not kept, because the core writes 1…n and does not report it on reading (a core option for it is left for a later release); note `protection` reads back as `'True'`/`'False'`; the module object is frozen.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await

@@ -37,11 +37,17 @@ import { imageAnchorIn, imageBytes, type ImageData } from './media';
 import { Dimensions } from './range';
 import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
+import type { Image } from './compat-types';
 import { Workbook } from './workbook';
 
-/** An unbounded async queue: producers push synchronously, the stream pulls. */
+/**
+ * An unbounded async queue: producers push synchronously, the stream pulls. Items are taken by
+ * index (`head`) instead of `Array#shift`, which copies the array and made a loop of
+ * `addRow(...).commit()` quadratic; the taken part is dropped once it is half the array.
+ */
 class Channel<T> implements AsyncIterable<T> {
-  private readonly items: T[] = [];
+  private items: T[] = [];
+  private head = 0;
   private waiting: { resolve: (r: IteratorResult<T>) => void; reject: (e: unknown) => void } | null = null;
   private closed = false;
   private error: unknown = undefined;
@@ -68,7 +74,8 @@ class Channel<T> implements AsyncIterable<T> {
   fail(error: unknown): void {
     this.closed = true;
     this.error = error;
-    this.items.length = 0;
+    this.items = [];
+    this.head = 0;
     if (this.waiting) {
       const w = this.waiting;
       this.waiting = null;
@@ -83,8 +90,15 @@ class Channel<T> implements AsyncIterable<T> {
   [Symbol.asyncIterator](): AsyncIterator<T> {
     return {
       next: (): Promise<IteratorResult<T>> => {
-        const item = this.items.shift();
-        if (item !== undefined) return Promise.resolve({ value: item, done: false });
+        if (this.head < this.items.length) {
+          const item = this.items[this.head] as T;
+          this.items[this.head++] = undefined as T;
+          if (this.head >= 1024 && this.head * 2 >= this.items.length) {
+            this.items = this.items.slice(this.head);
+            this.head = 0;
+          }
+          return Promise.resolve({ value: item, done: false });
+        }
         if (this.error !== undefined) return Promise.reject(this.error);
         if (this.closed) return Promise.resolve({ value: undefined as T, done: true });
         return new Promise((resolve, reject) => {
@@ -93,6 +107,12 @@ class Channel<T> implements AsyncIterable<T> {
       },
     };
   }
+}
+
+function trimTrailing<T>(items: (T | undefined)[]): (T | undefined)[] {
+  let n = items.length;
+  while (n > 0 && items[n - 1] === undefined) n--;
+  return items.slice(0, n);
 }
 
 /** A writable Node.js stream. */
@@ -175,7 +195,9 @@ export class WorksheetWriter extends Worksheet {
     return {
       name: this.name,
       state: this.state,
-      columns: this.columns.map((c) => columnIn(c, this.writer._useStyles)),
+      // Columns created by cell access are default ones and are not written; dropping the trailing
+      // ones keeps the layout of a sheet whose later rows use more columns unchanged.
+      columns: trimTrailing(this.columns.map((c) => columnIn(c, this.writer._useStyles))),
       ...(layout.freeze ? { freeze: layout.freeze } : {}),
       ...(Object.keys(layout.view).length > 0 ? { view: layout.view } : {}),
       ...(layout.tabColor !== undefined ? { tabColor: layout.tabColor } : {}),
@@ -351,8 +373,8 @@ export class WorkbookWriter {
     return this._book.addImage(image);
   }
 
-  /** The image with this id. */
-  getImage(id: number): ImageData | undefined {
+  /** The image with this id (typed `Image` as in exceljs, index.d.ts L1780; `undefined` for an unknown id). */
+  getImage(id: number): Image {
     return this._book.getImage(id);
   }
 

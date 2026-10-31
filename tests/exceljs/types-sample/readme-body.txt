@@ -299,6 +299,14 @@ export async function readmeSample(input: ExcelJS.Buffer): Promise<ExcelJS.Buffe
   sheet.addImage(imageId, range);
   const images = sheet.getImages();
   console.log(images.length);
+  // Typed without `undefined` in exceljs (index.d.ts L1327, L1342-1346, L1365, L1780); found by
+  // the outside-project tests before 1.0.0 (docs/decisions.md D-R09).
+  console.log(sheet.getImages()[0].range.tl.nativeCol);
+  const image: ExcelJS.Image = workbook.getImage(imageId);
+  console.log(image.extension);
+  sheet.getTable('MyTable').addRow([new Date('2019-07-22'), 70.9]);
+  sheet.fillFormula('E1:E3', 'A1*2', (r, c) => r + c);
+  sheet.fillFormula('F1:F3', 'A1*3', [3, 6, 9]);
 
   // Sheet protection
   await sheet.protect('the-password', { selectLockedCells: true, formatCells: true });

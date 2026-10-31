@@ -263,9 +263,12 @@ export class Table {
     t.columns.forEach((column, i) => {
       if (!column || !column.name) throw invalidTable(`Column ${String(i)} of table "${t.name}" must have a name.`, "For example { name: 'Revenue' }.");
       // exceljs labels the first column "Total" and computes the others' formulas (table.js L169–176).
-      if (i === 0) column.totalsRowLabel ??= 'Total';
-      else {
-        column.totalsRowFunction ??= 'none';
+      // A table read from a file keeps its columns as read: exceljs sets them through `table.model`
+      // without validate() (lib/doc/worksheet.js L917-920, table.js L279-281).
+      if (i === 0) {
+        if (!this.fromFile) column.totalsRowLabel ??= 'Total';
+      } else {
+        if (!this.fromFile) column.totalsRowFunction ??= 'none';
         if (column.totalsRowFunction !== 'custom') column.totalsRowFormula = this.getFormula(column) ?? undefined;
       }
     });
@@ -536,7 +539,9 @@ export function tableOut(ws: Worksheet, def: TableDefinition): Table {
       name: c.name,
       filterButton: c.filterButton,
       ...(c.totalsRowLabel === null ? {} : { totalsRowLabel: c.totalsRowLabel }),
-      totalsRowFunction: c.totalsRowFunction,
+      // exceljs reads the attribute as it is in the file, so a column without one has no
+      // totalsRowFunction (table-column-xform.js L29); xlvane reports that as 'none'.
+      ...(c.totalsRowFunction === 'none' ? {} : { totalsRowFunction: c.totalsRowFunction }),
       ...(c.totalsRowFormula === null ? {} : { totalsRowFormula: c.totalsRowFormula }),
     })),
     rows,
@@ -680,6 +685,9 @@ export interface SheetMedia {
   imageId: number;
   range?: { tl: Anchor; br?: Anchor; ext?: { width: number; height: number }; editAs?: string; hyperlinks?: { hyperlink?: string; tooltip?: string } };
 }
+
+/** A picture placed on a sheet: `range` is always set (exceljs `getImages()`, index.d.ts L1342-1346). */
+export type SheetImageMedia = SheetMedia & { type: 'image'; range: NonNullable<SheetMedia['range']> };
 
 /** The range of `worksheet.addImage`, as exceljs `Image.model` sets it (image.js L33–54). */
 export function imageRange(ws: Worksheet, range: ImageRangeInput): NonNullable<SheetMedia['range']> {

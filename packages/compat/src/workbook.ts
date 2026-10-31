@@ -9,6 +9,7 @@ import { Worksheet } from './model';
 import { xlvaneNode } from './node-api';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
+import type { Image } from './compat-types';
 
 /** Node.js Buffer, when available, so `writeBuffer()` returns what exceljs returns there. */
 interface BufferCtor {
@@ -252,8 +253,6 @@ export class Workbook {
   _sheets: (Worksheet | undefined)[] = [];
   private _xlsx: XlsxIO | undefined;
   private _csv: CsvIO | undefined;
-  private order = 0;
-  private readonly orders = new Map<Worksheet, number>();
 
   get xlsx(): XlsxIO {
     this._xlsx ??= new XlsxIO(this);
@@ -317,8 +316,10 @@ export class Workbook {
   addWorksheet(name?: string, options?: WorksheetOptions): Worksheet {
     const id = this.nextId;
     const sheet = new Worksheet(this, id, name, options);
+    // exceljs: one more than the largest orderNo (lib/doc/workbook.js L81-85).
+    const last = this._sheets.reduce((acc, ws) => (ws?.orderNo !== undefined && ws.orderNo > acc ? ws.orderNo : acc), 0);
+    sheet.orderNo = last + 1;
     this._sheets[id] = sheet;
-    this.orders.set(sheet, ++this.order);
     return sheet;
   }
 
@@ -326,7 +327,6 @@ export class Workbook {
     const sheet = this.getWorksheet(id);
     if (sheet) {
       this._sheets[sheet.id] = undefined;
-      this.orders.delete(sheet);
     }
   }
 
@@ -398,7 +398,8 @@ export class Workbook {
 
   /** Worksheets in workbook order. */
   get worksheets(): Worksheet[] {
-    return this._sheets.filter((w): w is Worksheet => w !== undefined).sort((a, b) => (this.orders.get(a) ?? 0) - (this.orders.get(b) ?? 0));
+    // Sorted by orderNo, as exceljs (lib/doc/workbook.js L119-124); ties keep id order.
+    return this._sheets.filter((w): w is Worksheet => w !== undefined).sort((a, b) => (a.orderNo ?? 0) - (b.orderNo ?? 0));
   }
 
   eachSheet(iteratee: (sheet: Worksheet, id: number) => void): void {
@@ -419,9 +420,13 @@ export class Workbook {
     return this._media.length - 1;
   }
 
-  /** The image with this id, as exceljs `workbook.getImage`. */
-  getImage(id: number): ImageData | undefined {
-    return this._media[id];
+  /**
+   * The image with this id, as exceljs `workbook.getImage`. Typed `Image` as in exceljs
+   * (index.d.ts L1780); at run time an unknown id gives `undefined`, as in exceljs
+   * (lib/doc/workbook.js L149-151).
+   */
+  getImage(id: number): Image {
+    return this._media[id] as Image;
   }
 
   /**
@@ -447,8 +452,6 @@ export class Workbook {
       if (options.maxCols !== undefined) for (const count of perRow.values()) if (count > options.maxCols) limit('maxCols', options.maxCols, count);
     }
     this._sheets = [];
-    this.orders.clear();
-    this.order = 0;
     if (read.dateSystem === '1904') this.properties.date1904 = true;
     else delete this.properties.date1904;
     // exceljs assigns every core property from the file, so missing ones become undefined (workbook.js L184).
@@ -492,9 +495,11 @@ export class Workbook {
     this.calcProperties = read.calculation?.fullCalcOnLoad ? { fullCalcOnLoad: true } : {};
     const mediaIds = new Map<WorkbookImage, number>(read.images.map((img, i) => [img, i]));
     this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
-    for (const s of read.sheets) {
+    for (const [position, s] of read.sheets.entries()) {
       if (s.kind !== 'worksheet') continue;
       const ws = this.addWorksheet(s.name, { state: s.state });
+      // exceljs: the sheet's 0-based position in the file (lib/doc/workbook.js L203).
+      ws.orderNo = position;
       for (const c of use('cols') ? s.columns : []) {
         const last = Math.min(c.max, 16_384);
         for (let n = c.min; n <= last; n++) {
