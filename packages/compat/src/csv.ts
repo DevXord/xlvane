@@ -759,11 +759,14 @@ interface NodeFs {
   writeFile(path: string, data: Uint8Array): Promise<void>;
 }
 
-/** node:fs/promises, loaded only when a file is read or written (Node.js, Bun, Deno). */
+/**
+ * node:fs/promises, loaded only when a file is read or written, through the package's own import
+ * `#node-fs` (package.json "imports"): dist/node-fs.js (node:fs/promises) under the `node` condition (Node.js, Bun,
+ * Deno), dist/no-node.js elsewhere, so browser and Workers bundles have no node: import (D-R07).
+ */
 async function nodeFs(method: string): Promise<NodeFs> {
   try {
-    const specifier = 'node:fs/promises';
-    return (await import(/* @vite-ignore */ specifier)) as NodeFs;
+    return (await import('#node-fs')) as unknown as NodeFs;
   } catch (cause) {
     throw new XlvError('XLV_E_NOT_SUPPORTED', `workbook.csv.${method}() needs a runtime with node:fs (Node.js, Bun or Deno).`, {
       hint: method === 'readFile' ? 'Read the file yourself and pass its contents as a stream to csv.read().' : 'Use csv.writeBuffer() and save the bytes yourself.',
