@@ -46,7 +46,7 @@ Monorepo z workspace'ami npm:
 | `xlvane` | MIT | Rdzeń (odczyt, zapis, style, streaming), API zadaniowe, CLI | tylko `fflate` |
 | `@xlvane/compat` | MIT | Warstwa zgodności z API `exceljs` jako główny punkt wejścia paczki, żeby działał alias `"exceljs": "npm:@xlvane/compat@^1"` | tylko `xlvane` |
 | `@xlvane/mcp` | MIT | Serwer MCP dla agentów | `xlvane` i oficjalne SDK MCP |
-| `@xlvane/pro` | komercyjna | **Nie w tym repozytorium.** Osobne, prywatne repozytorium | — |
+| `@xlvane/pro` | komercyjna | **Nie w tym repozytorium.** Osobne, prywatne repozytorium | - |
 
 Warstwa zgodności musi być osobną paczką, bo alias npm podmienia cały moduł: kod `require("exceljs")` albo `import ExcelJS from "exceljs"` trafia do głównego punktu wejścia paczki z aliasu, a nie do podścieżki.
 
@@ -104,7 +104,7 @@ Benchmark kosztuje: każdy przebieg zużywa płatne tokeny API.
 ### Przykładowy ekran powitalny
 
 ```
-xlvane 1.0.0 — read, write and inspect Excel files
+xlvane 1.0.0 - read, write and inspect Excel files
 
 Common tasks:
   xlvane inspect report.xlsx              See sheets, columns and problems
@@ -253,7 +253,7 @@ Decyzja Pana: 1.0.0 ma być pełnoprawnym zamiennikiem `exceljs`, więc publikac
 
 **Etap „AI Friendly” (później, po 1.0.0 lub równolegle za Pana zgodą).** Wraca praca odłożona w fazach 7 i 8:
 - serwer MCP `@xlvane/mcp` (oficjalne SDK MCP, `--root`, narzędzia zapisu tylko z `--allow-write`);
-- benchmark agentów `bench/agents/` według sekcji 4 — przed pierwszym przebiegiem szacunek kosztu i Pana zgoda, bo zgodnie z Pana decyzją nie dopłacamy do darmowej wersji.
+- benchmark agentów `bench/agents/` według sekcji 4 - przed pierwszym przebiegiem szacunek kosztu i Pana zgoda, bo zgodnie z Pana decyzją nie dopłacamy do darmowej wersji.
 
 ## 9. Wersja Pro (osobne repozytorium, po zdobyciu użytkowników)
 

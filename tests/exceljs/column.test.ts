@@ -48,7 +48,7 @@ describe('Column', () => {
     ws.getRow(3).values = { id1: 'Hello, World!' };
     expect(ws.getCell(3, 1).value).toBe('Hello, World!');
   });
-  it.skip('creates model — not supported: internal Column.toModel', () => {});
+  it.skip('creates model - not supported: internal Column.toModel', () => {});
 
   it('gets column values', () => {
     const ws = sheet();
@@ -96,5 +96,5 @@ describe('Column', () => {
     for (let r = 1; r <= 12; r++) expect(ws.getCell(r, 1).value).toBe(values[r] ?? null);
   });
 
-  it.skip('sets default column width — not supported: internal Column.toModel', () => {});
+  it.skip('sets default column width - not supported: internal Column.toModel', () => {});
 });

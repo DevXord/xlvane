@@ -1,4 +1,4 @@
-xlvane inspect — See sheets, columns and problems in a workbook
+xlvane inspect - See sheets, columns and problems in a workbook
 
 Usage:
   xlvane inspect <file> [options]

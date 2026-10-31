@@ -22,7 +22,7 @@ const COMMON: readonly (readonly [string, string])[] = [
 export function welcome(out: Output, version: string, commands: readonly CommandSpec[]): string {
   const width = Math.max(...COMMON.map(([c]) => c.length)) + 3;
   return [
-    `${out.bold(`xlvane ${version}`)} — read, write and inspect Excel files`,
+    `${out.bold(`xlvane ${version}`)} - read, write and inspect Excel files`,
     '',
     out.bold('Common tasks:'),
     ...COMMON.map(([c, d]) => `  ${out.cyan(c.padEnd(width))}${d}`),
@@ -67,7 +67,7 @@ export function commandHelp(out: Output, spec: CommandSpec): string {
   const exit = spec.checks ? `0 success, 1 ${spec.checks}, 2 usage error, 3 input or file error` : '0 success, 2 usage error, 3 input or file error';
   const related = spec.related.filter((r) => r !== 'help');
   return [
-    `${out.bold(`xlvane ${spec.name}`)} — ${spec.summary}`,
+    `${out.bold(`xlvane ${spec.name}`)} - ${spec.summary}`,
     '',
     out.bold('Usage:'),
     wrap(`xlvane ${spec.name} ${spec.usage}`, width, '      ', '  '),

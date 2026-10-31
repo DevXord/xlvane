@@ -1,4 +1,4 @@
-xlvane read — Print a sheet as a table
+xlvane read - Print a sheet as a table
 
 Usage:
   xlvane read <file> [options]

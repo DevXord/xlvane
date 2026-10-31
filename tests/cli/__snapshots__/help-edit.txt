@@ -1,4 +1,4 @@
-xlvane edit — Change cells, insert, delete or append rows, keeping everything else
+xlvane edit - Change cells, insert, delete or append rows, keeping everything else
 
 Usage:
   xlvane edit <file> (--set <Sheet!A1=value>... | --append <rows.json> | --insert-rows <row> |

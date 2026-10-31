@@ -1,4 +1,4 @@
-xlvane validate — Check a workbook and the types of its columns
+xlvane validate - Check a workbook and the types of its columns
 
 Usage:
   xlvane validate <file> [options]

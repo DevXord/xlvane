@@ -48,7 +48,7 @@ describe('Row', () => {
     expect(count).toBe(3);
   });
 
-  it.skip('stores cells: hasValues and dimensions — not supported: internal row dimensions', () => {});
+  it.skip('stores cells: hasValues and dimensions - not supported: internal row dimensions', () => {});
 
   it('stores values by whole row', () => {
     const ws = sheet();
@@ -206,8 +206,8 @@ describe('Row', () => {
     expect(count).toBe(7);
   });
 
-  it.skip('builds a model — not supported: internal row model', () => {});
-  it.skip('builds from model — not supported: internal row model', () => {});
+  it.skip('builds a model - not supported: internal row model', () => {});
+  it.skip('builds from model - not supported: internal row model', () => {});
 
   it('counts cells', () => {
     const row1 = sheet().getRow(1);

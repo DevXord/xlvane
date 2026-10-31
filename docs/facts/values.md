@@ -25,7 +25,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 
 ## A. Cell references (`cell-ref.ts`)
 
-### V-01 — Grid size
+### V-01 - Grid size
 - **Fact:** Cell references run from A1–A1048576 to XFD1–XFD1048576. An implementation may extend this range.
   - Derived: XFD = 24·26² + 6·26 + 4 = 16 384 columns, so the grid is 1 048 576 rows × 16 384 columns.
   - This matches Microsoft's Excel limits (`facts-other.md` W-04).
@@ -33,7 +33,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 - **Tokens:** `A1`, `A1048576`, `XFD1`, `XFD1048576`.
 - **Code:** `MAX_ROWS = 1_048_576`, `MAX_COLUMNS = 16_384`.
 
-### V-02 — A1 grammar, column naming, case
+### V-02 - A1 grammar, column naming, case
 - **Fact:**
   - A column is one or more letters a–z or A–Z, optionally preceded by `$`.
   - A row is a digit sequence whose value shall be non-zero, optionally preceded by `$`.
@@ -49,7 +49,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - `A1-relative-row= digit-sequence ; (* shall be non-zero; see 3.17.2.3.1 *)`
   - `digit-sequence= decimal-digit, {decimal-digit} ;`
 
-### V-03 — Types of the stored references
+### V-03 - Types of the stored references
 - **Fact:**
   - `c@r` (cell) has type `ST_CellRef` and is described as an A1-style reference to the cell's location.
   - `ST_CellRef` represents a single cell reference.
@@ -67,7 +67,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - §18.3.1.35 dimension, p.1622, L76458–76476.
   - `xsd-strict/sml.xsd` L201–209.
 
-### V-04 — Decision: what `parseCellRef` / `parseRange` accept
+### V-04 - Decision: what `parseCellRef` / `parseRange` accept
 - **Lowercase letters: accepted.** Column letters are not case-sensitive (V-02). `c@r` is an "A1 style reference" (V-03), so the A1 rules apply.
 - **`$` markers: rejected.**
   - The A1 grammar allows `$`, but that grammar is the formula grammar.
@@ -84,14 +84,14 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 
 ## B. Serial dates (`dates.ts`)
 
-### V-05 — Serial date-time definition (Strict)
+### V-05 - Serial date-time definition (Strict)
 - **Fact:**
   - A serial date-time is a **signed** number of days relative to the base date of the selected date system. It goes up by 1 for each following day and down by 1 for each earlier day.
   - The fractional part is a fraction of one day.
   - Base dates and serials represent **local** date and time, so no time-zone conversion applies.
 - **Source:** Part 1 §18.17.4.1 Date Conversion for Serial Date-Times, p.2063 (PDF 2073), L97438–97447.
 
-### V-06 — Strict 1900 date system
+### V-06 - Strict 1900 date system
 - **Fact:**
   - Lower limit: 0001-01-01 00:00:00 = serial −693593.
   - Upper limit: 9999-12-31 23:59:59.999 = serial 2,958,465.9999884.
@@ -103,7 +103,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - JavaScript `Date` uses the proleptic Gregorian calendar, and in it 1899-12-30 − 693593 days = 0001-01-01. Tested.
   - Serial 60 = 1900-02-28 and 61 = 1900-03-01. There is no 29 February 1900 (V-11).
 
-### V-07 — 1904 date system (Strict and Transitional)
+### V-07 - 1904 date system (Strict and Transitional)
 - **Fact:**
   - Lower limit: 0001-01-01 00:00:00 = −695055.
   - Upper limit: 9999-12-31 23:59:59.999 = 2,957,003.9999884.
@@ -113,7 +113,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - Part 4 §15.3.4 restates the same values for Transitional documents (p.215–216, L9675–9680).
 - **Tokens:** `-695055`, `2,957,003.9999884`.
 
-### V-08 — Range and selection of the system
+### V-08 - Range and selection of the system
 - **Fact:**
   - A serial outside the temporal range of the selected date system is invalid.
   - The `date1904` attribute of `workbookPr` selects the system. It is `xsd:boolean` with default `false` (1900 system).
@@ -122,7 +122,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - §18.2.28 workbookPr, attribute `date1904`, p.1577, L74188.
 - **Code:** `serialToDate` returns `null` outside the range. `dateToSerial` throws `RangeError`.
 
-### V-09 — Time of day
+### V-09 - Time of day
 - **Fact:**
   - The time of day is a serial in [0, 1): 0 is 00:00:00 and 0.99999999 is 23:59:59.
   - The day of any serial is the greatest integer not exceeding it (floor). The time is the serial minus that day.
@@ -130,7 +130,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - Spec examples: −2.00000001 is day −3 with time 0.99999999; 4.66666667 is day 4 with time 0.66666667; 0.4207639… is 10:05:54.
 - **Source:** Part 1 §18.17.4.2 Time Conversion for Serial Date-Times, p.2064, L97472–97501.
 
-### V-10 — Combined worked examples (used as tests)
+### V-10 - Combined worked examples (used as tests)
 - **Fact (1900 system):**
   - −2337.999989… = 1893-08-05T00:00:01
   - 3687.4207639… = 1910-02-03T10:05:54
@@ -148,14 +148,14 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - §18.3.1.96 v (Cell Value), p.1707–1708, L80660–80682.
 - **Note:** The spec prints these serials cut short ("…"). Tests use exact fractions (e.g. `3687 + 36354/86400`). The printed values are tested to within one unit of their last printed decimal.
 
-### V-11 — Proleptic Gregorian calendar
+### V-11 - Proleptic Gregorian calendar
 - **Fact:** SpreadsheetML relates all dates to the proleptic Gregorian calendar of ISO 8601. Calendar-reform gaps and leap seconds are ignored.
 - **Source:** Part 1 §18.17.4, note, p.2063, L97425–97429.
 - **Use:**
   - In the Strict 1900 system there is no 1900-02-29.
   - `parseIsoDateTime` validates days per proleptic Gregorian leap years, so `1900-02-29` → `null` and `2000-02-29` is valid.
 
-### V-12 — Transitional 1900 date system (Part 4 replaces Part 1 §18.17.4.1)
+### V-12 - Transitional 1900 date system (Part 4 replaces Part 1 §18.17.4.1)
 - **Fact:**
   - For Transitional documents, Part 4 replaces the text of Part 1 §18.17.4.1.
   - 1900 system:
@@ -168,7 +168,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 - **Verbatim (the one prose quote):** "January 1, 1900, 00:00:00, which has a serial date-time of 1" (Part 4 L9671, p.215).
 - **Spec inconsistency:** The replacement text keeps the old example, which says the 1900 system's base date is 30 December 1899 and that 1.5 = 1899-12-31T12:00 (L9663–9666). That contradicts the stated lower limit. The code follows the normative limits.
 
-### V-13 — 29 February 1900 (Transitional serial 60)
+### V-13 - 29 February 1900 (Transitional serial 60)
 - **Spec:** Silent. No mention of 1900-02-29 or serial 60 in Parts 1 or 4. The searches are listed in `facts-ecma.md` E-16.
 - **Derived:**
   - Transitional puts 1900-01-01 at 1 and 9999-12-31 at 2958465. That is 2 958 464 days apart.
@@ -183,19 +183,19 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - serials ≥ 61 map to 1899-12-30 + n days.
   - `dateToSerial` never produces values in [60, 61).
 
-### V-14 — Upper limit precision
+### V-14 - Upper limit precision
 - **Spec:**
   - Part 1 gives the upper instant as 23:59:59.999 but its serial as 2,958,465.9999884. That serial is about 23:59:58.998.
   - Part 4 gives 23:59:59 for the 1900 system.
 - **Decision (derived):** In every system the last valid instant is 9999-12-31T23:59:59.999. The range check is on the instant after rounding to milliseconds (V-15), so all serials of day 2958465 (1904: 2957003) are valid.
 
-### V-15 — Rounding
+### V-15 - Rounding
 - **Spec:** No rule on conversion precision. §18.17.5.2 (precision of numbers) does not cover it.
 - **Decision (from the brief):**
   - The serial is converted to whole milliseconds with round-half-up (`Math.round(serial × 86 400 000)`) **before** the range check and before the serial-60 check.
   - So 0.9999999999 (Transitional) is 1900-01-01T00:00:00.000, and 59.9999999999 rounds to 60 and gives `null`.
 
-### V-16 — Choice of variant: conformance class, not `dateCompatibility`
+### V-16 - Choice of variant: conformance class, not `dateCompatibility`
 - **Fact (5th edition):** `workbookPr@dateCompatibility` does not exist in Part 1, Part 4 or either `sml.xsd` (`facts-ecma.md` E-12). The 1900 variant depends on the conformance class (V-06 vs V-12).
 - **Fact:** If `workbook@conformance` is omitted, its default is `transitional` (Part 1 §18.2.27, `facts-ecma.md` E-04). So `serialToDate` and `dateToSerial` default to `'transitional'`.
 - **Microsoft (ISO/IEC 29500-1:2008 text, as reproduced in the Open XML SDK reference):**
@@ -210,14 +210,14 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/a251e7c6-7b8a-4e2f-b284-025f9f09ba3e
 - **Decision:** The third parameter is `conformance: Conformance = 'transitional'`. This matches the 5th edition and Office 2013+ behaviour.
   - A legacy 2008-edition file with `dateCompatibility="0"` is not handled specially. The reader would need to map it to system `'1900'` with `'strict'`. **Maintainer review.**
-**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.585 g, j (P1 §18.2.28 workbookPr), p.245–246 — confirmed from the PDF: `dateCompatibility` ignored; `conformance="strict"` → 1900 date system, otherwise 1900 compatibility date system; Excel does not support negative serial numbers.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.585 g, j (P1 §18.2.28 workbookPr), p.245–246 - confirmed from the PDF: `dateCompatibility` ignored; `conformance="strict"` → 1900 date system, otherwise 1900 compatibility date system; Excel does not support negative serial numbers.
 
-### V-17 — Negative serials
+### V-17 - Negative serials
 - **Fact:** Negative serials are valid in the Strict 1900 system (down to −693593) and the 1904 system (down to −695055), in both conformance classes. In the Transitional 1900 system they are invalid (V-12).
 - **Microsoft:** Excel does not support negative serials (V-16, note j). The code follows the spec, not Excel.
 - **Source:** V-06, V-07, V-12.
 
-### V-18 — ISO 8601 lexical forms for `t="d"` cells
+### V-18 - ISO 8601 lexical forms for `t="d"` cells
 - **Fact:**
   - Dates and times in cells are stored as ISO 8601 strings.
   - Earliest 0001-01-01 00:00; latest 9999-12-31 23:59:59.999.
@@ -233,12 +233,12 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - Seconds 60 are rejected (leap seconds not permitted).
   - The same sentence also says the most seconds expressed in a minute "shall be 60". I read that as a count of seconds, not as allowing a 60th second.
 
-### V-19 — Time-only ISO values
+### V-19 - Time-only ISO values
 - **Spec:** Silent on which date a time-only value has.
 - **Derived:** A time of day is a serial in [0, 1) (V-09). In the Strict 1900 system, where `t="d"` exists (V-21), serial 0 is 1899-12-30.
 - **Decision:** `parseIsoDateTime('08:30')` → 1899-12-30T08:30:00.000.
 
-### V-20 — Trailing `Z`
+### V-20 - Trailing `Z`
 - **Spec:**
   - The normative forms (V-18) have no time-zone designator.
   - Informative Annex L.2.16.9 says an instant has a date, time and time-zone component, and its examples end in `Z` (e.g. `1893-08-05T00:00:01Z`).
@@ -247,7 +247,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - A single trailing `Z` after a time is accepted and ignored. Under our model the UTC fields are the wall-clock fields.
   - Numeric offsets (`+02:00`) and `Z` after a date-only value give `null`.
 
-### V-21 — `t="d"` is Strict only
+### V-21 - `t="d"` is Strict only
 - **Fact:**
   - Part 4 removes the `d` value of `ST_CellType` for Transitional documents.
   - In Transitional documents each instant is stored as an ISO 8601 string or as a serial value.
@@ -258,7 +258,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 
 ## C. Number formats (`numfmt.ts`)
 
-### V-22 — Built-in ("implied") formats, All Languages
+### V-22 - Built-in ("implied") formats, All Languages
 - **Fact:**
   - For these ids the `xf` record writes `numFmtId` and no `numFmt` element is written.
   - Some ids can be interpreted differently depending on the UI language.
@@ -298,16 +298,16 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 - **Source:** Part 1 §18.8.30 numFmt (Number Format), p.1776–1777 (PDF 1786–1787), L83957–84010.
 - **Microsoft:** Excel's own codes for 14, 22, 37–40, 47 and Korean 55 differ, e.g. 14 = `m/d/yyyy` and 47 = `mm:ss.0` ([MS-OI29500] §18.8.30 note a). `BUILTIN_NUMBER_FORMATS` keeps the spec text. The date classification is the same for both.
   - https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/17d11129-219b-4e2c-88db-45844d21e528
-**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.712 a, p.299 — confirmed from the PDF (built-in codes 14, 22, 37–40, 47, KOR 55).
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.712 a, p.299 - confirmed from the PDF (built-in codes 14, 22, 37–40, 47, KOR 55).
 
-### V-23 — Ids outside the lists
+### V-23 - Ids outside the lists
 - **Fact:**
   - When values outside the lists are used, the behaviour is implementation-defined.
   - Ids not in the listing, such as 5, 6, 7 and 8, shall follow the `formatCode` attribute, so they have no implied format.
 - **Source:** Part 1 §18.8.30, p.1776, L83971–83974.
 - **Code:** `BUILTIN_NUMBER_FORMATS` has no 5–8, 23–36, 41–44 or ≥ 50.
 
-### V-24 — Locale-specific implied ids
+### V-24 - Locale-specific implied ids
 - **Fact:** The spec lists language-dependent codes for ids 27–36 and 50–58 in four tables:
   - zh-tw / zh-cn: p.1778–1780, L84058–84158;
   - ja-jp / ko-kr: p.1780–1781, L84160–84245;
@@ -319,7 +319,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
     - 81 is `d/m/bb`.
 - **Code:** These codes differ per language, so they are **not** in `BUILTIN_NUMBER_FORMATS`. Their ids are in `isDateFormatId`.
 
-### V-25 — Thai ids 71–80 classified as dates (derived)
+### V-25 - Thai ids 71–80 classified as dates (derived)
 - **Spec:** §18.8.31 does not define the Thai letters used in 71–80 as format codes.
 - **Derived:** They are classified as date/time because they follow the shape of the All-Languages date and time ids:
   - 75/76 `x:yy` / `x:yy:zz` mirror 20/21 `h:mm` / `h:mm:ss`;
@@ -328,7 +328,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - 71–74 are three-part `/` and `-` patterns like 14–17.
 - **Maintainer review:** this is inference, not spec text.
 
-### V-26 — Sections
+### V-26 - Sections
 - **Fact:**
   - A code has up to four sections separated by `;`: positive, negative, zero, text.
   - Two sections: positive and zero, then negative.
@@ -340,9 +340,9 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c6046ec6-f96d-4609-98e4-0dd549292955
 - **Decision:** `isDateFormat` is true if **any** section contains a date or time code.
   - Microsoft's ABNF (V-32) allows only `@` and AM/PM in a text section, so date codes there are not legal anyway.
-**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.713 a, p.310 — confirmed from the PDF. Also g: Office limits custom number formats to 206.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.713 a, p.310 - confirmed from the PDF. Also g: Office limits custom number formats to 206.
 
-### V-27 — Literal text, escapes, spacing and fill
+### V-27 - Literal text, escapes, spacing and fill
 - **Fact:**
   - Characters inside double quotes, or right after a backslash, are never interpreted as format codes. They are always literal.
   - Single quotes shall not be used to denote text.
@@ -355,7 +355,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - The character after `\`, `_` or `*` is skipped.
   - An unterminated quote runs to the end of the code (decision).
 
-### V-28 — Exponent codes vs the era-year code `e`
+### V-28 - Exponent codes vs the era-year code `e`
 - **Fact:**
   - `E-`, `E+`, `e-`, `e+` are the scientific-format codes.
   - Separately, `e` is the era-year code. It becomes `yyyy` in "OTHER" locales, per the international-considerations table.
@@ -369,16 +369,16 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 - **Code:**
   - `e` followed by `+` or `-` is an exponent. Any other `e` is an era year, hence a date.
   - Uppercase `E` is never a date code.
-**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.713 e, f, p.310 — confirmed from the PDF.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.713 e, f, p.310 - confirmed from the PDF.
 
-### V-29 — Colour and condition brackets
+### V-29 - Colour and condition brackets
 - **Fact:**
   - Colours: `[Black]`, `[Blue]`, `[Cyan]`, `[Green]`, `[Magenta]`, `[Red]`, `[White]`, `[Yellow]`, and `[ColorN]` with N from 1 to 56.
   - Conditions: `[` operator value `]` with `=`, `>`, `<`, `>=`, `<=`, `<>`.
 - **Source:** Part 1 §18.8.31, p.1787–1788, L84529–84558.
 - **Code:** Skipped. They never make a format a date.
 
-### V-30 — Locale/currency brackets and the system date/time values
+### V-30 - Locale/currency brackets and the system date/time values
 - **Fact:**
   - Syntax: `[$<Currency String>-<language info>]`.
   - The language info is a 32-bit hex value: bytes 0–1 are the language ID, byte 2 the calendar type, byte 3 the number system.
@@ -388,7 +388,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - `[$…]` brackets are skipped.
   - If the hex digits after the last `-` (1–8 digits) have low 16 bits equal to `0xF800` or `0xF400`, the code is a date/time format. **Derived:** comparing only the low 16 bits (the language-ID bytes) is my reading.
 
-### V-31 — Date and time codes
+### V-31 - Date and time codes
 - **Fact:**
   - Months: `m`, `mm`, `mmm`, `mmmm`, `mmmmm`.
   - Days: `d`, `dd`, `ddd`, `dddd`.
@@ -406,7 +406,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - `b1`/`b2` only select a calendar, so they are ignored.
   - `AM/PM` and `A/P` alone do not make a date (V-32).
 
-### V-32 — Case of date codes; `General`; AM/PM in number formats
+### V-32 - Case of date codes; `General`; AM/PM in number formats
 - **Spec:**
   - All date/time codes are printed in lowercase.
   - The spec states case-insensitivity explicitly for A1 column letters (V-02) but not for format codes.
@@ -420,9 +420,9 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - Date codes are matched case-sensitively, so `YYYY-MM-DD` is **not** a date. **Maintainer review:** some third-party writers emit uppercase codes. A lenient mode could accept them, but no source documents that as Excel behaviour.
   - `General` is matched in any case. This only prevents false positives from its letters `e` and `r`.
   - `AM/PM` alone is not a date.
-**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.712 b, p.299–303 — confirmed from the PDF; `formatCode` shorter than 255 characters.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.712 b, p.299–303 - confirmed from the PDF; `formatCode` shorter than 255 characters.
 
-### V-33 — General
+### V-33 - General
 - **Fact:** `General` is id 0. The spec notes that dates do not follow General but are converted to date formatting automatically.
 - **Source:** Part 1 §18.8.30, "General" Format, p.1777–1778, L84013–84027.
 - **Code:** `isDateFormat('General')` is `false`. Detecting date input under General is the writer's concern, not the reader's.

@@ -1,4 +1,4 @@
-xlvane convert — Convert between XLSX, CSV and JSON
+xlvane convert - Convert between XLSX, CSV and JSON
 
 Usage:
   xlvane convert <input> <output> [options]

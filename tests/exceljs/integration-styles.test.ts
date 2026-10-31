@@ -70,7 +70,7 @@ describe('Workbook', () => {
       expect(ws2.getCell('B4').fill).toEqual(styles.fills.redDarkVertical);
       expect(ws2.getCell('B4').font).toEqual(styles.fonts.broadwayRedOutline20);
     });
-    it.skip('sets row styles — duplicate of spec/integration/worksheet.spec.js, see integration-worksheet.test.ts', () => {});
-    it.skip('sets col styles — duplicate of spec/integration/worksheet.spec.js, see integration-worksheet.test.ts', () => {});
+    it.skip('sets row styles - duplicate of spec/integration/worksheet.spec.js, see integration-worksheet.test.ts', () => {});
+    it.skip('sets col styles - duplicate of spec/integration/worksheet.spec.js, see integration-worksheet.test.ts', () => {});
   });
 });

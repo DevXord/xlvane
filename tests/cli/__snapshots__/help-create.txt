@@ -1,4 +1,4 @@
-xlvane create — Build a formatted XLSX report from JSON or CSV
+xlvane create - Build a formatted XLSX report from JSON or CSV
 
 Usage:
   xlvane create <data.json|data.csv> <output.xlsx> [options]

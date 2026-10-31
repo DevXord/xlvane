@@ -25,7 +25,7 @@
 
 ## A. Namespaces, relationship types, content types (facts 1–2)
 
-### E-01 — Main SpreadsheetML namespace
+### E-01 - Main SpreadsheetML namespace
 - **Fact:** The SpreadsheetML main namespace is different in each conformance class.
   - Strict: `http://purl.oclc.org/ooxml/spreadsheetml/main`
   - Transitional: `http://schemas.openxmlformats.org/spreadsheetml/2006/main`
@@ -38,7 +38,7 @@
   - `xsd-trans/sml.xsd` L7.
 - **Strict/Transitional:** Different URIs, as listed above.
 
-### E-02 — Namespace of `r:id` (and other explicit-relationship attributes)
+### E-02 - Namespace of `r:id` (and other explicit-relationship attributes)
 - **Fact:** The `r:` namespace is also different in each class.
   - Strict: `http://purl.oclc.org/ooxml/officeDocument/relationships`
   - Transitional: `http://schemas.openxmlformats.org/officeDocument/2006/relationships`
@@ -52,7 +52,7 @@
   - `xsd-trans/shared-relationshipReference.xsd` (`targetNamespace`).
 - **Strict/Transitional:** Different, as listed above.
 
-### E-03 — OPC namespaces (`.rels` and `[Content_Types].xml`)
+### E-03 - OPC namespaces (`.rels` and `[Content_Types].xml`)
 - **Fact:** The OPC namespaces are the same in both conformance classes. Part 2 defines no purl.oclc.org variants. A search of `part2.txt` for "purl" finds only the Dublin Core URIs.
   - Relationships part XML: `http://schemas.openxmlformats.org/package/2006/relationships`
   - Media Types stream: `http://schemas.openxmlformats.org/package/2006/content-types`
@@ -63,7 +63,7 @@
   - `opc-xsd/opc-relationships.xsd` and `opc-xsd/opc-contentTypes.xsd` (`targetNamespace`).
 - **Strict/Transitional:** Same.
 
-### E-04 — `workbook@conformance`
+### E-04 - `workbook@conformance`
 - **Fact:** The `workbook` element has an optional `conformance` attribute.
   - Type: `ST_ConformanceClass`. Values: `strict`, `transitional`.
   - Part 1 says that when the attribute is omitted, its default value is `transitional`.
@@ -75,7 +75,7 @@
   - `xsd-strict/shared-commonSimpleTypes.xsd` L89.
 - **Strict/Transitional:** `CT_Workbook` is identical in both xsds (checked with diff).
 
-### E-05 — Relationship type URIs
+### E-05 - Relationship type URIs
 - **Fact:** The base URIs are:
   - Strict: `http://purl.oclc.org/ooxml/officeDocument/relationships/<name>`
   - Transitional: `http://schemas.openxmlformats.org/officeDocument/2006/relationships/<name>`
@@ -96,13 +96,13 @@
   - Spec inconsistency: the worked example in Part 1 §18.17.2.3 (p.2052, L96860–96866) uses `externalLinkPath` even for the Workbook→externalLink-part relationship, which contradicts §12.3.9.
 - **Strict/Transitional:** Only the base URI differs. The `<name>` suffixes are the same.
 
-### E-06 — Macrosheet
+### E-06 - Macrosheet
 - **NOT FOUND:** No macrosheet part, relationship type or content type exists in Part 1 or Part 4.
   - Searched for: "macrosheet" (case-insensitive), "relationships/macrosheet", "xlMacrosheet".
   - The only hits are `CT_Macrosheet` in the schemas: `xsd-strict/sml.xsd` L2106 and `xsd-trans/sml.xsd` L2118.
   - No global `macrosheet` element is declared. (`dialogsheet` and `worksheet` are declared as elements, L2105/L2103.)
 
-### E-07 — Workbook main-part content types
+### E-07 - Workbook main-part content types
 - **Fact:** ECMA-376 defines exactly two content types for the Workbook part:
   - `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml` (workbook)
   - `application/vnd.openxmlformats-officedocument.spreadsheetml.template.main+xml` (template)
@@ -112,7 +112,7 @@
 - **Source:** Part 1 §12.3.23 Workbook Part, "Content Type(s)", p.98, L4735–4736.
 - **Strict/Transitional:** Part 4 §10.2.23 changes only the root namespace and the relationship type, not the content types.
 
-### E-08 — Part cardinality (relevant for a reader)
+### E-08 - Part cardinality (relevant for a reader)
 - **Fact:**
   - **Workbook:** exactly one per package, targeted from the package relationship item. §12.3.23, p.98, L4746.
   - **Worksheet:** exactly one part per worksheet. Each is the target of an explicit relationship from the Workbook, and the `sheet` element's `id` attribute references it. §12.3.24, p.100, L4832–4834.
@@ -128,7 +128,7 @@
 
 ## B. Workbook structure (facts 3–4)
 
-### E-09 — `sheets/sheet` attributes
+### E-09 - `sheets/sheet` attributes
 - **Fact:** `sheets` holds 1..n `sheet` elements (CT_Sheets, `minOccurs="1"`). Each `sheet` has these attributes:
 
 | Attribute | Type | Required | Default | Rule |
@@ -144,7 +144,7 @@
   - `xsd-strict/sml.xsd` CT_Sheet L4187, CT_Sheets L4182.
 - **Strict/Transitional:** Same attributes. `xsd-trans/sml.xsd` CT_Sheet L4216 is identical. Only the `r:` namespace differs (E-02).
 
-### E-10 — ST_SheetState
+### E-10 - ST_SheetState
 - **Fact:** The values are `visible`, `hidden` and `veryHidden`. The default (on `sheet@state`) is `visible`.
   - `hidden`: the sheet is hidden but can be shown again through the UI. (The spec text says "workbook window", an editorial slip.)
   - `veryHidden`: hidden, cannot be shown through the UI, only programmatically.
@@ -154,7 +154,7 @@
   - `xsd-strict/sml.xsd` L4193.
 - **Strict/Transitional:** Identical (`xsd-trans/sml.xsd` L4222).
 
-### E-11 — `workbookPr@date1904`
+### E-11 - `workbookPr@date1904`
 - **Fact:** `date1904` is `xsd:boolean`, optional, default `false`.
   - `1`/`true`: the workbook uses the 1904 date system.
   - `0`/`false`: the workbook uses the 1900 date system.
@@ -164,7 +164,7 @@
   - `xsd-strict/sml.xsd` CT_WorkbookPr L4201.
 - **Strict/Transitional:** CT_WorkbookPr is identical in both xsds (diff). The *meaning* of the 1900 system differs; see E-15.
 
-### E-12 — `workbookPr@dateCompatibility`
+### E-12 - `workbookPr@dateCompatibility`
 - **NOT FOUND** anywhere in Part 1, Part 4, `xsd-strict/sml.xsd` or `xsd-trans/sml.xsd`.
   - Searched (case-insensitive): "dateCompatibility", "dateCompat", "date compat".
   - In this edition, CT_WorkbookPr has only `date1904` for date-system selection. Its attributes, in order: `date1904`, `showObjects`, `showBorderUnselectedTables`, `filterPrivacy`, `promptedSolutions`, `showInkAnnotation`, `backupFile`, `saveExternalLinkValues`, `updateLinks`, `codeName`, `hidePivotFieldList`, `showPivotChartFilter`, `allowRefreshQuery`, `publishItems`, `checkCompatibility`, `autoCompressPictures`, `refreshAllConnections`, `defaultThemeVersion`.
@@ -174,7 +174,7 @@
 
 ## C. Dates and times (fact 5)
 
-### E-13 — Strict serial date-time: base dates, limits, negative values (Part 1 §18.17.4.1)
+### E-13 - Strict serial date-time: base dates, limits, negative values (Part 1 §18.17.4.1)
 - **Fact:** A serial date-time is a **signed** number of days relative to the base date of the selected date system. The fractional part is the fraction of a day. Base dates and serials represent **local** date and time.
   - **1900 system:**
     - base: 1899-12-30T00:00:00 = serial 0;
@@ -190,7 +190,7 @@
 - **Verbatim (the one prose quote):** "The base date for this system is 00:00:00 on December 30th, 1899" (L97451, p.2063).
 - **Strict/Transitional:** The 1900 system differs in Transitional (E-15).
 
-### E-14 — Strict: what serial 0, 1 (and 60) mean; worked examples
+### E-14 - Strict: what serial 0, 1 (and 60) mean; worked examples
 - **Fact (spec examples, 1900 system):**
 
 | Serial | Date-time |
@@ -216,7 +216,7 @@
   - Check: the §18.3.1.96 example puts 1976-11-22T08:30 at serial 28086.3541666667 in the 1900 system (p.1707–1708, L80663–80680). I computed 1899-12-30 → 1976-11-22 = 28086 days, which agrees.
 - **Source:** Part 1 §18.17.4.1–§18.17.4.3, p.2063–2065, L97440–97526.
 
-### E-15 — Transitional replaces §18.17.4.1 (Part 4 §15.3.4)
+### E-15 - Transitional replaces §18.17.4.1 (Part 4 §15.3.4)
 - **Fact:** For transitional documents, Part 4 replaces the text of Part 1 §18.17.4.1.
   - **1900 system:**
     - lower limit: 1900-01-01T00:00:00 = serial **1**;
@@ -230,7 +230,7 @@
 - **Source:** Part 4 §15.3.4 Modified content for Date Conversion for Serial Date-Times (Part 1, §18.17.4.1), p.215–216, L9655–9691.
 - **Strict/Transitional:** Different, as described.
 
-### E-16 — 29 February 1900 / serial 60
+### E-16 - 29 February 1900 / serial 60
 - **NOT FOUND:** Neither Part 1 nor Part 4 mentions 1900-02-29, a 1900 leap-year bug, or special handling of serial 60.
   - Searched (case-insensitive): "leap year", "1900-02-29", "February 29", "29 February" (all hits are in day-count-basis notes of financial functions), "1900 was", "1900 is", "February 1900", "serial date-time of 60", "serial value 60". Same searches in Part 4.
 - **Derived (my arithmetic, not spec text):**
@@ -240,7 +240,7 @@
   - Strict has no such day (E-14).
 **Checked 2026-10-30 (D-1104):** still not found: ECMA-376 Part 1, 5th ed. (2016), Part 4, [MS-OI29500] rev. 25.0 (2026-08-18), [MS-OE376] and [MS-XLSX] rev. 30.0 (2026-10-16) were searched for `1900` and `leap`.
 
-### E-17 — Time fraction (Part 1 §18.17.4.2)
+### E-17 - Time fraction (Part 1 §18.17.4.2)
 - **Fact:** Time of day is a serial in [0, 1): 0 is 00:00:00 and 0.99999999 is 23:59:59.
   - The time component grows by 1/86,400 per second, so 12:00 = 0.5.
   - For any serial, the day is the greatest integer not exceeding it (floor), and the time of day is the serial minus that day.
@@ -249,7 +249,7 @@
 - **Source:** Part 1 §18.17.4.2 Time Conversion for Serial Date-Times, p.2064, L97472–97501.
 - **Strict/Transitional:** Part 4 does not modify §18.17.4.2.
 
-### E-18 — ISO 8601 lexical format for date cells (`t="d"`) (Part 1 §18.17.4, §18.17.6.7)
+### E-18 - ISO 8601 lexical format for date cells (`t="d"`) (Part 1 §18.17.4, §18.17.6.7)
 - **Fact (Strict):** Dates and times in cells are stored as strings in ISO 8601 lexical formats.
   - **Range:** earliest 0001-01-01 00:00; latest 9999-12-31 23:59:59.999.
   - **Midnight:** must use hour 0, never hour 24.
@@ -267,7 +267,7 @@
   - Part 4 §15.9.2 (p.222, L10006–10009): in transitional documents each instant shall be stored as an ISO 8601 string **or** as a serial value.
   - The Transitional `ST_CellType` has **no `d` value** (E-21).
 
-### E-19 — Other (conflicting) date material a reader may meet
+### E-19 - Other (conflicting) date material a reader may meet
 - **Fact (DATE function):** Part 1 §18.17.7.74 DATE (p.2164, L102718–102735) gives examples "for the 1900 backward compatibility date-base date system". It gives DATE(1900,1,1) = 1, DATE(0,1,1) = 1 and DATE(9999,12,31) = 2958465. This matches the Transitional 1900 system, not Strict §18.17.4.1, where 1900-01-01 = 2.
 - **Fact (Annex L, informative):** Annex L.2.16.9.1 (p.4771, L254961–254975) describes **three** date bases:
   - "1900 date base": base 1899-12-30, lower limit January 1, −9999;
@@ -283,7 +283,7 @@
 
 ## D. Cells, rows, values, formulas (facts 6–9, 12)
 
-### E-20 — `c` (Cell) attributes
+### E-20 - `c` (Cell) attributes
 - **Fact:** CT_Cell has the child sequence `f?`, `v?`, `is?`, `extLst?`. Its attributes:
 
 | Attr | Type | Required | Default | Meaning |
@@ -302,7 +302,7 @@
 - **Strict/Transitional:** Identical (`xsd-trans/sml.xsd` L2274).
 **Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.590 a, b, f, g (P1 §18.3.1.4 c), p.251: Office treats `cm` and `vm` as one-based indexes (P1 says zero-based); `s` indexes cellXfs, 0 … 65490.
 
-### E-21 — ST_CellType values and meaning
+### E-21 - ST_CellType values and meaning
 - **Fact (Strict):**
 
 | Value | Meaning |
@@ -322,12 +322,12 @@
   - Part 4 §15.8.3 "Removed enumeration values for ST_CellType" (p.221, L9981–9984).
   - `xsd-trans/sml.xsd` ST_CellType L2288–2297 and the Part 4 schema listing (L54300–54331) list only `b n e s str inlineStr`.
 
-### E-22 — `inlineStr` and the `is` child
+### E-22 - `inlineStr` and the `is` child
 - **Fact:** When a cell's `t` is `inlineStr`, the only child element allowed is `is`. (The xsd sequence would still allow `f`/`v` too.)
 - **Spec inconsistency:** The §18.3.1.53 `is` example writes `<c r="A1"><is>…` **without** `t="inlineStr"` (p.1646, L77634–77638). A lenient reader should accept `is` even when `t` is absent.
 - **Source:** Part 1 §18.3.1.4, p.1593, L75021–75023; §18.3.1.53 is (Rich Text Inline), p.1646, L77628–77643.
 
-### E-23 — `v` element; how values are written (including booleans)
+### E-23 - `v` element; how values are written (including booleans)
 - **Fact:** `v` holds the cell's value. Its type is `ST_Xstring`.
   - For a string cell, `v` holds the index into the shared string table. Otherwise it holds the value directly.
   - For a formula cell, `v` holds the last calculated result.
@@ -348,7 +348,7 @@
   - `xsd-strict/sml.xsd` CT_Cell L2259.
 **Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.660 a, b (P1 §18.3.1.96 v), p.286: `v` at most 32767 characters; Boolean `1`/`0`; error cells hold one of `#NULL!`, `#DIV/0!`, `#VALUE!`, `#REF!`, `#NAME?`, `#NUM!`, `#N/A`.
 
-### E-24 — `row` element: is `r` required?
+### E-24 - `row` element: is `r` required?
 - **Fact:** `row@r` is `xsd:unsignedInt` and **optional**; it is the row index. Other attributes:
   - `spans` (`ST_CellSpans`) is an optional optimisation and need not be written;
   - `s` (default `0`) applies only if `customFormat` = 1.
@@ -359,7 +359,7 @@
   - Annex L.2.2.8, p.4646, L249438–249440.
 - **Strict/Transitional:** Identical (`xsd-trans/sml.xsd` L2256).
 
-### E-25 — Ordering of rows/cells; omitted `c@r`
+### E-25 - Ordering of rows/cells; omitted `c@r`
 - **Fact:** `c@r` is optional in the schema (E-20).
 - **NOT FOUND:**
   - No requirement that `row` elements or `c` elements appear in ascending order.
@@ -368,7 +368,7 @@
   - The examples always show ascending order with explicit `r`, but that is never stated normatively.
 **Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.590 c, p.251: a cell without `r` is in the column one greater than the previous cell of the row, the first such cell in column 1. §2.1.644 a, p.279: `row@r` 1 … 1048576, non-decreasing.
 
-### E-26 — `f` (Formula) attributes
+### E-26 - `f` (Formula) attributes
 - **Fact:** The content type is `ST_Formula` (a restriction of `ST_Xstring`). CT_CellFormula attributes:
 
 | Attr | Type | Default | Meaning |
@@ -391,7 +391,7 @@
 - **Strict/Transitional:** Identical (`xsd-trans/sml.xsd` L2751).
 **Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.620 b, e, h (P1 §18.3.1.40 f), p.260–261: `bx` must be false; `t="array"` marks array formulas and `aca` is ignored otherwise; `si` is required with `t="shared"` and ignored otherwise.
 
-### E-27 — ST_CellFormulaType
+### E-27 - ST_CellFormulaType
 - **Fact:** The values are:
   - `normal`: a regular cell formula (default);
   - `array`: an array formula, one formula applied across a range that can return multiple results;
@@ -403,7 +403,7 @@
   - `xsd-strict/sml.xsd` L2281.
 - **Strict/Transitional:** Identical.
 
-### E-28 — Shared formulas
+### E-28 - Shared formulas
 - **Fact:**
   - The first formula in an `si` group is the **master**. Its `f` holds the formula text plus `t="shared"`, `ref` and `si`.
   - Later cells need not write formula text. They carry `t="shared"` and `si`, and their formula is derived from their position relative to the master.
@@ -418,7 +418,7 @@
   - Part 1 §18.3.1.40, p.1631–1633, L76910–77021.
   - Annex L.2.2.9.2.1, p.4647, L249478–249508.
 
-### E-29 — `is` (inline rich string) structure
+### E-29 - `is` (inline rich string) structure
 - **Fact:** `is` has type `CT_Rst`, the same type as shared-string `si`. Its sequence:
   - `t?` (ST_Xstring);
   - `r*` (rich-text run, CT_RElt: `rPr?` then `t`);
@@ -429,7 +429,7 @@
   - Part 1 §18.3.1.53, p.1646.
 - **Strict/Transitional:** Identical (diff of the CT_Sst…CT_PhoneticPr block).
 
-### E-30 — Shared strings part: `sst`, `si`, `t`, `r`
+### E-30 - Shared strings part: `sst`, `si`, `t`, `r`
 - **Fact:** The root is `sst` (CT_Sst): `si*` then `extLst?`, with optional attributes `count` and `uniqueCount` (unsignedInt).
   - Each `si` (String Item) is one string.
   - A simple string *should* be a single `t`.
@@ -444,7 +444,7 @@
 - **Strict/Transitional:** Identical.
 **Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.675 a–c, §2.1.678 b, p.289–290: `t` at most 32767 characters; at most 32767 `r` and `rPh`.
 
-### E-31 — `rPh` (phonetic run): is its text part of the value?
+### E-31 - `rPh` (phonetic run): is its text part of the value?
 - **Fact:** `rPh` is a run of text that shows a phonetic hint for East Asian pronunciation, displayed across the top of the cell.
   - `sb` and `eb` are zero-based offsets into the *base text*. Each must be between 0 and the base text length, and **sb < eb** is required.
   - Non-overlapping consecutive runs are recommended.
@@ -452,7 +452,7 @@
 - **Derived:** The `si` definition (§18.4.8) builds the string from `t` or the rich-text runs `r` only, and `rPh` is described as a hint over the base text. Excluding `rPh/t` from the value is the reading consistent with the spec.
 - **Source:** Part 1 §18.4.6 rPh, p.1723, L81426–81462; §18.4.3 phoneticPr, p.1721–1722, L81342–81395.
 
-### E-32 — `sst@count` / `@uniqueCount`
+### E-32 - `sst@count` / `@uniqueCount`
 - **Fact:**
   - `count` is the total number of strings in the workbook. It counts text strings only, not numbers.
   - `uniqueCount` is the number of unique entries in the table. A string with different character-level formatting counts as unique.
@@ -460,7 +460,7 @@
 - **Spec inconsistency:** The §12.3.15 example uses `totalCount` and `<sstItem>`, which match neither the schema nor §18.4 (p.89, L4280–4292).
 - **Source:** Part 1 §18.4.9 sst, p.1724, L81486–81518.
 
-### E-33 — Cell error values
+### E-33 - Cell error values
 - **Fact:** The complete list of error values is: `#DIV/0!`, `#N/A`, `#NAME?`, `#NULL!`, `#NUM!`, `#REF!`, `#VALUE!`, `#GETTING_DATA`.
   - `#GETTING_DATA` means a value not yet retrieved or calculated, for example from an OLAP cube.
   - The same set is the `error-constant` production of the formula grammar.
@@ -474,7 +474,7 @@
 
 ## E. Strings, escaping, ranges (facts 10–11, 13, 16)
 
-### E-34 — ST_Xstring and the `_xHHHH_` escape
+### E-34 - ST_Xstring and the `_xHHHH_` escape
 - **Fact (§22.9.2.19 ST_Xstring "Escaped String"):** Characters that cannot be represented in XML 1.0 are escaped as `_xHHHH_`, where H is a hexadecimal digit of the character's value. Example: U+0008 → `_x0008_`. The base type is `xsd:string`.
 - **Literal `_x` sequences:** §22.9.2.19 does **not** say how to escape them.
   - The rule appears only for the `vt:bstr` variant type (§22.4.2.4 bstr, p.3736, L174882–174889).
@@ -486,7 +486,7 @@
 - **Real-data examples in the spec:** `_x000a_` (L79381) and `_x000d__x000a_` (L94292).
 - **Strict/Transitional:** No difference. No Part 4 text on ST_Xstring.
 
-### E-35 — `mergeCells` / `mergeCell@ref`
+### E-35 - `mergeCells` / `mergeCell@ref`
 - **Fact:**
   - `mergeCells` holds 1..n `mergeCell` and an optional `count` (unsignedInt).
   - `mergeCell@ref` is `ST_Ref` and **required**.
@@ -496,7 +496,7 @@
   - `xsd-strict/sml.xsd` CT_MergeCells L2452, CT_MergeCell L2458.
 - **Strict/Transitional:** Identical.
 
-### E-36 — `dimension@ref`
+### E-36 - `dimension@ref`
 - **Fact:** `dimension` gives the used range of the worksheet, and the element is optional.
   - `ref` (`ST_Ref`, required) is the range that would contain all `c` elements under `sheetData`.
   - Whole-column and whole-row notation is not supported.
@@ -506,7 +506,7 @@
   - `xsd-strict/sml.xsd` CT_SheetDimension L2306.
 - **Reader note:** It is an optimisation only. Do not trust it for bounds.
 
-### E-37 — A1 reference syntax
+### E-37 - A1 reference syntax
 - **Fact (grammar):**
   - `A1-reference = A1-column ":" A1-column | A1-row ":" A1-row | A1-column A1-row`
   - A column is one or more letters a–z/A–Z, optionally prefixed by `$`.
@@ -519,7 +519,7 @@
   - Part 1 §18.17.2.3.1 A1-Style Cell References, p.2053–2054, L96906–96955.
   - §18.17.6.1 Cell Reference Style, p.2067, L97612–97628.
 
-### E-38 — ST_CellRef, ST_Ref, ST_RefA, ST_Sqref
+### E-38 - ST_CellRef, ST_Ref, ST_RefA, ST_Sqref
 - **Fact:**
   - `ST_CellRef`: a single cell reference.
   - `ST_Ref`: a cell or range reference.
@@ -530,7 +530,7 @@
   - Part 1 §18.18.7 (p.2440, L116110), §18.18.62 (p.2480, L118030), §18.18.63 (p.2480, L118044), §18.18.76 (p.2487, L118381).
   - `xsd-strict/sml.xsd` L201–212; `xsd-trans/sml.xsd` L204–215.
 
-### E-39 — Maximum rows and columns
+### E-39 - Maximum rows and columns
 - **Fact:**
   - Cell references range from A1–A1048576 to XFD1–XFD1048576, i.e. 1,048,576 rows × 16,384 columns. The column count is derived from XFD.
   - An implementation **can extend** this range.
@@ -544,7 +544,7 @@
 
 ## F. Number formats and styles (facts 14–15)
 
-### E-40 — `numFmts` / `numFmt`
+### E-40 - `numFmts` / `numFmt`
 - **Fact:**
   - `numFmts` holds `numFmt*` and an optional `count`.
   - `numFmt@numFmtId` has type `ST_NumFmtId` (`xsd:unsignedInt`) and is required.
@@ -555,7 +555,7 @@
   - `xsd-strict/sml.xsd` CT_NumFmts L3547, CT_NumFmt L3553, ST_NumFmtId L3623.
 - **Strict/Transitional:** Identical (diff).
 
-### E-41 — Built-in (implied) number formats, "All Languages"
+### E-41 - Built-in (implied) number formats, "All Languages"
 - **Fact:** These formats are implied: an `xf` may use the `numFmtId` without a `numFmt` element. Some IDs may be interpreted differently depending on the UI language.
   - Using IDs outside the lists is implementation-defined.
   - **IDs not in the listing (e.g. 5, 6, 7, 8) shall use the `formatCode` attribute.** That is, they need an explicit `numFmt`.
@@ -596,7 +596,7 @@
 - **Source:** Part 1 §18.8.30 numFmt, p.1776–1777, L83957–84010.
 - **Also stated ("General" format):** dates do not follow "General" and are converted to date formatting automatically. p.1778, L84027.
 
-### E-42 — Locale-specific implied IDs (27–36, 50–58 CJK; 59–62, 67–81 Thai)
+### E-42 - Locale-specific implied IDs (27–36, 50–58 CJK; 59–62, 67–81 Thai)
 - **Fact:** The spec lists locale-dependent built-ins.
   - In the glyph tables, `pdftotext` lost the CJK and Thai glyphs. The spec also gives "with unicode values" tables, where a glyph is shown as a hex code point (e.g. `5E74` = U+5E74). Those versions are transcribed below.
   - Code points written bare (not in quotes) stand for literal glyphs. For example, `4E0A5348/4E0B5348` stands for U+4E0A U+5348 / U+4E0B U+5348, the AM/PM markers.
@@ -666,7 +666,7 @@
 - **Observation:** The token `bb` (in 81) is not defined anywhere in the grammar. Only `b1`/`b2` are defined (E-46).
 - **Source:** Part 1 §18.8.30, p.1778–1783, L84060–84294 (raw-checked, PDF p.1789–1793).
 
-### E-43 — Format code sections
+### E-43 - Format code sections
 - **Fact:**
   - A format code has up to four sections separated by `;`: positive; negative; zero; text.
   - With two sections, the first is for positive numbers and zero, and the second for negatives.
@@ -676,7 +676,7 @@
   - If there is no text section, text is not affected by the format.
 - **Source:** Part 1 §18.8.31 numFmts, "Number Format Codes", p.1783–1786, L84333–84462.
 
-### E-44 — Format symbols, literals, `\`, `"…"`, `_`, `*`
+### E-44 - Format symbols, literals, `\`, `"…"`, `_`, `*`
 - **Fact:**
   - **Digit placeholders:**
     - `0` shows insignificant zeros;
@@ -699,7 +699,7 @@
   - Part 1 §18.8.31, symbol table p.1784–1785, L84354–84429 (raw-checked, PDF p.1794–1795).
   - "Text and spacing", p.1785–1786, L84430–84480.
 
-### E-45 — Bracketed sections: colors, conditions, locale/currency
+### E-45 - Bracketed sections: colors, conditions, locale/currency
 - **Fact:**
   - **Color names:** `[Black]`, `[Blue]`, `[Cyan]`, `[Green]`, `[Magenta]`, `[Red]`, `[White]`, `[Yellow]`. The color must be the first item in its section.
   - **Indexed colors:** `[ColorN]` with N in 1–56 indexes the legacy palette. `[Color1]` maps to `indexed="8"` … `[Color56]` to `indexed="63"`.
@@ -713,7 +713,7 @@
   - Part 1 §18.8.31: colors p.1787–1788, L84531–84546; conditions p.1788, L84548–84558.
   - `[$…]`: p.1791–1792, L84700–84722 (raw-checked, PDF p.1801).
 
-### E-46 — Date/time tokens
+### E-46 - Date/time tokens
 - **Fact:**
   - **Months:** `m` 1–12, `mm` 01–12, `mmm` Jan–Dec, `mmmm` January–December, `mmmmm` J–D.
   - **Days:** `d` 1–31, `dd` 01–31, `ddd` Sun–Sat, `dddd` Sunday–Saturday.
@@ -740,7 +740,7 @@
   - Part 1 §18.8.31 "Dates and times", p.1789–1790, L84576–84655 (raw-checked, PDF p.1799–1800).
   - "International Considerations", p.1790–1791, L84656–84699. The `b1`/`b2` pairing was confirmed with raw extraction of PDF p.1801; in layout mode the description column is shifted one row.
 
-### E-47 — How `c@s` reaches a number format
+### E-47 - How `c@s` reaches a number format
 - **Fact:**
   - **`cellXfs`:** holds the master formatting records (`xf`) for cells. Cells in the Sheet part reference these `xf` records by **zero-based index**, i.e. `c@s` indexes `cellXfs/xf`; default `s=0`.
   - **Both layers are read:** a cell can have direct formatting and a cell style, so both the cell-style `xf` records (`cellStyleXfs`) and the cell `xf` records shall be read to get the full formatting.
@@ -764,7 +764,7 @@
 
 ## G. Packaging, Part 2 (facts 17–21)
 
-### E-48 — `[Content_Types].xml`: Default and Override semantics and precedence
+### E-48 - `[Content_Types].xml`: Default and Override semantics and precedence
 - **Fact:**
   - **Coverage:** For every part **other than Relationships parts**, the Media Types stream shall specify one matching `Default`, one matching `Override`, or both. When both match, **`Override` takes precedence**.
   - **Uniqueness:** At most one `Default` per extension and at most one `Override` per part name.
@@ -780,11 +780,11 @@
 - **Schema:** `opc-contentTypes.xsd` CT_Types is a choice of `Default` and `Override`, minOccurs 0. The prose says "one or more".
 - **Source:** Part 2 §7.2.3.1–§7.2.3.5, p.27–31, L1444–1632 (raw-checked, PDF p.38–39).
 
-### E-49 — ZIP name of the Media Types stream
+### E-49 - ZIP name of the Media Types stream
 - **Fact:** In ZIP the stream is stored as the item `[Content_Types].xml`. When interleaved, it is the complete sequence `[Content_Types].xml/[0].piece` … `[n].last.piece`. The brackets were chosen because they violate the part-name grammar.
 - **Source:** Part 2 §7.3.7, p.35, L1838–1850.
 
-### E-50 — Part name grammar
+### E-50 - Part name grammar
 - **Fact:**
   - A part name is a Unicode string matching `part_name = 1*( "/" isegment-nz )` (RFC 3987 `isegment-nz`), with these constraints:
     - no segment contains a percent-encoded `/` or `\`;
@@ -794,7 +794,7 @@
   - No part name may be derivable from another: `/a/b` cannot coexist with `/a`.
 - **Source:** Part 2 §6.2.2.2 Syntax, p.10–11, L581–612; §6.2.2.3, p.11, L626–640.
 
-### E-51 — Part name equivalence (case-insensitive)
+### E-51 - Part name equivalence (case-insensitive)
 - **Fact:**
   - Part-name equivalence is **ASCII case-insensitive matching**: code points 0x41–0x5A (A–Z) are compared as 0x61–0x7A (a–z). Non-ASCII characters are compared exactly.
   - Two different parts shall not have equivalent names (`/a` vs `/A`).
@@ -803,7 +803,7 @@
   - Part 2 §6.2.2.3 Part name equivalence and integrity in an abstract package, p.11–12, L616–674.
   - Definition 3.3.11, p.6, L493–496.
 
-### E-52 — Relationships part naming; package relationships
+### E-52 - Relationships part naming; package relationships
 - **Fact:**
   - **Package relationships:** the package Relationships part is named `/_rels/.rels`.
   - **Part relationships:** the Relationships part for a source part is built by adding `.rels` to the source's last segment and inserting a `_rels` segment before it. Examples: `/foo` → `/_rels/foo.rels`; `/foo/bar.xml` → `/foo/_rels/bar.xml.rels`.
@@ -812,7 +812,7 @@
   - **XML validity:** Relationships parts are XML, schema-valid against `opc-relationships.xsd` after MCE processing, and must not contain `xml:base`.
 - **Source:** Part 2 §6.2.2.2 (p.11, L600–602), §6.5.2.1–§6.5.2.3 (p.20–21, L1077–1145), §6.5.3.1 (p.21, L1149–1157).
 
-### E-53 — `Relationship` element attributes; Id uniqueness; Type comparison
+### E-53 - `Relationship` element attributes; Id uniqueness; Type comparison
 - **Fact:**
 
 | Attribute | Required | Type | Rule |
@@ -829,7 +829,7 @@
   - Part 2 §6.5.3.3–§6.5.3.4, p.22–23, L1167–1231 (raw-checked).
   - `opc-xsd/opc-relationships.xsd` CT_Relationship.
 
-### E-54 — Resolving relative Targets
+### E-54 - Resolving relative Targets
 - **Fact:** Relative references are resolved per **RFC 3986 §5 (Reference Resolution)**, extended by RFC 3987 §6.5. The base IRI depends on where the reference sits:
   - **Internal, part Relationships part:** the pack IRI of the package plus the **source part name**. `bar.xml` from `/a/b/_rels/foo.xml.rels` resolves to `/a/b/bar.xml`, and `../bar.xml` to `/a/bar.xml`.
   - **Internal, package Relationships part:** the pack IRI of the package root `/`.
@@ -841,7 +841,7 @@
   - Part 2 §6.4.1–§6.4.3 (p.16–19, L900–1036).
   - §6.5.2.2 (p.20, L1094–1112) and §6.5.2.3 (p.21, L1125–1145).
 
-### E-55 — XML encoding and DTD prohibition, and its scope
+### E-55 - XML encoding and DTD prohibition, and its scope
 - **Fact:** For XML content in the parts and streams **defined in Part 2**, namely the Media Types stream, the Core Properties part, Digital Signature XML Signature parts and Relationships parts:
   - **(a) Encoding:** UTF-8 or UTF-16. Any encoding declaration shall name only UTF-8 or UTF-16.
   - **(b) DTDs:** shall not be used (stated as a denial-of-service mitigation).
@@ -854,7 +854,7 @@
   - **Part 1:** No equivalent encoding or DTD rule for SpreadsheetML parts. Searched Part 1 for "DTD", "document type definition", "UTF-8 or", "UTF-16", and "encod" in clauses 1–9. Hits concern only password hashing and DOCTYPE examples.
 - **Source:** Part 2 §6.2.5 XML usage, p.12–13, L693–720; Introduction, L236–240.
 
-### E-56 — ECMA-376's own packaging constraints (Part 1 §9.1)
+### E-56 - ECMA-376's own packaging constraints (Part 1 §9.1)
 - **Fact:**
   - **ZIP:** every Office Open XML document is a ZIP archive (§9.1.3).
   - **Unknown parts:** parts other than relationship parts that are not the target of any relationship are unknown parts. They shall be ignored on reading (§9.1.4).
@@ -864,7 +864,7 @@
   - **Interleaving:** shall not be used (§9.1.8).
 - **Source:** Part 1 §9.1.3–§9.1.8, p.21–22, L1071–1125.
 
-### E-57 — ZIP features allowed or prohibited (Part 2 §7.3.6 and Annex B, normative)
+### E-57 - ZIP features allowed or prohibited (Part 2 §7.3.6 and Annex B, normative)
 - **Compression:**
   - §7.3.6: "shall not use compression algorithms except DEFLATE".
   - Table B.4 (p.69–70): method **0 stored** = Yes/Yes/Yes; method **8 deflated** = Yes/Yes/Yes; methods 1–7 and 9–11 (Shrunk, Reduced 1–4, Imploded, Tokenizing, Deflate64, PKWARE DCL Implode, Reserved) = No.
@@ -873,7 +873,7 @@
   - Table B.3: all encryption features (traditional PKWARE, DES, 3DES, RC2, RC4, AES, non-OAEP, central-directory encryption) = No.
   - Table B.5: bit 0 (encrypted) = No; bits 6 and 13 = No.
   - Table B.1: archive decryption header and archive extra data record = No.
-- **Multi-disk:** not supported. Disk-number fields are "partial — no multi disk archives"; production writes "always 1 disk" (Table B.2, p.66–68).
+- **Multi-disk:** not supported. Disk-number fields are "partial - no multi disk archives"; production writes "always 1 disk" (Table B.2, p.66–68).
 - **ZIP64:**
   - Table B.3: version 4.5 "File uses ZIP64 format extensions" = Yes/Yes/Yes.
   - Table B.1: Zip64 EOCD record **V1** and locator: consumption Yes (partially); production "used only when needed".
@@ -891,7 +891,7 @@
 - **Limits:** a central-directory file header shall not exceed 65,535 bytes.
 - **Source:** Part 2 §7.3.6 (p.35, L1816–1836); Annex B §B.1–B.4 and Tables B.1–B.7 (p.63–73, L2960–end), raw-checked against PDF p.73–83.
 
-### E-58 — ZIP item names ↔ part names; case; duplicates
+### E-58 - ZIP item names ↔ part names; case; duplicates
 - **Fact:**
   - **Item names:** ZIP item names shall conform to the ZIP Appnote, **shall be ASCII only**, and **shall be unique** within the ZIP file (§7.3.3).
   - **Part → ZIP:** (a) remove the leading `/`; (b) **percent-encode every non-ASCII character** (§7.3.4).
@@ -901,7 +901,7 @@
   - **Informative preprocessing (Annex A):** examples include `/%41/%61.xml` → `/A/a.xml`, `\a.xml` → `/a.xml`, `/A B.xml` → `/A%20B.xml`.
 - **Source:** Part 2 §7.2.5.2–§7.2.5.5 (p.32–33, L1684–1739), §7.3.3–§7.3.5 (p.34–35, L1778–1814), Annex A (p.61–62, L2903–2945).
 
-### E-59 — Interleaving (for completeness)
+### E-59 - Interleaving (for completeness)
 - **Fact:** OPC defines interleaved pieces named `<name>/[0].piece` … `<name>/[n].last.piece` (complete, gap-free sequences). Part 1 §9.1.8 forbids interleaving in Office Open XML documents, so a strict XLSX reader can reject piece names.
 - **Source:** Part 2 §7.2.4 (p.31), §7.2.5.2 (p.32, L1686–1710); Part 1 §9.1.8 (p.22).
 
@@ -920,8 +920,8 @@
 | `_x005F_` escape rule inside ST_Xstring itself (E-34) | Exists only for `vt:bstr`, §22.4.2.4 |
 | `[M1.17]`-style requirement IDs (E-55) | `\[M[0-9]` in part2.txt; none in the 2021 edition |
 | Part 1 encoding / DTD rule for non-OPC parts (E-55) | "DTD", "document type definition", "UTF-8 or", "UTF-16", "encod" |
-| A normative boolean rule for non-formula `t="b"` cells beyond §18.17.6.6 (E-23) | — |
-| A rule for resolving `applyNumberFormat` between cell and style `xf` (E-47) | — |
+| A normative boolean rule for non-formula `t="b"` cells beyond §18.17.6.6 (E-23) | - |
+| A rule for resolving `applyNumberFormat` between cell and style `xf` (E-47) | - |
 | Sheet-name length or case rules (E-09) | "31 characters", "sheet name" |
 
 ## I. Spec inconsistencies worth coding defensively against

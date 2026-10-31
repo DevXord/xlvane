@@ -84,6 +84,6 @@ describe('WorkbookReader', () => {
     "image br anchor: anchor height equals row height",
     'defined name that looks like a range: should not crash',
   ]) {
-    it.skip(`${name} — fixture from spec/integration/data not copied`, () => {});
+    it.skip(`${name} - fixture from spec/integration/data not copied`, () => {});
   }
 });

@@ -1,4 +1,4 @@
-xlvane diff — Show what changed between two workbooks
+xlvane diff - Show what changed between two workbooks
 
 Usage:
   xlvane diff <old.xlsx> <new.xlsx> [options]
