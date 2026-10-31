@@ -23,7 +23,7 @@ import type {
  *
  * @example
  * ```ts
- * import type { Color } from '@xlvane/exceljs';
+ * import type { Color } from '@xlvane/compat';
  *
  * const red: Partial<Color> = { argb: 'FFFF0000' };
  * ```
@@ -40,7 +40,7 @@ export interface Color {
  *
  * @example
  * ```ts
- * import type { Font } from '@xlvane/exceljs';
+ * import type { Font } from '@xlvane/compat';
  *
  * const font: Partial<Font> = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF1F4E79' } };
  * ```
@@ -65,7 +65,7 @@ export interface Font {
  *
  * @example
  * ```ts
- * import type { FillPatterns } from '@xlvane/exceljs';
+ * import type { FillPatterns } from '@xlvane/compat';
  *
  * const pattern: FillPatterns = 'solid';
  * ```
@@ -98,7 +98,7 @@ export type FillPatterns =
  *
  * @example
  * ```ts
- * import type { Fill } from '@xlvane/exceljs';
+ * import type { Fill } from '@xlvane/compat';
  *
  * const fill: Fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFFF00' } };
  * const gradient: Fill = { type: 'gradient', gradient: 'angle', degree: 90, stops: [{ position: 0, color: { argb: 'FFFFFFFF' } }, { position: 1, color: { argb: 'FF4472C4' } }] };
@@ -120,7 +120,7 @@ export interface Fill {
  *
  * @example
  * ```ts
- * import type { BorderStyle } from '@xlvane/exceljs';
+ * import type { BorderStyle } from '@xlvane/compat';
  *
  * const style: BorderStyle = 'thin';
  * ```
@@ -145,7 +145,7 @@ export type BorderStyle =
  *
  * @example
  * ```ts
- * import type { Border } from '@xlvane/exceljs';
+ * import type { Border } from '@xlvane/compat';
  *
  * const edge: Partial<Border> = { style: 'thin', color: { argb: 'FF000000' } };
  * ```
@@ -160,7 +160,7 @@ export interface Border {
  *
  * @example
  * ```ts
- * import type { Borders } from '@xlvane/exceljs';
+ * import type { Borders } from '@xlvane/compat';
  *
  * const border: Partial<Borders> = { top: { style: 'thin' }, bottom: { style: 'double' } };
  * ```
@@ -178,7 +178,7 @@ export interface Borders {
  *
  * @example
  * ```ts
- * import type { Alignment } from '@xlvane/exceljs';
+ * import type { Alignment } from '@xlvane/compat';
  *
  * const alignment: Partial<Alignment> = { horizontal: 'center', vertical: 'middle', wrapText: true };
  * ```
@@ -198,7 +198,7 @@ export interface Alignment {
  *
  * @example
  * ```ts
- * import type { Style } from '@xlvane/exceljs';
+ * import type { Style } from '@xlvane/compat';
  *
  * const style: Partial<Style> = { numFmt: '#,##0.00', font: { bold: true } };
  * ```
@@ -217,7 +217,7 @@ export interface Style {
  *
  * @example
  * ```ts
- * import type { Protection } from '@xlvane/exceljs';
+ * import type { Protection } from '@xlvane/compat';
  *
  * const unlocked: Partial<Protection> = { locked: false };
  * ```
@@ -232,7 +232,7 @@ export interface Protection {
  *
  * @example
  * ```ts
- * import type { CellErrorValue } from '@xlvane/exceljs';
+ * import type { CellErrorValue } from '@xlvane/compat';
  *
  * const na: CellErrorValue = { error: '#N/A' };
  * ```
@@ -246,7 +246,7 @@ export interface CellErrorValue {
  *
  * @example
  * ```ts
- * import type { CellFormulaValue } from '@xlvane/exceljs';
+ * import type { CellFormulaValue } from '@xlvane/compat';
  *
  * const total: CellFormulaValue = { formula: 'SUM(B2:B10)', result: 120 };
  * ```
@@ -265,7 +265,7 @@ export interface CellFormulaValue {
  *
  * @example
  * ```ts
- * import type { CellValue } from '@xlvane/exceljs';
+ * import type { CellValue } from '@xlvane/compat';
  *
  * const values: CellValue[] = [
  *   1, 'text', true, new Date(), null, { formula: 'A1*2' }, { error: '#N/A' },
@@ -294,7 +294,7 @@ export type CellValue =
  *
  * @example
  * ```ts
- * import type { ColumnDefn } from '@xlvane/exceljs';
+ * import type { ColumnDefn } from '@xlvane/compat';
  *
  * const column: Partial<ColumnDefn> = { header: 'Total', key: 'total', width: 12, style: { numFmt: '#,##0.00' } };
  * ```
@@ -317,7 +317,7 @@ export interface ColumnDefn {
  *
  * @example
  * ```ts
- * import type { WorksheetView } from '@xlvane/exceljs';
+ * import type { WorksheetView } from '@xlvane/compat';
  *
  * const view: WorksheetView = { state: 'frozen', xSplit: 1, ySplit: 1 };
  * ```
@@ -338,7 +338,7 @@ export interface WorksheetView {
  *
  * @example
  * ```ts
- * import type { WorksheetOptions } from '@xlvane/exceljs';
+ * import type { WorksheetOptions } from '@xlvane/compat';
  *
  * const options: WorksheetOptions = { state: 'hidden', views: [{ state: 'frozen', ySplit: 1 }] };
  * ```
@@ -358,7 +358,7 @@ export interface WorksheetOptions {
  *
  * @example
  * ```ts
- * import type { Comment } from '@xlvane/exceljs';
+ * import type { Comment } from '@xlvane/compat';
  *
  * const note: Comment = { texts: [{ font: { bold: true }, text: 'Check: ' }, { text: 'estimate only' }] };
  * ```
@@ -379,7 +379,7 @@ export interface Comment {
  *
  * @example
  * ```ts
- * import type { DataValidation } from '@xlvane/exceljs';
+ * import type { DataValidation } from '@xlvane/compat';
  *
  * const rule: DataValidation = { type: 'whole', operator: 'between', allowBlank: true, formulae: [1, 10], showErrorMessage: true, error: '1 to 10' };
  * ```
@@ -405,7 +405,7 @@ export interface DataValidation {
  *
  * @example
  * ```ts
- * import type { ConditionalFormattingRule } from '@xlvane/exceljs';
+ * import type { ConditionalFormattingRule } from '@xlvane/compat';
  *
  * const rule: ConditionalFormattingRule = { type: 'cellIs', operator: 'greaterThan', formulae: [100], style: { font: { bold: true } } };
  * ```
@@ -426,7 +426,7 @@ export type ConditionalFormattingRule =
  *
  * @example
  * ```ts
- * import type { ConditionalFormattingOptions } from '@xlvane/exceljs';
+ * import type { ConditionalFormattingOptions } from '@xlvane/compat';
  *
  * const cf: ConditionalFormattingOptions = { ref: 'B2:B20', rules: [{ type: 'top10', rank: 3, percent: false, bottom: false, style: { fill: { type: 'pattern', pattern: 'solid', bgColor: { argb: 'FFFFC7CE' } } } }] };
  * ```
@@ -443,7 +443,7 @@ export interface ConditionalFormattingOptions {
  *
  * @example
  * ```ts
- * import type { PageSetup } from '@xlvane/exceljs';
+ * import type { PageSetup } from '@xlvane/compat';
  *
  * const setup: Partial<PageSetup> = { orientation: 'landscape', paperSize: 9, fitToPage: true, fitToWidth: 1, fitToHeight: 0, printArea: 'A1:G40' };
  * ```
@@ -484,7 +484,7 @@ export interface PageSetup {
  *
  * @example
  * ```ts
- * import type { HeaderFooter } from '@xlvane/exceljs';
+ * import type { HeaderFooter } from '@xlvane/compat';
  *
  * const hf: HeaderFooter = { oddHeader: '&CQuarterly report', oddFooter: '&RPage &P of &N' };
  * ```
@@ -506,7 +506,7 @@ export interface HeaderFooter {
  *
  * @example
  * ```ts
- * import type { RowBreak } from '@xlvane/exceljs';
+ * import type { RowBreak } from '@xlvane/compat';
  *
  * const pageEndsAfterRow20: RowBreak = { id: 20, max: 16383, man: 1 };
  * ```
@@ -524,7 +524,7 @@ export interface RowBreak {
  *
  * @example
  * ```ts
- * import type { WorksheetProtection } from '@xlvane/exceljs';
+ * import type { WorksheetProtection } from '@xlvane/compat';
  *
  * const options: Partial<WorksheetProtection> = { formatCells: true, sort: true, autoFilter: true };
  * ```

@@ -2,14 +2,14 @@
 
 An MIT-licensed library for reading and writing XLSX files, designed for input from untrusted sources.
 
-**Status:** version 1.0.0. Install with `npm install xlvane` (and `npm install @xlvane/exceljs` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
+**Status:** version 1.0.0. Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Packages
 
 | Package | Contents | Runtime dependencies |
 |---|---|---|
 | [`xlvane`](packages/xlvane) | Core library (safe reading, `inspect()`, writing with styles, task API, streaming) and the `xlvane` command line | `fflate` |
-| [`@xlvane/exceljs`](packages/exceljs) | exceljs-compatible API ([docs/exceljs-compat.md](docs/exceljs-compat.md)) | `xlvane` |
+| [`@xlvane/compat`](packages/compat) | exceljs-compatible API ([docs/exceljs-compat.md](docs/exceljs-compat.md)) | `xlvane` |
 
 ## Command line in 5 minutes
 
@@ -47,4 +47,4 @@ Project rules are in [CLAUDE.md](CLAUDE.md), decisions and verified format facts
 
 ## License
 
-MIT. `@xlvane/exceljs` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API and type declarations follow exceljs 4.4.0.
+MIT. `@xlvane/compat` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API and type declarations follow exceljs 4.4.0.

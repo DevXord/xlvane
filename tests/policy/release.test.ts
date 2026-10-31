@@ -8,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 const pkg = (dir: string) => JSON.parse(readFileSync(`${dir}/package.json`, 'utf8')) as Record<string, unknown> & { version: string; name: string };
 const xlvane = pkg('packages/xlvane');
-const exceljs = pkg('packages/exceljs');
+const exceljs = pkg('packages/compat');
 const workflows = ['ci.yml', 'release.yml'].map((f) => [f, readFileSync(`.github/workflows/${f}`, 'utf8')] as const);
 
 describe('published packages', () => {
@@ -31,7 +31,7 @@ describe('published packages', () => {
   });
 
   it('no shipped text says the packages are unpublished', () => {
-    const files = ['README.md', 'packages/xlvane/README.md', 'packages/exceljs/README.md', 'skills/xlvane/SKILL.md', 'docs/exceljs-compat.md', 'docs/errors.md', 'docs/cli-json.md', 'packages/xlvane/src/cli/commands/migrate.ts'];
+    const files = ['README.md', 'packages/xlvane/README.md', 'packages/compat/README.md', 'skills/xlvane/SKILL.md', 'docs/exceljs-compat.md', 'docs/errors.md', 'docs/cli-json.md', 'packages/xlvane/src/cli/commands/migrate.ts'];
     for (const f of files) expect(readFileSync(f, 'utf8'), f).not.toMatch(/not (?:yet )?published|until (?:it|they) (?:is|are) published/i);
   });
 });
@@ -63,7 +63,7 @@ describe('workflows', () => {
     expect(publish).toContain('id-token: write');
     expect(publish).toContain('needs: verify');
     expect(publish).toContain('npm stage publish -w packages/xlvane');
-    expect(publish).toContain('npm stage publish -w packages/exceljs');
+    expect(publish).toContain('npm stage publish -w packages/compat');
     expect(publish).not.toMatch(/npm publish/);
     expect(release).toMatch(/tags: \['v\*'\]/);
   });

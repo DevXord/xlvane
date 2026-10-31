@@ -2,7 +2,7 @@
 // Workers; docs/decisions.md D-904). It uses only the core API (no Node.js modules, no Buffer, no
 // file system): every input is generated here. scripts/build-smoke.mjs bundles it into one ESM
 // file that each runtime runner in tests/runtimes/ imports and runs.
-import ExcelJS from '@xlvane/exceljs';
+import ExcelJS from '@xlvane/compat';
 import {
   appendRows,
   createWorkbook,
@@ -201,7 +201,7 @@ function checks(): (readonly [string, () => Promise<void> | void])[] {
       },
     ],
     [
-      '@xlvane/exceljs without Node.js Buffer',
+      '@xlvane/compat without Node.js Buffer',
       async () => {
         const wb = new ExcelJS.Workbook();
         const ws = wb.addWorksheet('Data');

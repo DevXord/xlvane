@@ -106,7 +106,7 @@ interface WritableLike {
  *
  * @example
  * ```ts
- * import type { WorkbookWriterOptions } from '@xlvane/exceljs';
+ * import type { WorkbookWriterOptions } from '@xlvane/compat';
  *
  * const options: WorkbookWriterOptions = { filename: 'big.xlsx', useSharedStrings: false, useStyles: true };
  * ```
@@ -135,7 +135,7 @@ export interface WorkbookWriterOptions {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const writer = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: 'big.xlsx' });
  * const sheet = writer.addWorksheet('Data');
@@ -301,7 +301,7 @@ export class WorksheetWriter extends Worksheet {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const workbook = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: 'big.xlsx', useStyles: true });
  * const sheet = workbook.addWorksheet('Data');
@@ -553,7 +553,7 @@ const READER_OPTIONS: Record<string, readonly string[]> = {
  *
  * @example
  * ```ts
- * import type { WorkbookReaderOptions } from '@xlvane/exceljs';
+ * import type { WorkbookReaderOptions } from '@xlvane/compat';
  *
  * const options: WorkbookReaderOptions = { styles: 'cache', entries: 'emit' };
  * ```
@@ -594,7 +594,7 @@ function readerOptions(raw: Record<string, unknown>): Required<WorkbookReaderOpt
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const reader = new ExcelJS.stream.xlsx.WorkbookReader('big.xlsx', {});
  * for await (const worksheet of reader) {
@@ -680,7 +680,7 @@ export class WorksheetReader extends Emitter implements AsyncIterable<Row> {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const reader = new ExcelJS.stream.xlsx.WorkbookReader('big.xlsx', { styles: 'cache' });
  * for await (const worksheet of reader) {

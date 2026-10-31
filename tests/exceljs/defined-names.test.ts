@@ -1,9 +1,9 @@
 // Ported from exceljs v4.4.0 spec/unit/doc/defined-names.spec.js (MIT, Copyright (c) 2014-2019
 // Guyon Roche), changes: Mocha/Chai → Vitest; `verquire('doc/defined-names')` → the
-// `DefinedNames` class of @xlvane/exceljs (exceljs exposes the same object as
+// `DefinedNames` class of @xlvane/compat (exceljs exposes the same object as
 // `workbook.definedNames`). Two tests added for the read and write path of workbook names.
 import { describe, expect, it } from 'vitest';
-import { DefinedNames } from '../../packages/exceljs/src/defined-names';
+import { DefinedNames } from '../../packages/compat/src/defined-names';
 import { ExcelJS, roundTrip } from './helpers';
 
 describe('DefinedNames', () => {

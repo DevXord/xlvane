@@ -1,4 +1,4 @@
-// xlvane tests for tables and images in @xlvane/exceljs (phase D, docs/decisions.md D-D04).
+// xlvane tests for tables and images in @xlvane/compat (phase D, docs/decisions.md D-D04).
 // The image tests are ported from exceljs v4.4.0 spec/integration/workbook/images.spec.js and
 // spec/integration/workbook-xlsx-writer/workbook-xlsx-writer.spec.js (MIT, Copyright (c)
 // 2014-2019 Guyon Roche); changes: the image is passed as `buffer` (xlvane does not read files by

@@ -1,4 +1,4 @@
-// xlvane tests for row and column splicing in @xlvane/exceljs (phase B, docs/decisions.md D-B03):
+// xlvane tests for row and column splicing in @xlvane/compat (phase B, docs/decisions.md D-B03):
 // what xlvane moves like a spreadsheet application where exceljs 4.4.0 does not
 // (docs/facts/exceljs.md X4-15, docs/exceljs-compat.md).
 import { describe, expect, it } from 'vitest';

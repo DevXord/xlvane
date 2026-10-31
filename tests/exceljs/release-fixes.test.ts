@@ -1,4 +1,4 @@
-// Regression tests for the @xlvane/exceljs findings of the pre-release audits (docs/decisions.md
+// Regression tests for the @xlvane/compat findings of the pre-release audits (docs/decisions.md
 // D-R01): file-read values that must be written back, error locations, exceljs value shapes and
 // own-property lookups. Test files are built here (tests/helpers/xlsx-builder.ts).
 import { strFromU8, unzipSync, zipSync } from 'fflate';

@@ -1,6 +1,6 @@
-# exceljs 4.4.0 behaviour reproduced by @xlvane/exceljs
+# exceljs 4.4.0 behaviour reproduced by @xlvane/compat
 
-Ids `X4-*` are cited from `packages/exceljs/src`. Every fact was read in the exceljs 4.4.0 source as installed in `bench/node_modules/exceljs` (`npm ci --prefix bench`; the package's `lib/` is the published source) on 2026-10-30, and where noted confirmed by running it. Paths are relative to the package root. Ported tests are in `tests/exceljs/` (README there).
+Ids `X4-*` are cited from `packages/compat/src`. Every fact was read in the exceljs 4.4.0 source as installed in `bench/node_modules/exceljs` (`npm ci --prefix bench`; the package's `lib/` is the published source) on 2026-10-30, and where noted confirmed by running it. Paths are relative to the package root. Ported tests are in `tests/exceljs/` (README there).
 
 ### X4-01 — Format codes written as built-in ids
 `StylesXform._addNumFmtStr(formatCode)` (`lib/xlsx/xform/style/styles-xform.js` L374–386) first looks the code up with `NumFmtXform.getDefaultFmtId` (`lib/xlsx/xform/style/numfmt-xform.js` L55), a hash of the `f` codes of `lib/xlsx/defaultnumformats.js` (ids 0–4, 9–22, 37–40, 45–49; the locale-dependent ids 27–36 and 50–81 have no `f`). A matching code is written as that id with no `numFmt` element; any other code gets a custom id from 164.

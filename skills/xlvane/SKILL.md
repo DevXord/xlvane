@@ -173,7 +173,7 @@ Formulas on every sheet, merged cells, links, notes, conditional formats, data v
 
 In Node.js, `xlvane/node` adds `readWorkbookFile`, `inspectFile` and `writeWorkbookFile` (which never replaces an existing file unless `{ overwrite: true }` is passed). `toCSV`, `fromCSV`, `toJSON` and `fromJSON` convert tables. For very large files use `openWorkbookStream` and `writeWorkbookStream`.
 
-Code written for the `exceljs` API can run on xlvane through `@xlvane/exceljs` (`"exceljs": "npm:@xlvane/exceljs@^1"` in package.json); unsupported exceljs features throw `XLV_E_NOT_SUPPORTED`.
+Code written for the `exceljs` API can run on xlvane through `@xlvane/compat` (`"exceljs": "npm:@xlvane/compat@^1"` in package.json); unsupported exceljs features throw `XLV_E_NOT_SUPPORTED`.
 
 ## Command line
 

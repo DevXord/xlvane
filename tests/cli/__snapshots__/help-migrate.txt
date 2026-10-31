@@ -1,10 +1,10 @@
-xlvane migrate — Switch a project from exceljs to @xlvane/exceljs
+xlvane migrate — Switch a project from exceljs to @xlvane/compat
 
 Usage:
   xlvane migrate [project-dir] [options]
 
-Prepares a project for @xlvane/exceljs, which offers the commonly used exceljs API. It shows the
-change to package.json ("exceljs": "npm:@xlvane/exceljs@^1", an npm alias, so the code keeps
+Prepares a project for @xlvane/compat, which offers the commonly used exceljs API. It shows the
+change to package.json ("exceljs": "npm:@xlvane/compat@^1", an npm alias, so the code keeps
 importing "exceljs") and lists places in the source code that use exceljs API outside the supported
 subset. Only files that mention exceljs are scanned (node_modules and dot folders are skipped), and
 matching is textual. package.json is changed only with --force; nothing else is changed.

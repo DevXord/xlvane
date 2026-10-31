@@ -1,10 +1,10 @@
-# @xlvane/exceljs
+# @xlvane/compat
 
 The [exceljs](https://github.com/exceljs/exceljs) 4.4.0 API, built on [xlvane](https://www.npmjs.com/package/xlvane), with the differences listed in docs/exceljs-compat.md (link below). Code written for exceljs keeps working after one change in `package.json`:
 
 ```json
 "dependencies": {
-  "exceljs": "npm:@xlvane/exceljs@^1"
+  "exceljs": "npm:@xlvane/compat@^1"
 }
 ```
 
@@ -25,6 +25,6 @@ await workbook.xlsx.writeFile('sales.xlsx');
 - The few exceljs features that are not offered (row and column operations on a streamed worksheet, which exceljs itself does not have, and deep imports of exceljs internals such as `exceljs/lib/...`) throw an `XlvError` with code `XLV_E_NOT_SUPPORTED` and the name of the feature, or fail to resolve. Nothing is dropped silently.
 - What is supported, partly supported and not supported, with the source of each exceljs behaviour: [docs/exceljs-compat.md](https://github.com/DevXord/xlvane/blob/main/docs/exceljs-compat.md) (also in `node_modules/xlvane/docs/exceljs-compat.md` after installing). Errors are described in `node_modules/xlvane/docs/errors.md`.
 
-@xlvane/exceljs is an independent project. It is not affiliated with or endorsed by the exceljs project or its authors, and it contains no exceljs code; its API and type declarations follow exceljs 4.4.0, whose MIT license notice is included in LICENSE.
+@xlvane/compat is an independent project. It is not affiliated with or endorsed by the exceljs project or its authors, and it contains no exceljs code; its API and type declarations follow exceljs 4.4.0, whose MIT license notice is included in LICENSE.
 
 License: MIT

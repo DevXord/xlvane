@@ -1,4 +1,4 @@
-// xlvane-specific tests of phase C1 in @xlvane/exceljs: data validations, conditional
+// xlvane-specific tests of phase C1 in @xlvane/compat: data validations, conditional
 // formatting, sheet protection and printing (D-C06; docs/facts/exceljs.md X4-16 … X4-19). Where
 // exceljs writes data the specification or Excel rejects, xlvane writes valid data; the
 // differences are listed in docs/exceljs-compat.md.

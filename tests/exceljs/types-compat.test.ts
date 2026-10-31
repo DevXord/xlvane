@@ -1,6 +1,6 @@
 // TypeScript users of exceljs write `ExcelJS.Worksheet`, `ExcelJS.Cell`, `ExcelJS.Fill` and so on
 // as types. This test builds both packages with their declaration files, installs
-// @xlvane/exceljs as node_modules/exceljs (as the npm alias does, see alias.test.ts) and
+// @xlvane/compat as node_modules/exceljs (as the npm alias does, see alias.test.ts) and
 // type-checks code from the exceljs 4.4.0 README (types-sample/readme-body.txt) with the
 // import forms and module settings TypeScript projects use:
 // - `import * as ExcelJS` and `import ExcelJS from` with `moduleResolution: bundler`;
@@ -23,7 +23,7 @@ beforeAll(async () => {
   await mkdir(cache, { recursive: true });
   dir = await mkdtemp(join(cache, 'xlvane-types-'));
   const modules = join(dir, 'node_modules');
-  await buildPackage('@xlvane/exceljs', modules, 'exceljs', { dts: true });
+  await buildPackage('@xlvane/compat', modules, 'exceljs', { dts: true });
   await buildPackage('xlvane', modules, 'xlvane', { dts: true });
   body = await readFile(join(REPO, 'tests/exceljs/types-sample/readme-body.txt'), 'utf8');
 }, 400_000);
@@ -75,7 +75,7 @@ const VARIANTS: readonly Variant[] = [
   },
 ];
 
-describe('exceljs README code type-checks against @xlvane/exceljs', () => {
+describe('exceljs README code type-checks against @xlvane/compat', () => {
   for (const [i, variant] of VARIANTS.entries()) {
     it(variant.name, { timeout: 120_000 }, async () => {
       const project = join(dir, `variant-${String(i)}`);

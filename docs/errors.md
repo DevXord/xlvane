@@ -14,7 +14,7 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | --- | --- |
 | [`XLV_E_INVALID_INPUT`](#xlv_e_invalid_input) | The input is not what the function expects: `readWorkbook` and `inspect` accept a `Uint8Array`, an `ArrayBuffer` (or another typed-array … |
 | [`XLV_E_INVALID_OPTION`](#xlv_e_invalid_option) | An option is unknown, has the wrong type or is out of range. |
-| [`XLV_E_INVALID_ARGUMENT`](#xlv_e_invalid_argument) | An argument of a method of `@xlvane/exceljs` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an … |
+| [`XLV_E_INVALID_ARGUMENT`](#xlv_e_invalid_argument) | An argument of a method of `@xlvane/compat` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an … |
 | [`XLV_E_LIMIT_EXCEEDED`](#xlv_e_limit_exceeded) | The file exceeds one of the resource limits (`ReadLimits`): input size, number of ZIP entries, decompressed size of one entry or of all … |
 | [`XLV_E_NOT_ZIP`](#xlv_e_not_zip) | The input is not a ZIP archive, so it cannot be an XLSX file. |
 | [`XLV_E_UNSUPPORTED_CONTAINER`](#xlv_e_unsupported_container) | The input is a Compound File Binary container (signature `D0 CF 11 E0 A1 B1 1A E1`). |
@@ -47,7 +47,7 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | [`XLV_E_INVALID_ROWS`](#xlv_e_invalid_rows) | Rows given to `writeTable`, `fromJSON` or `appendRows` have the wrong shape: not an array, rows mixing objects and arrays, a value that … |
 | [`XLV_E_JSON_INVALID`](#xlv_e_json_invalid) | The text given to `fromJSON` is not valid JSON. |
 | [`XLV_E_CSV_MALFORMED`](#xlv_e_csv_malformed) | The CSV text given to `fromCSV` has a quoted field that is never closed, text right after a closing quote, or bytes that are not valid … |
-| [`XLV_E_NOT_SUPPORTED`](#xlv_e_not_supported) | `@xlvane/exceljs` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, … |
+| [`XLV_E_NOT_SUPPORTED`](#xlv_e_not_supported) | `@xlvane/compat` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, … |
 | [`XLV_E_USAGE`](#xlv_e_usage) | The `xlvane` command line was used incorrectly: an unknown command or option, a missing or extra argument, an option without its value, … |
 | [`XLV_E_INTERNAL`](#xlv_e_internal) | The `xlvane` command line caught an error that is not an `XlvError`. |
 
@@ -83,7 +83,7 @@ The settings of a note box (`box` of a note: `margins` in millimetres from 0 to 
 **Fix:** correct the option name or value.
 
 ### XLV_E_INVALID_ARGUMENT
-An argument of a method of `@xlvane/exceljs` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an error: for example `insertRow(0, …)`, a row position given as a string, a negative count in `spliceRows` or `spliceColumns`, an outline level outside 0–7 set on a row or column (exceljs writes it), `duplicateRow` of a row that does not exist, `insertRows` without an array of values, or rows or columns pushed beyond the sheet (row 1048576, column XFD). `details.method`, `details.argument` and `details.value` name the method, the argument and its value (docs/exceljs-compat.md).
+An argument of a method of `@xlvane/compat` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an error: for example `insertRow(0, …)`, a row position given as a string, a negative count in `spliceRows` or `spliceColumns`, an outline level outside 0–7 set on a row or column (exceljs writes it), `duplicateRow` of a row that does not exist, `insertRows` without an array of values, or rows or columns pushed beyond the sheet (row 1048576, column XFD). `details.method`, `details.argument` and `details.value` name the method, the argument and its value (docs/exceljs-compat.md).
 **Fix:** pass a whole number in the range the hint gives (rows from 1, columns from 1), or remove rows at the end of the sheet before inserting.
 
 ### XLV_E_LIMIT_EXCEEDED
@@ -251,12 +251,12 @@ The CSV text given to `fromCSV` has a quoted field that is never closed, text ri
 **Fix:** close the quoted field or double the quotes inside it (`""`), or convert the file to UTF-8.
 
 ### XLV_E_NOT_SUPPORTED
-`@xlvane/exceljs` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, conditional formatting, data validation, notes, CSV, protection or `insertRow`. `details.feature` names it. The error is thrown where the feature is used, so nothing is dropped silently.
+`@xlvane/compat` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, conditional formatting, data validation, notes, CSV, protection or `insertRow`. `details.feature` names it. The error is thrown where the feature is used, so nothing is dropped silently.
 `hashPassword` and `verifyPassword` throw it for a hash algorithm other than SHA-1, SHA-256, SHA-384 and SHA-512, and `hashPassword` without a `salt` throws it in a runtime that has no `crypto.getRandomValues` (pass your own random salt there; SR-50, D-C08).
 `editCells` throws it for an array or shared formula in an edit (it writes plain formulas only), and for a cell inside an array formula's range or the master of a shared formula with other cells in its range (D-E02); `details.cell` names it.
 `appendRows` throws it when a table ends with a totals row on the sheet's last used row (the new rows would fall below the totals row; the hint gives the `insertRows` call that grows the table instead), or when growing a table for the new rows would overlap another table (D-R03).
 `insertRows` and `deleteRows` (and `xlvane edit --insert-rows` / `--delete-rows`) also throw it when the sheet has content whose cell references xlvane cannot move yet: tables, charts, shapes and other drawing objects (pictures alone are moved, and deleting rows that would cut a picture is refused), pivot tables, form controls, embedded objects, custom sheet views, threaded comments, extended content such as data bars or sparklines, a chart or pivot cache elsewhere that names the sheet, a data table, an array formula the change would split, or a formula or defined name that cannot be adjusted safely (for example a 3-D reference such as `Jan:Mar!A1` that includes the sheet, D-B01). The message names the part or the cell, and `details` gives the element, relationship type or formula.
-**Fix:** for `@xlvane/exceljs`, see docs/exceljs-compat.md for the supported subset; remove the call, or keep using exceljs for files that need the feature.
+**Fix:** for `@xlvane/compat`, see docs/exceljs-compat.md for the supported subset; remove the call, or keep using exceljs for files that need the feature.
 For `insertRows`/`deleteRows`, insert or delete the rows in a spreadsheet application, or remove the named content first.
 
 ### XLV_E_USAGE

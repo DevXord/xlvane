@@ -23,7 +23,7 @@ interface Manifest {
 /** Runtime dependencies each package may have (CLAUDE.md, "Hard rules"). */
 const ALLOWED_RUNTIME_DEPENDENCIES: Record<string, readonly string[]> = {
   xlvane: ['fflate'],
-  '@xlvane/exceljs': ['xlvane'],
+  '@xlvane/compat': ['xlvane'],
 };
 
 /** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-706, D-906). */
@@ -44,7 +44,7 @@ const APPROVED_DEV_DEPENDENCIES = [
   'zod',
 ];
 
-const PACKAGE_DIRS = ['packages/xlvane', 'packages/exceljs'];
+const PACKAGE_DIRS = ['packages/xlvane', 'packages/compat'];
 
 async function readManifest(dir: string): Promise<Manifest> {
   return JSON.parse(await readFile(join(root, dir, 'package.json'), 'utf8')) as Manifest;
@@ -92,7 +92,7 @@ describe('package manifests', () => {
   /** Files in the tarball: dist, and for xlvane the docs, the Agent Skill and llms-full.txt (D-707). */
   const FILES: Record<string, readonly string[]> = {
     'packages/xlvane': ['dist', 'docs', 'skills', 'llms-full.txt'],
-    'packages/exceljs': ['dist'],
+    'packages/compat': ['dist'],
   };
 
   it.each(PACKAGE_DIRS)('%s is ESM-only, MIT-licensed and ships only its listed files', async (dir) => {
@@ -106,10 +106,10 @@ describe('package manifests', () => {
     expect(license.startsWith('MIT License\n')).toBe(true);
   });
 
-  it('@xlvane/exceljs carries the exceljs license notice and says it is not affiliated (D-R05)', async () => {
-    const license = await readFile(join(root, 'packages/exceljs', 'LICENSE'), 'utf8');
+  it('@xlvane/compat carries the exceljs license notice and says it is not affiliated (D-R05)', async () => {
+    const license = await readFile(join(root, 'packages/compat', 'LICENSE'), 'utf8');
     expect(license).toContain('Copyright (c) 2014-2019 Guyon Roche');
-    const readme = await readFile(join(root, 'packages/exceljs', 'README.md'), 'utf8');
+    const readme = await readFile(join(root, 'packages/compat', 'README.md'), 'utf8');
     expect(readme).toContain('not affiliated with or endorsed by the exceljs project');
   });
 

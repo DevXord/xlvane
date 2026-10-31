@@ -6,7 +6,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect } from 'vitest';
-import ExcelJSModule from '../../packages/exceljs/src/index';
+import ExcelJSModule from '../../packages/compat/src/index';
 
 /** The package under test, typed loosely: the specs exercise the exceljs API shape. */
 export const ExcelJS: any = ExcelJSModule;

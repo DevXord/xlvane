@@ -100,7 +100,7 @@ xlvane does not copy this (D-B01). A 3-D reference that covers the changed sheet
   - A merge that would shrink to one cell is dropped: `G4:G5`, `I6:I7`, `D7:E7`.
   - Otherwise it shrinks: `H4:H8` → `H4:H6`.
 
-  This is a rule for merges only. Formula ranges whose start is deleted shrink instead (R-08). @xlvane/exceljs follows this rule for merged ranges too (D-B03 addendum).
+  This is a rule for merges only. Formula ranges whose start is deleted shrink instead (R-08). @xlvane/compat follows this rule for merged ranges too (D-B03 addendum).
 
 ### R-15 — A reversed range is written in order
 Observed 2026-10-30 with `tests/libreoffice/ref-adjust-facts.py` on a separate workbook (formulas in Main!C1:C7). LibreOffice writes a reversed range in order, whether or not the change touches it: `SUM(B9:B2)` → `SUM(B2:B7)` (delete), `SUM(B2:B11)` (insert), `SUM(B2:B9)` (a change that does not touch it); `SUM(B6:B4)` → `SUM(B4:B4)` (delete); `SUM(Other!B9:B2)` → `SUM(Other!B2:B9)` after an insert on Main. xlvane normalises a reversed range of the changed sheet before adjusting it; a reversed range on another sheet keeps its text.

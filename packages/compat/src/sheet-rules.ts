@@ -1,4 +1,4 @@
-// Data validations, conditional formatting, sheet protection and printing for @xlvane/exceljs:
+// Data validations, conditional formatting, sheet protection and printing for @xlvane/compat:
 // the exceljs 4.4.0 model (docs/facts/exceljs.md X4-16 … X4-19) mapped to the xlvane core
 // (docs/decisions.md D-C01 … D-C04) and back. Where exceljs writes data the specification or
 // Excel rejects, xlvane writes valid data instead (D-C06, docs/exceljs-compat.md).
@@ -91,7 +91,7 @@ const MAX_EXPANDED_CELLS = 100_000;
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/exceljs';
+ * import ExcelJS from '@xlvane/compat';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Form');
  * sheet.dataValidations.add('B2:B20', { type: 'list', allowBlank: true, formulae: ['"Yes,No"'] });

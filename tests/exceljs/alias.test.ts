@@ -1,13 +1,13 @@
 // Phase 5 acceptance criterion: code written for exceljs runs unchanged when `exceljs` is
-// @xlvane/exceljs, from ESM and from CommonJS.
+// @xlvane/compat, from ESM and from CommonJS.
 //
-// How the alias is emulated: users switch with `"exceljs": "npm:@xlvane/exceljs@^1"` in
+// How the alias is emulated: users switch with `"exceljs": "npm:@xlvane/compat@^1"` in
 // package.json. npm documents that for an alias `<alias>@npm:<name>`, "the `<alias>` is the
 // name of the package as it is reified in the `node_modules` folder" (npm/cli
 // docs/lib/content/using-npm/package-spec.md, section "Aliases", branch `latest` at 158315cd,
 // read 2026-10-30). So after installation the package simply sits in node_modules/exceljs.
 // Tests must not use the network, so this test builds the packages (into its own directory)
-// and places the built @xlvane/exceljs at node_modules/exceljs and xlvane at node_modules/xlvane, which is what module resolution sees
+// and places the built @xlvane/compat at node_modules/exceljs and xlvane at node_modules/xlvane, which is what module resolution sees
 // after `npm install` with the alias. The scripts in sample-project are then run with `node`.
 import { spawnSync } from 'node:child_process';
 import { readFile, rm } from 'node:fs/promises';
@@ -26,8 +26,8 @@ let dir = '';
 beforeAll(async () => {
   dir = await makeProject('xlvane-alias-');
   const modules = join(dir, 'node_modules');
-  // node_modules/exceljs = @xlvane/exceljs (package.json + dist), as the npm alias installs it.
-  await buildPackage('@xlvane/exceljs', modules, 'exceljs');
+  // node_modules/exceljs = @xlvane/compat (package.json + dist), as the npm alias installs it.
+  await buildPackage('@xlvane/compat', modules, 'exceljs');
   await buildPackage('xlvane', modules);
   await copyDir(join(ROOT, 'node_modules/fflate'), join(modules, 'fflate'));
 }, 400_000);
@@ -37,9 +37,9 @@ afterAll(async () => {
 });
 
 describe('exceljs alias: code written for exceljs runs unchanged', () => {
-  it('installs @xlvane/exceljs under the name exceljs', async () => {
+  it('installs @xlvane/compat under the name exceljs', async () => {
     const pkg = JSON.parse(await readFile(join(dir, 'node_modules/exceljs/package.json'), 'utf8')) as { name: string; engines?: { node?: string } };
-    expect(pkg.name).toBe('@xlvane/exceljs');
+    expect(pkg.name).toBe('@xlvane/compat');
     expect(pkg.engines?.node).toBe('>=22.12');
   });
 
