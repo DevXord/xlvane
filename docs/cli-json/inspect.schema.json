@@ -1,0 +1,527 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "inspect.schema.json",
+  "title": "xlvane inspect --json (the inspect() report, docs/inspect-json.md)",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "const": "inspect"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "schemaVersion": {
+              "const": 1
+            },
+            "format": {
+              "enum": [
+                "xlsx",
+                "xlsm",
+                "xltx",
+                "xltm",
+                "unknown"
+              ]
+            },
+            "conformance": {
+              "enum": [
+                "transitional",
+                "strict"
+              ]
+            },
+            "dateSystem": {
+              "enum": [
+                "1900",
+                "1904"
+              ]
+            },
+            "hasMacros": {
+              "type": "boolean"
+            },
+            "externalLinkCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "properties": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              }
+            },
+            "definedNames": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "refersTo": {
+                    "type": "string"
+                  },
+                  "sheet": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hidden": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "refersTo",
+                  "sheet",
+                  "hidden"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "definedNamesTruncated": {
+              "type": "boolean"
+            },
+            "sheetCount": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "sheets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "index": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "kind": {
+                    "enum": [
+                      "worksheet",
+                      "chartsheet",
+                      "dialogsheet",
+                      "macrosheet"
+                    ]
+                  },
+                  "state": {
+                    "enum": [
+                      "visible",
+                      "hidden",
+                      "veryHidden"
+                    ]
+                  },
+                  "dimension": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "usedRange": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "rowCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "columnCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "cellCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "formulaCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "mergedRanges": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "description": "Merged ranges, at most the first 100."
+                  },
+                  "headerRow": {
+                    "oneOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "object",
+                        "properties": {
+                          "row": {
+                            "type": "integer",
+                            "minimum": 0
+                          },
+                          "confidence": {
+                            "enum": [
+                              "high",
+                              "low"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "row",
+                          "confidence"
+                        ],
+                        "additionalProperties": false
+                      }
+                    ]
+                  },
+                  "columns": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "index": {
+                          "type": "integer",
+                          "minimum": 0
+                        },
+                        "letter": {
+                          "type": "string"
+                        },
+                        "header": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "dominantType": {
+                          "$ref": "common.schema.json#/$defs/cellType"
+                        },
+                        "types": {
+                          "type": "object",
+                          "properties": {
+                            "number": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "string": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "boolean": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "date": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "error": {
+                              "type": "integer",
+                              "minimum": 0
+                            },
+                            "empty": {
+                              "type": "integer",
+                              "minimum": 0
+                            }
+                          },
+                          "required": [
+                            "number",
+                            "string",
+                            "boolean",
+                            "date",
+                            "error",
+                            "empty"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "samples": {
+                          "type": "array",
+                          "items": {
+                            "type": [
+                              "string",
+                              "number",
+                              "boolean"
+                            ]
+                          }
+                        }
+                      },
+                      "required": [
+                        "index",
+                        "letter",
+                        "header",
+                        "dominantType",
+                        "types",
+                        "samples"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "columnsTruncated": {
+                    "type": "boolean"
+                  },
+                  "formulas": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "cell": {
+                          "type": "string"
+                        },
+                        "formula": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cell",
+                        "formula"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "richTextCellCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "richTextCells": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "styledColumns": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "hyperlinkCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "noteCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "imageCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "images": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "cell": {
+                          "anyOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "format": {
+                          "anyOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "enum": [
+                                "png",
+                                "jpeg",
+                                "gif"
+                              ]
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "cell",
+                        "format"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "protected": {
+                    "type": "boolean"
+                  },
+                  "printArea": {
+                    "anyOf": [
+                      {
+                        "type": "null"
+                      },
+                      {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    ]
+                  },
+                  "pageBreakCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "dataValidationCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "conditionalFormatCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "tables": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "name": {
+                          "type": "string"
+                        },
+                        "ref": {
+                          "type": "string"
+                        },
+                        "columns": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        }
+                      },
+                      "required": [
+                        "name",
+                        "ref",
+                        "columns"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "notes": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "hyperlinks": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string"
+                        },
+                        "target": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "location": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "ref",
+                        "target",
+                        "location"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "mergedRangeCount": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": "Number of merged ranges on the sheet."
+                  },
+                  "mergedRangesTruncated": {
+                    "type": "boolean",
+                    "description": "true when mergedRanges lists only the first 100."
+                  }
+                },
+                "required": [
+                  "name",
+                  "index",
+                  "kind",
+                  "state",
+                  "dimension",
+                  "usedRange",
+                  "rowCount",
+                  "columnCount",
+                  "cellCount",
+                  "formulaCount",
+                  "mergedRanges",
+                  "mergedRangeCount",
+                  "mergedRangesTruncated",
+                  "headerRow",
+                  "columns",
+                  "columnsTruncated",
+                  "formulas",
+                  "richTextCellCount",
+                  "richTextCells",
+                  "styledColumns",
+                  "hyperlinkCount",
+                  "hyperlinks",
+                  "noteCount",
+                  "imageCount",
+                  "images",
+                  "notes",
+                  "protected",
+                  "printArea",
+                  "pageBreakCount",
+                  "dataValidationCount",
+                  "conditionalFormatCount",
+                  "tables"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "warnings": {
+              "type": "array",
+              "items": {
+                "$ref": "common.schema.json#/$defs/warning"
+              }
+            }
+          },
+          "required": [
+            "schemaVersion",
+            "format",
+            "conformance",
+            "dateSystem",
+            "hasMacros",
+            "externalLinkCount",
+            "properties",
+            "definedNames",
+            "definedNamesTruncated",
+            "sheetCount",
+            "sheets",
+            "warnings"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "common.schema.json#/$defs/errorEnvelope"
+    }
+  ]
+}

@@ -1,0 +1,814 @@
+{
+  "extra": {
+    "a1fill": {
+      "stops": [
+        {
+          "position": 0,
+          "color": {
+            "argb": "FFFFFFFF"
+          }
+        },
+        {
+          "position": 1,
+          "color": {
+            "argb": "FF4472C4"
+          }
+        }
+      ],
+      "gradient": "angle",
+      "degree": 90,
+      "type": "gradient"
+    },
+    "b1fill": {
+      "stops": [
+        {
+          "position": 0,
+          "color": {
+            "argb": "FFFF0000"
+          }
+        },
+        {
+          "position": 1,
+          "color": {
+            "argb": "FF00FF00"
+          }
+        }
+      ],
+      "gradient": "path",
+      "center": {
+        "left": 0.5,
+        "top": 0.5
+      },
+      "type": "gradient"
+    },
+    "c1border": {
+      "diagonal": {
+        "style": "thin",
+        "color": {
+          "argb": "FF000000"
+        },
+        "up": true,
+        "down": false
+      }
+    },
+    "d1alignment": {
+      "shrinkToFit": true,
+      "textRotation": -45,
+      "readingOrder": "rtl"
+    },
+    "d1protection": {
+      "locked": false,
+      "hidden": false
+    },
+    "f6styleOnly": {
+      "value": null,
+      "fill": {
+        "type": "pattern",
+        "pattern": "solid",
+        "fgColor": {
+          "argb": "FFFFFF00"
+        }
+      },
+      "bold": true
+    },
+    "formulas": [
+      [
+        "A3",
+        {
+          "formula": "ROW()*COLUMN()",
+          "result": 3,
+          "ref": "A3:B4",
+          "shareType": "shared"
+        },
+        "ROW()*COLUMN()",
+        1
+      ],
+      [
+        "B3",
+        {
+          "result": 6,
+          "sharedFormula": "A3"
+        },
+        "ROW()*COLUMN()",
+        2
+      ],
+      [
+        "A4",
+        {
+          "result": 4,
+          "sharedFormula": "A3"
+        },
+        "ROW()*COLUMN()",
+        2
+      ],
+      [
+        "B4",
+        {
+          "result": 8,
+          "sharedFormula": "A3"
+        },
+        "ROW()*COLUMN()",
+        2
+      ]
+    ],
+    "outline": {
+      "row3": 1,
+      "row4": 2,
+      "row4collapsed": true,
+      "colB": 1,
+      "outlineLevelRow": 2
+    },
+    "bookViews": [
+      {
+        "x": 10,
+        "y": 20,
+        "width": 15000,
+        "height": 9000,
+        "visibility": "visible",
+        "activeTab": 0,
+        "firstSheet": 0
+      }
+    ]
+  },
+  "csv": {
+    "default": "Name,Amount,Paid,When,Note\n\"Tea, green\",12.5,true,2024-01-31T08:15:00+00:00,\"said \"\"hi\"\"\"\nCoffee,-3,false,,#N/A\n\nhttps://example.com/a,25",
+    "custom": "Name;Amount;Paid;When;Note\r\nTea, green;12.5;true;31/01/2024 08:15;\"said \"\"hi\"\"\"\r\nCoffee;-3;false;;#N/A\r\nhttps://example.com/a;25\r\n",
+    "sheet": "Imported",
+    "rows": [
+      [
+        1,
+        [
+          "Name",
+          "Amount",
+          "Paid",
+          "When",
+          "Note"
+        ]
+      ],
+      [
+        2,
+        [
+          "Tea, green",
+          12.5,
+          true,
+          "2024-01-31T08:15:00.000Z",
+          "said \"hi\""
+        ]
+      ],
+      [
+        3,
+        [
+          "Coffee",
+          -3,
+          false,
+          null,
+          {
+            "error": "#N/A"
+          }
+        ]
+      ],
+      [
+        4,
+        []
+      ],
+      [
+        5,
+        [
+          "https://example.com/a",
+          25
+        ]
+      ]
+    ]
+  },
+  "media": {
+    "table": {
+      "name": "Fruit",
+      "tableRef": "B2:C5",
+      "headerRow": true,
+      "totalsRow": true,
+      "columns": [
+        "Name",
+        "Count"
+      ],
+      "b4": "Pear",
+      "c5": {
+        "formula": "SUBTOTAL(109,Fruit[Count])"
+      },
+      "b5": "Total"
+    },
+    "images": [
+      {
+        "tl": [
+          4,
+          1
+        ],
+        "br": [
+          7,
+          8
+        ],
+        "ext": null,
+        "bytes": 1672
+      },
+      {
+        "tl": [
+          8,
+          1
+        ],
+        "br": null,
+        "ext": {
+          "width": 120,
+          "height": 60
+        },
+        "bytes": 1672
+      }
+    ],
+    "background": 1672
+  },
+  "sheetNames": [
+    "Sales",
+    "Edits",
+    "Media",
+    "Extra"
+  ],
+  "rowCount": 12,
+  "rows": [
+    [
+      1,
+      [
+        [
+          1,
+          "Id"
+        ],
+        [
+          2,
+          "Product"
+        ],
+        [
+          3,
+          "Amount"
+        ],
+        [
+          4,
+          "Date"
+        ]
+      ]
+    ],
+    [
+      2,
+      [
+        [
+          1,
+          1
+        ],
+        [
+          2,
+          "Tea"
+        ],
+        [
+          3,
+          12.5
+        ],
+        [
+          4,
+          "2024-01-31T00:00:00.000Z"
+        ],
+        [
+          6,
+          "later"
+        ]
+      ]
+    ],
+    [
+      3,
+      [
+        [
+          1,
+          2
+        ],
+        [
+          2,
+          "Coffee"
+        ],
+        [
+          3,
+          20
+        ],
+        [
+          4,
+          "2024-02-01T00:00:00.000Z"
+        ]
+      ]
+    ],
+    [
+      4,
+      [
+        [
+          1,
+          3
+        ],
+        [
+          2,
+          "Cocoa"
+        ],
+        [
+          3,
+          7.25
+        ],
+        [
+          4,
+          "2024-02-02T00:00:00.000Z"
+        ]
+      ]
+    ],
+    [
+      5,
+      [
+        [
+          1,
+          "Total"
+        ],
+        [
+          3,
+          {
+            "formula": "SUM(C2:C4)",
+            "result": 39.75
+          }
+        ]
+      ]
+    ],
+    [
+      7,
+      [
+        [
+          1,
+          "Merged note"
+        ],
+        [
+          2,
+          "Merged note"
+        ],
+        [
+          3,
+          "Merged note"
+        ],
+        [
+          4,
+          "Merged note"
+        ]
+      ]
+    ],
+    [
+      9,
+      [
+        [
+          1,
+          {
+            "richText": [
+              {
+                "font": {
+                  "bold": true
+                },
+                "text": "Note: "
+              },
+              {
+                "font": {
+                  "italic": true,
+                  "color": {
+                    "argb": "FFFF0000"
+                  }
+                },
+                "text": "prices"
+              },
+              {
+                "text": " exclude tax"
+              }
+            ]
+          }
+        ]
+      ]
+    ],
+    [
+      10,
+      [
+        [
+          1,
+          {
+            "text": "Price list",
+            "hyperlink": "https://example.com/prices?year=2024&q=1"
+          }
+        ]
+      ]
+    ],
+    [
+      11,
+      [
+        [
+          1,
+          {
+            "text": "Mail us",
+            "hyperlink": "mailto:sales@example.com"
+          }
+        ]
+      ]
+    ],
+    [
+      12,
+      [
+        [
+          1,
+          {
+            "text": "Go to total",
+            "hyperlink": "#Sales!C5"
+          }
+        ]
+      ]
+    ]
+  ],
+  "b2": "Tea",
+  "c5": {
+    "formula": "SUM(C2:C4)",
+    "result": 39.75
+  },
+  "c2numFmt": "#,##0.00",
+  "a1font": {
+    "bold": true
+  },
+  "a1fill": {
+    "type": "pattern",
+    "pattern": "solid",
+    "fgColor": {
+      "argb": "FFD9E1F2"
+    }
+  },
+  "a1borderBottom": "thin",
+  "b2alignment": {
+    "horizontal": "center",
+    "wrapText": true
+  },
+  "merged": {
+    "a7": "Merged note",
+    "d7isMerged": true,
+    "d7master": "A7"
+  },
+  "frozen": {
+    "state": "frozen",
+    "ySplit": 1
+  },
+  "autoFilter": "A1:D4",
+  "widthB": 24,
+  "valueTypes": {
+    "number": 2,
+    "formula": 6,
+    "c5type": 6
+  },
+  "streamed": {
+    "rowCount": 1001,
+    "last": 1000000
+  },
+  "properties": {
+    "creator": "Sample",
+    "lastModifiedBy": "Sample editor",
+    "title": "Sales report",
+    "created": "2024-01-01T09:30:00.000Z",
+    "modified": "2024-02-02T17:00:00.000Z"
+  },
+  "a9": {
+    "richText": [
+      {
+        "font": {
+          "bold": true
+        },
+        "text": "Note: "
+      },
+      {
+        "font": {
+          "italic": true,
+          "color": {
+            "argb": "FFFF0000"
+          }
+        },
+        "text": "prices"
+      },
+      {
+        "text": " exclude tax"
+      }
+    ]
+  },
+  "a9text": "Note: prices exclude tax",
+  "a9type": 8,
+  "d2numFmt": "mm-dd-yy",
+  "columnF": {
+    "font": {
+      "italic": true,
+      "size": 10,
+      "name": "Arial"
+    },
+    "width": 9,
+    "f2font": {
+      "italic": true,
+      "size": 10,
+      "name": "Arial"
+    }
+  },
+  "names": {
+    "model": [
+      {
+        "name": "firstAmount",
+        "ranges": [
+          "Sales!$C$2"
+        ]
+      },
+      {
+        "name": "amounts",
+        "ranges": [
+          "Sales!$C$2:$C$4"
+        ]
+      }
+    ],
+    "c2": [
+      "firstAmount",
+      "amounts"
+    ],
+    "c3": "amounts"
+  },
+  "company": {
+    "company": "Sample Ltd",
+    "manager": "Sample manager"
+  },
+  "tabColor": {
+    "argb": "FF00B050"
+  },
+  "view": {
+    "state": "frozen",
+    "zoomScale": 120,
+    "showGridLines": true,
+    "topLeftCell": "A2"
+  },
+  "notes": {
+    "a5": "Checked by finance",
+    "b4texts": [
+      {
+        "font": {
+          "bold": true
+        },
+        "text": "Cocoa"
+      },
+      {
+        "text": " is new this year"
+      }
+    ],
+    "b4box": {
+      "margins": {
+        "insetmode": "custom",
+        "inset": [
+          0.2,
+          0.15,
+          0.2,
+          0.1
+        ]
+      },
+      "protection": {
+        "locked": "False",
+        "lockText": "False"
+      },
+      "editAs": "twoCells"
+    },
+    "a1": null
+  },
+  "edits": {
+    "rows": [
+      [
+        1,
+        [
+          "c1",
+          1
+        ]
+      ],
+      [
+        2,
+        [
+          "a",
+          "b"
+        ]
+      ],
+      [
+        3,
+        [
+          "c",
+          "d"
+        ]
+      ],
+      [
+        4,
+        [
+          "r1",
+          "c2",
+          1
+        ]
+      ],
+      [
+        5,
+        [
+          "r1",
+          "c3",
+          1
+        ]
+      ],
+      [
+        6,
+        [
+          "r2",
+          null,
+          2
+        ]
+      ],
+      [
+        7,
+        [
+          "inserted",
+          null,
+          0
+        ]
+      ],
+      [
+        8,
+        [
+          "r3",
+          null,
+          3
+        ]
+      ],
+      [
+        9,
+        [
+          "r5",
+          null,
+          5
+        ]
+      ],
+      [
+        10,
+        [
+          "r6",
+          null,
+          6
+        ]
+      ]
+    ],
+    "bold": [
+      "A6",
+      "C6",
+      "A7",
+      "C7"
+    ]
+  },
+  "rules": {
+    "b3validation": {
+      "type": "list",
+      "formulae": [
+        "\"Tea,Coffee,Cocoa\""
+      ],
+      "allowBlank": true
+    },
+    "c2validation": {
+      "type": "decimal",
+      "formulae": [
+        0,
+        1000
+      ],
+      "showErrorMessage": true,
+      "operator": "between",
+      "error": "Use 0 to 1000"
+    },
+    "conditional": [
+      {
+        "ref": "C2:C4",
+        "rules": [
+          {
+            "type": "cellIs",
+            "operator": "greaterThan",
+            "priority": 1,
+            "formulae": [
+              "15"
+            ],
+            "bold": true,
+            "italic": null,
+            "bar": null,
+            "icons": null
+          },
+          {
+            "type": "expression",
+            "operator": null,
+            "priority": 2,
+            "formulae": [
+              "$C2<10"
+            ],
+            "bold": null,
+            "italic": true,
+            "bar": null,
+            "icons": null
+          }
+        ]
+      },
+      {
+        "ref": "C2:C4",
+        "rules": [
+          {
+            "type": "dataBar",
+            "operator": null,
+            "priority": 3,
+            "formulae": null,
+            "bold": null,
+            "italic": null,
+            "bar": {
+              "gradient": false,
+              "minLength": 0,
+              "maxLength": 100,
+              "axisPosition": "middle",
+              "axisColor": {
+                "argb": "FF000000"
+              },
+              "direction": "leftToRight",
+              "color": {
+                "argb": "FF638EC6"
+              },
+              "cfvo": [
+                {
+                  "type": "min"
+                },
+                {
+                  "type": "max"
+                }
+              ]
+            },
+            "icons": null
+          },
+          {
+            "type": "iconSet",
+            "operator": null,
+            "priority": 4,
+            "formulae": null,
+            "bold": null,
+            "italic": null,
+            "bar": null,
+            "icons": {
+              "iconSet": "3Stars",
+              "cfvo": [
+                {
+                  "type": "percent",
+                  "value": 0
+                },
+                {
+                  "type": "percent",
+                  "value": 33
+                },
+                {
+                  "type": "percent",
+                  "value": 67
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ],
+    "protection": {
+      "sheet": true,
+      "sort": true,
+      "autoFilter": true
+    },
+    "page": {
+      "orientation": "landscape",
+      "paperSize": 9,
+      "margins": {
+        "left": 0.5,
+        "right": 0.5,
+        "top": 1,
+        "bottom": 1,
+        "header": 0.4,
+        "footer": 0.4
+      },
+      "printArea": "A1:D7",
+      "printTitlesRow": "1:1"
+    },
+    "header": "&CSales report",
+    "footer": "&RPage &P of &N",
+    "names": [
+      "firstAmount",
+      "amounts"
+    ]
+  },
+  "links": {
+    "a10": {
+      "text": "Price list",
+      "hyperlink": "https://example.com/prices?year=2024&q=1"
+    },
+    "a10type": 5,
+    "a10text": "Price list",
+    "a11hyperlink": "mailto:sales@example.com",
+    "a12": {
+      "text": "Go to total",
+      "hyperlink": "#Sales!C5"
+    }
+  }
+}

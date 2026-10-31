@@ -2,11 +2,12 @@
 // workbookPr; docs/facts/ecma-376.md E-04, E-09 … E-11).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Conformance, SheetState } from '../model';
+import type { Conformance, SheetState, WorkbookView } from '../model';
 import type { WarningCollector } from '../util/warnings';
 import { childNamed, childrenNamed, parseXmlTree } from '../xml/tree';
 import { REL_NS, SML_NS } from './namespaces';
 import { decodeXstring } from './xstring';
+import { workbookProtectionOf, type WorkbookProtection } from '../printing';
 
 /** One `sheet` element of the workbook part. */
 export interface WorkbookSheetEntry {
@@ -17,11 +18,27 @@ export interface WorkbookSheetEntry {
   readonly relId: string | null;
 }
 
+/** One `definedName` element; `localSheetId` is resolved to a sheet by the caller. */
+export interface WorkbookDefinedName {
+  readonly name: string;
+  readonly refersTo: string;
+  readonly localSheetId: number | null;
+  readonly hidden: boolean;
+  readonly comment: string | null;
+}
+
 /** What the reader needs from the workbook part. */
 export interface WorkbookInfo {
   readonly conformance: Conformance;
   readonly date1904: boolean;
   readonly sheets: readonly WorkbookSheetEntry[];
+  readonly definedNames: readonly WorkbookDefinedName[];
+  /** `workbookProtection` (SR-22), or `null`. */
+  readonly protection: WorkbookProtection | null;
+  /** `bookViews/workbookView` (W2-66). */
+  readonly views: readonly WorkbookView[];
+  /** `calcPr` (W2-67), or `null`. */
+  readonly calculation: { readonly fullCalcOnLoad: boolean } | null;
 }
 
 /** Context for parsing one part. */
@@ -93,5 +110,54 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
     const sheetId = rawId !== undefined && /^\d{1,10}$/.test(rawId) ? Number(rawId) : null;
     return { name, sheetId, state, relId: el.attrs.get(relIdKey) ?? null };
   });
-  return { conformance, date1904, sheets };
+  const namesElement = childNamed(root, ns, 'definedNames');
+  const definedNames = (namesElement === undefined ? [] : childrenNamed(namesElement, ns, 'definedName')).map((el): WorkbookDefinedName => {
+    const name = decodeXstring(el.attrs.get('name') ?? '');
+    const rawId = el.attrs.get('localSheetId');
+    let localSheetId: number | null = null;
+    if (rawId !== undefined) {
+      if (/^\d{1,10}$/.test(rawId.trim())) localSheetId = Number(rawId.trim());
+      else ctx.warnings.add('XLV_W_INVALID_VALUE', `The defined name "${name.slice(0, 100)}" has the invalid localSheetId "${rawId.slice(0, 20)}"; it is read as a workbook-level name.`, { part: ctx.part });
+    }
+    const rawHidden = el.attrs.get('hidden');
+    const comment = el.attrs.get('comment');
+    return {
+      name,
+      refersTo: decodeXstring(el.text),
+      localSheetId,
+      hidden: rawHidden !== undefined && parseXsdBoolean(rawHidden) === true,
+      comment: comment === undefined ? null : decodeXstring(comment),
+    };
+  });
+  const protectionElement = childNamed(root, ns, 'workbookProtection');
+  const protection =
+    protectionElement === undefined ? null : workbookProtectionOf(protectionElement.attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, { part: ctx.part }));
+  const views: WorkbookView[] = [];
+  const bookViews = childNamed(root, ns, 'bookViews');
+  for (const v of bookViews?.children ?? []) {
+    if (v.local !== 'workbookView' || v.ns !== ns || views.length >= 1000) continue;
+    // CT_BookView (sml.xsd L4137; W2-66): numbers as stored, invalid ones read as absent/defaults.
+    const num = (name: string, signed: boolean): number | null => {
+      const raw = v.attrs.get(name)?.trim();
+      if (raw === undefined || !/^[+-]?\d{1,10}$/.test(raw)) return null;
+      const n = Number(raw);
+      return signed ? (n >= -2147483648 && n <= 2147483647 ? n : null) : n >= 0 && n <= 4294967295 ? n : null;
+    };
+    const visibility = v.attrs.get('visibility');
+    views.push(
+      Object.freeze({
+        x: num('xWindow', true),
+        y: num('yWindow', true),
+        width: num('windowWidth', false),
+        height: num('windowHeight', false),
+        firstSheet: num('firstSheet', false),
+        activeTab: num('activeTab', false),
+        visibility: visibility === 'hidden' || visibility === 'veryHidden' ? visibility : 'visible',
+      }),
+    );
+  }
+  const calc = childNamed(root, ns, 'calcPr');
+  const rawFull = calc?.attrs.get('fullCalcOnLoad');
+  const calculation = calc === undefined ? null : Object.freeze({ fullCalcOnLoad: rawFull !== undefined && parseXsdBoolean(rawFull) === true });
+  return { conformance, date1904, sheets, definedNames, protection, views, calculation };
 }

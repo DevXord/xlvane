@@ -1,0 +1,34 @@
+xlvane inspect — See sheets, columns and problems in a workbook
+
+Usage:
+  xlvane inspect <file> [options]
+
+Describes a workbook without changing it: its sheets (also hidden ones), used ranges, detected
+header rows, column types with sample values, merged cells, formulas, rich-text cells, column
+styles, hyperlinks, notes, document properties, defined names, and warnings such as macros or
+external links. Macros are never run and links are never followed. Built-in hidden names such as
+_xlnm._FilterDatabase are listed only with --verbose. With --json the result is the inspect() report
+described in node_modules/xlvane/docs/inspect-json.md.
+
+Options:
+      --sheet <name>         Describe only this sheet
+      --max-columns <n>      Columns described per sheet (default 200)
+      --formula-samples <n>  Example formulas per sheet (default 10)
+
+Global options:
+      --json                 Print one JSON document to stdout
+                             (node_modules/xlvane/docs/cli-json.md)
+  -q, --quiet                Print only results and errors
+      --verbose              Print more detail, including stack traces of internal errors
+  -h, --help                 Show help for the command
+
+Examples:
+  xlvane inspect report.xlsx
+      Describe every sheet and list warnings
+  xlvane inspect report.xlsx --sheet Sales
+      Describe one sheet
+  xlvane inspect report.xlsx --json
+      The full report as JSON
+
+Exit codes: 0 success, 2 usage error, 3 input or file error.
+Related: xlvane read, xlvane validate

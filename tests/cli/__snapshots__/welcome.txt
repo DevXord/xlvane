@@ -1,0 +1,12 @@
+xlvane 0.0.0-test — read, write and inspect Excel files
+
+Common tasks:
+  xlvane inspect report.xlsx                See sheets, columns and problems
+  xlvane read report.xlsx --sheet Sales     Print a sheet as a table
+  xlvane convert report.xlsx out.csv        Convert to CSV or JSON
+  xlvane create data.json new-report.xlsx   Build a formatted report
+  xlvane diff old.xlsx new.xlsx             Show what changed
+
+Commands: inspect, read, convert, create, edit, diff, validate, migrate
+More:  xlvane help <command>   ·   Docs: https://github.com/DevXord/xlvane
+For AI agents and scripts: add --json to any command (node_modules/xlvane/docs/cli-json.md)

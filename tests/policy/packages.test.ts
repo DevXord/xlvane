@@ -1,6 +1,6 @@
 // Repository policy from CLAUDE.md, checked on package manifests and sources.
 import { readdir, readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 
@@ -24,21 +24,27 @@ interface Manifest {
 const ALLOWED_RUNTIME_DEPENDENCIES: Record<string, readonly string[]> = {
   xlvane: ['fflate'],
   '@xlvane/exceljs': ['xlvane'],
-  '@xlvane/mcp': ['xlvane', '@modelcontextprotocol/sdk'],
 };
 
-/** Development dependencies approved by the maintainer (docs/decisions.md, D-005). */
+/** Development dependencies approved by the maintainer (docs/decisions.md, D-005, D-301, D-706, D-906). */
 const APPROVED_DEV_DEPENDENCIES = [
   '@arethetypeswrong/cli',
+  'arktype',
+  'deno',
   'fast-check',
+  'playwright',
   'publint',
+  'skills',
   'tsdown',
   'typescript',
+  'valibot',
   'vite',
   'vitest',
+  'workerd',
+  'zod',
 ];
 
-const PACKAGE_DIRS = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];
+const PACKAGE_DIRS = ['packages/xlvane', 'packages/exceljs'];
 
 async function readManifest(dir: string): Promise<Manifest> {
   return JSON.parse(await readFile(join(root, dir, 'package.json'), 'utf8')) as Manifest;
@@ -83,11 +89,17 @@ describe('package manifests', () => {
     expect(Object.keys(manifest.dependencies ?? {})).toEqual(['fflate']);
   });
 
-  it.each(PACKAGE_DIRS)('%s is ESM-only, MIT-licensed and ships only dist', async (dir) => {
+  /** Files in the tarball: dist, and for xlvane the docs, the Agent Skill and llms-full.txt (D-707). */
+  const FILES: Record<string, readonly string[]> = {
+    'packages/xlvane': ['dist', 'docs', 'skills', 'llms-full.txt'],
+    'packages/exceljs': ['dist'],
+  };
+
+  it.each(PACKAGE_DIRS)('%s is ESM-only, MIT-licensed and ships only its listed files', async (dir) => {
     const manifest = await readManifest(dir);
     expect(manifest.type).toBe('module');
     expect(manifest.license).toBe('MIT');
-    expect(manifest.files).toEqual(['dist']);
+    expect(manifest.files).toEqual(FILES[dir]);
     expect(conditionNames(manifest.exports)).not.toContain('require');
     expect(conditionNames(manifest.exports)).not.toContain('node-addons');
     const license = await readFile(join(root, dir, 'LICENSE'), 'utf8');
@@ -113,11 +125,16 @@ describe('core sources', () => {
     'process', 'stream', 'url', 'util', 'worker_threads', 'zlib',
   ];
 
-  it('do not import Node.js built-ins outside src/node.ts', async () => {
+  // Node.js-only modules: the xlvane/node entry, its file helpers and the CLI (D-601). The core
+  // entry (src/index.ts) must not reach them, so it keeps running in browsers, Deno and Workers.
+  const isNodeOnly = (srcDir: string, file: string): boolean =>
+    file === join(srcDir, 'node.ts') || file === join(srcDir, 'util', 'node-files.ts') || file.startsWith(join(srcDir, 'cli') + sep);
+
+  it('do not import Node.js built-ins outside the Node.js-only modules', async () => {
     const srcDir = join(root, 'packages/xlvane/src');
     const offenders: string[] = [];
     for (const file of await listTsFiles(srcDir)) {
-      if (file === join(srcDir, 'node.ts')) continue;
+      if (isNodeOnly(srcDir, file)) continue;
       const text = await readFile(file, 'utf8');
       for (const match of text.matchAll(/(?:from|import)\s*\(?\s*['"]([^'"]+)['"]/g)) {
         const specifier = match[1] ?? '';
@@ -128,5 +145,24 @@ describe('core sources', () => {
       if (/\bprocess\.|\bBuffer\b|\brequire\(/.test(text)) offenders.push(`${file}: Node global`);
     }
     expect(offenders).toEqual([]);
+  });
+
+  it('src/index.ts does not reach the Node.js-only modules', async () => {
+    const srcDir = join(root, 'packages/xlvane/src');
+    const seen = new Set<string>();
+    const reached: string[] = [];
+    const visit = async (file: string): Promise<void> => {
+      if (seen.has(file)) return;
+      seen.add(file);
+      if (isNodeOnly(srcDir, file)) reached.push(file);
+      const text = await readFile(file, 'utf8');
+      for (const match of text.matchAll(/(?:from|import)\s*\(?\s*['"](\.[^'"]+)['"]/g)) {
+        const target = join(dirname(file), match[1]!);
+        await visit(target.endsWith('.ts') ? target : `${target}.ts`);
+      }
+    };
+    await visit(join(srcDir, 'index.ts'));
+    expect(seen.size).toBeGreaterThan(10);
+    expect(reached).toEqual([]);
   });
 });

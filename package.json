@@ -2,12 +2,11 @@
   "name": "xlvane-monorepo",
   "private": true,
   "type": "module",
-  "description": "Monorepo for xlvane, @xlvane/exceljs and @xlvane/mcp.",
+  "description": "Monorepo for xlvane and @xlvane/exceljs.",
   "license": "MIT",
   "workspaces": [
     "packages/xlvane",
-    "packages/exceljs",
-    "packages/mcp"
+    "packages/exceljs"
   ],
   "engines": {
     "node": "^22.18.0 || ^24.11.0 || >=26.0.0"
@@ -15,17 +14,26 @@
   "scripts": {
     "test": "vitest run",
     "fuzz": "vitest run --config vitest.fuzz.config.ts",
+    "test:runtimes": "node scripts/run-runtimes.mjs",
     "build": "npm run build --workspaces",
-    "typecheck": "tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json && tsc -p packages/mcp/tsconfig.json",
-    "check:pkg": "node scripts/check-pkg.mjs"
+    "typecheck": "npm run build --silent && tsc -p tsconfig.json && tsc -p packages/xlvane/tsconfig.json && tsc -p packages/exceljs/tsconfig.json",
+    "check:pkg": "node scripts/check-pkg.mjs",
+    "bench": "npm run build && npm ci --prefix bench && node bench/perf/run.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.5",
+    "arktype": "2.2.9",
+    "deno": "2.9.6",
     "fast-check": "4.10.2",
+    "playwright": "1.63.0",
     "publint": "0.3.25",
+    "skills": "1.7.4",
     "tsdown": "0.23.4",
     "typescript": "7.0.2",
+    "valibot": "1.5.0",
     "vite": "8.3.5",
-    "vitest": "5.0.5"
+    "vitest": "5.0.5",
+    "workerd": "1.20260730.1",
+    "zod": "4.6.7"
   }
 }

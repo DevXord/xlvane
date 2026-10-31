@@ -6,6 +6,16 @@ import { suggest } from './util/suggest';
  * malicious or broken input (zip bombs, deeply nested XML, huge sheets). Exceeding a limit
  * throws `XLV_E_LIMIT_EXCEEDED`; the error's `details.limit` names the limit.
  * Any limit can be set to `Infinity` to switch it off.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type ReadLimits } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const limits: Partial<ReadLimits> = { maxCells: 50_000_000, maxInputBytes: Infinity };
+ * const workbook = readWorkbook(bytes, { limits });
+ * console.log(workbook.sheets.length);
+ * ```
  */
 export interface ReadLimits {
   /** Maximum size of the input file in bytes. Default 256 MiB. */
@@ -32,6 +42,13 @@ export interface ReadLimits {
   readonly maxXmlTreeElements: number;
   /** Maximum number of cells in the workbook. Default 5 000 000 (about 0.9 GB of memory; see the README). */
   readonly maxCells: number;
+  /**
+   * Maximum total length, in UTF-16 code units, of the shared strings that cells refer to, each
+   * reference counted again. Protects against a small file that points thousands of cells at
+   * one huge shared string (a few MB that become many GB once values are copied, e.g. to CSV).
+   * Default 512 Mi.
+   */
+  readonly maxSharedStringChars: number;
 }
 
 const MiB = 1024 * 1024;
@@ -58,6 +75,7 @@ export const DEFAULT_READ_LIMITS: Readonly<ReadLimits> = Object.freeze({
   maxXmlTextLength: 8 * MiB,
   maxXmlTreeElements: 1_000_000,
   maxCells: 5_000_000,
+  maxSharedStringChars: 512 * MiB,
 });
 
 const LIMIT_NAMES = Object.keys(DEFAULT_READ_LIMITS) as (keyof ReadLimits)[];

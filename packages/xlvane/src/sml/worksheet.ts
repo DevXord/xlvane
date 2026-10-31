@@ -3,14 +3,19 @@
 // §18.3.1.35 dimension; docs/facts/ecma-376.md E-20 … E-39).
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
-import type { Cell, CellType, CellValue, Conformance, DateSystem, Formula, FormulaKind } from '../model';
+import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo, SheetLayout, SheetProperties, SheetView, SplitPanes } from '../model';
+import type { Color } from '../style';
+import { createPrintCollector, type ReadPrintData } from '../printing';
+import { createRuleCollector, type ConditionalFormat, type DataValidation } from '../sheet-rules';
 import type { WarningCollector } from '../util/warnings';
-import { parseXml } from '../xml/parser';
-import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange } from './cell-ref';
+import { parseXml, type XmlHandler } from '../xml/parser';
+import type { XmlElement } from '../xml/tree';
+import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './cell-ref';
+import { compileFormula, type CompiledFormula } from './formula-shift';
 import { parseIsoDateTime, serialToDate } from './dates';
-import { SML_NS } from './namespaces';
+import { REL_NS, SML_NS } from './namespaces';
 import { BUILTIN_NUMBER_FORMATS, isDateFormat, isDateFormatId } from './numfmt';
-import type { Styles } from './styles';
+import { parseColor, parseDxfElement, parseRunFont, type Styles } from './styles';
 import { parseXsdBoolean } from './workbook';
 import { decodeXstring } from './xstring';
 
@@ -21,11 +26,16 @@ export interface WorksheetContext {
   readonly limits: ReadLimits;
   readonly warnings: WarningCollector;
   readonly sharedStrings: readonly string[];
+  /** Runs of the shared strings that are rich text, by index. */
+  readonly richStrings: ReadonlyMap<number, readonly RichTextRun[]>;
   readonly styles: Styles;
   readonly dateSystem: DateSystem;
   readonly conformance: Conformance;
-  /** Number of cells still allowed by `maxCells`, shared by all sheets of a workbook. */
-  readonly budget: { remaining: number };
+  /**
+   * Number of cells still allowed by `maxCells`, and shared-string characters still allowed by
+   * `maxSharedStringChars`; shared by all sheets of a workbook.
+   */
+  readonly budget: { remaining: number; sharedText: number };
   /** Number formats already classified, by number format id; shared by all sheets. */
   readonly formatCache: Map<number, NumberFormat>;
 }
@@ -49,7 +59,59 @@ export interface WorksheetData {
   readonly dimension: string | null;
   readonly merges: string[];
   readonly cellCount: number;
+  /**
+   * Cells with a style but no value and no formula (D-E05), kept apart from `rows` so that
+   * every reader of values sees the same cells as before. Stored compactly (D-E06): row number →
+   * flat list `[column, styleIndex, column, styleIndex, …]`; `styledCell` builds a Cell from one
+   * entry when it is asked for.
+   */
+  readonly styleOnly: Map<number, number[]>;
+  /** Builds the Cell of a style-only entry. */
+  readonly styledCell: (row: number, col: number, styleIndex: number) => Cell;
+  /** `col` elements in file order (W2-03). */
+  readonly columns: ColumnInfo[];
+  /** Rows with a height or hidden flag (W2-04). */
+  readonly rowInfo: Map<number, RowInfo>;
+  /** Frozen panes of the first sheet view (W2-05). */
+  readonly freeze: FrozenPanes | null;
+  /** `autoFilter@ref` (W2-06). */
+  readonly autoFilter: string | null;
+  /** `sheetPr/tabColor` (W2-50). */
+  readonly tabColor: Color | null;
+  /** Settings of the first sheet view (W2-51). */
+  readonly view: SheetView;
+  /** `sheetFormatPr` and `sheetPr/outlinePr` (W2-65). */
+  readonly properties: SheetProperties;
+  /** `hyperlink` elements in file order, before their relationships are resolved (W2-42). */
+  readonly hyperlinks: RawHyperlink[];
+  /** Protection, page setup, headers and footers, page breaks (SR-20 … SR-28). */
+  readonly print: ReadPrintData;
+  /** `conditionalFormatting` elements in file order (SR-07 … SR-16). */
+  readonly conditionalFormats: ConditionalFormat[];
+  /** `dataValidations/dataValidation` in file order (SR-01 … SR-06). */
+  readonly dataValidations: DataValidation[];
+  /** `r:id` of the `drawing` and `picture` elements (TD-30), resolved by the caller. */
+  readonly drawingRelId?: string | null;
+  readonly pictureRelId?: string | null;
 }
+
+/** The view of a sheet without a `sheetView`, from the defaults of CT_SheetView (W2-51). */
+export const DEFAULT_SHEET_VIEW: SheetView = Object.freeze({ zoom: 100, showGridLines: true, showRowColHeaders: true, rightToLeft: false, layout: 'normal', split: null, topLeftCell: null, activeCell: null, zoomScaleNormal: 0, showRuler: true });
+
+/** Sheet properties without `sheetFormatPr`/`outlinePr`: the CT_SheetFormatPr and CT_OutlinePr defaults, row height 15 (W2-09, W2-65). */
+export const DEFAULT_SHEET_PROPERTIES: SheetProperties = Object.freeze({ defaultRowHeight: 15, outlineLevelRow: 0, outlineLevelCol: 0, summaryBelow: true, summaryRight: true });
+
+/** A `hyperlink` element as read: `relId` is its `r:id`, resolved by the caller. */
+export interface RawHyperlink {
+  readonly ref: string;
+  readonly relId: string | null;
+  readonly location: string | null;
+  readonly tooltip: string | null;
+  readonly display: string | null;
+}
+
+/** Hyperlinks kept per sheet; more are skipped with a warning (implementation limit, D-A08). */
+const MAX_HYPERLINKS = 65_536;
 
 const FORMULA_KINDS: readonly FormulaKind[] = ['normal', 'shared', 'array', 'dataTable'];
 
@@ -61,6 +123,8 @@ interface PendingCell {
   styleIndex: number;
   v: string | null;
   inline: string | null;
+  /** Runs (`r`) of the inline string, if it has any. */
+  inlineRuns: RichTextRun[] | null;
   formulaAttrs: ReadonlyMap<string, string> | null;
   formulaText: string;
 }
@@ -115,31 +179,86 @@ export function parseXsdDouble(text: string): number | null {
 
 /** Parses a worksheet part. */
 export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetData {
+  const { handler, finish } = createWorksheetParser(ctx);
+  parseXml(xml, handler, { part: ctx.part, limits: ctx.limits });
+  return finish();
+}
+
+/**
+ * The worksheet parser as an XML handler, for whole-text and streaming parsing. With `onRow`
+ * (streaming, docs/decisions.md D-402), each row's cells are passed on when its `</row>` is
+ * read and then dropped, so memory does not grow with the sheet; rows come in file order, and
+ * shared formulas whose master comes later in the file cannot be expanded.
+ */
+/** The cells of one row's style-only list (`[col, styleIndex, …]`), in column order. */
+export function styledCellsOf(row: number, list: readonly number[], make: (row: number, col: number, styleIndex: number) => Cell): Cell[] {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i + 1 < list.length; i += 2) pairs.push([list[i]!, list[i + 1]!]);
+  pairs.sort((a, b) => a[0] - b[0]);
+  return pairs.map(([col, styleIndex]) => make(row, col, styleIndex));
+}
+
+export function createWorksheetParser(
+  ctx: WorksheetContext,
+  onRow?: (row: number, cells: readonly Cell[], info: RowInfo | undefined, styleOnly: readonly Cell[]) => void,
+): { handler: XmlHandler; finish(): WorksheetData } {
   const rows = new Map<number, Map<number, Cell>>();
+  // Style-only cells (D-E05, D-E06): row → [col, styleIndex, …], and the largest column per row,
+  // so that the usual ascending order needs no search.
+  const styleOnly = new Map<number, number[]>();
+  const styleOnlyMax = new Map<number, number>();
   const merges: string[] = [];
   const formats = ctx.formatCache;
   const path: string[] = [];
   let ns: string | null = null;
   let dimension: string | null = null;
   let cellCount = 0;
+  const masters = new Map<number, SharedMaster>();
+  const dependents: SharedDependent[] = [];
+  const columns: ColumnInfo[] = [];
+  const rowInfo = new Map<number, RowInfo>();
+  let freeze: FrozenPanes | null = null;
+  let autoFilter: string | null = null;
+  let tabColor: Color | null = null;
+  let view: SheetView = DEFAULT_SHEET_VIEW;
+  let properties: SheetProperties = DEFAULT_SHEET_PROPERTIES;
+  // Active cells of the selections of the first view, by pane, and the pane that is active.
+  const selections = new Map<string, string>();
+  let activePane = 'topLeft';
+  const hyperlinks: RawHyperlink[] = [];
+  let drawingRelId: string | null = null;
+  let pictureRelId: string | null = null;
+  const print = createPrintCollector((message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+  const rules = createRuleCollector({
+    ns: () => ns ?? SML_NS.transitional,
+    maxElements: ctx.limits.maxXmlTreeElements,
+    dxf: (index) => ctx.styles.dxf(index),
+    readDxf: (el) => parseDxfElement(el, ns ?? SML_NS.transitional, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())),
+    readColor: (el) => parseColor(el, 'conditional format', (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())),
+    warn: (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()),
+    tooLarge: () =>
+      new XlvError('XLV_E_LIMIT_EXCEEDED', 'The conditional formatting and data validations of the sheet have more elements and attributes than the limit.', {
+        location: { part: ctx.part, sheet: ctx.sheet },
+        hint: `If you trust this file, raise the limit, for example { limits: { maxXmlTreeElements: ${String(ctx.limits.maxXmlTreeElements * 4)} } }.`,
+        details: { limit: 'maxXmlTreeElements', value: ctx.limits.maxXmlTreeElements },
+      }),
+  });
+  const relIdKey = `{${REL_NS[ctx.conformance]}}id`;
+  let sheetViews = 0;
   let currentRow = 0;
   let lastCol = 0;
+  /** The current row has an invalid number; its cells are skipped (D-903). */
+  let skipRow = false;
   let cell: PendingCell | null = null;
   /** Where character data currently goes. */
   let target: 'v' | 'f' | 'is' | null = null;
   let phoneticDepth = 0;
   /** Raw text of the inline-string `t` element being read. */
   let inlineText = '';
+  /** The inline rich text run being read: its text, font and run properties (rPr children). */
+  let inlineRun: { text: string; font: RichTextRun['font']; properties: XmlElement[] | null } | null = null;
 
   const loc = (ref?: string) => (ref === undefined ? { part: ctx.part, sheet: ctx.sheet } : { part: ctx.part, sheet: ctx.sheet, cell: ref });
-
-  function invalidRef(text: string, what: string): never {
-    throw new XlvError('XLV_E_INVALID_CELL_REF', `${what} "${text}" is not a valid reference inside the sheet grid.`, {
-      location: { part: ctx.part, sheet: ctx.sheet },
-      hint: `References must lie between A1 and ${formatCellRef(MAX_ROWS, MAX_COLUMNS)}. The file is damaged or was written by a faulty program; re-save it in a spreadsheet application.`,
-      details: { ref: text },
-    });
-  }
 
   // Keyed by number format id and shared by all sheets, so each format code is classified
   // once per workbook however many style indexes or sheets refer to it.
@@ -164,12 +283,27 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
     return format;
   };
 
+  /** Position of `col` in the style-only list of `row`, or -1; searched only below the largest column seen. */
+  const styledIndex = (row: number, col: number): number => {
+    const max = styleOnlyMax.get(row);
+    if (max === undefined || col > max) return -1;
+    const list = styleOnly.get(row);
+    if (list === undefined) return -1;
+    for (let i = list.length - 2; i >= 0; i -= 2) if (list[i] === col) return i;
+    return -1;
+  };
+  const styledCell = (row: number, col: number, styleIndex: number): Cell => {
+    const code = numberFormat(styleIndex).code;
+    return { ref: formatCellRef(row, col), row, col, type: 'empty', value: null, formula: null, styleIndex, numFmt: code, style: ctx.styles.cellStyle(styleIndex, code) };
+  };
+
   const finishCell = (p: PendingCell): void => {
     const warn = (message: string): void => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc(p.ref));
     const format = numberFormat(p.styleIndex);
     let type: CellType = 'empty';
     let value: CellValue = null;
     const raw = p.v;
+    let richText: readonly RichTextRun[] | undefined;
     switch (p.t) {
       case 'n': {
         if (raw === null) break;
@@ -200,8 +334,17 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
         const text = index === null ? undefined : ctx.sharedStrings[index];
         if (text === undefined) warn(`Shared string index "${raw.slice(0, 40)}" does not exist; the cell is treated as empty.`);
         else {
+          ctx.budget.sharedText -= text.length;
+          if (ctx.budget.sharedText < 0) {
+            throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The cells refer to more shared-string text than the limit allows.', {
+              location: loc(p.ref),
+              hint: `Small files can repeat one huge shared string in many cells. If you trust this file, raise the limit, for example { limits: { maxSharedStringChars: ${String(ctx.limits.maxSharedStringChars * 4)} } }.`,
+              details: { limit: 'maxSharedStringChars', value: ctx.limits.maxSharedStringChars },
+            });
+          }
           type = 'string';
           value = text;
+          richText = index === null ? undefined : ctx.richStrings.get(index);
         }
         break;
       }
@@ -256,6 +399,7 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
     if (value === null && p.inline !== null) {
       type = 'string';
       value = p.inline;
+      if (p.inlineRuns !== null) richText = Object.freeze(p.inlineRuns.map((r) => Object.freeze(r)));
     }
 
     let formula: Formula | null = null;
@@ -264,18 +408,24 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       let kind = FORMULA_KINDS.find((k) => k === rawKind) ?? 'normal';
       const si = p.formulaAttrs.get('si');
       const sharedIndex = si === undefined ? null : parseUint(si, 10);
-      const ref = p.formulaAttrs.get('ref') ?? null;
+      // exceljs writes `$` in the ref of a fillFormula over an absolute range ("$A$1:$A$3"); the
+      // marks carry no meaning in a ref (ST_Ref, A1 references), so they are dropped (D-E06).
+      const rawRef = p.formulaAttrs.get('ref');
+      const ref = rawRef === undefined ? null : rawRef.replace(/\$/g, '');
       // A formula is shared only when both t="shared" and si are present (E-28).
       if (kind === 'shared' && sharedIndex === null) kind = 'normal';
-      let text: string | null = p.formulaText;
-      if (kind === 'shared' && ref === null) {
-        // A dependent cell of a shared formula: its own text, if any, is ignored (E-28).
-        text = null;
-        ctx.warnings.add(
-          'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
-          'Cells that reuse a shared formula are returned without formula text (formula.text is null); their cached values are available.',
-          loc(p.ref),
-        );
+      // ST_Formula is an ST_Xstring (W2-02), so _xHHHH_ escapes are decoded.
+      let text: string | null = decodeXstring(p.formulaText);
+      if (kind === 'shared' && sharedIndex !== null) {
+        if (ref === null) {
+          // A dependent cell of a shared formula: its own text, if any, is ignored (E-28). The
+          // text is derived from the master after the whole sheet is read (masters may come later).
+          text = null;
+          dependents.push({ row: p.row, col: p.col, ref: p.ref, si: sharedIndex });
+        } else if (!masters.has(sharedIndex)) {
+          // The first formula of a group is the master (E-28); later ones with ref are ignored.
+          masters.set(sharedIndex, { row: p.row, col: p.col, text, range: parseRange(ref) });
+        }
       }
       formula = { kind, text, ref, sharedIndex: kind === 'shared' ? sharedIndex : null };
       if (p.v === null && p.inline === null) {
@@ -286,7 +436,47 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
         );
       }
     }
-    if (value === null && formula === null) return;
+    if (value === null && formula === null) {
+      // A cell with only a style keeps its style (D-E05); a cell without one is nothing.
+      if (p.styleIndex === 0) return;
+      // The last definition of a cell is used (D-E06): a style-only cell after a cell with a value
+      // replaces it.
+      const valued = rows.get(p.row);
+      if (valued?.has(p.col) === true) {
+        valued.delete(p.col);
+        cellCount--;
+        ctx.budget.remaining++;
+        ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
+      }
+      let styled = styleOnly.get(p.row);
+      if (styled === undefined) {
+        styled = [];
+        styleOnly.set(p.row, styled);
+      }
+      const at = styledIndex(p.row, p.col);
+      if (at >= 0) {
+        styled[at + 1] = p.styleIndex;
+        ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
+        return;
+      }
+      if (--ctx.budget.remaining < 0) {
+        throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The workbook has more cells than the limit.', {
+          location: loc(p.ref),
+          hint: `Cells that hold only a style count too. If you trust this file, raise the limit, for example { limits: { maxCells: ${String(ctx.limits.maxCells * 4)} } }.`,
+          details: { limit: 'maxCells', value: ctx.limits.maxCells },
+        });
+      }
+      styled.push(p.col, p.styleIndex);
+      if (p.col > (styleOnlyMax.get(p.row) ?? 0)) styleOnlyMax.set(p.row, p.col);
+      return;
+    }
+    // A later definition with a value replaces a style-only one (the last definition is used).
+    const at = styledIndex(p.row, p.col);
+    if (at >= 0) {
+      styleOnly.get(p.row)?.splice(at, 2);
+      ctx.budget.remaining++;
+      ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
+    }
 
     let rowCells = rows.get(p.row);
     if (rowCells === undefined) {
@@ -305,12 +495,49 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       }
       cellCount++;
     }
-    rowCells.set(p.col, { ref: p.ref, row: p.row, col: p.col, type, value, formula, styleIndex: p.styleIndex, numFmt: format.code });
+    rowCells.set(p.col, {
+      ref: p.ref,
+      row: p.row,
+      col: p.col,
+      type,
+      value,
+      formula,
+      styleIndex: p.styleIndex,
+      numFmt: format.code,
+      style: ctx.styles.cellStyle(p.styleIndex, format.code),
+      ...(richText === undefined ? {} : { richText }),
+    });
   };
 
-  parseXml(
-    xml,
-    {
+  const warnNotExpanded = (ref: string): void =>
+    ctx.warnings.add(
+      'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
+      'Some cells reuse a shared formula that could not be moved to them (missing master, cell outside the master range, or formula text xlvane cannot translate safely); their formula.text is null and their cached values are available.',
+      loc(ref),
+    );
+  /** Streaming: expands the pending shared formulas and hands the buffered cells on. */
+  const flushRows = (): void => {
+    if (!onRow) return;
+    // Row heights are handed on with the row instead of being collected (constant memory).
+    const info = rowInfo.get(currentRow);
+    rowInfo.delete(currentRow);
+    if (rows.size === 0 && styleOnly.size === 0) return;
+    expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    dependents.length = 0;
+    const out: Cell[] = [];
+    for (const r of [...rows.keys()].sort((a, b) => a - b)) {
+      const cells = rows.get(r);
+      if (cells) for (const c of [...cells.keys()].sort((a, b) => a - b)) out.push(cells.get(c) as Cell);
+    }
+    rows.clear();
+    const styled: Cell[] = [];
+    for (const r of [...styleOnly.keys()].sort((a, b) => a - b)) styled.push(...styledCellsOf(r, styleOnly.get(r) ?? [], styledCell));
+    styleOnly.clear();
+    styleOnlyMax.clear();
+    if (out.length > 0 || styled.length > 0) onRow(currentRow, out, info, styled);
+  };
+
+  const handler: XmlHandler = {
       start(elementNs, local, attrs) {
         if (ns === null) {
           if (local !== 'worksheet' || (elementNs !== SML_NS.strict && elementNs !== SML_NS.transitional)) {
@@ -324,8 +551,11 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
         }
         const parent = path[path.length - 1];
         path.push(elementNs === ns ? local : '');
-        if (elementNs !== ns) return;
         const depth = path.length;
+        // Conditional formats and validations, including their [MS-XLSX] extensions in extLst,
+        // whose elements are in other namespaces (SR-40).
+        if (cell === null && rules.start(elementNs, local, depth, attrs)) return;
+        if (elementNs !== ns) return;
         if (cell !== null) {
           if (phoneticDepth > 0 || local === 'rPh') {
             phoneticDepth++;
@@ -336,9 +566,16 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
             target = 'f';
             cell.formulaAttrs = attrs;
           } else if (depth === 5 && local === 'is') cell.inline ??= '';
+          else if (depth === 6 && local === 'r' && parent === 'is') {
+            // A leading t of the string is a run without properties.
+            cell.inlineRuns ??= cell.inline === null || cell.inline === '' ? [] : [{ text: cell.inline }];
+            inlineRun = { text: '', font: undefined, properties: null };
+          } else if (depth === 7 && local === 'rPr' && inlineRun !== null) inlineRun.properties = [];
+          else if (depth === 8 && parent === 'rPr' && inlineRun?.properties) inlineRun.properties.push({ ns: elementNs, local, attrs, children: [], text: '' });
           else if (local === 't' && cell.inline !== null && (parent === 'is' || parent === 'r')) target = 'is';
           return;
         }
+        if (print.start(depth, local, parent, attrs)) return;
         if (depth === 2 && local === 'dimension') {
           const ref = attrs.get('ref') ?? '';
           const range = parseRange(ref);
@@ -349,28 +586,101 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
           const range = parseRange(ref);
           if (range === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The merged range "${ref.slice(0, 40)}" is not a valid range.`, loc());
           else merges.push(formatRange(range));
+        } else if (depth === 3 && local === 'hyperlink' && parent === 'hyperlinks') {
+          const ref = attrs.get('ref') ?? '';
+          const range = parseRange(ref);
+          const text = (name: string): string | null => {
+            const v = attrs.get(name);
+            return v === undefined ? null : decodeXstring(v);
+          };
+          if (range === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The hyperlink range "${ref.slice(0, 40)}" is not a valid range; the link is skipped.`, loc());
+          else if (hyperlinks.length >= MAX_HYPERLINKS) ctx.warnings.add('XLV_W_INVALID_VALUE', `The sheet has more than ${String(MAX_HYPERLINKS)} hyperlinks; the rest are skipped.`, loc());
+          else hyperlinks.push({ ref: formatRange(range), relId: attrs.get(relIdKey) ?? null, location: text('location'), tooltip: text('tooltip'), display: text('display') });
+        } else if (depth === 2 && (local === 'drawing' || local === 'picture')) {
+          if (local === 'drawing') drawingRelId ??= attrs.get(relIdKey) ?? null;
+          else pictureRelId ??= attrs.get(relIdKey) ?? null;
+        } else if (depth === 2 && local === 'autoFilter') {
+          const ref = attrs.get('ref');
+          const range = ref === undefined ? null : parseRange(ref);
+          if (range === null) {
+            if (ref !== undefined) ctx.warnings.add('XLV_W_INVALID_VALUE', `The autofilter range "${ref.slice(0, 40)}" is not a valid range.`, loc());
+          } else autoFilter = formatRange(range);
+        } else if (depth === 3 && local === 'sheetView' && parent === 'sheetViews') {
+          sheetViews++;
+          if (sheetViews === 1) view = parseSheetView(attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+        } else if (depth === 4 && local === 'pane' && parent === 'sheetView' && sheetViews === 1) {
+          const warn = (message: string): void => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc());
+          // ST_Pane; the schema default of pane@activePane is topLeft (CT_Pane, sml.xsd; W2-51).
+          activePane = attrs.get('activePane') ?? 'topLeft';
+          freeze = parsePane(attrs, warn);
+          const split = parseSplit(attrs, warn);
+          if (split !== null) view = Object.freeze({ ...view, split });
+        } else if (depth === 4 && local === 'selection' && parent === 'sheetView' && sheetViews === 1) {
+          // Each pane may have its own selection; the view's active cell is the one of the active
+          // pane, as exceljs reads it (sheet-view-xform.js L129–186; CT_Selection; W2-51, D-E06).
+          const cell = parseCellRef((attrs.get('activeCell') ?? '').trim());
+          if (cell !== null) selections.set(attrs.get('pane') ?? 'topLeft', formatCellRef(cell.row, cell.col));
+        } else if (depth === 2 && local === 'sheetFormatPr') {
+          properties = parseSheetFormat(attrs, properties, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+        } else if (depth === 3 && local === 'outlinePr' && parent === 'sheetPr') {
+          const flag = (name: string): boolean => {
+            const raw = attrs.get(name);
+            return raw === undefined ? true : parseXsdBoolean(raw) !== false;
+          };
+          properties = Object.freeze({ ...properties, summaryBelow: flag('summaryBelow'), summaryRight: flag('summaryRight') });
+        } else if (depth === 3 && local === 'tabColor' && parent === 'sheetPr') {
+          tabColor = parseColor({ ns: elementNs, local, attrs, children: [], text: '' }, 'sheet tab', (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc())) ?? null;
+        } else if (depth === 3 && local === 'col' && parent === 'cols') {
+          const col = parseColumn(attrs);
+          if (col === null) ctx.warnings.add('XLV_W_INVALID_VALUE', 'A column definition (col) has invalid min, max or width attributes; it is ignored.', loc());
+          else {
+            const s = attrs.get('style');
+            const index = s === undefined ? null : parseUint(s, 10);
+            if (s !== undefined && index === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The column style index "${s.slice(0, 20)}" is not a number; it is ignored.`, loc());
+            columns.push(index === null ? col : { ...col, style: ctx.styles.cellStyle(index, numberFormat(index).code) });
+          }
         } else if (depth === 3 && local === 'row' && parent === 'sheetData') {
           const r = attrs.get('r');
-          if (r === undefined) currentRow++;
-          else {
-            const n = parseUint(r, 7);
-            if (n === null || n < 1 || n > MAX_ROWS) invalidRef(r, 'Row number');
-            currentRow = n;
-          }
-          if (currentRow > MAX_ROWS) invalidRef(String(currentRow), 'Row number');
           lastCol = 0;
+          const n = r === undefined ? currentRow + 1 : parseUint(r, 7);
+          if (n === null || n < 1 || n > MAX_ROWS) {
+            // LibreOffice drops such rows and opens the rest of the file; so do we (D-903).
+            skipRow = true;
+            ctx.warnings.add('XLV_W_INVALID_CELL_REF', 'A row has an invalid row number; the row and its cells are skipped.', loc());
+            return;
+          }
+          skipRow = false;
+          currentRow = n;
+          const ht = attrs.get('ht');
+          const height = ht === undefined ? null : parseXsdDouble(ht);
+          const hiddenRaw = attrs.get('hidden');
+          const hidden = hiddenRaw === undefined ? false : parseXsdBoolean(hiddenRaw) === true;
+          if (ht !== undefined && (height === null || height < 0)) {
+            ctx.warnings.add('XLV_W_INVALID_VALUE', `The row height "${ht.slice(0, 20)}" is not a valid number; it is ignored.`, loc());
+          }
+          const validHeight = height !== null && height >= 0 ? height : null;
+          const outline = parseOutline(attrs);
+          if (validHeight !== null || hidden || outline.outlineLevel !== undefined || outline.collapsed !== undefined) rowInfo.set(currentRow, { height: validHeight, hidden, ...outline });
         } else if (depth === 4 && local === 'c' && parent === 'row' && path[1] === 'sheetData') {
+          if (skipRow) return;
           const r = attrs.get('r');
           let row = currentRow;
           let col: number;
-          if (r === undefined) {
+          // An empty r is read like a missing one, as LibreOffice does.
+          if (r === undefined || r === '') {
             col = lastCol + 1;
-            if (col > MAX_COLUMNS || row < 1) invalidRef(formatCellRefSafe(row, col), 'Cell');
           } else {
             const address = parseCellRef(r);
-            if (address === null) return invalidRef(r, 'Cell');
+            if (address === null) {
+              ctx.warnings.add('XLV_W_INVALID_CELL_REF', `The cell reference "${r.slice(0, 20)}" is not valid inside the sheet grid; the cell is skipped.`, loc());
+              return;
+            }
             row = address.row;
             col = address.col;
+          }
+          if (col > MAX_COLUMNS || row < 1) {
+            ctx.warnings.add('XLV_W_INVALID_CELL_REF', 'A cell without a reference lies past the last column; the cell is skipped.', loc());
+            return;
           }
           lastCol = col;
           const s = attrs.get('s');
@@ -388,6 +698,7 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
             styleIndex,
             v: null,
             inline: null,
+            inlineRuns: null,
             formulaAttrs: null,
             formulaText: '',
           };
@@ -395,6 +706,9 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
       },
       end(elementNs, local) {
         path.pop();
+        if (cell === null && rules.end(elementNs, local)) return;
+        if (elementNs === ns) print.end(local);
+        if (onRow && local === 'row' && elementNs === ns && path.length === 2) flushRows();
         if (elementNs !== ns || cell === null) return;
         if (phoneticDepth > 0) {
           phoneticDepth--;
@@ -407,25 +721,247 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
           finishCell(done);
         } else if (local === 't' && target === 'is') {
           // Each `t` is decoded as a whole: an _xHHHH_ escape cannot span two text events.
-          cell.inline = (cell.inline ?? '') + decodeXstring(inlineText);
+          const text = decodeXstring(inlineText);
+          cell.inline = (cell.inline ?? '') + text;
+          if (inlineRun !== null) inlineRun.text += text;
+          else cell.inlineRuns?.push({ text });
           inlineText = '';
           target = null;
+        } else if (local === 'rPr' && path.length === 6 && inlineRun?.properties) {
+          const done = cell;
+          const font = parseRunFont({ ns: elementNs, local, attrs: new Map(), children: inlineRun.properties, text: '' }, elementNs, (message) =>
+            ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc(done.ref)),
+          );
+          if (Object.keys(font).length > 0) inlineRun.font = font;
+          inlineRun.properties = null;
+        } else if (local === 'r' && path.length === 5 && inlineRun !== null) {
+          cell.inlineRuns?.push(inlineRun.font === undefined ? Object.freeze({ text: inlineRun.text }) : Object.freeze({ text: inlineRun.text, font: inlineRun.font }));
+          inlineRun = null;
         } else if ((local === 'v' || local === 'f') && path.length === 4) {
           target = null;
         }
       },
       text(value) {
+        if (rules.text(value)) return;
+        if (print.text(value)) return;
         if (cell === null || target === null) return;
         if (target === 'v') cell.v = (cell.v ?? '') + value;
         else if (target === 'f') cell.formulaText += value;
         else inlineText += value;
       },
-    },
-    { part: ctx.part, limits: ctx.limits },
-  );
-  return { rows, dimension, merges, cellCount };
+    };
+  const finish = (): WorksheetData => {
+    if (onRow) flushRows();
+    else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    const activeCell = selections.get(activePane);
+    if (activeCell !== undefined) view = Object.freeze({ ...view, activeCell });
+    return { rows, styleOnly, styledCell, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
+  };
+  return { handler, finish };
 }
 
-function formatCellRefSafe(row: number, col: number): string {
-  return row >= 1 && row <= MAX_ROWS && col >= 1 && col <= MAX_COLUMNS ? formatCellRef(row, col) : `R${row}C${col}`;
+/** The master cell of a shared formula group (E-28). */
+interface SharedMaster {
+  readonly row: number;
+  readonly col: number;
+  readonly text: string;
+  readonly range: CellRange | null;
 }
+
+/** A cell that reuses a shared formula. */
+interface SharedDependent {
+  readonly row: number;
+  readonly col: number;
+  readonly ref: string;
+  readonly si: number;
+}
+
+/**
+ * Gives every dependent cell of a shared formula the master formula moved to its position
+ * (docs/decisions.md D-107, docs/facts/formulas.md). Each master is tokenized once; a dependent
+ * gets a formula whose `text` is rendered on first access, so a long master formula reused by
+ * many cells costs memory only for the texts actually read. Dependents that cannot be expanded
+ * keep `text: null` and are reported through `warn`.
+ */
+function expandSharedFormulas(
+  rows: Map<number, Map<number, Cell>>,
+  masters: ReadonlyMap<number, SharedMaster>,
+  dependents: readonly SharedDependent[],
+  warn: (ref: string) => void,
+): void {
+  const compiled = new Map<number, CompiledFormula | null>();
+  for (const d of dependents) {
+    const rowCells = rows.get(d.row);
+    const cell = rowCells?.get(d.col);
+    // Skip entries replaced by a later definition of the same cell.
+    if (rowCells === undefined || cell === undefined || cell.formula?.kind !== 'shared' || cell.formula.ref !== null || cell.formula.sharedIndex !== d.si) {
+      continue;
+    }
+    const master = masters.get(d.si);
+    const range = master?.range;
+    // Cells outside the master's range are implementation-defined (E-28); they are not expanded.
+    if (master === undefined || range == null || d.row < range.start.row || d.row > range.end.row || d.col < range.start.col || d.col > range.end.col) {
+      warn(d.ref);
+      continue;
+    }
+    let formula = compiled.get(d.si);
+    if (formula === undefined) {
+      formula = compileFormula(master.text);
+      compiled.set(d.si, formula);
+    }
+    const dRow = d.row - master.row;
+    const dCol = d.col - master.col;
+    if (formula === null || !formula.canShift(dRow, dCol)) {
+      warn(d.ref);
+      continue;
+    }
+    rowCells.set(d.col, { ...cell, formula: lazySharedFormula(formula, dRow, dCol, d.si) });
+  }
+}
+
+function lazySharedFormula(compiled: CompiledFormula, dRow: number, dCol: number, si: number): Formula {
+  let text: string | undefined;
+  return {
+    kind: 'shared',
+    get text(): string {
+      text ??= compiled.render(dRow, dCol);
+      return text;
+    },
+    ref: null,
+    sharedIndex: si,
+  };
+}
+
+/** Parses a `col` element (CT_Col, W2-03); `null` if min/max are missing or out of range. */
+function parseColumn(attrs: ReadonlyMap<string, string>): ColumnInfo | null {
+  const min = parseUint(attrs.get('min') ?? '', 5);
+  const max = parseUint(attrs.get('max') ?? '', 5);
+  if (min === null || max === null || min < 1 || max < min || max > MAX_COLUMNS) return null;
+  const rawWidth = attrs.get('width');
+  const width = rawWidth === undefined ? null : parseXsdDouble(rawWidth);
+  if (rawWidth !== undefined && (width === null || width < 0)) return null;
+  const hidden = attrs.get('hidden');
+  return { min, max, width, hidden: hidden !== undefined && parseXsdBoolean(hidden) === true, ...parseOutline(attrs) };
+}
+
+/** `outlineLevel` (1–7 kept; 0 and invalid values omitted) and `collapsed` of a row or column (W2-65). */
+function parseOutline(attrs: ReadonlyMap<string, string>): { outlineLevel?: number; collapsed?: boolean } {
+  const out: { outlineLevel?: number; collapsed?: boolean } = {};
+  const raw = attrs.get('outlineLevel');
+  const level = raw === undefined ? null : parseUint(raw.trim(), 3);
+  if (level !== null && level >= 1 && level <= 7) out.outlineLevel = level;
+  const collapsed = attrs.get('collapsed');
+  if (collapsed !== undefined && parseXsdBoolean(collapsed) === true) out.collapsed = true;
+  return out;
+}
+
+/** Reads `sheetFormatPr` (CT_SheetFormatPr, sml.xsd L2222; W2-65); invalid values give a warning and keep the default. */
+function parseSheetFormat(attrs: ReadonlyMap<string, string>, base: SheetProperties, warn: (message: string) => void): SheetProperties {
+  let defaultRowHeight = base.defaultRowHeight;
+  const raw = attrs.get('defaultRowHeight');
+  if (raw !== undefined) {
+    const h = parseXsdDouble(raw);
+    if (h === null || h < 0) warn(`The default row height "${raw.slice(0, 20)}" is not a valid number; 15 is used.`);
+    else defaultRowHeight = h;
+  }
+  const level = (name: string): number => {
+    const v = attrs.get(name);
+    const n = v === undefined ? 0 : parseUint(v.trim(), 3);
+    return n !== null && n <= 7 ? n : 0;
+  };
+  return Object.freeze({ ...base, defaultRowHeight, outlineLevelRow: level('outlineLevelRow'), outlineLevelCol: level('outlineLevelCol') });
+}
+
+const LAYOUTS: readonly SheetLayout[] = ['normal', 'pageBreakPreview', 'pageLayout'];
+
+/**
+ * Reads the display settings of a `sheetView` (CT_SheetView, W2-51). Absent attributes take the
+ * schema defaults; invalid ones give a warning and the default. `zoomScale` is a percentage from
+ * 10 to 400 (Part 1 §18.3.1.87).
+ */
+function parseSheetView(attrs: ReadonlyMap<string, string>, warn: (message: string) => void): SheetView {
+  const flag = (name: string, fallback: boolean): boolean => {
+    const raw = attrs.get(name);
+    if (raw === undefined) return fallback;
+    const v = parseXsdBoolean(raw);
+    if (v === null) warn(`The sheet view attribute ${name}="${raw.slice(0, 20)}" is not a boolean; the default is used.`);
+    return v ?? fallback;
+  };
+  let zoom = 100;
+  const rawZoom = attrs.get('zoomScale');
+  if (rawZoom !== undefined) {
+    const n = parseUint(rawZoom.trim(), 10);
+    if (n === null || n < 10 || n > 400) warn(`The sheet zoom "${rawZoom.slice(0, 20)}" is not a percentage from 10 to 400; 100 is used.`);
+    else zoom = n;
+  }
+  let zoomScaleNormal = 0;
+  const rawNormal = attrs.get('zoomScaleNormal');
+  if (rawNormal !== undefined) {
+    const n = parseUint(rawNormal.trim(), 10);
+    if (n === null || (n !== 0 && (n < 10 || n > 400))) warn(`The normal-view zoom "${rawNormal.slice(0, 20)}" is not 0 or a percentage from 10 to 400; 0 is used.`);
+    else zoomScaleNormal = n;
+  }
+  const topLeft = parseCellRef((attrs.get('topLeftCell') ?? '').trim());
+  const rawLayout = (attrs.get('view') ?? 'normal').trim();
+  const layout = LAYOUTS.find((l) => l === rawLayout);
+  if (layout === undefined) warn(`The sheet view type "${rawLayout.slice(0, 30)}" is not known; "normal" is used.`);
+  return Object.freeze({
+    zoom,
+    showGridLines: flag('showGridLines', true),
+    showRowColHeaders: flag('showRowColHeaders', true),
+    rightToLeft: flag('rightToLeft', false),
+    layout: layout ?? 'normal',
+    split: null,
+    topLeftCell: topLeft === null ? null : formatCellRef(topLeft.row, topLeft.col),
+    activeCell: null,
+    zoomScaleNormal,
+    showRuler: flag('showRuler', true),
+  });
+}
+
+/**
+ * Reads a split (not frozen) window from a `pane` whose `state` is `split`, the default (CT_Pane,
+ * ST_PaneState): xSplit and ySplit are then positions in 1/20 point, and xSplit is the vertical
+ * split bar ([MS-OI29500] §2.1.640 d; W2-51). Returned in points.
+ */
+function parseSplit(attrs: ReadonlyMap<string, string>, warn: (message: string) => void): SplitPanes | null {
+  if ((attrs.get('state') ?? 'split').trim() !== 'split') return null;
+  const position = (name: string): number | null => {
+    const raw = attrs.get(name);
+    if (raw === undefined) return 0;
+    const n = parseXsdDouble(raw);
+    if (n === null || n < 0) {
+      warn(`The split pane attribute ${name}="${raw.slice(0, 20)}" is not a valid position; the split is ignored.`);
+      return null;
+    }
+    return n / 20;
+  };
+  const x = position('xSplit');
+  const y = position('ySplit');
+  if (x === null || y === null || (x === 0 && y === 0)) return null;
+  return Object.freeze({ x, y });
+}
+
+/**
+ * Reads frozen panes from a `pane` element (CT_Pane, W2-05): only the states `frozen` and
+ * `frozenSplit` freeze rows and columns; xSplit and ySplit then count the frozen columns and rows.
+ */
+function parsePane(attrs: ReadonlyMap<string, string>, warn: (message: string) => void): FrozenPanes | null {
+  const state = attrs.get('state') ?? 'split';
+  if (state !== 'frozen' && state !== 'frozenSplit') return null;
+  const count = (name: string, max: number): number | null => {
+    const raw = attrs.get(name);
+    if (raw === undefined) return 0;
+    const n = parseXsdDouble(raw);
+    if (n === null || !Number.isInteger(n) || n < 0 || n >= max) {
+      warn(`The frozen pane attribute ${name}="${raw.slice(0, 20)}" is not a valid count; the frozen panes are ignored.`);
+      return null;
+    }
+    return n;
+  };
+  const cols = count('xSplit', MAX_COLUMNS);
+  const rows = count('ySplit', MAX_ROWS);
+  if (cols === null || rows === null || (rows === 0 && cols === 0)) return null;
+  return { rows, cols };
+}
+

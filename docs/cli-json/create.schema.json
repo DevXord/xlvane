@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "create.schema.json",
+  "title": "xlvane create --json",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "const": "create"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "input": {
+              "type": "string"
+            },
+            "output": {
+              "type": "string"
+            },
+            "from": {
+              "enum": [
+                "xlsx",
+                "csv",
+                "tsv",
+                "json"
+              ]
+            },
+            "to": {
+              "enum": [
+                "xlsx",
+                "csv",
+                "tsv",
+                "json"
+              ]
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "written": {
+              "type": "boolean"
+            },
+            "replaced": {
+              "type": "boolean"
+            },
+            "warnings": {
+              "type": "array",
+              "description": "Warnings found while reading the input (docs/errors.md).",
+              "items": {
+                "$ref": "common.schema.json#/$defs/warning"
+              }
+            }
+          },
+          "required": [
+            "input",
+            "output",
+            "from",
+            "to",
+            "bytes",
+            "written",
+            "replaced",
+            "warnings"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "common.schema.json#/$defs/errorEnvelope"
+    }
+  ]
+}

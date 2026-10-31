@@ -1,0 +1,78 @@
+{
+  "schemaVersion": 1,
+  "format": "xlsx",
+  "conformance": "transitional",
+  "dateSystem": "1904",
+  "hasMacros": false,
+  "externalLinkCount": 0,
+  "properties": {
+    "creator": "",
+    "description": "",
+    "language": "en-US",
+    "lastModifiedBy": "",
+    "revision": "0",
+    "subject": "",
+    "title": "",
+    "application": "LibreOffice/24.2.7.2$Linux_X86_64 LibreOffice_project/420$Build-2",
+    "appVersion": "15.0000"
+  },
+  "definedNames": [],
+  "definedNamesTruncated": false,
+  "sheetCount": 1,
+  "sheets": [
+    {
+      "name": "Dates",
+      "index": 0,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1:A2",
+      "usedRange": "A1:A2",
+      "cellCount": 2,
+      "formulaCount": 0,
+      "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
+      "formulas": [],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
+      "noteCount": 0,
+      "notes": [],
+      "imageCount": 0,
+      "images": [],
+      "protected": false,
+      "printArea": null,
+      "pageBreakCount": 0,
+      "dataValidationCount": 0,
+      "conditionalFormatCount": 0,
+      "tables": [],
+      "rowCount": 2,
+      "columnCount": 1,
+      "headerRow": null,
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": null,
+          "dominantType": "date",
+          "types": {
+            "number": 0,
+            "string": 0,
+            "boolean": 0,
+            "date": 2,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            "1904-01-01",
+            "2024-01-31"
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    }
+  ],
+  "warnings": []
+}

@@ -241,6 +241,20 @@ Ręcznie po Pana stronie: konfiguracja trusted publishing dla `xlvane` i `@xlvan
 
 **Kryteria:** wydania mają proweniencję, `npm view xlvane dependencies` pokazuje tylko `fflate`.
 
+### Dalszy plan rozwoju (dopisany 2026-10-30)
+
+Decyzja Pana: 1.0.0 ma być pełnoprawnym zamiennikiem `exceljs`, więc publikacja (faza 10) następuje dopiero po fazach A–E. Każda faza zaczyna się w trybie planowania i czeka na Pana zgodę. Każda nowa funkcja jest też przyjazna dla AI: widać ją w `inspect()` i w `xlvane inspect`/`read --json`, ma kody błędów `XLV_E_*` z podpowiedzią i jest opisana w SKILL.md oraz llms-full.txt (bez tekstów zachęcających agentów do wyboru paczki).
+
+- **Faza A: treść komórek i metadane skoroszytu.** Rich text, hiperłącza, notatki (komentarze z VML), właściwości dokumentu (`docProps`), nazwy zdefiniowane, kolor zakładki i widoki arkusza, domyślny styl kolumny, daty jak w exceljs (format 14 tylko w `@xlvane/exceljs`). Fakty brakujące w kontenerze (ECMA-376 Part 1, [MS-OI29500]) z drugiego raportu sesji lokalnej.
+- **Faza B: operacje na wierszach.** `insertRow(s)`, `spliceRows`, `duplicateRow` z przesuwaniem scaleń, formuł, nazw i zakresów.
+- **Faza C: reguły arkusza.** Walidacja danych, formatowanie warunkowe, ochrona arkusza, ustawienia wydruku (`pageSetup`, `headerFooter`, obszar wydruku).
+- **Faza D: tabele i obrazy.** `addTable`, `addImage` (rysunki).
+- **Faza E: domknięcie zgodności.** `workbook.csv.*`, brakujące style (gradienty, przekątne, atrybuty czcionki i wyrównania) i widoki, ponowne porównanie z exceljs 4.4.0 na wszystkich przeniesionych testach; w docs/exceljs-compat.md nie zostaje żadne „not supported” poza opisanymi świadomymi wyjątkami.
+
+**Etap „AI Friendly” (później, po 1.0.0 lub równolegle za Pana zgodą).** Wraca praca odłożona w fazach 7 i 8:
+- serwer MCP `@xlvane/mcp` (oficjalne SDK MCP, `--root`, narzędzia zapisu tylko z `--allow-write`);
+- benchmark agentów `bench/agents/` według sekcji 4 — przed pierwszym przebiegiem szacunek kosztu i Pana zgoda, bo zgodnie z Pana decyzją nie dopłacamy do darmowej wersji.
+
 ## 9. Wersja Pro (osobne repozytorium, po zdobyciu użytkowników)
 
 | Funkcja Pro | Dlaczego firmy zapłacą |

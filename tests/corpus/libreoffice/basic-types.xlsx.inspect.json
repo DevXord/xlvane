@@ -1,0 +1,257 @@
+{
+  "schemaVersion": 1,
+  "format": "xlsx",
+  "conformance": "transitional",
+  "dateSystem": "1900",
+  "hasMacros": false,
+  "externalLinkCount": 0,
+  "properties": {
+    "creator": "",
+    "description": "",
+    "language": "en-US",
+    "lastModifiedBy": "",
+    "revision": "0",
+    "subject": "",
+    "title": "",
+    "application": "LibreOffice/24.2.7.2$Linux_X86_64 LibreOffice_project/420$Build-2",
+    "appVersion": "15.0000"
+  },
+  "definedNames": [],
+  "definedNamesTruncated": false,
+  "sheetCount": 2,
+  "sheets": [
+    {
+      "name": "Data",
+      "index": 0,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1:F5",
+      "usedRange": "A1:F5",
+      "cellCount": 25,
+      "formulaCount": 6,
+      "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
+      "formulas": [
+        {
+          "cell": "E2",
+          "formula": "TRUE()"
+        },
+        {
+          "cell": "F2",
+          "formula": "B2*2"
+        },
+        {
+          "cell": "E3",
+          "formula": "FALSE()"
+        },
+        {
+          "cell": "F3",
+          "formula": "1/0"
+        },
+        {
+          "cell": "F4",
+          "formula": "A2&\"!\""
+        },
+        {
+          "cell": "F5",
+          "formula": "SUM(B2:B4)"
+        }
+      ],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
+      "noteCount": 0,
+      "notes": [],
+      "imageCount": 0,
+      "images": [],
+      "protected": false,
+      "printArea": null,
+      "pageBreakCount": 0,
+      "dataValidationCount": 0,
+      "conditionalFormatCount": 0,
+      "tables": [],
+      "rowCount": 5,
+      "columnCount": 6,
+      "headerRow": {
+        "row": 1,
+        "confidence": "high"
+      },
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": "Text",
+          "dominantType": "string",
+          "types": {
+            "number": 0,
+            "string": 4,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            "Alice",
+            "  spaces  ",
+            "first\nsecond"
+          ]
+        },
+        {
+          "index": 2,
+          "letter": "B",
+          "header": "Number",
+          "dominantType": "number",
+          "types": {
+            "number": 4,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            1234.5,
+            -0.001,
+            100000000000000000000
+          ]
+        },
+        {
+          "index": 3,
+          "letter": "C",
+          "header": "Date",
+          "dominantType": "date",
+          "types": {
+            "number": 0,
+            "string": 0,
+            "boolean": 0,
+            "date": 3,
+            "error": 0,
+            "empty": 1
+          },
+          "samples": [
+            "2024-01-31",
+            "1900-03-01",
+            "9999-12-31"
+          ]
+        },
+        {
+          "index": 4,
+          "letter": "D",
+          "header": "DateTime",
+          "dominantType": "date",
+          "types": {
+            "number": 0,
+            "string": 0,
+            "boolean": 0,
+            "date": 2,
+            "error": 0,
+            "empty": 2
+          },
+          "samples": [
+            "2024-01-31T13:45:00",
+            "2024-02-29"
+          ]
+        },
+        {
+          "index": 5,
+          "letter": "E",
+          "header": "Boolean",
+          "dominantType": "boolean",
+          "types": {
+            "number": 0,
+            "string": 0,
+            "boolean": 2,
+            "date": 0,
+            "error": 0,
+            "empty": 2
+          },
+          "samples": [
+            true,
+            false
+          ]
+        },
+        {
+          "index": 6,
+          "letter": "F",
+          "header": "Formula",
+          "dominantType": "number",
+          "types": {
+            "number": 2,
+            "string": 1,
+            "boolean": 0,
+            "date": 0,
+            "error": 1,
+            "empty": 0
+          },
+          "samples": [
+            2469,
+            "#DIV/0!",
+            "Alice!"
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    },
+    {
+      "name": "Second",
+      "index": 1,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1",
+      "usedRange": "A1",
+      "cellCount": 1,
+      "formulaCount": 1,
+      "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
+      "formulas": [
+        {
+          "cell": "A1",
+          "formula": "Data!B2"
+        }
+      ],
+      "richTextCellCount": 0,
+      "richTextCells": [],
+      "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
+      "noteCount": 0,
+      "notes": [],
+      "imageCount": 0,
+      "images": [],
+      "protected": false,
+      "printArea": null,
+      "pageBreakCount": 0,
+      "dataValidationCount": 0,
+      "conditionalFormatCount": 0,
+      "tables": [],
+      "rowCount": 1,
+      "columnCount": 1,
+      "headerRow": null,
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": null,
+          "dominantType": "number",
+          "types": {
+            "number": 1,
+            "string": 0,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            1234.5
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    }
+  ],
+  "warnings": []
+}

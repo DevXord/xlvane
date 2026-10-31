@@ -4,6 +4,7 @@ export { readWorkbook, type ReadOptions } from './read';
 export {
   inspect,
   type InspectColumn,
+  type InspectDefinedName,
   type InspectOptions,
   type InspectReport,
   type InspectSheet,
@@ -25,17 +26,156 @@ export {
   type XlvWarningCode,
 } from './errors';
 export { DEFAULT_READ_LIMITS, type ReadLimits } from './limits';
+export type { WorkbookProperties } from './doc-properties';
+export type { DefinedName, DefinedNameOptions } from './defined-names';
+export type { Hyperlink, HyperlinkTarget } from './hyperlinks';
+export type { Note, NoteBox, NoteBoxInput, NoteInput, NoteMargins } from './notes';
+export type { TableColumnInput, TableDefinition, TableDefinitionColumn, TableInput, TableStyleOptions, TotalsRowFunction } from './tables';
+export { imageFormat, type AnchorMarker, type ImageAnchor, type ImageAnchorInput, type ImageFormat, type ImageOptions, type ImagePositionInput, type SheetImage, type WorkbookImage } from './images';
+export type {
+  CfValue,
+  CfValueInput,
+  CfValueType,
+  CfIcon,
+  DataBarAxisPosition,
+  DataBarDirection,
+  ConditionalFormat,
+  ConditionalFormatOperator,
+  ConditionalFormatRule,
+  ConditionalFormatRuleInput,
+  ConditionalFormatType,
+  DataValidation,
+  DataValidationErrorStyle,
+  DataValidationImeMode,
+  DataValidationOperator,
+  DataValidationRule,
+  DataValidationType,
+  IconSetType,
+  TimePeriod,
+} from './sheet-rules';
+export type {
+  HeaderFooter,
+  PageBreaks,
+  PageMargins,
+  PageOrder,
+  PageOrientation,
+  PageSetup,
+  PageSetupOptions,
+  PrintCellComments,
+  PrintErrors,
+  PrintOptions,
+  PrintTitles,
+  SheetProtection,
+  SheetProtectionFlags,
+  SheetProtectionOptions,
+  WorkbookProtection,
+  WorkbookProtectionOptions,
+} from './printing';
+export { hashPassword, legacyPasswordHash, verifyPassword, type HashPasswordOptions, type PasswordHash, type PasswordVerifier } from './password';
+export type { ShaAlgorithm } from './util/sha';
+export {
+  createWorkbook,
+  writeWorkbook,
+  NewWorkbook,
+  NewSheet,
+  ERROR_VALUES,
+  type AddSheetOptions,
+  type CellInput,
+  type ColumnOptions,
+  type CreateWorkbookOptions,
+  type ErrorValue,
+  type FormulaResult,
+  type FreezeOptions,
+  type SheetViewOptions,
+  type RowOptions,
+  type SheetPropertiesOptions,
+  type WorkbookViewOptions,
+  type CalculationOptions,
+  type WriteWorkbookOptions,
+} from './write';
+export type {
+  AlignmentStyle,
+  BorderEdge,
+  BorderLineStyle,
+  BorderStyle,
+  CellStyle,
+  Color,
+  FillStyle,
+  FontScheme,
+  FontStyle,
+  GradientFill,
+  HorizontalAlignment,
+  PatternType,
+  ProtectionStyle,
+  ReadingOrder,
+  UnderlineStyle,
+  VerticalAlignment,
+  VerticalAlignRun,
+} from './style';
 export type {
   Cell,
   CellType,
   CellValue,
+  ColumnInfo,
   Conformance,
   DateSystem,
   Formula,
   FormulaKind,
+  FrozenPanes,
+  RichTextRun,
+  RowInfo,
   Sheet,
   SheetKind,
+  SheetLayout,
   SheetState,
+  SheetView,
+  SheetProperties,
+  WorkbookView,
+  SplitPanes,
   Workbook,
   WorkbookFormat,
 } from './model';
+export type { StandardSchemaV1 } from './standard-schema';
+export {
+  readTable,
+  readTableAsync,
+  writeTable,
+  toJSON,
+  fromJSON,
+  type JsonTable,
+  type ReadTableOptions,
+  type TableColumn,
+  type TableColumnSpec,
+  type TableIssue,
+  type TableResult,
+  type TableRow,
+  type TableValue,
+  type ToJSONOptions,
+  type WriteTableOptions,
+} from './table';
+export { toCSV, fromCSV, type ToCSVOptions, type FromCSVOptions } from './csv';
+export { diff, type CellChange, type DiffCell, type DiffOptions, type SheetDiff, type WorkbookDiff } from './diff';
+export { editCells, appendRows, type AppendRowsOptions, type CellEdit, type EditOptions, type EditResult } from './edit';
+export { insertRows, deleteRows, type InsertRowsOptions, type DeleteRowsOptions } from './rows';
+export {
+  openWorkbookStream,
+  readTableStream,
+  STREAM_LIMIT_DEFAULTS,
+  type OpenWorkbookStreamOptions,
+  type ReadTableStreamOptions,
+  type StreamRow,
+  type StreamSheetInfo,
+  type TableStreamItem,
+  type WorkbookStream,
+} from './stream-read';
+export {
+  writeWorkbookStream,
+  writeTableStream,
+  type StreamDefinedName,
+  type StreamRowInput,
+  type StreamSheetSpec,
+  type WriteTableStreamOptions,
+  type WriteWorkbookStreamOptions,
+} from './stream-write';
+export { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
+export { shiftFormula } from './sml/formula-shift';

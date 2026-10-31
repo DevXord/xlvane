@@ -210,6 +210,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/a251e7c6-7b8a-4e2f-b284-025f9f09ba3e
 - **Decision:** The third parameter is `conformance: Conformance = 'transitional'`. This matches the 5th edition and Office 2013+ behaviour.
   - A legacy 2008-edition file with `dateCompatibility="0"` is not handled specially. The reader would need to map it to system `'1900'` with `'strict'`. **Maintainer review.**
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.585 g, j (P1 §18.2.28 workbookPr), p.245–246 — confirmed from the PDF: `dateCompatibility` ignored; `conformance="strict"` → 1900 date system, otherwise 1900 compatibility date system; Excel does not support negative serial numbers.
 
 ### V-17 — Negative serials
 - **Fact:** Negative serials are valid in the Strict 1900 system (down to −693593) and the 1904 system (down to −695055), in both conformance classes. In the Transitional 1900 system they are invalid (V-12).
@@ -297,6 +298,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 - **Source:** Part 1 §18.8.30 numFmt (Number Format), p.1776–1777 (PDF 1786–1787), L83957–84010.
 - **Microsoft:** Excel's own codes for 14, 22, 37–40, 47 and Korean 55 differ, e.g. 14 = `m/d/yyyy` and 47 = `mm:ss.0` ([MS-OI29500] §18.8.30 note a). `BUILTIN_NUMBER_FORMATS` keeps the spec text. The date classification is the same for both.
   - https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/17d11129-219b-4e2c-88db-45844d21e528
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.712 a, p.299 — confirmed from the PDF (built-in codes 14, 22, 37–40, 47, KOR 55).
 
 ### V-23 — Ids outside the lists
 - **Fact:**
@@ -338,6 +340,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - https://learn.microsoft.com/en-us/openspecs/office_standards/ms-oi29500/c6046ec6-f96d-4609-98e4-0dd549292955
 - **Decision:** `isDateFormat` is true if **any** section contains a date or time code.
   - Microsoft's ABNF (V-32) allows only `@` and AM/PM in a text section, so date codes there are not legal anyway.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.713 a, p.310 — confirmed from the PDF. Also g: Office limits custom number formats to 206.
 
 ### V-27 — Literal text, escapes, spacing and fill
 - **Fact:**
@@ -366,6 +369,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
 - **Code:**
   - `e` followed by `+` or `-` is an exponent. Any other `e` is an era year, hence a date.
   - Uppercase `E` is never a date code.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.713 e, f, p.310 — confirmed from the PDF.
 
 ### V-29 — Colour and condition brackets
 - **Fact:**
@@ -416,6 +420,7 @@ Facts relied on by `packages/xlvane/src/sml/cell-ref.ts`, `dates.ts` and `numfmt
   - Date codes are matched case-sensitively, so `YYYY-MM-DD` is **not** a date. **Maintainer review:** some third-party writers emit uppercase codes. A lenient mode could accept them, but no source documents that as Excel behaviour.
   - `General` is matched in any case. This only prevents false positives from its letters `e` and `r`.
   - `AM/PM` alone is not a date.
+**Checked 2026-10-30 (D-1104):** [MS-OI29500] rev. 25.0 (2026-08-18) §2.1.712 b, p.299–303 — confirmed from the PDF; `formatCode` shorter than 255 characters.
 
 ### V-33 — General
 - **Fact:** `General` is id 0. The spec notes that dates do not follow General but are converted to date formatting automatically.

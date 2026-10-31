@@ -1,0 +1,32 @@
+xlvane create — Build a formatted XLSX report from JSON or CSV
+
+Usage:
+  xlvane create <data.json|data.csv> <output.xlsx> [options]
+
+Builds a report from an array of JSON objects (or arrays) or a CSV file: bold header row, frozen
+first row, autofilter, column widths that fit the content, and date and number formats. --columns
+chooses and orders the JSON properties.
+
+Options:
+      --sheet <name>      Sheet name (default "Sheet1")
+      --columns <a,b,c>   JSON properties to include, in this order
+      --delimiter <char>  CSV delimiter (default "," and tab for .tsv)
+      --force             Replace the output file if it exists
+      --dry-run           Show what would be written, without writing
+
+Global options:
+      --json              Print one JSON document to stdout (node_modules/xlvane/docs/cli-json.md)
+  -q, --quiet             Print only results and errors
+      --verbose           Print more detail, including stack traces of internal errors
+  -h, --help              Show help for the command
+
+Examples:
+  xlvane create data.json new-report.xlsx
+      A report with one column per property
+  xlvane create data.json people.xlsx --sheet People --columns name,city
+      Choose the sheet name and the columns
+  xlvane create sales.csv sales-report.xlsx --dry-run
+      Check the input without writing a file
+
+Exit codes: 0 success, 2 usage error, 3 input or file error.
+Related: xlvane convert, xlvane edit

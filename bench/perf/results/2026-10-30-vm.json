@@ -1,0 +1,511 @@
+{
+  "environment": {
+    "date": "2026-10-30T10:56:49.818Z",
+    "cpu": "Intel(R) Xeon(R) Processor @ 2.10GHz",
+    "cores": 4,
+    "memoryBytes": 16872808448,
+    "os": "Linux 6.18.44-fc-v185 (x64)",
+    "node": "v22.22.0",
+    "versions": {
+      "xlvane": "0.0.0",
+      "exceljs": "4.4.0",
+      "xlsx": "0.18.5"
+    },
+    "rows": 100000,
+    "cols": 20,
+    "runs": 5
+  },
+  "input": {
+    "writtenBy": "xlvane-write",
+    "bytes": 12655484
+  },
+  "results": [
+    {
+      "variant": "baseline",
+      "runs": 5,
+      "medianMs": 0,
+      "minMs": 0,
+      "maxMs": 0,
+      "medianMaxRssBytes": 142065664,
+      "medianPeakHeapBytes": 37625928,
+      "samples": [
+        {
+          "variant": "baseline",
+          "ms": 0,
+          "maxRssBytes": 142065664,
+          "peakHeapBytes": 37633688
+        },
+        {
+          "variant": "baseline",
+          "ms": 0,
+          "maxRssBytes": 142065664,
+          "peakHeapBytes": 37625856
+        },
+        {
+          "variant": "baseline",
+          "ms": 0,
+          "maxRssBytes": 142065664,
+          "peakHeapBytes": 37633816
+        },
+        {
+          "variant": "baseline",
+          "ms": 0,
+          "maxRssBytes": 142065664,
+          "peakHeapBytes": 37621720
+        },
+        {
+          "variant": "baseline",
+          "ms": 0,
+          "maxRssBytes": 142069760,
+          "peakHeapBytes": 37625928
+        }
+      ],
+      "kind": "baseline"
+    },
+    {
+      "variant": "xlvane-write",
+      "runs": 5,
+      "medianMs": 9366.52634,
+      "minMs": 8096.298073999999,
+      "maxMs": 11782.330434,
+      "medianMaxRssBytes": 1054060544,
+      "medianPeakHeapBytes": 380059864,
+      "samples": [
+        {
+          "variant": "xlvane-write",
+          "ms": 11782.330434,
+          "maxRssBytes": 1054498816,
+          "peakHeapBytes": 380059864
+        },
+        {
+          "variant": "xlvane-write",
+          "ms": 10362.67373,
+          "maxRssBytes": 1052307456,
+          "peakHeapBytes": 380052440
+        },
+        {
+          "variant": "xlvane-write",
+          "ms": 9366.52634,
+          "maxRssBytes": 1054892032,
+          "peakHeapBytes": 380268696
+        },
+        {
+          "variant": "xlvane-write",
+          "ms": 8223.788071,
+          "maxRssBytes": 1053413376,
+          "peakHeapBytes": 380557840
+        },
+        {
+          "variant": "xlvane-write",
+          "ms": 8096.298073999999,
+          "maxRssBytes": 1054060544,
+          "peakHeapBytes": 380050936
+        }
+      ],
+      "kind": "write"
+    },
+    {
+      "variant": "xlvane-write-stream",
+      "runs": 5,
+      "medianMs": 4909.015263,
+      "minMs": 4426.313228999999,
+      "maxMs": 4996.396492,
+      "medianMaxRssBytes": 178036736,
+      "medianPeakHeapBytes": 29312720,
+      "samples": [
+        {
+          "variant": "xlvane-write-stream",
+          "ms": 4491.8265280000005,
+          "maxRssBytes": 142454784,
+          "peakHeapBytes": 27300376
+        },
+        {
+          "variant": "xlvane-write-stream",
+          "ms": 4996.396492,
+          "maxRssBytes": 178036736,
+          "peakHeapBytes": 29312720
+        },
+        {
+          "variant": "xlvane-write-stream",
+          "ms": 4426.313228999999,
+          "maxRssBytes": 178036736,
+          "peakHeapBytes": 27846752
+        },
+        {
+          "variant": "xlvane-write-stream",
+          "ms": 4909.015263,
+          "maxRssBytes": 178036736,
+          "peakHeapBytes": 29322000
+        },
+        {
+          "variant": "xlvane-write-stream",
+          "ms": 4916.924428,
+          "maxRssBytes": 178036736,
+          "peakHeapBytes": 35023744
+        }
+      ],
+      "kind": "write"
+    },
+    {
+      "variant": "exceljs-write",
+      "runs": 5,
+      "medianMs": 18720.029274,
+      "minMs": 18293.479638999997,
+      "maxMs": 19757.499065999997,
+      "medianMaxRssBytes": 2204626944,
+      "medianPeakHeapBytes": 1634943496,
+      "samples": [
+        {
+          "variant": "exceljs-write",
+          "ms": 19757.499065999997,
+          "maxRssBytes": 2222931968,
+          "peakHeapBytes": 1634686088
+        },
+        {
+          "variant": "exceljs-write",
+          "ms": 18824.979778999998,
+          "maxRssBytes": 2185338880,
+          "peakHeapBytes": 1634953456
+        },
+        {
+          "variant": "exceljs-write",
+          "ms": 18594.598341999998,
+          "maxRssBytes": 2204626944,
+          "peakHeapBytes": 1635212096
+        },
+        {
+          "variant": "exceljs-write",
+          "ms": 18293.479638999997,
+          "maxRssBytes": 2187235328,
+          "peakHeapBytes": 1634943496
+        },
+        {
+          "variant": "exceljs-write",
+          "ms": 18720.029274,
+          "maxRssBytes": 2220163072,
+          "peakHeapBytes": 1634695744
+        }
+      ],
+      "kind": "write"
+    },
+    {
+      "variant": "exceljs-write-stream",
+      "runs": 5,
+      "medianMs": 6306.5107689999995,
+      "minMs": 6025.808721,
+      "maxMs": 6431.7051010000005,
+      "medianMaxRssBytes": 202899456,
+      "medianPeakHeapBytes": 35524440,
+      "samples": [
+        {
+          "variant": "exceljs-write-stream",
+          "ms": 6431.7051010000005,
+          "maxRssBytes": 202899456,
+          "peakHeapBytes": 36553464
+        },
+        {
+          "variant": "exceljs-write-stream",
+          "ms": 6025.808721,
+          "maxRssBytes": 214675456,
+          "peakHeapBytes": 35524440
+        },
+        {
+          "variant": "exceljs-write-stream",
+          "ms": 6306.5107689999995,
+          "maxRssBytes": 197414912,
+          "peakHeapBytes": 32880936
+        },
+        {
+          "variant": "exceljs-write-stream",
+          "ms": 6256.419645,
+          "maxRssBytes": 208789504,
+          "peakHeapBytes": 25215752
+        },
+        {
+          "variant": "exceljs-write-stream",
+          "ms": 6335.512161000001,
+          "maxRssBytes": 200138752,
+          "peakHeapBytes": 36288392
+        }
+      ],
+      "kind": "write"
+    },
+    {
+      "variant": "sheetjs-write",
+      "runs": 5,
+      "medianMs": 10958.678419000002,
+      "minMs": 8537.883367999999,
+      "maxMs": 11599.877741,
+      "medianMaxRssBytes": 1050234880,
+      "medianPeakHeapBytes": 397793792,
+      "samples": [
+        {
+          "variant": "sheetjs-write",
+          "ms": 8537.883367999999,
+          "maxRssBytes": 1043693568,
+          "peakHeapBytes": 662381816
+        },
+        {
+          "variant": "sheetjs-write",
+          "ms": 10958.678419000002,
+          "maxRssBytes": 1051521024,
+          "peakHeapBytes": 397543064
+        },
+        {
+          "variant": "sheetjs-write",
+          "ms": 11599.877741,
+          "maxRssBytes": 1048743936,
+          "peakHeapBytes": 397793792
+        },
+        {
+          "variant": "sheetjs-write",
+          "ms": 11259.231395,
+          "maxRssBytes": 1126240256,
+          "peakHeapBytes": 397549768
+        },
+        {
+          "variant": "sheetjs-write",
+          "ms": 9377.584025,
+          "maxRssBytes": 1050234880,
+          "peakHeapBytes": 666885480
+        }
+      ],
+      "kind": "write"
+    },
+    {
+      "variant": "xlvane-read",
+      "runs": 5,
+      "medianMs": 4519.916969,
+      "minMs": 4289.715531,
+      "maxMs": 4569.574346,
+      "medianMaxRssBytes": 723288064,
+      "medianPeakHeapBytes": 508424960,
+      "samples": [
+        {
+          "variant": "xlvane-read",
+          "ms": 4519.916969,
+          "cells": 2000000,
+          "maxRssBytes": 732184576,
+          "peakHeapBytes": 508424960
+        },
+        {
+          "variant": "xlvane-read",
+          "ms": 4289.715531,
+          "cells": 2000000,
+          "maxRssBytes": 722419712,
+          "peakHeapBytes": 510090496
+        },
+        {
+          "variant": "xlvane-read",
+          "ms": 4413.095754,
+          "cells": 2000000,
+          "maxRssBytes": 723288064,
+          "peakHeapBytes": 510379280
+        },
+        {
+          "variant": "xlvane-read",
+          "ms": 4569.574346,
+          "cells": 2000000,
+          "maxRssBytes": 711806976,
+          "peakHeapBytes": 498825440
+        },
+        {
+          "variant": "xlvane-read",
+          "ms": 4554.265345,
+          "cells": 2000000,
+          "maxRssBytes": 729608192,
+          "peakHeapBytes": 501745128
+        }
+      ],
+      "kind": "read"
+    },
+    {
+      "variant": "xlvane-read-stream",
+      "runs": 5,
+      "medianMs": 5320.55611,
+      "minMs": 4860.1466980000005,
+      "maxMs": 5549.760366,
+      "medianMaxRssBytes": 323731456,
+      "medianPeakHeapBytes": 69520912,
+      "samples": [
+        {
+          "variant": "xlvane-read-stream",
+          "ms": 4860.1466980000005,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 33089856
+        },
+        {
+          "variant": "xlvane-read-stream",
+          "ms": 5483.589195,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 69520912
+        },
+        {
+          "variant": "xlvane-read-stream",
+          "ms": 5320.55611,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 69550384
+        },
+        {
+          "variant": "xlvane-read-stream",
+          "ms": 5267.911741,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 69514080
+        },
+        {
+          "variant": "xlvane-read-stream",
+          "ms": 5549.760366,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 69601192
+        }
+      ],
+      "kind": "read"
+    },
+    {
+      "variant": "exceljs-read",
+      "runs": 5,
+      "medianMs": 6798.35397,
+      "minMs": 6335.779296,
+      "maxMs": 7166.49422,
+      "medianMaxRssBytes": 932265984,
+      "medianPeakHeapBytes": 740635840,
+      "samples": [
+        {
+          "variant": "exceljs-read",
+          "ms": 7166.49422,
+          "cells": 2000000,
+          "maxRssBytes": 1078841344,
+          "peakHeapBytes": 882096288
+        },
+        {
+          "variant": "exceljs-read",
+          "ms": 6798.35397,
+          "cells": 2000000,
+          "maxRssBytes": 1075273728,
+          "peakHeapBytes": 885691144
+        },
+        {
+          "variant": "exceljs-read",
+          "ms": 6335.779296,
+          "cells": 2000000,
+          "maxRssBytes": 926199808,
+          "peakHeapBytes": 740635840
+        },
+        {
+          "variant": "exceljs-read",
+          "ms": 7052.379829,
+          "cells": 2000000,
+          "maxRssBytes": 932265984,
+          "peakHeapBytes": 739880496
+        },
+        {
+          "variant": "exceljs-read",
+          "ms": 6761.983173,
+          "cells": 2000000,
+          "maxRssBytes": 928100352,
+          "peakHeapBytes": 734614112
+        }
+      ],
+      "kind": "read"
+    },
+    {
+      "variant": "exceljs-read-stream",
+      "runs": 5,
+      "medianMs": 4596.767678,
+      "minMs": 4030.9452690000003,
+      "maxMs": 4713.384605,
+      "medianMaxRssBytes": 323731456,
+      "medianPeakHeapBytes": 133848312,
+      "samples": [
+        {
+          "variant": "exceljs-read-stream",
+          "ms": 4713.384605,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 138958704
+        },
+        {
+          "variant": "exceljs-read-stream",
+          "ms": 4596.767678,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 124809440
+        },
+        {
+          "variant": "exceljs-read-stream",
+          "ms": 4030.9452690000003,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 133848312
+        },
+        {
+          "variant": "exceljs-read-stream",
+          "ms": 4680.750826,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 115524440
+        },
+        {
+          "variant": "exceljs-read-stream",
+          "ms": 4454.355762,
+          "cells": 2000000,
+          "maxRssBytes": 323731456,
+          "peakHeapBytes": 138496808
+        }
+      ],
+      "kind": "read"
+    },
+    {
+      "variant": "sheetjs-read",
+      "runs": 5,
+      "medianMs": 9037.766817,
+      "minMs": 8954.57764,
+      "maxMs": 9750.73083,
+      "medianMaxRssBytes": 878518272,
+      "medianPeakHeapBytes": 448233312,
+      "samples": [
+        {
+          "variant": "sheetjs-read",
+          "ms": 9750.73083,
+          "cells": 2000000,
+          "maxRssBytes": 879554560,
+          "peakHeapBytes": 445660560
+        },
+        {
+          "variant": "sheetjs-read",
+          "ms": 8954.624332000001,
+          "cells": 2000000,
+          "maxRssBytes": 876593152,
+          "peakHeapBytes": 451860184
+        },
+        {
+          "variant": "sheetjs-read",
+          "ms": 8954.57764,
+          "cells": 2000000,
+          "maxRssBytes": 832143360,
+          "peakHeapBytes": 471464632
+        },
+        {
+          "variant": "sheetjs-read",
+          "ms": 9073.137533,
+          "cells": 2000000,
+          "maxRssBytes": 878518272,
+          "peakHeapBytes": 446121968
+        },
+        {
+          "variant": "sheetjs-read",
+          "ms": 9037.766817,
+          "cells": 2000000,
+          "maxRssBytes": 881004544,
+          "peakHeapBytes": 448233312
+        }
+      ],
+      "kind": "read"
+    }
+  ]
+}

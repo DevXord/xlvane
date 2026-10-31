@@ -1,0 +1,178 @@
+## unknown command with suggestion
+$ xlvane inspcet report.xlsx
+Error: Unknown command "inspcet".
+Fix:   Did you mean "xlvane inspect"? Commands: inspect, read, convert, create, edit, diff,
+       validate, migrate. Run "xlvane" for examples.
+Try:   xlvane inspect report.xlsx
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## unknown command without suggestion
+$ xlvane frobnicate
+Error: Unknown command "frobnicate".
+Fix:   Commands: inspect, read, convert, create, edit, diff, validate, migrate. Run "xlvane" for
+       examples.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## option before the command
+$ xlvane --sheet Sales
+Error: "--sheet" is not a command.
+Fix:   Put the command first, for example "xlvane inspect report.xlsx --json". Run "xlvane" to see
+       the commands.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## unknown option with suggestion
+$ xlvane read report.xlsx --shet Sales
+Error: Unknown option "--shet" for "xlvane read".
+Fix:   Did you mean "--sheet"? Run "xlvane help read" for the options and examples.
+Try:   xlvane read report.xlsx --sheet Sales
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## unknown short option
+$ xlvane read report.xlsx -x
+Error: Unknown option "-x" for "xlvane read".
+Fix:   Run "xlvane help read" for the options and examples.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## option without its value
+$ xlvane read report.xlsx --sheet
+Error: The option "--sheet" needs a value.
+Fix:   Write it as "--sheet <name>". Run "xlvane help read" for the options and examples.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## boolean option with a value
+$ xlvane diff old.xlsx new.xlsx --styles=yes
+Error: The option "--styles" does not take a value.
+Fix:   Write "--styles" alone. Run "xlvane help diff" for the options and examples.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## missing argument
+$ xlvane convert report.xlsx
+Error: "xlvane convert" needs <output>.
+Fix:   Usage: xlvane convert <input> <output> [options]. Run "xlvane help convert" for examples.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## too many arguments
+$ xlvane inspect report.xlsx extra
+Error: Too many arguments for "xlvane inspect": "extra".
+Fix:   Usage: xlvane inspect <file> [options]. Quote values that contain spaces. Run "xlvane help
+       inspect" for examples.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## invalid number
+$ xlvane read report.xlsx --limit ten
+Error: The option "--limit" must be a whole number of 1 or more, or "all", not "ten".
+Fix:   For example --limit 20, or --limit all for every row.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## invalid header option
+$ xlvane read report.xlsx --header first
+Error: The option "--header" must be "auto", "none" or a row number, not "first".
+Fix:   For example --header 2 when the column names are in row 2.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## unknown help topic
+$ xlvane help raed
+Error: Unknown command "raed".
+Fix:   Did you mean "xlvane read"? Commands: inspect, read, convert, create, edit, diff, validate,
+       migrate. Run "xlvane" for examples.
+Try:   xlvane help read
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## file not found with suggestion
+$ xlvane inspect reprot.xlsx
+Error: File not found: "reprot.xlsx".
+Fix:   Did you mean "report.xlsx"? Check the name and the folder; paths are relative to the current
+       directory.
+Try:   xlvane inspect report.xlsx
+Code:  XLV_E_FILE_READ · docs/errors.md#xlv_e_file_read
+
+## file not found
+$ xlvane inspect missing.xlsx
+Error: File not found: "missing.xlsx".
+Fix:   Check the name and the folder; paths are relative to the current directory.
+Code:  XLV_E_FILE_READ · docs/errors.md#xlv_e_file_read
+
+## not a workbook
+$ xlvane inspect data.json
+Error: The input is not a ZIP archive, so it cannot be an XLSX file.
+Where: data.json
+Fix:   XLSX files are ZIP archives. Check that the file is an .xlsx (or .xlsm) workbook; for CSV or
+       text files use a CSV reader.
+Try:   xlvane convert data.json data.xlsx
+Code:  XLV_E_NOT_ZIP · docs/errors.md#xlv_e_not_zip
+
+## sheet not found
+$ xlvane read report.xlsx --sheet Salse
+Error: The workbook has no sheet named "Salse".
+Where: report.xlsx
+Fix:   Did you mean "Sales"? Available sheets: "Sales", "Costs". Sheet names are case-sensitive.
+Try:   xlvane read report.xlsx --sheet Sales
+Code:  XLV_E_SHEET_NOT_FOUND · docs/errors.md#xlv_e_sheet_not_found
+
+## output exists
+$ xlvane convert report.xlsx sales.csv
+Error: "sales.csv" already exists.
+Fix:   Add --force to replace it, or choose another output path.
+Try:   xlvane convert report.xlsx sales.csv --force
+Code:  XLV_E_FILE_EXISTS · docs/errors.md#xlv_e_file_exists
+
+## edit in place without --force
+$ xlvane edit report.xlsx --set Sales!B2=1
+Error: "report.xlsx" would be changed in place.
+Fix:   Add --force to change the file in place, or write the result to a new file with --output
+       <path>.
+Try:   xlvane edit report.xlsx --set 'Sales!B2=1' --force
+Code:  XLV_E_FILE_EXISTS · docs/errors.md#xlv_e_file_exists
+
+## edit without changes
+$ xlvane edit report.xlsx -o x.xlsx
+Error: "xlvane edit" needs --set, --append, --insert-rows or --delete-rows.
+Fix:   For example: xlvane edit report.xlsx --set "Sales!B2=1250" -o updated.xlsx
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## invalid --set
+$ xlvane edit report.xlsx --set B2 -o x.xlsx
+Error: Cannot read --set "B2".
+Fix:   Write it as "Sheet!A1=value" (or "A1=value" with --sheet). Quote sheet names with spaces:
+       "'My sheet'!A1=5".
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## --set without a sheet
+$ xlvane edit report.xlsx --set B2=1 -o x.xlsx
+Error: --set "B2=…" has no sheet name.
+Fix:   Write "Sheet!A1=value", or give the sheet with --sheet.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## unknown output format
+$ xlvane convert report.xlsx out.pdf
+Error: Cannot tell the output format of "out.pdf" from its extension.
+Fix:   Use a file name ending in .xlsx, .csv, .tsv or .json.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## same format on both sides
+$ xlvane convert sales.csv out.json
+Error: Cannot convert CSV to JSON.
+Fix:   One side must be an .xlsx file: XLSX to CSV/TSV/JSON, or CSV/TSV/JSON to XLSX.
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## invalid column rule
+$ xlvane validate report.xlsx --columns Revenue:money
+Error: Cannot read the column rule "Revenue:money".
+Where: option --columns
+Fix:   Write rules as "name:type" separated by commas; types: number, string, date, boolean, any;
+       add "?" to allow empty cells, e.g. "id:number,note:string?".
+Code:  XLV_E_USAGE · docs/errors.md#xlv_e_usage
+
+## invalid JSON input
+$ xlvane create bad.json out.xlsx
+Error: The text is not valid JSON: <parser message>
+Where: bad.json
+Fix:   Fix the JSON file; the message gives the problem. The file must hold an array of objects or
+       arrays.
+Code:  XLV_E_JSON_INVALID · docs/errors.md#xlv_e_json_invalid
+
+## migrate without package.json
+$ xlvane migrate nowhere
+Error: File not found: "nowhere/package.json".
+Fix:   Check the name and the folder; paths are relative to the current directory.
+Code:  XLV_E_FILE_READ · docs/errors.md#xlv_e_file_read

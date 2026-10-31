@@ -12,11 +12,17 @@
 // - White space in t is kept as written whatever xml:space says: an XML processor passes all
 //   character data to the application (XML 1.0 §2.10) and keeping it is always acceptable.
 // - sst@count and sst@uniqueCount are not used; nothing is allocated from them.
+// - Items with runs (r) are rich text: when the caller asks for them, the runs are returned with
+//   their run properties (rPr, CT_RPrElt, F-SST-08) read as fonts; a leading t of the item is a run
+//   without properties.
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
+import type { RichTextRun } from '../model';
+import type { XmlElement } from '../xml/tree';
 import type { WarningCollector } from '../util/warnings';
 import { parseXml } from '../xml/parser';
 import { SML_NS } from './namespaces';
+import { parseRunFont } from './styles';
 import { decodeXstring } from './xstring';
 
 /** What a part parser needs: the part name for locations, the limits and a warning sink. */
@@ -26,19 +32,23 @@ export interface PartContext {
   readonly warnings: WarningCollector;
 }
 
-// Depths of the elements we read: sst = 1, si = 2, t or r in si = 3, t in r = 4.
+// Depths of the elements we read: sst = 1, si = 2, t or r in si = 3, t or rPr in r = 4, children
+// of rPr = 5.
 const SI_DEPTH = 2;
 const ITEM_CHILD_DEPTH = 3;
 const RUN_TEXT_DEPTH = 4;
+const RUN_PROPERTY_DEPTH = 5;
 
 /**
  * Parses the shared strings part and returns the plain text of every string item (`si`), in
- * order, so that index `i` is the value of a cell with `t="s"` and `<v>i</v>`.
+ * order, so that index `i` is the value of a cell with `t="s"` and `<v>i</v>`. When `rich` is
+ * given, the runs of every rich text item are stored in it under the item's index.
  * Throws `XLV_E_PART_INVALID` if the root element is not `sst` in a SpreadsheetML namespace,
  * and the XML parser's errors for malformed XML.
  */
-export function parseSharedStrings(xml: string, ctx: PartContext): string[] {
+export function parseSharedStrings(xml: string, ctx: PartContext, rich?: Map<number, readonly RichTextRun[]>): string[] {
   const strings: string[] = [];
+  const warn = (message: string): void => ctx.warnings.add('XLV_W_INVALID_VALUE', message, { part: ctx.part });
   let ns = '';
   let depth = 0;
   let inItem = false;
@@ -47,11 +57,16 @@ export function parseSharedStrings(xml: string, ctx: PartContext): string[] {
   let textDepth = 0;
   let item: string[] = [];
   let raw: string[] = [];
+  let runs: RichTextRun[] = [];
+  let hasRuns = false;
+  let runText = '';
+  let runProperties: XmlElement[] | null = null;
+  let runFont: RichTextRun['font'];
 
   parseXml(
     xml,
     {
-      start(elementNs, local) {
+      start(elementNs, local, attrs) {
         depth++;
         if (depth === 1) {
           if (local !== 'sst' || (elementNs !== SML_NS.strict && elementNs !== SML_NS.transitional)) {
@@ -73,25 +88,46 @@ export function parseSharedStrings(xml: string, ctx: PartContext): string[] {
           if (local === 'si') {
             inItem = true;
             item = [];
+            runs = [];
+            hasRuns = false;
           }
           return;
         }
         if (!inItem) return;
         if (depth === ITEM_CHILD_DEPTH) {
           if (local === 't') textDepth = depth;
-          else if (local === 'r') inRun = true;
-        } else if (depth === RUN_TEXT_DEPTH && inRun && local === 't') {
-          textDepth = depth;
+          else if (local === 'r') {
+            inRun = true;
+            runText = '';
+            runFont = undefined;
+          }
+        } else if (depth === RUN_TEXT_DEPTH && inRun) {
+          if (local === 't') textDepth = depth;
+          else if (local === 'rPr' && rich !== undefined) runProperties = [];
+        } else if (depth === RUN_PROPERTY_DEPTH && runProperties !== null) {
+          runProperties.push({ ns: elementNs, local, attrs, children: [], text: '' });
         }
       },
-      end() {
+      end(_ns, local) {
         if (textDepth !== 0 && depth === textDepth) {
-          item.push(decodeXstring(raw.length === 1 ? (raw[0] ?? '') : raw.join('')));
+          const text = decodeXstring(raw.length === 1 ? (raw[0] ?? '') : raw.join(''));
+          item.push(text);
+          if (inRun) runText += text;
+          else if (rich !== undefined) runs.push({ text });
           raw = [];
           textDepth = 0;
-        } else if (depth === ITEM_CHILD_DEPTH) {
+        } else if (depth === RUN_TEXT_DEPTH && runProperties !== null && local === 'rPr') {
+          const font = parseRunFont({ ns, local, attrs: new Map(), children: runProperties, text: '' }, ns, warn);
+          if (Object.keys(font).length > 0) runFont = font;
+          runProperties = null;
+        } else if (depth === ITEM_CHILD_DEPTH && inRun) {
+          if (local === 'r' && rich !== undefined) {
+            runs.push(runFont === undefined ? { text: runText } : { text: runText, font: runFont });
+            hasRuns = true;
+          }
           inRun = false;
         } else if (depth === SI_DEPTH && inItem) {
+          if (rich !== undefined && hasRuns) rich.set(strings.length, Object.freeze(runs.map((r) => Object.freeze(r))));
           strings.push(item.length === 1 ? (item[0] ?? '') : item.join(''));
           inItem = false;
         }

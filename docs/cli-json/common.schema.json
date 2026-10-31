@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "common.schema.json",
+  "title": "Definitions shared by the xlvane --json schemas",
+  "$defs": {
+    "location": {
+      "type": "object",
+      "properties": {
+        "part": {
+          "type": "string"
+        },
+        "sheet": {
+          "type": "string"
+        },
+        "cell": {
+          "type": "string"
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "column": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "detailValue": {
+      "anyOf": [
+        {
+          "type": [
+            "string",
+            "number",
+            "boolean",
+            "null"
+          ]
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        {
+          "type": "array",
+          "items": {
+            "type": "number"
+          }
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "const": "XlvError"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^XLV_E_[A-Z0-9_]+$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "docsUrl": {
+          "type": "string"
+        },
+        "details": {
+          "type": "object",
+          "properties": {},
+          "additionalProperties": {
+            "$ref": "#/$defs/detailValue"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "code",
+        "message",
+        "location",
+        "hint",
+        "docsUrl",
+        "details"
+      ],
+      "additionalProperties": false
+    },
+    "errorEnvelope": {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ok": {
+          "const": false
+        },
+        "error": {
+          "$ref": "#/$defs/error"
+        },
+        "try": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "error",
+        "try"
+      ],
+      "additionalProperties": false,
+      "description": "Printed instead of the success document when the command fails."
+    },
+    "warning": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string",
+          "pattern": "^XLV_W_[A-Z0-9_]+$"
+        },
+        "message": {
+          "type": "string"
+        },
+        "location": {
+          "$ref": "#/$defs/location"
+        },
+        "count": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "cells": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "code",
+        "message",
+        "location",
+        "count"
+      ],
+      "additionalProperties": false
+    },
+    "scalar": {
+      "type": [
+        "string",
+        "number",
+        "boolean",
+        "null"
+      ]
+    },
+    "cellType": {
+      "enum": [
+        "number",
+        "string",
+        "boolean",
+        "error",
+        "date",
+        "empty"
+      ]
+    }
+  }
+}

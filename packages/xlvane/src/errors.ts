@@ -14,6 +14,7 @@ const DOCS_URL = 'https://github.com/DevXord/xlvane/blob/main/docs/errors.md';
 export const ERROR_CODES = [
   'XLV_E_INVALID_INPUT',
   'XLV_E_INVALID_OPTION',
+  'XLV_E_INVALID_ARGUMENT',
   'XLV_E_LIMIT_EXCEEDED',
   'XLV_E_NOT_ZIP',
   'XLV_E_UNSUPPORTED_CONTAINER',
@@ -27,7 +28,28 @@ export const ERROR_CODES = [
   'XLV_E_PART_INVALID',
   'XLV_E_INVALID_CELL_REF',
   'XLV_E_SHEET_NOT_FOUND',
+  'XLV_E_TABLE_NOT_FOUND',
   'XLV_E_FILE_READ',
+  'XLV_E_INVALID_VALUE',
+  'XLV_E_INVALID_STYLE',
+  'XLV_E_INVALID_SHEET_NAME',
+  'XLV_E_DUPLICATE_SHEET_NAME',
+  'XLV_E_INVALID_DEFINED_NAME',
+  'XLV_E_INVALID_HYPERLINK',
+  'XLV_E_INVALID_TABLE',
+  'XLV_E_INVALID_IMAGE',
+  'XLV_E_OVERLAPPING_MERGE',
+  'XLV_E_FILE_EXISTS',
+  'XLV_E_FILE_WRITE',
+  'XLV_E_HEADER_NOT_FOUND',
+  'XLV_E_SCHEMA_INVALID',
+  'XLV_E_ASYNC_SCHEMA',
+  'XLV_E_INVALID_ROWS',
+  'XLV_E_JSON_INVALID',
+  'XLV_E_CSV_MALFORMED',
+  'XLV_E_NOT_SUPPORTED',
+  'XLV_E_USAGE',
+  'XLV_E_INTERNAL',
 ] as const;
 
 /**
@@ -52,21 +74,70 @@ export const WARNING_CODES = [
   'XLV_W_INVALID_VALUE',
   'XLV_W_SHEET_PART_MISSING',
   'XLV_W_PART_MISSING',
+  'XLV_W_FORMULAS_NOT_RECALCULATED',
+  'XLV_W_INVALID_CELL_REF',
+  'XLV_W_UNUSUAL_HYPERLINK',
+  'XLV_W_THREADED_COMMENTS',
+  'XLV_W_DRAWING_CONTENT_NOT_READ',
+  'XLV_W_MERGED_CELL_WRITE',
 ] as const;
 
-/** A stable error code, see {@link ERROR_CODES}. */
+/**
+ * A stable error code, see {@link ERROR_CODES}.
+ *
+ * @example
+ * ```ts
+ * import { isXlvError, readWorkbook, type XlvErrorCode } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * try {
+ *   readWorkbook(bytes);
+ * } catch (error) {
+ *   const code: XlvErrorCode | undefined = isXlvError(error) ? error.code : undefined;
+ *   console.log(code === 'XLV_E_NOT_ZIP' ? 'not an xlsx file' : code);
+ * }
+ * ```
+ */
 export type XlvErrorCode = (typeof ERROR_CODES)[number];
 
-/** A stable warning code, see {@link WARNING_CODES}. */
+/**
+ * A stable warning code, see {@link WARNING_CODES}.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type XlvWarningCode } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const codes: XlvWarningCode[] = readWorkbook(bytes).warnings.map((warning) => warning.code);
+ * console.log(codes.includes('XLV_W_MACROS_PRESENT'));
+ * ```
+ */
 export type XlvWarningCode = (typeof WARNING_CODES)[number];
 
-/** Where in the input something happened. Only the fields that are known are present. */
+/**
+ * Where in the input something happened. Only the fields that are known are present.
+ *
+ * @example
+ * ```ts
+ * import { isXlvError, readWorkbook, type XlvLocation } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * try {
+ *   readWorkbook(bytes).getSheet('Sales');
+ * } catch (error) {
+ *   if (isXlvError(error)) {
+ *     const where: XlvLocation = error.location;
+ *     console.log(where.sheet, where.cell, where.part);
+ *   }
+ * }
+ * ```
+ */
 export interface XlvLocation {
   /** Part inside the package, for example `/xl/worksheets/sheet1.xml`. */
   readonly part?: string;
   /** Sheet name as shown in the spreadsheet application. */
   readonly sheet?: string;
-  /** Cell reference in A1 style, for example `B7`. */
+  /** Cell reference in A1 style, for example `B7`; a range (`A1:C3`), or a whole row or column (`5:5`, `C:C`). */
   readonly cell?: string;
   /** 1-based line inside an XML part. */
   readonly line?: number;
@@ -76,13 +147,64 @@ export interface XlvLocation {
   readonly offset?: number;
 }
 
-/** Value types allowed in {@link XlvError.details}; everything is JSON-safe. */
+/**
+ * Value types allowed in {@link XlvError.details}; everything is JSON-safe.
+ *
+ * @example
+ * ```ts
+ * import { isXlvError, readWorkbook, type XlvDetailValue } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * try {
+ *   readWorkbook(bytes).getSheet('Sales');
+ * } catch (error) {
+ *   if (isXlvError(error)) {
+ *     const available: XlvDetailValue | undefined = error.details['available'];
+ *     console.log(available);
+ *   }
+ * }
+ * ```
+ */
 export type XlvDetailValue = string | number | boolean | null | readonly string[] | readonly number[];
 
-/** Machine-readable details of an error. Keys are chosen by xlvane, never taken from the file. */
+/**
+ * Machine-readable details of an error. Keys are chosen by xlvane, never taken from the file.
+ *
+ * @example
+ * ```ts
+ * import { isXlvError, readWorkbook, type XlvDetails } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * try {
+ *   readWorkbook(bytes);
+ * } catch (error) {
+ *   if (isXlvError(error)) {
+ *     const details: XlvDetails = error.details;
+ *     console.log(Object.keys(details));
+ *   }
+ * }
+ * ```
+ */
 export type XlvDetails = Readonly<Record<string, XlvDetailValue>>;
 
-/** The JSON form of an {@link XlvError}, as returned by {@link XlvError.toJSON}. */
+/**
+ * The JSON form of an {@link XlvError}, as returned by {@link XlvError.toJSON}.
+ *
+ * @example
+ * ```ts
+ * import { isXlvError, readWorkbook, type XlvErrorJSON } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * try {
+ *   readWorkbook(bytes);
+ * } catch (error) {
+ *   if (isXlvError(error)) {
+ *     const json: XlvErrorJSON = error.toJSON();
+ *     console.log(JSON.stringify(json));
+ *   }
+ * }
+ * ```
+ */
 export interface XlvErrorJSON {
   readonly name: 'XlvError';
   readonly code: XlvErrorCode;
@@ -93,7 +215,22 @@ export interface XlvErrorJSON {
   readonly details: XlvDetails;
 }
 
-/** Options for constructing an {@link XlvError}. */
+/**
+ * Options for constructing an {@link XlvError}.
+ *
+ * @example
+ * ```ts
+ * import { XlvError, type XlvErrorInit } from 'xlvane';
+ *
+ * const init: XlvErrorInit = {
+ *   location: { sheet: 'Sales', cell: 'B2' },
+ *   hint: 'Use a number in B2.',
+ *   details: { expected: 'number' },
+ * };
+ * const error = new XlvError('XLV_E_INVALID_VALUE', 'B2 is not a number.', init);
+ * console.log(error.docsUrl);
+ * ```
+ */
 export interface XlvErrorInit {
   /** Where the problem is. */
   readonly location?: XlvLocation;
@@ -173,6 +310,15 @@ export function isXlvError(value: unknown): value is XlvError {
 /**
  * A warning about the input file. Warnings of the same code are aggregated per sheet: `count`
  * says how often the condition occurred and `cells` lists up to ten example cells.
+ *
+ * @example
+ * ```ts
+ * import { readWorkbook, type XlvWarning } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const warnings: readonly XlvWarning[] = readWorkbook(bytes).warnings;
+ * for (const warning of warnings) console.log(warning.code, warning.count, warning.cells ?? []);
+ * ```
  */
 export interface XlvWarning {
   readonly code: XlvWarningCode;

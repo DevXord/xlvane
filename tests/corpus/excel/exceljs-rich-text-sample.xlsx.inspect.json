@@ -1,0 +1,97 @@
+{
+  "schemaVersion": 1,
+  "format": "xlsx",
+  "conformance": "transitional",
+  "dateSystem": "1900",
+  "hasMacros": false,
+  "externalLinkCount": 0,
+  "properties": {
+    "created": "2016-01-05T11:22:57.000Z",
+    "creator": "x",
+    "lastModifiedBy": "x",
+    "modified": "2016-01-05T11:25:30.000Z",
+    "application": "Microsoft Macintosh Excel",
+    "appVersion": "14.0300",
+    "company": ""
+  },
+  "definedNames": [],
+  "definedNamesTruncated": false,
+  "sheetCount": 1,
+  "sheets": [
+    {
+      "name": "Sheet1",
+      "index": 0,
+      "kind": "worksheet",
+      "state": "visible",
+      "dimension": "A1:B2",
+      "usedRange": "A1:B2",
+      "cellCount": 4,
+      "formulaCount": 0,
+      "mergedRanges": [],
+      "mergedRangeCount": 0,
+      "mergedRangesTruncated": false,
+      "formulas": [],
+      "richTextCellCount": 1,
+      "richTextCells": [
+        "A1"
+      ],
+      "styledColumns": [],
+      "hyperlinkCount": 0,
+      "hyperlinks": [],
+      "noteCount": 0,
+      "notes": [],
+      "imageCount": 0,
+      "images": [],
+      "protected": false,
+      "printArea": null,
+      "pageBreakCount": 0,
+      "dataValidationCount": 0,
+      "conditionalFormatCount": 0,
+      "tables": [],
+      "rowCount": 2,
+      "columnCount": 2,
+      "headerRow": {
+        "row": 1,
+        "confidence": "low"
+      },
+      "columns": [
+        {
+          "index": 1,
+          "letter": "A",
+          "header": "This is a colorful text with in-cell format",
+          "dominantType": "string",
+          "types": {
+            "number": 0,
+            "string": 1,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            "This is a colorful text with in-cell format"
+          ]
+        },
+        {
+          "index": 2,
+          "letter": "B",
+          "header": "2 cells in row",
+          "dominantType": "string",
+          "types": {
+            "number": 0,
+            "string": 1,
+            "boolean": 0,
+            "date": 0,
+            "error": 0,
+            "empty": 0
+          },
+          "samples": [
+            "2 cells in row"
+          ]
+        }
+      ],
+      "columnsTruncated": false
+    }
+  ],
+  "warnings": []
+}

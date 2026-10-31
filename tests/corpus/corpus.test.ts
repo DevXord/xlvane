@@ -1,6 +1,7 @@
 // Runs inspect() on every workbook in the corpus and compares the result with the JSON snapshot
 // stored next to the file (`<name>.inspect.json`; create or update with `npx vitest run -u`).
 // Files that xlvane must reject (encrypted workbooks, legacy .xls) snapshot their error instead.
+// The Apache POI corpus has its own test (poi.test.ts).
 // Every file must be listed in tests/corpus/LICENSES.md; files still to be supplied are listed in
 // tests/corpus/REQUESTED.md.
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { XlvError } from '../../packages/xlvane/src/errors';
 import { inspect } from '../../packages/xlvane/src/inspect';
 
-const SOURCES = ['excel', 'libreoffice', 'google-sheets', 'other'] as const;
+const SOURCES = ['excel', 'libreoffice', 'google-sheets', 'numbers', 'other'] as const;
 const root = new URL('./', import.meta.url);
 const licenses = readFileSync(fileURLToPath(new URL('LICENSES.md', root)), 'utf8');
 

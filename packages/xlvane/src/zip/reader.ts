@@ -33,6 +33,11 @@ export interface ZipReader {
   read(entry: ZipEntry | string): Uint8Array;
   /** Total number of decompressed bytes returned so far. */
   readonly bytesRead: number;
+  /**
+   * The compressed bytes of a stored or Deflate entry as they are in the archive, without
+   * inflating them, or `null` when they cannot be copied as they are (D-R03).
+   */
+  raw?(entry: ZipEntry): { readonly method: 0 | 8; readonly crc32: number; readonly uncompressedSize: number; readonly body: Uint8Array } | null;
 }
 
 const SIG_LOCAL = 0x04034b50;
@@ -43,22 +48,22 @@ const SIG_ZIP64_LOCATOR = 0x07064b50;
 const EOCD_SIZE = 22;
 const ZIP64_LOCATOR_SIZE = 20;
 const CENTRAL_SIZE = 46;
-const LOCAL_SIZE = 30;
+export const LOCAL_SIZE = 30;
 const MAX_COMMENT = 0xffff;
 const FLAG_ENCRYPTED = 0x0001;
 const FLAG_STRONG_ENCRYPTION = 0x0040;
 const FLAG_UTF8 = 0x0800;
 const FLAG_CENTRAL_ENCRYPTED = 0x2000;
-const METHOD_STORED = 0;
-const METHOD_DEFLATE = 8;
+export const METHOD_STORED = 0;
+export const METHOD_DEFLATE = 8;
 /** Compressed bytes handed to the decompressor at a time; bounds the overshoot past a limit. */
 const INFLATE_CHUNK = 8 * 1024;
 const CFB_SIGNATURE = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1];
 
-const CORRUPT_HINT =
+export const CORRUPT_HINT =
   'The file is damaged or is not a valid XLSX file. Re-save it in a spreadsheet application or ask the sender for a new copy.';
 
-function corrupt(message: string, reason: string, offset?: number, extra: XlvDetails = {}): XlvError {
+export function corrupt(message: string, reason: string, offset?: number, extra: XlvDetails = {}): XlvError {
   return new XlvError('XLV_E_ZIP_CORRUPT', message, {
     location: offset === undefined ? {} : { offset },
     hint: CORRUPT_HINT,
@@ -66,7 +71,7 @@ function corrupt(message: string, reason: string, offset?: number, extra: XlvDet
   });
 }
 
-function unsupported(message: string, reason: string, hint: string, name?: string): XlvError {
+export function unsupported(message: string, reason: string, hint: string, name?: string): XlvError {
   return new XlvError('XLV_E_ZIP_UNSUPPORTED', message, {
     location: name === undefined ? {} : { part: `/${name}` },
     hint,
@@ -74,7 +79,7 @@ function unsupported(message: string, reason: string, hint: string, name?: strin
   });
 }
 
-function limitExceeded(limit: keyof ReadLimits, value: number, message: string, name?: string): XlvError {
+export function limitExceeded(limit: keyof ReadLimits, value: number, message: string, name?: string): XlvError {
   return new XlvError('XLV_E_LIMIT_EXCEEDED', message, {
     location: name === undefined ? {} : { part: `/${name}` },
     hint: `If you trust this file, raise the limit, for example { limits: { ${limit}: ${String(value * 4)} } }.`,
@@ -82,10 +87,96 @@ function limitExceeded(limit: keyof ReadLimits, value: number, message: string, 
   });
 }
 
-class Bytes {
-  constructor(readonly data: Uint8Array) {}
+/** Thrown by {@link Bytes} when a byte outside the loaded segments is read (streaming sources only). */
+export class NotLoaded extends Error {
+  constructor(
+    readonly start: number,
+    readonly end: number,
+  ) {
+    super(`Bytes ${String(start)}…${String(end)} are not loaded.`);
+  }
+}
+
+interface Segment {
+  readonly start: number;
+  readonly data: Uint8Array;
+}
+
+/**
+ * Little-endian access to a file of `size` bytes, of which only some segments may be in memory
+ * (all of it for `openZip`; the tail, the central directory and local headers for streaming
+ * sources). Offsets are absolute.
+ */
+export class Bytes {
+  private readonly segments: Segment[] = [];
+  private last: Segment | undefined;
+
+  constructor(
+    readonly size: number,
+    segments: readonly Segment[],
+  ) {
+    for (const segment of segments) this.add(segment.start, segment.data);
+  }
+
+  static of(data: Uint8Array): Bytes {
+    return new Bytes(data.length, [{ start: 0, data }]);
+  }
+
+  add(start: number, data: Uint8Array): void {
+    const segment = { start, data };
+    this.segments.push(segment);
+    this.segments.sort((a, b) => a.start - b.start);
+    this.last = segment;
+  }
+
+  /** Whether `[start, end)` is fully inside one loaded segment. */
+  has(start: number, end: number): boolean {
+    return this.find(start, end) !== undefined;
+  }
+
+  private find(start: number, end: number): Segment | undefined {
+    const last = this.last;
+    if (last && start >= last.start && end <= last.start + last.data.length) return last;
+    // Binary search for the last segment starting at or before `start`.
+    let lo = 0;
+    let hi = this.segments.length - 1;
+    let found: Segment | undefined;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      const seg = this.segments[mid] as Segment;
+      if (seg.start <= start) {
+        found = seg;
+        lo = mid + 1;
+      } else hi = mid - 1;
+    }
+    // Overlapping segments: walk back to one that covers the range.
+    for (let i = found === undefined ? -1 : this.segments.indexOf(found); i >= 0; i--) {
+      const seg = this.segments[i] as Segment;
+      if (end <= seg.start + seg.data.length && start >= seg.start) {
+        this.last = seg;
+        return seg;
+      }
+    }
+    return undefined;
+  }
+
+  /** The bytes `[start, end)`; throws {@link NotLoaded} if they are not in memory. */
+  slice(start: number, end: number): Uint8Array {
+    if (end <= start) return new Uint8Array(0);
+    const seg = this.find(start, end);
+    if (seg === undefined) throw new NotLoaded(start, end);
+    return seg.data.subarray(start - seg.start, end - seg.start);
+  }
+
+  byte(at: number): number {
+    if (at < 0 || at >= this.size) return 0;
+    const seg = this.find(at, at + 1);
+    if (seg === undefined) throw new NotLoaded(at, at + 1);
+    return seg.data[at - seg.start] as number;
+  }
+
   u16(at: number): number {
-    return (this.data[at] as number) | ((this.data[at + 1] as number) << 8);
+    return this.byte(at) | (this.byte(at + 1) << 8);
   }
   u32(at: number): number {
     return (this.u16(at) | (this.u16(at + 2) << 16)) >>> 0;
@@ -104,15 +195,45 @@ class Bytes {
  * `XLV_E_ZIP_UNSUPPORTED` or `XLV_E_LIMIT_EXCEEDED`.
  */
 export function openZip(data: Uint8Array, limits: ReadLimits): ZipReader {
-  if (data.length > limits.maxInputBytes) {
-    throw limitExceeded('maxInputBytes', limits.maxInputBytes, `The input is ${data.length} bytes, more than the limit.`);
+  checkSource(data.length, data.subarray(0, CFB_SIGNATURE.length), limits);
+  const b = Bytes.of(data);
+  const dir = locateCentralDirectory(b, limits);
+  const entries = readCentralDirectory(b, dir.centralOffset, dir.centralLimit, dir.entryCount);
+  validateLocalHeaders(b, entries, dir.centralOffset);
+  return new Reader(b, entries, limits);
+}
+
+/** Bytes needed at the end of a file to find the end record and a directly preceding ZIP64 locator. */
+export const TAIL_BYTES: number = EOCD_SIZE + MAX_COMMENT + ZIP64_LOCATOR_SIZE;
+/** Bytes needed at the start of a file to recognise CFB containers and local headers. */
+export const HEAD_BYTES: number = CFB_SIGNATURE.length;
+
+/** Input size limit and CFB detection, from the size and the first bytes of the input. */
+export function checkSource(size: number, head: Uint8Array, limits: ReadLimits): void {
+  if (size > limits.maxInputBytes) {
+    throw limitExceeded('maxInputBytes', limits.maxInputBytes, `The input is ${size} bytes, more than the limit.`);
   }
-  if (CFB_SIGNATURE.every((b, i) => data[i] === b)) {
+  if (CFB_SIGNATURE.every((b, i) => head[i] === b)) {
     throw new XlvError('XLV_E_UNSUPPORTED_CONTAINER', 'The file is a Compound File Binary container, not a ZIP-based XLSX file.', {
       hint: 'This is either a legacy .xls workbook or a password-protected (encrypted) .xlsx workbook. Open it in a spreadsheet application and save it as an unencrypted .xlsx file.',
     });
   }
-  const b = new Bytes(data);
+}
+
+/** Where the central directory is, from the end record (and the ZIP64 records). */
+export interface CentralDirectoryLocation {
+  readonly centralOffset: number;
+  readonly centralSize: number;
+  /** Where the structures that follow the central directory begin. */
+  readonly centralLimit: number;
+  readonly entryCount: number;
+}
+
+/**
+ * Finds and checks the end of central directory record (and the ZIP64 record and locator).
+ * Needs the tail of the file loaded (and the ZIP64 record, which may lie before the tail).
+ */
+export function locateCentralDirectory(b: Bytes, limits: ReadLimits): CentralDirectoryLocation {
   const eocd = findEndOfCentralDirectory(b);
 
   let thisDisk = b.u16(eocd + 4);
@@ -161,10 +282,7 @@ export function openZip(data: Uint8Array, limits: ReadLimits): ZipReader {
   if (centralOffset + centralSize !== centralLimit) {
     throw corrupt('The central directory is not where the end of central directory record says.', 'central-directory-bounds', centralOffset);
   }
-
-  const entries = readCentralDirectory(b, centralOffset, centralLimit, entryCount);
-  validateLocalHeaders(b, entries, centralOffset);
-  return new Reader(b, entries, limits);
+  return { centralOffset, centralSize, centralLimit, entryCount };
 }
 
 /**
@@ -173,17 +291,19 @@ export function openZip(data: Uint8Array, limits: ReadLimits): ZipReader {
  * define a search algorithm (Z-03), so this reader picks the strictest one.
  */
 function findEndOfCentralDirectory(b: Bytes): number {
-  const data = b.data;
-  const lowest = Math.max(0, data.length - EOCD_SIZE - MAX_COMMENT);
-  for (let at = data.length - EOCD_SIZE; at >= lowest; at--) {
-    if (data[at] === 0x50 && data[at + 1] === 0x4b && b.u32(at) === SIG_EOCD) {
-      if (at + EOCD_SIZE + b.u16(at + 20) === data.length) return at;
+  const size = b.size;
+  const lowest = Math.max(0, size - EOCD_SIZE - MAX_COMMENT);
+  const data = b.slice(lowest, size);
+  for (let at = size - EOCD_SIZE; at >= lowest; at--) {
+    const i = at - lowest;
+    if (data[i] === 0x50 && data[i + 1] === 0x4b && b.u32(at) === SIG_EOCD) {
+      if (at + EOCD_SIZE + b.u16(at + 20) === size) return at;
     }
   }
-  if (data.length >= 4 && b.u32(0) === SIG_LOCAL) {
+  if (size >= 4 && b.u32(0) === SIG_LOCAL) {
     throw corrupt('The end of the ZIP archive is missing; the file is probably truncated.', 'eocd-missing');
   }
-  if (data.length >= EOCD_SIZE && data.indexOf(0x50) !== -1 && containsSignature(data, lowest)) {
+  if (size >= EOCD_SIZE && data.indexOf(0x50) !== -1 && containsSignature(data, 0)) {
     throw corrupt('The end of central directory record is followed by unexpected data.', 'trailing-data');
   }
   throw new XlvError('XLV_E_NOT_ZIP', 'The input is not a ZIP archive, so it cannot be an XLSX file.', {
@@ -198,11 +318,11 @@ function containsSignature(data: Uint8Array, from: number): boolean {
   return false;
 }
 
-interface RawEntry extends ZipEntry {
+export interface RawEntry extends ZipEntry {
   readonly nameBytes: Uint8Array;
 }
 
-function readCentralDirectory(b: Bytes, start: number, end: number, count: number): RawEntry[] {
+export function readCentralDirectory(b: Bytes, start: number, end: number, count: number): RawEntry[] {
   const entries: RawEntry[] = [];
   const seen = new Map<string, string>();
   let p = start;
@@ -222,7 +342,7 @@ function readCentralDirectory(b: Bytes, start: number, end: number, count: numbe
     let headerOffset = b.u32(p + 42);
     const next = p + CENTRAL_SIZE + nameLength + extraLength + commentLength;
     if (next > end) throw corrupt('A central directory entry runs past the end of the directory.', 'central-directory-entry', p);
-    const nameBytes = b.data.subarray(p + CENTRAL_SIZE, p + CENTRAL_SIZE + nameLength);
+    const nameBytes = b.slice(p + CENTRAL_SIZE, p + CENTRAL_SIZE + nameLength);
     const name = decodeName(nameBytes, flags, p);
 
     if (flags & (FLAG_ENCRYPTED | FLAG_STRONG_ENCRYPTION | FLAG_CENTRAL_ENCRYPTED) || method === 99) {
@@ -302,7 +422,7 @@ function findExtraField(b: Bytes, start: number, length: number, id: number): { 
  * which entries overlap each other or the central directory (the "better zip bomb" technique,
  * W-06, W-07). Fills in the data offsets.
  */
-function validateLocalHeaders(b: Bytes, entries: RawEntry[], centralOffset: number): void {
+export function validateLocalHeaders(b: Bytes, entries: RawEntry[], centralOffset: number): void {
   const spans: { start: number; end: number; entry: RawEntry; index: number }[] = [];
   entries.forEach((entry, index) => {
     const at = entry.headerOffset;
@@ -339,7 +459,7 @@ function validateLocalHeaders(b: Bytes, entries: RawEntry[], centralOffset: numb
     const { entry } = span;
     const at = entry.headerOffset;
     const nameLength = b.u16(at + 26);
-    const localName = b.data.subarray(at + LOCAL_SIZE, at + LOCAL_SIZE + nameLength);
+    const localName = b.slice(at + LOCAL_SIZE, at + LOCAL_SIZE + nameLength);
     if (!sameBytes(localName, entry.nameBytes) || b.u16(at + 8) !== entry.method) {
       throw corrupt(`The local header of "${entry.name}" does not match the central directory.`, 'local-header-mismatch', at, {
         name: entry.name,
@@ -373,6 +493,16 @@ class Reader implements ZipReader {
     return this.byName.get(name.toLowerCase());
   }
 
+  raw(entry: ZipEntry): { readonly method: 0 | 8; readonly crc32: number; readonly uncompressedSize: number; readonly body: Uint8Array } | null {
+    if (entry.method === METHOD_STORED && entry.compressedSize === entry.uncompressedSize) {
+      return { method: 0, crc32: entry.crc32, uncompressedSize: entry.uncompressedSize, body: this.b.slice(entry.dataOffset, entry.dataOffset + entry.compressedSize) };
+    }
+    if (entry.method === METHOD_DEFLATE) {
+      return { method: 8, crc32: entry.crc32, uncompressedSize: entry.uncompressedSize, body: this.b.slice(entry.dataOffset, entry.dataOffset + entry.compressedSize) };
+    }
+    return null;
+  }
+
   read(entryOrName: ZipEntry | string): Uint8Array {
     const entry = typeof entryOrName === 'string' ? this.find(entryOrName) : entryOrName;
     if (entry === undefined) {
@@ -388,7 +518,7 @@ class Reader implements ZipReader {
     if (this.bytesRead + entry.uncompressedSize > limits.maxTotalBytes) {
       throw limitExceeded('maxTotalBytes', limits.maxTotalBytes, 'The decompressed parts of the file are larger than the limit.', entry.name);
     }
-    const compressed = this.b.data.subarray(entry.dataOffset, entry.dataOffset + entry.compressedSize);
+    const compressed = this.b.slice(entry.dataOffset, entry.dataOffset + entry.compressedSize);
     let out: Uint8Array;
     if (entry.method === METHOD_STORED) {
       if (entry.compressedSize !== entry.uncompressedSize) {

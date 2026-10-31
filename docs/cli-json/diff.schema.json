@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "diff.schema.json",
+  "title": "xlvane diff --json (the diff() result)",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "const": "diff"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "equal": {
+              "type": "boolean"
+            },
+            "sheetsAdded": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sheetsRemoved": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "sheets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "state": {
+                    "type": "object",
+                    "properties": {
+                      "before": {
+                        "enum": [
+                          "visible",
+                          "hidden",
+                          "veryHidden"
+                        ]
+                      },
+                      "after": {
+                        "enum": [
+                          "visible",
+                          "hidden",
+                          "veryHidden"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "before",
+                      "after"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "cells": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "ref": {
+                          "type": "string"
+                        },
+                        "kind": {
+                          "enum": [
+                            "added",
+                            "removed",
+                            "changed"
+                          ]
+                        },
+                        "before": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "$ref": "common.schema.json#/$defs/cellType"
+                                },
+                                "value": {
+                                  "$ref": "common.schema.json#/$defs/scalar"
+                                },
+                                "formula": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "style": {
+                                  "type": "object",
+                                  "description": "CellStyle, present only with --styles"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "value",
+                                "formula"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "after": {
+                          "oneOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "type": {
+                                  "$ref": "common.schema.json#/$defs/cellType"
+                                },
+                                "value": {
+                                  "$ref": "common.schema.json#/$defs/scalar"
+                                },
+                                "formula": {
+                                  "type": [
+                                    "string",
+                                    "null"
+                                  ]
+                                },
+                                "style": {
+                                  "type": "object",
+                                  "description": "CellStyle, present only with --styles"
+                                }
+                              },
+                              "required": [
+                                "type",
+                                "value",
+                                "formula"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        }
+                      },
+                      "required": [
+                        "ref",
+                        "kind",
+                        "before",
+                        "after"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
+                  "truncated": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "name",
+                  "cells",
+                  "truncated"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "summary": {
+              "type": "object",
+              "properties": {
+                "sheetsAdded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sheetsRemoved": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "sheetsChanged": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cellsAdded": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cellsRemoved": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "cellsChanged": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              },
+              "required": [
+                "sheetsAdded",
+                "sheetsRemoved",
+                "sheetsChanged",
+                "cellsAdded",
+                "cellsRemoved",
+                "cellsChanged"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "equal",
+            "sheetsAdded",
+            "sheetsRemoved",
+            "sheets",
+            "summary"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "common.schema.json#/$defs/errorEnvelope"
+    }
+  ]
+}

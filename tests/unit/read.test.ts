@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { readWorkbook } from '../../packages/xlvane/src/read';
+import { openWorkbookStream } from '../../packages/xlvane/src/stream-read';
 import { serialToDate } from '../../packages/xlvane/src/sml/dates';
 import type { Cell, Workbook } from '../../packages/xlvane/src/model';
 import { expectXlvError } from '../helpers/expect-error';
@@ -178,10 +179,51 @@ describe('cell layout', () => {
     expect(wb.warnings).toContainEqual(expect.objectContaining({ code: 'XLV_W_DUPLICATE_CELL', count: 1, cells: ['A1'] }));
   });
 
-  it.each(['A0', 'XFE1', 'A1048577', '1A', 'A-1', ''])('rejects the invalid cell reference "%s"', (ref) => {
-    const xlsx = buildXlsx({ sheets: [{ name: 'S', data: `<row r="1"><c r="${ref}"><v>1</v></c></row>` }] });
-    const error = expectXlvError(() => readWorkbook(xlsx), 'XLV_E_INVALID_CELL_REF');
-    expect(error.location).toMatchObject({ sheet: 'S', part: '/xl/worksheets/sheet1.xml' });
+  // LibreOffice 24.2 drops such cells and rows and opens the rest of the file (D-903), so the
+  // reader skips them with a warning instead of refusing the file.
+  it.each(['A0', 'XFE1', 'A1048577', '1A', 'A-1', 'B', 'ZZZZ1'])('skips a cell with the invalid reference "%s" and warns', (ref) => {
+    const xlsx = buildXlsx({ sheets: [{ name: 'S', data: `<row r="1"><c r="A1"><v>1</v></c><c r="${ref}"><v>2</v></c><c><v>3</v></c></row>` }] });
+    const wb = readWorkbook(xlsx);
+    const s = wb.getSheet('S');
+    expect(s.cellCount).toBe(2);
+    expect(s.cell('A1')?.value).toBe(1);
+    // A cell without r follows the last valid cell.
+    expect(s.cell('B1')?.value).toBe(3);
+    expect(wb.warnings).toContainEqual(expect.objectContaining({ code: 'XLV_W_INVALID_CELL_REF', count: 1, location: { part: '/xl/worksheets/sheet1.xml', sheet: 'S' } }));
+  });
+
+  it('treats an empty cell reference like a missing one', () => {
+    const wb = readWorkbook(buildXlsx({ sheets: [{ name: 'S', data: '<row r="1"><c r="A1"><v>1</v></c><c r=""><v>2</v></c></row>' }] }));
+    expect(wb.getSheet('S').cell('B1')?.value).toBe(2);
+    expect(wb.warnings).toEqual([]);
+  });
+
+  it.each(['0', 'x', '1048577', '-1'])('skips a row with the invalid number "%s" and warns', (r) => {
+    const xlsx = buildXlsx({ sheets: [{ name: 'S', data: `<row r="1"><c r="A1"><v>1</v></c></row><row r="${r}" ht="30"><c><v>2</v></c><c r="B2"><v>3</v></c></row><row r="3"><c r="A3"><v>4</v></c></row>` }] });
+    const wb = readWorkbook(xlsx);
+    const s = wb.getSheet('S');
+    expect([...s.cells()].map((c) => [c.ref, c.value])).toEqual([
+      ['A1', 1],
+      ['A3', 4],
+    ]);
+    expect(s.rowInfo(2) ?? null).toBeNull();
+    expect(wb.warnings).toContainEqual(expect.objectContaining({ code: 'XLV_W_INVALID_CELL_REF', count: 1 }));
+  });
+
+  it('skips cells past the last column when references are missing', () => {
+    const cells = '<c><v>1</v></c>'.repeat(16_385);
+    const wb = readWorkbook(buildXlsx({ sheets: [{ name: 'S', data: `<row r="1">${cells}</row>` }] }));
+    expect(wb.getSheet('S').cellCount).toBe(16_384);
+    expect(wb.warnings).toContainEqual(expect.objectContaining({ code: 'XLV_W_INVALID_CELL_REF', count: 1 }));
+  });
+
+  it('streaming reads the same cells and warnings', async () => {
+    const xlsx = buildXlsx({ sheets: [{ name: 'S', data: '<row r="1"><c r="A1"><v>1</v></c><c r="B"><v>2</v></c></row><row r="0"><c><v>3</v></c></row>' }] });
+    const book = await openWorkbookStream(xlsx);
+    const values: unknown[] = [];
+    for await (const row of book.rows('S')) for (const c of row.cells) values.push([c.ref, c.value]);
+    expect(values).toEqual([['A1', 1]]);
+    expect(book.warnings.map((w) => [w.code, w.count])).toEqual(readWorkbook(xlsx).warnings.map((w) => [w.code, w.count]));
   });
 
   it('enforces maxCells across sheets', () => {
@@ -216,7 +258,7 @@ describe('formulas', () => {
 
   it('reads shared master, shared child and array formulas', () => {
     expect(s.cell('A1')?.formula).toEqual({ kind: 'shared', text: 'B1*2', ref: 'A1:A3', sharedIndex: 0 });
-    expect(s.cell('A2')?.formula).toEqual({ kind: 'shared', text: null, ref: null, sharedIndex: 0 });
+    expect(s.cell('A2')?.formula).toEqual({ kind: 'shared', text: 'B2*2', ref: null, sharedIndex: 0 });
     expect(s.cell('A2')?.value).toBe(4);
     expect(s.cell('B1')?.formula).toEqual({ kind: 'array', text: 'SUM(C1:C2*2)', ref: 'B1:B2', sharedIndex: null });
   });
@@ -224,8 +266,9 @@ describe('formulas', () => {
   it('keeps formula cells without a cached value and warns', () => {
     expect(s.cell('C1')).toMatchObject({ type: 'empty', value: null, formula: { text: '1/0' } });
     expect(warningCodes(wb)).toEqual(
-      expect.arrayContaining(['XLV_W_SHARED_FORMULA_NOT_EXPANDED', 'XLV_W_FORMULA_NO_CACHED_VALUE']),
+      expect.arrayContaining(['XLV_W_FORMULA_NO_CACHED_VALUE']),
     );
+    expect(warningCodes(wb)).not.toContain('XLV_W_SHARED_FORMULA_NOT_EXPANDED');
   });
 });
 

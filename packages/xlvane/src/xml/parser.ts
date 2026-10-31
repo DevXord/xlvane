@@ -25,11 +25,32 @@ export interface XmlHandler {
    * name, namespaced ones in Clark notation (`{namespace}local`). Namespace declarations are
    * not included.
    */
-  start(ns: string, local: string, attrs: ReadonlyMap<string, string>): void;
+  start(ns: string, local: string, attrs: ReadonlyMap<string, string>, span: XmlSpan): void;
   /** An end tag (also reported for empty-element tags). */
-  end(ns: string, local: string): void;
+  end(ns: string, local: string, span: XmlSpan): void;
   /** Character data between two tags, with references expanded and CDATA sections included. */
   text(value: string): void;
+}
+
+/**
+ * Where a tag is in the parsed text, as UTF-16 offsets into the text after end-of-line
+ * normalisation ({@link normalizeLineEnds}). For an empty-element tag the end event has
+ * `start === end` at the end of the tag. Used by surgical editing (docs/decisions.md D-309).
+ */
+export interface XmlSpan {
+  /** Offset of `<`. */
+  readonly start: number;
+  /** Offset just after `>`. */
+  readonly end: number;
+  /** The qualified name as written, for example `x:row`. */
+  readonly qname: string;
+  /** `true` for an empty-element tag such as `<c r="A1"/>`. */
+  readonly empty: boolean;
+}
+
+/** XML 1.0 §2.11: CR LF and lone CR become LF. The parser applies this before parsing. */
+export function normalizeLineEnds(xml: string): string {
+  return xml.indexOf('\r') === -1 ? xml : xml.replace(/\r\n?/g, '\n');
 }
 
 /** Options for {@link parseXml}. */
@@ -136,32 +157,162 @@ interface OpenElement {
  * `XLV_E_XML_ENTITY_FORBIDDEN` or `XLV_E_LIMIT_EXCEEDED`.
  */
 export function parseXml(xml: string, handler: XmlHandler, options: XmlParseOptions): void {
-  new Parser(xml, handler, options).run();
+  const parser = new Parser(handler, options, true);
+  parser.write(xml);
+  parser.end();
 }
 
+/**
+ * A parser that receives a document in pieces. Call `write` for each piece and `end` once.
+ * Events, errors and limits are those of {@link parseXml} on the whole text, with two
+ * differences (docs/decisions.md D-402): an error is reported when the piece that contains it
+ * arrives, so events from earlier pieces may already have been delivered, and when a document
+ * has several errors the one found first may differ (whole-text parsing checks every character
+ * before anything else). Character data between two tags is still delivered in one `text` call.
+ */
+export interface XmlStreamParser {
+  write(chunk: string): void;
+  end(): void;
+  /** Number of characters currently held (unparsed input plus pending text); for diagnostics and tests. */
+  readonly buffered: number;
+}
+
+/**
+ * Creates a parser for a document given in pieces of text. Memory is bounded by the largest
+ * single token (a tag, comment, processing instruction, CDATA section or text run) and not by
+ * the size of the document: consumed input is dropped.
+ */
+export function createXmlStreamParser(handler: XmlHandler, options: XmlParseOptions): XmlStreamParser {
+  const parser = new Parser(handler, options, false);
+  return {
+    write: (chunk) => parser.write(chunk),
+    end: () => parser.end(),
+    get buffered() {
+      return parser.buffered;
+    },
+  };
+}
+
+/** Consumed input is dropped once at least this many characters can go (amortises copying). */
+const COMPACT_THRESHOLD = 1 << 16;
+
 class Parser {
-  private readonly s: string;
+  /** Unconsumed input after end-of-line normalisation; `base` is the offset of s[0] in the whole text. */
+  private s = '';
+  private base = 0;
   private pos = 0;
   private readonly stack: OpenElement[] = [];
   /** Current prefix bindings; '' is the default namespace. */
   private readonly bindings = new Map<string, string>([['xml', XML_NAMESPACE]]);
   private textBuffer = '';
   private rootSeen = false;
+  private ended = false;
+  private declarationChecked = false;
+  /** A CR at the end of a piece: it may be the first half of CR LF. */
+  private pendingCR = false;
+  /** A high surrogate at the end of a piece: its low half may follow. */
+  private pendingHigh = '';
+  /** Newlines in dropped input and the offset where the current line starts (for locations). */
+  private droppedLines = 0;
+  private lineStartAbs = 0;
+  /** Character data run that was processed in parts: its start offset and that offset's location. */
+  private segmentStart = -1;
+  private segmentLocation: { part: string; line: number; column: number } | null = null;
+  /** Resumable search for the end of the token at `tokenAt`. */
+  private tokenAt = -1;
+  private tokenFrom = 0;
+  private tokenQuote = 0;
 
   constructor(
-    xml: string,
     private readonly handler: XmlHandler,
     private readonly options: XmlParseOptions,
-  ) {
-    // §2.11: translate CR LF and lone CR to LF before parsing.
-    this.s = xml.indexOf('\r') === -1 ? xml : xml.replace(/\r\n?/g, '\n');
+    /** `true` when the whole document arrives in one `write` (parseXml). */
+    private readonly whole: boolean,
+  ) {}
+
+  get buffered(): number {
+    return this.s.length - this.pos + this.textBuffer.length;
   }
 
-  run(): void {
-    this.checkCharacters();
+  write(chunk: string): void {
+    if (this.ended) throw new Error('XML stream parser: write() after end().');
+    let text = this.pendingCR ? `\r${chunk}` : chunk;
+    this.pendingCR = false;
+    if (!this.whole && text.endsWith('\r')) {
+      this.pendingCR = true;
+      text = text.slice(0, -1);
+    }
+    // §2.11: translate CR LF and lone CR to LF before parsing.
+    text = this.pendingHigh + normalizeLineEnds(text);
+    this.pendingHigh = '';
+    if (!this.whole && text.length > 0) {
+      const last = text.charCodeAt(text.length - 1);
+      if (last >= 0xd800 && last <= 0xdbff) {
+        this.pendingHigh = text.slice(-1);
+        text = text.slice(0, -1);
+      }
+    }
+    if (text.length === 0) return;
+    const from = this.s.length;
+    this.s += text;
+    this.checkCharacters(from);
+    if (!this.whole) {
+      this.pump(false);
+      this.compact();
+    }
+  }
+
+  end(): void {
+    if (this.ended) return;
+    // A held high surrogate always precedes a held CR (the CR is held last).
+    const tail = this.pendingHigh + (this.pendingCR ? '\n' : '');
+    this.pendingCR = false;
+    this.pendingHigh = '';
+    if (tail.length > 0) {
+      const from = this.s.length;
+      this.s += tail;
+      this.checkCharacters(from);
+    }
+    this.ended = true;
+    this.pump(true);
+  }
+
+  /** Drops consumed input, keeping line counts for error locations. */
+  private compact(): void {
+    const drop = this.pos;
+    if (drop < COMPACT_THRESHOLD && drop * 2 < this.s.length) return;
+    if (drop === 0) return;
     const s = this.s;
-    if (s.startsWith('<?xml') && (s.length === 5 || isWhitespace(s.charCodeAt(5)) || s.charCodeAt(5) === QUESTION)) {
-      this.skipProcessingInstruction(true);
+    let last = -1;
+    for (let i = s.indexOf('\n'); i !== -1 && i < drop; i = s.indexOf('\n', i + 1)) {
+      this.droppedLines++;
+      last = i;
+    }
+    if (last !== -1) this.lineStartAbs = this.base + last + 1;
+    this.s = s.slice(drop);
+    this.base += drop;
+    this.pos = 0;
+    if (this.tokenAt !== -1) {
+      this.tokenAt -= drop;
+      this.tokenFrom -= drop;
+    }
+  }
+
+  /**
+   * Parses as much as the buffer allows. With `final` false, a token that may continue in the
+   * next piece is left for later; with `final` true, the rest of the document is parsed and the
+   * end-of-document checks run, exactly as in whole-text parsing.
+   */
+  private pump(final: boolean): void {
+    const s = this.s;
+    if (!this.declarationChecked) {
+      if (s.length - this.pos < 6 && !final) return;
+      if (s.startsWith('<?xml', this.pos) && (s.length === 5 || isWhitespace(s.charCodeAt(5)) || s.charCodeAt(5) === QUESTION)) {
+        if (!final && s.indexOf('?>', this.pos + 2) === -1) return;
+        this.declarationChecked = true;
+        this.skipProcessingInstruction(true);
+      }
+      this.declarationChecked = true;
     }
     while (this.pos < s.length) {
       const lt = s.indexOf('<', this.pos);
@@ -172,31 +323,115 @@ class Parser {
             this.fail(this.rootSeen ? 'Text after the root element.' : 'Text before the root element.', i);
           }
         }
-        if (lt === -1) {
-          this.pos = s.length;
-          break;
-        }
-        this.pos = lt;
+        this.pos = end;
+        if (lt === -1) break;
+        if (!final && !this.tokenComplete(lt)) return;
         this.markupOutsideRoot();
         continue;
       }
       if (lt === -1) {
-        this.fail(`Element <${this.stack[this.stack.length - 1]?.qname ?? ''}> is not closed.`, s.length);
+        if (final) this.fail(`Element <${this.stack[this.stack.length - 1]?.qname ?? ''}> is not closed.`, s.length);
+        this.partialCharacterData();
+        return;
       }
       if (lt > this.pos) this.characterData(this.pos, lt);
       this.pos = lt;
+      if (!final && !this.tokenComplete(lt)) return;
       this.markupInContent();
     }
+    if (!final) return;
     if (this.stack.length > 0) {
       this.fail(`Element <${this.stack[this.stack.length - 1]?.qname ?? ''}> is not closed.`, s.length);
     }
     if (!this.rootSeen) this.fail('The document has no root element.', s.length);
   }
 
-  /** Every character must match the Char production (XML 1.0 §2.2). */
-  private checkCharacters(): void {
+  /**
+   * Whether the markup starting at `at` ends inside the buffer, so that parsing it cannot run
+   * past the end of the input received so far. The search resumes where it stopped.
+   */
+  private tokenComplete(at: number): boolean {
     const s = this.s;
-    for (let i = 0; i < s.length; i++) {
+    const length = s.length;
+    if (this.tokenAt !== at) {
+      this.tokenAt = at;
+      this.tokenFrom = at + 1;
+      this.tokenQuote = 0;
+    }
+    if (length - at < 2) return false;
+    const next = s.charCodeAt(at + 1);
+    let done: boolean;
+    if (next === 0x21 /* ! */) {
+      if (length - at >= 4 && s.startsWith('<!--', at)) {
+        const dashes = s.indexOf('--', Math.max(at + 4, this.tokenFrom));
+        done = dashes !== -1 && dashes + 2 < length;
+        if (!done) this.tokenFrom = Math.max(at + 4, length - 1);
+      } else if (length - at < 9) {
+        done = false;
+      } else if (s.startsWith('<![CDATA[', at)) {
+        done = s.indexOf(']]>', Math.max(at + 9, this.tokenFrom)) !== -1;
+        if (!done) this.tokenFrom = Math.max(at + 9, length - 2);
+      } else {
+        done = true; // DOCTYPE or another declaration: an error that needs no more input
+      }
+    } else if (next === QUESTION) {
+      done = s.indexOf('?>', Math.max(at + 2, this.tokenFrom)) !== -1;
+      if (!done) this.tokenFrom = Math.max(at + 2, length - 1);
+    } else if (next === SLASH) {
+      done = s.indexOf('>', Math.max(at + 2, this.tokenFrom)) !== -1;
+      if (!done) this.tokenFrom = length;
+    } else {
+      // A start tag ends at the first ">" outside a quoted attribute value.
+      let i = Math.max(at + 1, this.tokenFrom);
+      let quote = this.tokenQuote;
+      done = false;
+      for (; i < length; i++) {
+        const c = s.charCodeAt(i);
+        if (quote !== 0) {
+          if (c === quote) quote = 0;
+        } else if (c === QUOTE || c === APOS) {
+          quote = c;
+        } else if (c === GT) {
+          done = true;
+          break;
+        }
+      }
+      this.tokenFrom = i;
+      this.tokenQuote = quote;
+    }
+    if (done) this.tokenAt = -1;
+    return done;
+  }
+
+  /**
+   * Character data with no "<" after it yet. A run longer than the text limit is processed in
+   * parts, up to what cannot change when more input arrives (everything before an unfinished
+   * reference or a trailing "]" that may start "]]>"), so memory stays bounded.
+   */
+  private partialCharacterData(): void {
+    const s = this.s;
+    // Runs up to the text limit are kept whole until the next "<", so that their errors are
+    // found in the same order as in whole-text parsing; only longer runs are processed in parts.
+    if (s.length - this.pos <= this.options.limits.maxXmlTextLength) return;
+    let cut = s.length;
+    // Every "&" before the last ";" finds the same ";" as in whole-text parsing; the first "&"
+    // after it must wait for its ";".
+    const amp = s.indexOf('&', Math.max(this.pos, s.lastIndexOf(';') + 1));
+    if (amp !== -1) cut = amp;
+    while (cut > this.pos && s.charCodeAt(cut - 1) === 0x5d /* ] */ && cut > s.length - 2) cut--;
+    if (cut <= this.pos) return;
+    if (this.segmentStart === -1) {
+      this.segmentStart = this.base + this.pos;
+      this.segmentLocation = this.location(this.pos);
+    }
+    this.characterData(this.pos, cut);
+    this.pos = cut;
+  }
+
+  /** Every character from `from` on must match the Char production (XML 1.0 §2.2). */
+  private checkCharacters(from: number): void {
+    const s = this.s;
+    for (let i = from; i < s.length; i++) {
       const c = s.charCodeAt(i);
       if (c >= 0x20 && c < 0xd800) continue;
       if (c === LF || c === TAB || c === CR) continue;
@@ -226,6 +461,8 @@ class Parser {
   }
 
   private markupInContent(): void {
+    this.segmentStart = -1;
+    this.segmentLocation = null;
     const s = this.s;
     const next = s.charCodeAt(this.pos + 1);
     if (next === SLASH) return this.endTag();
@@ -245,21 +482,33 @@ class Parser {
     const raw = this.s.slice(from, to);
     const close = raw.indexOf(']]>');
     if (close !== -1) this.fail('The sequence "]]>" is not allowed in character data.', from + close);
-    this.appendText(raw.indexOf('&') === -1 ? raw : this.expandReferences(raw, from), from);
+    // A run processed in parts reports limits at its start, as whole-text parsing does.
+    const at = this.segmentStart === -1 ? this.base + from : this.segmentStart;
+    this.appendText(raw.indexOf('&') === -1 ? raw : this.expandReferences(raw, from), at);
   }
 
   private cdata(): void {
     const start = this.pos + 9;
     const end = this.s.indexOf(']]>', start);
     if (end === -1) this.fail('CDATA section is not terminated.', this.pos);
-    this.appendText(this.s.slice(start, end), this.pos);
+    this.appendText(this.s.slice(start, end), this.base + this.pos);
     this.pos = end + 3;
   }
 
+  /** `at` is an absolute offset. */
   private appendText(text: string, at: number): void {
     if (text.length === 0) return;
     if (this.textBuffer.length + text.length > this.options.limits.maxXmlTextLength) {
-      this.limit('maxXmlTextLength', 'Text node is longer than the limit.', at);
+      const message = 'Text node is longer than the limit.';
+      if (at === this.segmentStart && this.segmentLocation !== null && at < this.base) {
+        const details: XlvDetails = { limit: 'maxXmlTextLength', value: this.options.limits.maxXmlTextLength };
+        throw new XlvError('XLV_E_LIMIT_EXCEEDED', message, {
+          location: this.segmentLocation,
+          hint: `If you trust this file, raise the limit, for example { limits: { maxXmlTextLength: ${String(this.options.limits.maxXmlTextLength * 4)} } }.`,
+          details,
+        });
+      }
+      this.limit('maxXmlTextLength', message, at - this.base);
     }
     this.textBuffer += text;
   }
@@ -420,9 +669,10 @@ class Parser {
       attrs.set(key, value);
     }
 
-    this.handler.start(ns, local, attrs);
+    const span: XmlSpan = { start: this.base + tagStart, end: this.base + this.pos, qname, empty: selfClosing };
+    this.handler.start(ns, local, attrs, span);
     if (selfClosing) {
-      this.handler.end(ns, local);
+      this.handler.end(ns, local, { start: this.base + this.pos, end: this.base + this.pos, qname, empty: true });
       this.restore(undo);
     } else {
       this.stack.push({ qname, ns, local, undo });
@@ -444,7 +694,7 @@ class Parser {
       );
     }
     this.flushText();
-    this.handler.end(open.ns, open.local);
+    this.handler.end(open.ns, open.local, { start: this.base + tagStart, end: this.base + this.pos, qname, empty: false });
     this.restore(open.undo);
   }
 
@@ -573,14 +823,15 @@ class Parser {
 
   // ----- errors ---------------------------------------------------------------------------
 
+  /** Location of an offset into the current buffer. */
   private location(offset: number): { part: string; line: number; column: number } {
-    let line = 1;
-    let lineStart = 0;
+    let line = 1 + this.droppedLines;
+    let lineStart = this.lineStartAbs;
     for (let i = this.s.indexOf('\n'); i !== -1 && i < offset; i = this.s.indexOf('\n', i + 1)) {
       line++;
-      lineStart = i + 1;
+      lineStart = this.base + i + 1;
     }
-    return { part: this.options.part, line, column: offset - lineStart + 1 };
+    return { part: this.options.part, line, column: this.base + offset - lineStart + 1 };
   }
 
   private fail(message: string, offset: number): never {
@@ -651,4 +902,100 @@ function declaredEncoding(text: string): string | null {
   if (quote !== '"' && quote !== "'") return null;
   const close = decl.indexOf(quote, i + 1);
   return close === -1 ? null : decl.slice(i + 1, close);
+}
+
+/** A parser that receives the bytes of a part in pieces. */
+export interface XmlByteStreamParser {
+  write(bytes: Uint8Array): void;
+  end(): void;
+}
+
+/**
+ * Creates a parser for the bytes of a part given in pieces: the streaming equivalent of
+ * {@link decodeXml} followed by {@link parseXml}. A byte order mark selects UTF-16, otherwise
+ * UTF-8 is used; invalid byte sequences and a declared encoding other than the detected one
+ * throw `XLV_E_XML_ENCODING` with the same messages as `decodeXml`.
+ */
+export function createXmlByteStreamParser(handler: XmlHandler, options: XmlParseOptions): XmlByteStreamParser {
+  const text = createXmlStreamParser(handler, options);
+  const part = options.part;
+  let encoding: 'utf-8' | 'utf-16le' | 'utf-16be' | null = null;
+  let decoder: TextDecoder | null = null;
+  /** Bytes held until the encoding is known (at most the first two). */
+  let head = new Uint8Array(0);
+  /** Decoded text held until the XML declaration can be checked. */
+  let pending: string | null = '';
+
+  const encodingError = (cause: unknown): XlvError =>
+    new XlvError('XLV_E_XML_ENCODING', `The part is not valid ${(encoding ?? 'utf-8').toUpperCase()}.`, {
+      location: { part },
+      hint: 'Office Open XML parts must be encoded in UTF-8 or UTF-16. Re-save the file in a spreadsheet application.',
+      cause,
+    });
+
+  const decode = (bytes: Uint8Array, stream: boolean): string => {
+    try {
+      return (decoder ?? new TextDecoder('utf-8', { fatal: true })).decode(bytes, { stream });
+    } catch (cause) {
+      throw encodingError(cause);
+    }
+  };
+
+  /** Passes decoded text on, after checking the declaration once enough text has arrived. */
+  const feed = (chunk: string, final: boolean): void => {
+    if (pending === null) {
+      if (chunk.length > 0) text.write(chunk);
+      return;
+    }
+    pending += chunk;
+    const known = pending.length >= 5 && (!pending.startsWith('<?xml') || pending.indexOf('?>') !== -1);
+    if (!known && !final) return;
+    const declared = declaredEncoding(pending);
+    if (declared !== null) {
+      const normalized = declared.toLowerCase();
+      const ok = encoding === 'utf-8' ? normalized === 'utf-8' : normalized === 'utf-16' || normalized === encoding;
+      if (!ok) {
+        throw new XlvError('XLV_E_XML_ENCODING', `The part declares encoding "${declared}", which is not supported.`, {
+          location: { part },
+          hint: 'Office Open XML parts must be encoded in UTF-8 or UTF-16. Re-save the file in a spreadsheet application.',
+          details: { encoding: declared },
+        });
+      }
+    }
+    const all = pending;
+    pending = null;
+    if (all.length > 0) text.write(all);
+  };
+
+  const start = (bytes: Uint8Array): Uint8Array => {
+    if (bytes[0] === 0xff && bytes[1] === 0xfe) encoding = 'utf-16le';
+    else if (bytes[0] === 0xfe && bytes[1] === 0xff) encoding = 'utf-16be';
+    else encoding = 'utf-8';
+    decoder = new TextDecoder(encoding, { fatal: true });
+    return bytes;
+  };
+
+  return {
+    write(bytes) {
+      if (encoding === null) {
+        const joined = new Uint8Array(head.length + bytes.length);
+        joined.set(head);
+        joined.set(bytes, head.length);
+        if (joined.length < 2) {
+          head = joined;
+          return;
+        }
+        head = new Uint8Array(0);
+        feed(decode(start(joined), true), false);
+        return;
+      }
+      feed(decode(bytes, true), false);
+    },
+    end() {
+      if (encoding === null) start(head);
+      feed(decode(head, false), true);
+      head = new Uint8Array(0);
+      text.end();
+    },
+  };
 }

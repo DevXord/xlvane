@@ -3,9 +3,10 @@ import { describe, expect, it } from 'vitest';
 import { inspect } from '../../packages/xlvane/src/inspect';
 import { DEFAULT_READ_LIMITS } from '../../packages/xlvane/src/limits';
 import { readWorkbook } from '../../packages/xlvane/src/read';
+import { openWorkbookStream } from '../../packages/xlvane/src/stream-read';
 import { parseXml } from '../../packages/xlvane/src/xml/parser';
 import { parseXmlTree } from '../../packages/xlvane/src/xml/tree';
-import { expectXlvError } from '../helpers/expect-error';
+import { expectXlvError, expectXlvErrorAsync } from '../helpers/expect-error';
 import { buildXlsx, c, row } from '../helpers/xlsx-builder';
 
 function timed<T>(fn: () => T): { result: T; ms: number } {
@@ -64,4 +65,27 @@ describe('amplification attacks', () => {
     expect(result.warnings[0]).toMatchObject({ code: 'XLV_W_INVALID_VALUE', count: 20_000 });
     expect(ms).toBeLessThan(3000);
   });
+
+  it('limits shared-string text repeated across cells (maxSharedStringChars)', async () => {
+    // 2 000 cells point at one 100 000-character shared string: 200 M characters once copied.
+    const cells = Array.from({ length: 2000 }, (_, i) => row(i + 1, c(`A${i + 1}`, 0, 't="s"'))).join('');
+    const xlsx = buildXlsx({ sharedStrings: ['x'.repeat(100_000)], sheets: [{ name: 'S', data: cells }] });
+    const limits = { maxSharedStringChars: 50_000_000 };
+    expectXlvError(() => readWorkbook(xlsx, { limits }), 'XLV_E_LIMIT_EXCEEDED', { limit: 'maxSharedStringChars' });
+    await expectXlvErrorAsync(async () => {
+      const book = await openWorkbookStream(xlsx, { limits });
+      for await (const _row of book.rows('S')) {
+        // consume
+      }
+    }, 'XLV_E_LIMIT_EXCEEDED');
+    // Within the limit the same file reads, and a second pass over a streamed sheet starts afresh.
+    expect(readWorkbook(xlsx).getSheet('S').cellCount).toBe(2000);
+    const book = await openWorkbookStream(xlsx, { limits: { maxSharedStringChars: 300_000_000 } });
+    for (let pass = 0; pass < 2; pass++) {
+      let n = 0;
+      for await (const r of book.rows('S')) n += r.cells.length;
+      expect(n).toBe(2000);
+    }
+  });
 });
+

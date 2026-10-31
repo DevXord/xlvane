@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "read.schema.json",
+  "title": "xlvane read --json",
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "xlvane": {
+          "const": 1
+        },
+        "command": {
+          "const": "read"
+        },
+        "ok": {
+          "const": true
+        },
+        "result": {
+          "type": "object",
+          "properties": {
+            "sheet": {
+              "type": "string"
+            },
+            "headerRow": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "range": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "columns": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "key": {
+                    "type": "string"
+                  },
+                  "header": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "letter": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "key",
+                  "header",
+                  "letter"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "rows": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": {
+                  "$ref": "common.schema.json#/$defs/scalar"
+                }
+              },
+              "description": "Rows shown (at most --limit, default 50); dates are ISO 8601 text without a time zone."
+            },
+            "rowNumbers": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "totalRows": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Data rows in the table, shown or not."
+            },
+            "truncated": {
+              "type": "boolean",
+              "description": "true when rows holds fewer rows than totalRows; use --limit all for every row."
+            },
+            "warnings": {
+              "type": "array",
+              "description": "Warnings found while reading the input (docs/errors.md).",
+              "items": {
+                "$ref": "common.schema.json#/$defs/warning"
+              }
+            }
+          },
+          "required": [
+            "sheet",
+            "headerRow",
+            "range",
+            "columns",
+            "rows",
+            "rowNumbers",
+            "totalRows",
+            "truncated",
+            "warnings"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "xlvane",
+        "command",
+        "ok",
+        "result"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "$ref": "common.schema.json#/$defs/errorEnvelope"
+    }
+  ]
+}

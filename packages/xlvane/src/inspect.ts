@@ -1,3 +1,4 @@
+import { isoDate } from './util/iso-date';
 import { XlvError, type XlvWarning } from './errors';
 import type { ReadLimits } from './limits';
 import type { Cell, CellType, Conformance, DateSystem, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
@@ -6,7 +7,18 @@ import { columnLetters, formatRange, parseRange, type CellRange } from './sml/ce
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 
-/** Options for {@link inspect}. */
+/**
+ * Options for {@link inspect}.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectOptions } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const options: InspectOptions = { headerScanRows: 50, maxColumns: 20 };
+ * console.log(inspect(bytes, options).sheets.length);
+ * ```
+ */
 export interface InspectOptions {
   /** Resource limits used when `input` is a file; see {@link ReadLimits}. */
   readonly limits?: Partial<ReadLimits>;
@@ -18,10 +30,32 @@ export interface InspectOptions {
   readonly formulaSamples?: number;
 }
 
-/** A JSON-safe cell value: dates are ISO 8601 strings without a time zone. */
+/**
+ * A JSON-safe cell value: dates are ISO 8601 strings without a time zone.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectValue } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const samples: readonly InspectValue[] = inspect(bytes).sheets[0]?.columns[0]?.samples ?? [];
+ * console.log(samples.map((value) => typeof value));
+ * ```
+ */
 export type InspectValue = string | number | boolean;
 
-/** Counts of cell types in a column. */
+/**
+ * Counts of cell types in a column.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectTypeCounts } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const counts: InspectTypeCounts | undefined = inspect(bytes).sheets[0]?.columns[0]?.types;
+ * console.log(counts?.number, counts?.string, counts?.empty);
+ * ```
+ */
 export interface InspectTypeCounts {
   readonly number: number;
   readonly string: number;
@@ -31,7 +65,18 @@ export interface InspectTypeCounts {
   readonly empty: number;
 }
 
-/** Description of one column of the used range. */
+/**
+ * Description of one column of the used range.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectColumn } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const columns: readonly InspectColumn[] = inspect(bytes).sheets[0]?.columns ?? [];
+ * for (const column of columns) console.log(column.letter, column.header, column.dominantType);
+ * ```
+ */
 export interface InspectColumn {
   /** 1-based column number. */
   readonly index: number;
@@ -46,7 +91,18 @@ export interface InspectColumn {
   readonly samples: readonly InspectValue[];
 }
 
-/** Description of one sheet. */
+/**
+ * Description of one sheet.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectSheet } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const hidden: InspectSheet[] = inspect(bytes).sheets.filter((sheet) => sheet.state !== 'visible');
+ * console.log(hidden.map((sheet) => sheet.name));
+ * ```
+ */
 export interface InspectSheet {
   readonly name: string;
   readonly index: number;
@@ -63,17 +119,84 @@ export interface InspectSheet {
   /** Cells with a value or formula. */
   readonly cellCount: number;
   readonly formulaCount: number;
+  /** Merged ranges, at most the first 100; see `mergedRangeCount`. */
   readonly mergedRanges: readonly string[];
+  /** Number of merged ranges on the sheet. */
+  readonly mergedRangeCount: number;
+  /** `true` when `mergedRanges` lists only the first 100. */
+  readonly mergedRangesTruncated: boolean;
   /** Detected header row (1-based) and how sure the detection is, or `null`. */
   readonly headerRow: { readonly row: number; readonly confidence: 'high' | 'low' } | null;
   readonly columns: readonly InspectColumn[];
   /** `true` when the used range has more columns than `maxColumns`. */
   readonly columnsTruncated: boolean;
-  /** Example formulas (text `null` for cells that reuse a shared formula). */
+  /** Example formulas (text `null` only for shared formulas that could not be translated). */
   readonly formulas: readonly { readonly cell: string; readonly formula: string | null }[];
+  /** Cells whose text has formatted runs (`Cell.richText`). */
+  readonly richTextCellCount: number;
+  /** Up to ten of those cells, e.g. `["A1", "B4"]`. */
+  readonly richTextCells: readonly string[];
+  /** Columns with a default style (`ColumnInfo.style`), e.g. `["B", "D:F"]`; at most `maxColumns` entries. */
+  readonly styledColumns: readonly string[];
+  /** Number of hyperlinks (`Sheet.hyperlinks`). */
+  readonly hyperlinkCount: number;
+  /** Up to ten hyperlinks: range, external target and place in the workbook. Targets are never opened. */
+  readonly hyperlinks: readonly { readonly ref: string; readonly target: string | null; readonly location: string | null }[];
+  /** Number of notes (`Sheet.notes`). */
+  readonly noteCount: number;
+  /** Up to ten cells that have a note. */
+  readonly notes: readonly string[];
+  /** Number of pictures of the sheet's drawing (`Sheet.images`). */
+  readonly imageCount: number;
+  /** Up to ten pictures: the cell of the top-left corner (or `null` for an absolute position) and the image format. */
+  readonly images: readonly { readonly cell: string | null; readonly format: 'png' | 'jpeg' | 'gif' | null }[];
+  /** `true` when the sheet is protected (`Sheet.protection.sheet`). */
+  readonly protected: boolean;
+  /** The print area (`Sheet.printArea`), or `null`. */
+  readonly printArea: readonly string[] | null;
+  /** Number of manual page breaks, rows and columns together (`Sheet.pageBreaks`). */
+  readonly pageBreakCount: number;
+  /** Number of data validation rules (`Sheet.dataValidations`). */
+  readonly dataValidationCount: number;
+  /** Number of conditional formatting rules, over all ranges (`Sheet.conditionalFormats`). */
+  readonly conditionalFormatCount: number;
+  /** Tables of the sheet (`Sheet.tables`): name, range and column names; at most 20 tables and 50 columns each. */
+  readonly tables: readonly { readonly name: string; readonly ref: string; readonly columns: readonly string[] }[];
 }
 
-/** The result of {@link inspect}. Version 1 of the schema documented in docs/inspect-json.md. */
+/**
+ * A defined name as reported by {@link inspect}.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectDefinedName } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const names: readonly InspectDefinedName[] = inspect(bytes).definedNames;
+ * console.log(names.map((n) => `${n.name} = ${n.refersTo}`));
+ * ```
+ */
+export interface InspectDefinedName {
+  readonly name: string;
+  /** Formula text without "=", cut to 100 characters. */
+  readonly refersTo: string;
+  /** The sheet the name belongs to, or `null` for a workbook-level name. */
+  readonly sheet: string | null;
+  readonly hidden: boolean;
+}
+
+/**
+ * The result of {@link inspect}. Version 1 of the schema documented in docs/inspect-json.md.
+ *
+ * @example
+ * ```ts
+ * import { inspect, type InspectReport } from 'xlvane';
+ *
+ * declare const bytes: Uint8Array;
+ * const report: InspectReport = inspect(bytes);
+ * console.log(report.schemaVersion, report.sheetCount, report.warnings.length);
+ * ```
+ */
 export interface InspectReport {
   readonly schemaVersion: 1;
   readonly format: WorkbookFormat;
@@ -81,6 +204,15 @@ export interface InspectReport {
   readonly dateSystem: DateSystem;
   readonly hasMacros: boolean;
   readonly externalLinkCount: number;
+  /**
+   * Document properties that are set (`Workbook.properties`); dates as ISO 8601 strings in UTC.
+   * Empty when the file has none.
+   */
+  readonly properties: Readonly<Record<string, string>>;
+  /** Defined names in file order, at most 100. */
+  readonly definedNames: readonly InspectDefinedName[];
+  /** `true` when the workbook has more than 100 defined names. */
+  readonly definedNamesTruncated: boolean;
   readonly sheetCount: number;
   readonly sheets: readonly InspectSheet[];
   readonly warnings: readonly XlvWarning[];
@@ -89,6 +221,12 @@ export interface InspectReport {
 const OPTION_NAMES = ['limits', 'maxColumns', 'headerScanRows', 'formulaSamples'] as const;
 /** Upper bound on the steps spent looking for values hidden under merged ranges, per sheet. */
 const MAX_MERGE_CHECK_WORK = 5_000_000;
+/** Bounds of the lists that are not controlled by an option. */
+const MAX_DEFINED_NAMES = 100;
+const MAX_RICH_TEXT_CELLS = 10;
+const MAX_HYPERLINK_SAMPLES = 10;
+/** Merged ranges listed per sheet; `mergedRangeCount` gives the total. */
+const MAX_MERGED_RANGES = 100;
 const TYPE_ORDER: readonly Exclude<CellType, 'empty'>[] = ['number', 'string', 'date', 'boolean', 'error'];
 
 interface ResolvedOptions {
@@ -146,9 +284,9 @@ function isWorkbook(input: unknown): input is Workbook {
   );
 }
 
-/** Formats a value for JSON: dates as `YYYY-MM-DDTHH:mm:ss.sss` (no time zone). */
+/** Formats a value for JSON: dates as ISO 8601 without a time zone (`isoDate`). */
 function jsonValue(value: string | number | boolean | Date): InspectValue {
-  if (value instanceof Date) return value.toISOString().slice(0, 23);
+  if (value instanceof Date) return isoDate(value);
   if (typeof value === 'string' && value.length > 100) return `${value.slice(0, 100)}…`;
   return value;
 }
@@ -162,6 +300,7 @@ function jsonValue(value: string | number | boolean | Date): InspectValue {
  * ```ts
  * import { inspect } from 'xlvane';
  *
+ * declare const bytes: Uint8Array; // the contents of an .xlsx file
  * const report = inspect(bytes);
  * for (const sheet of report.sheets) {
  *   console.log(sheet.name, sheet.usedRange, sheet.columns.map((c) => `${c.header}: ${c.dominantType}`));
@@ -181,10 +320,37 @@ export function inspect(input: Uint8Array | ArrayBuffer | Workbook, options?: In
     dateSystem: workbook.dateSystem,
     hasMacros: workbook.hasMacros,
     externalLinkCount: workbook.externalLinkCount,
+    properties: propertiesJson(workbook),
+    definedNames: workbook.definedNames.slice(0, MAX_DEFINED_NAMES).map((n) => ({
+      name: n.name,
+      refersTo: n.refersTo.length > 100 ? `${n.refersTo.slice(0, 100)}…` : n.refersTo,
+      sheet: n.sheet,
+      hidden: n.hidden,
+    })),
+    definedNamesTruncated: workbook.definedNames.length > MAX_DEFINED_NAMES,
     sheetCount: workbook.sheets.length,
     sheets,
     warnings: [...workbook.warnings, ...warnings.list()],
   };
+}
+
+function propertiesJson(workbook: Workbook): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(workbook.properties)) {
+    if (value instanceof Date) out[key] = value.toISOString(); // document properties are instants in UTC (W3CDTF), so they keep the zone
+    else if (typeof value === 'string') out[key] = value;
+  }
+  return out;
+}
+
+/** Column ranges (`"B"`, `"D:F"`) that have a default style. */
+function styledColumns(sheet: Sheet, max: number): string[] {
+  const out: string[] = [];
+  for (const c of sheet.columns) {
+    if (c.style === undefined || out.length >= max) continue;
+    out.push(c.min === c.max ? columnLetters(c.min) : `${columnLetters(c.min)}:${columnLetters(c.max)}`);
+  }
+  return out;
 }
 
 function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningCollector): InspectSheet {
@@ -194,6 +360,8 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
   let minCol = Number.POSITIVE_INFINITY;
   let maxCol = 0;
   let formulaCount = 0;
+  let richTextCellCount = 0;
+  const richTextCells: string[] = [];
   const formulas: { cell: string; formula: string | null }[] = [];
   for (const cells of rows) {
     for (const cell of cells) {
@@ -201,6 +369,10 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
       maxRow = Math.max(maxRow, cell.row);
       minCol = Math.min(minCol, cell.col);
       maxCol = Math.max(maxCol, cell.col);
+      if (cell.richText !== undefined) {
+        richTextCellCount++;
+        if (richTextCells.length < MAX_RICH_TEXT_CELLS) richTextCells.push(cell.ref);
+      }
       if (cell.formula !== null) {
         formulaCount++;
         if (formulas.length < options.formulaSamples) formulas.push({ cell: cell.ref, formula: cell.formula.text });
@@ -222,8 +394,25 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     usedRange,
     cellCount: sheet.cellCount,
     formulaCount,
-    mergedRanges: [...sheet.merges],
+    mergedRanges: sheet.merges.slice(0, MAX_MERGED_RANGES),
+    mergedRangeCount: sheet.merges.length,
+    mergedRangesTruncated: sheet.merges.length > MAX_MERGED_RANGES,
     formulas,
+    richTextCellCount,
+    richTextCells,
+    styledColumns: styledColumns(sheet, options.maxColumns),
+    hyperlinkCount: sheet.hyperlinks.length,
+    hyperlinks: sheet.hyperlinks.slice(0, MAX_HYPERLINK_SAMPLES).map((l) => ({ ref: l.ref, target: l.target, location: l.location })),
+    noteCount: sheet.notes.length,
+    notes: sheet.notes.slice(0, MAX_HYPERLINK_SAMPLES).map((n) => n.ref),
+    imageCount: sheet.images.length,
+    images: sheet.images.slice(0, MAX_HYPERLINK_SAMPLES).map((i) => ({ cell: i.anchor.type === 'absolute' ? null : i.anchor.from.cell, format: i.image?.format ?? null })),
+    protected: sheet.protection?.sheet === true,
+    printArea: sheet.printArea === null ? null : sheet.printArea.slice(0, MAX_HYPERLINK_SAMPLES),
+    pageBreakCount: sheet.pageBreaks.rows.length + sheet.pageBreaks.columns.length,
+    dataValidationCount: sheet.dataValidations.length,
+    conditionalFormatCount: sheet.conditionalFormats.reduce((n, f) => n + f.rules.length, 0),
+    tables: sheet.tables.slice(0, 20).map((t) => ({ name: t.displayName, ref: t.ref, columns: t.columns.slice(0, 50).map((c) => c.name) })),
   };
   if (empty) {
     return { ...base, rowCount: 0, columnCount: 0, headerRow: null, columns: [], columnsTruncated: false };
@@ -265,7 +454,7 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     return {
       index: col,
       letter: columnLetters(col),
-      header: headerCell !== undefined && typeof headerCell.value === 'string' ? headerCell.value : null,
+      header: headerCell === undefined || headerCell.formula !== null ? null : typeof headerCell.value === 'string' ? headerCell.value : isYear(headerCell.value) ? String(headerCell.value) : null,
       dominantType,
       types: { ...stat.counts, empty: dataRowCount - nonEmpty },
       samples: stat.samples,
@@ -282,33 +471,45 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
 }
 
 /**
- * Header heuristic: the first of the leading non-empty rows whose cells are all distinct,
- * non-blank strings covering at least half of the used width. Confidence is high when the
- * next non-empty row contains a value that is not a string.
+ * Header heuristic (docs/decisions.md D-R02): the first of the leading non-empty rows in which
+ * - cells with a formula are left out (a total such as `=SUM(B3:B9)` may sit next to the names);
+ * - every other cell is non-blank text or a year: a whole number from 1900 to 2100, with the
+ *   years of the row consecutive (`2023 | 2024 | 2025`) and, in the next non-empty row, at least
+ *   one value below them that is not such a year (so a row of data with years is not taken);
+ * - at least one cell is text, and the cells cover at least half of the used width.
+ * Repeated names are allowed (`readTable` numbers them `name_2`, …). Confidence is high when the
+ * names are distinct and the next non-empty row holds a value that is not text.
  */
-function detectHeader(
+export function detectHeader(
   rows: readonly (readonly Cell[])[],
   width: number,
   scanRows: number,
 ): { row: number; confidence: 'high' | 'low' } | null {
-  const candidates = rows.filter((r) => r.length > 0).slice(0, scanRows);
+  const nonEmpty = rows.filter((r) => r.length > 0);
+  const candidates = nonEmpty.slice(0, scanRows);
   for (let i = 0; i < candidates.length; i++) {
     const cells = candidates[i] ?? [];
     if (cells.length < Math.max(1, Math.ceil(width / 2))) continue;
-    const seen = new Set<string>();
-    const allText = cells.every((cell) => {
-      if (cell.type !== 'string' || typeof cell.value !== 'string') return false;
-      const key = cell.value.trim().toLowerCase();
-      if (key.length === 0 || seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    if (!allText) continue;
-    const next = rows.filter((r) => r.length > 0).find((r) => (r[0]?.row ?? 0) > (cells[0]?.row ?? 0));
-    const confidence = next !== undefined && next.some((cell) => cell.type !== 'string' && cell.type !== 'empty') ? 'high' : 'low';
-    return { row: cells[0]?.row ?? 0, confidence };
+    const labels = cells.filter((cell) => cell.formula === null);
+    const years = labels.filter((cell) => isYear(cell.value));
+    const texts = labels.filter((cell) => cell.type === 'string' && typeof cell.value === 'string' && cell.value.trim() !== '');
+    if (texts.length === 0 || texts.length + years.length !== labels.length) continue;
+    const next = nonEmpty[i + 1];
+    if (years.length > 0) {
+      const consecutive = years.every((cell, k) => k === 0 || Math.abs((cell.value as number) - (years[k - 1]!.value as number)) === 1);
+      const below = next?.filter((cell) => years.some((y) => y.col === cell.col)) ?? [];
+      if (!consecutive || !below.some((cell) => cell.value !== null && !isYear(cell.value))) continue;
+    }
+    const distinct = new Set(texts.map((cell) => (cell.value as string).trim().toLowerCase())).size === texts.length;
+    const typed = next !== undefined && next.some((cell) => cell.type !== 'string' && cell.type !== 'empty');
+    return { row: cells[0]?.row ?? 0, confidence: distinct && typed ? 'high' : 'low' };
   }
   return null;
+}
+
+/** A whole number from 1900 to 2100, read as a year in a header row. */
+function isYear(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1900 && value <= 2100;
 }
 
 /** Warns when cells lie outside the declared dimension (a dimension larger than the cells is normal). */
