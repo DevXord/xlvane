@@ -106,6 +106,13 @@ describe('package manifests', () => {
     expect(license.startsWith('MIT License\n')).toBe(true);
   });
 
+  it('@xlvane/exceljs carries the exceljs license notice and says it is not affiliated (D-R05)', async () => {
+    const license = await readFile(join(root, 'packages/exceljs', 'LICENSE'), 'utf8');
+    expect(license).toContain('Copyright (c) 2014-2019 Guyon Roche');
+    const readme = await readFile(join(root, 'packages/exceljs', 'README.md'), 'utf8');
+    expect(readme).toContain('not affiliated with or endorsed by the exceljs project');
+  });
+
   it('root devDependencies are all approved', async () => {
     const manifest = await readManifest('.');
     for (const dep of Object.keys(manifest.devDependencies ?? {})) {
