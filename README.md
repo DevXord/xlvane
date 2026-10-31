@@ -47,4 +47,4 @@ Project rules are in [CLAUDE.md](CLAUDE.md), decisions and verified format facts
 
 ## License
 
-MIT
+MIT. `@xlvane/exceljs` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API and type declarations follow exceljs 4.4.0.

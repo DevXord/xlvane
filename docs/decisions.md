@@ -608,6 +608,13 @@ The maintainer approved these defaults for 1.0.0; each can be changed by the cal
 - A 7-digit argb `tabColor` in @xlvane/exceljs gets a trailing 0 (D-R01); an 8-digit value is written as given.
 - `fromCSV` stops at `maxCells` (default 5 000 000, D-R02), which the caller can raise or lower.
 
+### D-R05 Licence review before release (2026-10-31)
+- `xlvane` and `@xlvane/exceljs` are MIT. Neither imports or bundles exceljs: `@xlvane/exceljs` is a separate implementation of the exceljs 4.4.0 API on top of xlvane. The only runtime dependency of `xlvane` is `fflate` (MIT), imported and not bundled into dist, so its own licence ships with it.
+- The API names and type declarations of `@xlvane/exceljs` follow exceljs's index.d.ts (cited by line in the sources). To leave no doubt, packages/exceljs/LICENSE also carries the exceljs MIT notice (Copyright (c) 2014-2019 Guyon Roche, copied from the npm package exceljs 4.4.0), and both READMEs say the project is not affiliated with or endorsed by the exceljs project. A policy test checks both.
+- Repository-only material: tests ported from exceljs v4.4.0 and its image.png (MIT, tests/exceljs/LICENSE-exceljs.md); the Apache POI corpus (Apache-2.0 with its LICENSE and NOTICE, tests/corpus/poi/); every corpus file is listed in tests/corpus/LICENSES.md. None of it is in the npm tarballs. The benchmark libraries (exceljs, xlsx) are installed only by `npm run bench` and are not distributed.
+- Standards: the ECMA-376 and Microsoft Open Specifications documents are not in the repository (spec/ and `docs/Nowy folder/` are git-ignored); docs/facts cite them by clause and page with short quotations.
+- Open: the copyright holder in LICENSE is "DevXord" (D-012), to be confirmed by the maintainer. Whether the npm names `xlvane` and the scope `@xlvane` are free could not be checked from this environment.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
