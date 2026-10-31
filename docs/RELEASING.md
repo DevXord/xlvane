@@ -22,10 +22,10 @@ npm configures a trusted publisher in the settings of an existing package, so th
    ```sh
    npm login
    npm ci && npm run build
-   npm stage publish -w packages/xlvane
-   npm stage publish -w packages/exceljs
+   npm stage publish -w packages/xlvane --provenance=false
+   npm stage publish -w packages/exceljs --provenance=false
    ```
-   For a package that does not exist yet, npm publishes a public placeholder version `0.0.0-stage`; the staged 1.0.0 stays private until approved.
+   `--provenance=false` is needed because `publishConfig.provenance` is `true` and provenance can only be generated in a supported CI; a command-line flag takes precedence over `publishConfig` (npm 11.21.1 lib/commands/publish.js). npm may print `"bin[xlvane]" script name dist/cli.js was invalid and removed`: it only normalizes `./dist/cli.js` to `dist/cli.js` and keeps the entry (@npmcli/package-json lib/normalize.js). For a package that does not exist yet, npm publishes a public placeholder version `0.0.0-stage`; the staged 1.0.0 stays private until approved.
 4. Reject these local stages, because they have no provenance: `npm stage list`, then `npm stage reject <stage-id>` for each.
 5. On npmjs.com, for **each** package: Settings → Trusted publishing → GitHub Actions: organization or user `DevXord`, repository `xlvane`, workflow filename `release.yml`, environment `npm-release`; allowed action: `npm stage publish` only. The configuration must be used within 2 days, or it expires.
 6. In GitHub Actions, re-run the failed `publish` job of the `v1.0.0` run.
