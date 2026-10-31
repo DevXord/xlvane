@@ -554,8 +554,8 @@ export function tableOut(ws: Worksheet, def: TableDefinition): Table {
 /**
  * An image of the workbook, as exceljs `Image` (`workbook.addImage`). Give the file contents as
  * `buffer` (bytes) or `base64` (a data URL or plain base64). xlvane recognises PNG, JPEG and GIF
- * from the bytes; `extension` is kept but not used. `filename` is not supported: read the file
- * and pass `buffer`.
+ * from the bytes; `extension` is kept but not used. `filename` names a file that is read when the
+ * workbook is written (Node.js, Bun, Deno), as exceljs reads it (xlsx.js addMedia L421–442).
  *
  * @example
  * ```ts
@@ -739,14 +739,37 @@ export function imageBytes(image: ImageData): Uint8Array {
     }
     bytes = new Uint8Array(binary.length);
     for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  } else if (image.filename !== undefined) {
-    throw new XlvError('XLV_E_NOT_SUPPORTED', 'workbook.addImage({ filename }) is not supported: @xlvane/compat does not read files by name in every runtime.', {
-      hint: "Read the file and pass its contents: workbook.addImage({ buffer: fs.readFileSync(filename), extension: 'png' }).",
-      details: { feature: 'image filename' },
-    });
-  } else throw invalidImage('workbook.addImage needs { buffer } or { base64 }.');
+  } else if (typeof image.filename === 'string') {
+    bytes = FILE_BYTES.get(image);
+    if (bytes === undefined) {
+      // Only reached when a caller converts the workbook synchronously; every write path loads
+      // the files first (loadImageFiles).
+      throw new XlvError('XLV_E_NOT_SUPPORTED', `The image file "${image.filename}" has not been read yet.`, {
+        hint: "Write the workbook with xlsx.writeBuffer(), xlsx.writeFile() or xlsx.write(), which read image files first, or pass the contents: workbook.addImage({ buffer, extension: 'png' }).",
+        details: { feature: 'image filename' },
+      });
+    }
+  } else throw invalidImage('workbook.addImage needs { buffer }, { base64 } or { filename }.');
   if (imageFormat(bytes) === null && !isMetafile(bytes)) throw invalidImage('The image is not a PNG, JPEG, GIF, EMF or WMF file.');
   return bytes;
+}
+
+/** Contents of images given by `filename`, read when the workbook is written (loadImageFiles). */
+const FILE_BYTES = new WeakMap<ImageData, Uint8Array>();
+
+/**
+ * Reads the files of images given by `filename` (and not by `buffer` or `base64`), as exceljs
+ * does when it writes (xlsx.js addMedia L426–429). Outside Node.js, Bun and Deno this throws
+ * XLV_E_NOT_SUPPORTED through `readFile`.
+ */
+export async function loadImageFiles(media: readonly ImageData[], readFile: (path: string) => Promise<Uint8Array>): Promise<void> {
+  for (const image of media) {
+    if (image && image.buffer === undefined && typeof image.base64 !== 'string' && typeof image.filename === 'string' && !FILE_BYTES.has(image)) {
+      const bytes = await readFile(image.filename);
+      if (imageFormat(bytes) === null && !isMetafile(bytes)) throw invalidImage(`The image file "${image.filename}" is not a PNG, JPEG, GIF, EMF or WMF file.`);
+      FILE_BYTES.set(image, bytes);
+    }
+  }
 }
 
 function invalidImage(message: string): XlvError {

@@ -26,7 +26,7 @@ describe('@xlvane/compat bundling (D-R07)', () => {
       expect(text, file).not.toMatch(/^import (?!type )[^;]*from ['"]xlvane\/node['"]/m);
       for (const m of text.matchAll(/\bimport\(([^)]*)\)/g)) dynamic.push(`${file}: ${m[1]!.trim()}`);
     }
-    expect(dynamic.sort()).toEqual(["csv.ts: '#node-fs'", "node-api.ts: '#xlvane-node'"]);
+    expect(dynamic.sort()).toEqual(["csv.ts: '#node-fs'", "node-api.ts: '#node-fs'", "node-api.ts: '#xlvane-node'"]);
   });
 
   it('src/node-fs.ts only re-exports node:fs/promises', () => {

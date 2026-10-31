@@ -4,9 +4,9 @@ import { XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookIma
 import { colorOut, formulaOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges } from './defined-names';
-import { imageBytes, imageOut, mediaOut, tableOut, type ImageData } from './media';
+import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageData } from './media';
 import { Worksheet } from './model';
-import { xlvaneNode } from './node-api';
+import { readFileBytes, xlvaneNode } from './node-api';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
 import type { Image } from './compat-types';
@@ -176,17 +176,20 @@ export class XlsxIO {
 
   /** Writes the workbook and returns the file contents (a Buffer in Node.js). */
   async writeBuffer(options?: XlsxWriteOptions): Promise<Uint8Array> {
+    await this.loadFiles();
     return asBuffer(this.bytes(options));
   }
 
   /** Writes the workbook to a file, replacing an existing file as exceljs does (Node.js). */
   async writeFile(path: string, options?: XlsxWriteOptions): Promise<void> {
     const { writeWorkbookFile } = await xlvaneNode('xlsx.writeFile()');
+    await this.loadFiles();
     await writeWorkbookFile(this.book(options), path, { overwrite: true, ...writeOptions(options) });
   }
 
   /** Writes the workbook to a writable stream and ends it. */
   async write(stream: WritableLike, options?: XlsxWriteOptions): Promise<void> {
+    await this.loadFiles();
     const bytes = asBuffer(this.bytes(options));
     stream.write(bytes);
     await new Promise<void>((resolve) => {
@@ -199,6 +202,11 @@ export class XlsxIO {
     throw new Error(
       '`XLSX#createInputStream` is deprecated. You should use `XLSX#read` instead. This method will be removed in version 5.0. Please follow upgrade instruction: https://github.com/exceljs/exceljs/blob/master/UPGRADE-4.0.md',
     );
+  }
+
+  /** Reads image files given by `filename`, as exceljs does when it writes (xlsx.js L426–429). */
+  private loadFiles(): Promise<void> {
+    return loadImageFiles(this.workbook._media, (path) => readFileBytes(path, 'workbook.addImage({ filename })'));
   }
 
   private book(options: XlsxWriteOptions | undefined) {
@@ -411,11 +419,12 @@ export class Workbook {
 
   /**
    * Adds an image (PNG, JPEG or GIF, or EMF or WMF as Excel stores them; recognised from its bytes) and returns its id for
-   * `worksheet.addImage` and `addBackgroundImage`, as exceljs `workbook.addImage`. Give `buffer`
-   * or `base64`; `filename` throws `XLV_E_NOT_SUPPORTED` (read the file and pass `buffer`).
+   * `worksheet.addImage` and `addBackgroundImage`, as exceljs `workbook.addImage`. Give `buffer`,
+   * `base64` or `filename`; a file is read when the workbook is written (Node.js, Bun, Deno), as
+   * in exceljs.
    */
   addImage(image: ImageData): number {
-    imageBytes(image);
+    if (!(image && typeof image === 'object' && image.buffer === undefined && typeof image.base64 !== 'string' && typeof image.filename === 'string')) imageBytes(image);
     this._media.push({ ...image, type: 'image' });
     return this._media.length - 1;
   }

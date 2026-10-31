@@ -32,8 +32,8 @@ function streamValueIn(cell: ModelCell, masters: Map<string, { formula: string; 
   return valueIn(cell);
 }
 import type { DefinedNames } from './defined-names';
-import { xlvaneNode } from './node-api';
-import { imageAnchorIn, imageBytes, type ImageData } from './media';
+import { readFileBytes, xlvaneNode } from './node-api';
+import { imageAnchorIn, imageBytes, loadImageFiles, type ImageData } from './media';
 import { Dimensions } from './range';
 import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
@@ -399,27 +399,29 @@ export class WorkbookWriter {
     if (this.done) return this.done;
     const meta = this.meta();
     this.written = JSON.stringify(meta);
-    const images = this._book._media.map((m) => imageBytes(m));
-    // archiver's zlib level (workbook-writer.js L33; X4-25) becomes the Deflate level of the parts.
-    const zip = (this.options.zip ?? {}) as { zlib?: { level?: unknown } };
-    const level = zip.zlib?.level;
-    const spec: WriteWorkbookStreamOptions = {
-      sheets: this.sheets,
-      sharedStrings: this.options.useSharedStrings === true,
-      ...meta,
-      ...(images.length > 0 ? { images } : {}),
-      ...(typeof level === 'number' && Number.isInteger(level) && level >= 0 && level <= 9 ? { compressionLevel: level } : {}),
-    };
+    const media = this._book._media;
     const options = this.options;
-    if (options.filename !== undefined) {
-      const filename = options.filename;
-      // exceljs replaces an existing file, so overwrite is on.
-      this.done = xlvaneNode('stream.xlsx.WorkbookWriter({ filename })').then(({ writeWorkbookStreamFile }) => writeWorkbookStreamFile(filename, spec, { overwrite: true }));
-    } else if (options.stream !== undefined) {
-      const out = options.stream;
-      this.done = (async () => {
-        const stream = writeWorkbookStream(spec);
-        const reader = stream.getReader();
+    this.done = (async () => {
+      // Image files given by name are read first, as exceljs does when it writes (xlsx.js L426–429).
+      await loadImageFiles(media, (path) => readFileBytes(path, 'workbook.addImage({ filename })'));
+      const images = media.map((m) => imageBytes(m));
+      // archiver's zlib level (workbook-writer.js L33; X4-25) becomes the Deflate level of the parts.
+      const zip = (options.zip ?? {}) as { zlib?: { level?: unknown } };
+      const level = zip.zlib?.level;
+      const spec: WriteWorkbookStreamOptions = {
+        sheets: this.sheets,
+        sharedStrings: options.useSharedStrings === true,
+        ...meta,
+        ...(images.length > 0 ? { images } : {}),
+        ...(typeof level === 'number' && Number.isInteger(level) && level >= 0 && level <= 9 ? { compressionLevel: level } : {}),
+      };
+      if (options.filename !== undefined) {
+        // exceljs replaces an existing file, so overwrite is on.
+        const { writeWorkbookStreamFile } = await xlvaneNode('stream.xlsx.WorkbookWriter({ filename })');
+        await writeWorkbookStreamFile(options.filename, spec, { overwrite: true });
+      } else if (options.stream !== undefined) {
+        const out = options.stream;
+        const reader = writeWorkbookStream(spec).getReader();
         for (;;) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -430,10 +432,10 @@ export class WorkbookWriter {
         await new Promise<void>((resolve) => {
           out.end(() => resolve());
         });
-      })();
-    } else {
-      this.done = Promise.reject(notSupportedLater('A WorkbookWriter without filename or stream'));
-    }
+      } else {
+        throw notSupportedLater('A WorkbookWriter without filename or stream');
+      }
+    })();
     // Errors are reported by commit(); avoid an unhandled rejection before that.
     this.done.catch(() => undefined);
     return this.done;
