@@ -600,6 +600,14 @@ From the security, functional, AI-friendly and developer-friendly audits before 
 ### D-R03 Security and core fixes before release (2026-10-31)
 Linear complexity where the security audit found CPU denial of service: drawing anchors and VML shapes in `insertRows`/`deleteRows` are scanned with `indexOf` (8 KB drawing: 75 s → 6 ms; 40 000 VML shapes: 3.9 s → 20 ms), hyperlink relationships are looked up in a Map (60 000 links read: 60 s → 0.7 s), and `splice` applies edits in one pass (insertRows with 60 000 notes: 134 s → 0.7 s). The package editor unpacks parts only when they are needed and copies untouched entries compressed with their CRC and size (a file with 480 unused 1 MiB entries: 8 s and +588 MB → 23 ms); as a consequence, damaged unused entries pass through unchecked. Parts the streaming reader keeps in memory use the batch per-entry limit (256 MiB or `limits.maxEntryBytes`); sheets keep the streaming limit. The publish job installs with `npm ci --ignore-scripts`. Tables: `appendRows` extends a table that ends on the last used row (with its filter); a table with a totals row is refused with an `insertRows` hint. A header edit in `editCells` renames the table column ([MS-OI29500] §2.1.681 i: unique, non-empty text up to 255 characters; structured references are not rewritten). New checks: `XLV_W_MERGED_CELL_WRITE` (E-35), and `activeTab`/`firstSheet` must name an existing sheet, in the batch and the streaming writer. `location.cell` may hold a range or a whole row or column (`C:C`, `7:7`); one shared sheet-not-found error with suggestions and a case-sensitivity note. Each fix has a regression test (time budgets for the performance fixes).
 
+### D-R04 Pre-release defaults approved by the maintainer (2026-10-31)
+The maintainer approved these defaults for 1.0.0; each can be changed by the caller:
+- Dates in `readTable({ dates: "iso" })` and `toJSON` are ISO 8601 without a time zone (D-R02); `dates: "date"` returns `Date` objects to format in any other way.
+- EMF and WMF pictures loaded from files are kept and written unchanged (D-R01); a caller can remove them like any other image.
+- Row heights are accepted up to 409.5 points (D-R01, W-04a); any lower height can be set.
+- A 7-digit argb `tabColor` in @xlvane/exceljs gets a trailing 0 (D-R01); an 8-digit value is written as given.
+- `fromCSV` stops at `maxCells` (default 5 000 000, D-R02), which the caller can raise or lower.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
