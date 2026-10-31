@@ -6,6 +6,7 @@ import { readWorkbook } from '../../packages/xlvane/src/read';
 import { writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
 import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
 import { expectXlvError } from '../helpers/expect-error';
+import { buildXlsx } from '../helpers/xlsx-builder';
 
 const part = (bytes: Uint8Array, name: string): string => strFromU8(unzipSync(bytes)[name]!);
 
@@ -172,5 +173,19 @@ describe('streaming writer', () => {
     expect(read.calculation).toEqual({ fullCalcOnLoad: true });
     expect(read.getSheet('S').view.activeCell).toBe('A2');
     expect(read.getSheet('S').properties.summaryBelow).toBe(false);
+  });
+});
+
+describe('review fixes (D-E06): active cell of a view with several panes', () => {
+  it('is the selection of the active pane, as Excel writes frozen views', () => {
+    const view = (inner: string): string | null | undefined =>
+      readWorkbook(buildXlsx({ sheets: [{ name: 'S', before: `<sheetViews><sheetView workbookViewId="0">${inner}</sheetView></sheetViews>`, data: '' }] })).getSheet('S').view.activeCell;
+    expect(
+      view(
+        '<pane xSplit="1" ySplit="1" topLeftCell="B2" activePane="bottomRight" state="frozen"/>' +
+          '<selection pane="topRight" activeCell="B1" sqref="B1"/><selection pane="bottomLeft" activeCell="A2" sqref="A2"/><selection pane="bottomRight" activeCell="D5" sqref="D5"/>',
+      ),
+    ).toBe('D5');
+    expect(view('<selection activeCell="C3" sqref="C3"/>')).toBe('C3');
   });
 });

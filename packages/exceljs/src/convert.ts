@@ -165,6 +165,12 @@ function borderIn(b: Partial<Borders> | undefined): CellStyle['border'] {
   return Object.keys(out).length > 0 ? (out as CellStyle['border']) : undefined;
 }
 
+/** exceljs `utils.validInt`: `parseInt(value, 10)`, or 0 when that is NaN. */
+function validInt(value: unknown): number {
+  const i = Number.parseInt(String(value), 10);
+  return Number.isNaN(i) ? 0 : i;
+}
+
 function alignmentIn(a: Partial<Alignment> | undefined): CellStyle['alignment'] {
   if (!a) return undefined;
   const out: Record<string, unknown> = {};
@@ -173,13 +179,16 @@ function alignmentIn(a: Partial<Alignment> | undefined): CellStyle['alignment'] 
   if (a.vertical) out['vertical'] = a.vertical === 'middle' ? 'center' : a.vertical;
   if (a.wrapText) out['wrapText'] = true;
   if (a.shrinkToFit) out['shrinkToFit'] = true;
-  if (a.indent) out['indent'] = a.indent;
-  // exceljs: "vertical" → 255, −90…−1 → 90 − tr (alignment-xform.js textRotationXform; X4-27).
-  if (a.textRotation !== undefined && a.textRotation !== null) {
-    const tr = a.textRotation;
-    if (tr === 'vertical') out['textRotation'] = 255;
-    else if (typeof tr === 'number' && tr < 0) out['textRotation'] = 90 - Math.round(tr);
-    else out['textRotation'] = tr;
+  // exceljs validInt (utils.js L135): parseInt, NaN → 0; the indent is at least 0 (alignment-xform.js; X4-27).
+  const indent = Math.max(0, validInt(a.indent));
+  if (indent) out['indent'] = indent;
+  // exceljs keeps "vertical" (→ 255) or a whole number from −90 to 90 (−90…−1 → 90 − tr) and
+  // drops other values (alignment-xform.js validation.textRotation, textRotationXform; X4-27).
+  if (a.textRotation === 'vertical') out['textRotation'] = 255;
+  else if (a.textRotation !== undefined && a.textRotation !== null) {
+    const tr = validInt(a.textRotation);
+    if (tr > 0 && tr <= 90) out['textRotation'] = tr;
+    else if (tr < 0 && tr >= -90) out['textRotation'] = 90 - tr;
   }
   if (a.readingOrder === 'ltr') out['readingOrder'] = 'leftToRight';
   else if (a.readingOrder === 'rtl') out['readingOrder'] = 'rightToLeft';
@@ -745,7 +754,9 @@ export function styleOut(s: CellStyle, numFmt: string | null): Style {
     if (a.horizontal && a.horizontal !== 'general') alignment.horizontal = a.horizontal;
     if (a.vertical) alignment.vertical = a.vertical === 'center' ? 'middle' : a.vertical;
     if (a.wrapText) alignment.wrapText = true;
-    if (a.indent) alignment.indent = a.indent;
+    // Office accepts indents up to 255 ([MS-OI29500] §2.1.693 b), the limit the writer enforces, so
+    // a larger indent from a file is left out and the loaded workbook can be written again (D-E06).
+    if (a.indent && a.indent <= 255) alignment.indent = a.indent;
     if (a.textRotation !== undefined) {
       const tr = a.textRotation;
       alignment.textRotation = tr === 255 ? 'vertical' : tr > 90 && tr <= 180 ? 90 - tr : tr;

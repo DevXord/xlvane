@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, shiftFormula, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 
 /**
  * A cell value for the streaming writer. Rows are written as they are committed, before later
@@ -325,6 +325,8 @@ export class WorkbookWriter {
   creator: string;
   lastModifiedBy: string;
   lastPrinted: Date | undefined;
+  /** Workbook windows, written as exceljs's workbook writer writes them (workbook-writer.js L43, L321; D-E06). */
+  views: Record<string, unknown>[] = [];
 
   constructor(options: WorkbookWriterOptions = {}) {
     this.options = options;
@@ -358,10 +360,14 @@ export class WorkbookWriter {
   }
 
   /** The document properties and names written; they are fixed when writing starts. */
-  private meta(): { properties: WorkbookProperties; definedNames: { name: string; refersTo: string }[] } {
+  private meta(): Pick<WriteWorkbookStreamOptions, 'properties' | 'definedNames' | 'views'> {
     const properties: Record<string, unknown> = { creator: this.creator, lastModifiedBy: this.lastModifiedBy, created: this.created, modified: this.modified };
     if (this.lastPrinted) properties['lastPrinted'] = this.lastPrinted;
-    return { properties: properties as WorkbookProperties, definedNames: this._book.definedNames.model.map((d) => ({ name: d.name, refersTo: d.ranges.join(',') })) };
+    return {
+      properties: properties as WorkbookProperties,
+      definedNames: this._book.definedNames.model.map((d) => ({ name: d.name, refersTo: d.ranges.join(',') })),
+      ...(this.views.length > 0 ? { views: bookViewsIn(this.views) } : {}),
+    };
   }
 
   /** Starts the xlvane stream (once): when the first sheet starts or at commit. */

@@ -72,7 +72,7 @@ describe('csv.write', () => {
     expect(await text(wb, { formatterOptions: { delimiter: ';', rowDelimiter: '\r\n', quoteColumns: true, includeEndRowDelimiter: true, writeBOM: true }, dateUTC: true })).toBe(
       '\uFEFF"a";"2024-01-31T08:05:09Z";"x y"\r\n"1";"2"\r\n',
     );
-    expect(await text(wb, { formatterOptions: { headers: ['h1', 'h2'] }, dateUTC: true })).toBe('h1,h2\na,2024-01-31T08:05:09Z,x y\n1,2');
+    expect(await text(wb, { formatterOptions: { headers: ['h1', 'h2'] }, dateUTC: true })).toBe('h1,h2\na,2024-01-31T08:05:09Z\n1,2');
   });
 
   it('picks the worksheet by sheetName or sheetId, and names a missing one (exceljs writes an empty file)', async () => {
@@ -189,5 +189,46 @@ describe('dates of the CSV reader', () => {
     expect(parseDate('31 Jan 2024 10:30 pm', 'DD MMM YYYY hh:mm a')).toEqual(new Date(2024, 0, 31, 22, 30));
     expect(parseDate('99-01-02', 'YY-MM-DD')).toEqual(new Date(1999, 0, 2));
     expect(parseDate('2024-13-01', 'YYYY-MM-DD')).toBeNull();
+  });
+});
+
+describe('review fixes (D-E06)', () => {
+  it('parses dayjs formats with unbracketed letters and day names as exceljs does', () => {
+    // Observed with exceljs 4.4.0 / dayjs 1.11.23: each of these gives a Date at 2020-01-02 (local).
+    const local = (d: Date | null): string | null => (d === null ? null : `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()} ${d.getHours()}:${d.getMinutes()}:${d.getSeconds()}`);
+    expect(local(parseDate('2020-01-02T03:04:05', 'YYYY-MM-DDTHH:mm:ss'))).toBe('2020-1-2 3:4:5');
+    expect(local(parseDate('Thursday 2020-01-02', 'dddd YYYY-MM-DD'))).toBe('2020-1-2 0:0:0');
+    expect(local(parseDate('Thu 2020-01-02', 'ddd YYYY-MM-DD'))).toBe('2020-1-2 0:0:0');
+    // dayjs 1.11.23 without the matching plugins: invalid in strict mode.
+    expect(parseDate('01/02/2020', 'L')).toBeNull();
+    expect(parseDate('2 2020', 'Q YYYY')).toBeNull();
+    expect(parseDate('2nd 2020-01', 'Do YYYY-MM')).toBeNull();
+  });
+
+  it('formats dates with the default pattern when dateFormat is an empty string', () => {
+    const d = new Date(Date.UTC(2020, 0, 2, 3, 4, 5));
+    expect(formatDate(d, '', true)).toBe(formatDate(d, undefined, true));
+    expect(formatDate(d, '', true)).toBe('2020-01-02T03:04:05Z');
+  });
+
+  it('writes one field per header for array rows, as fast-csv does', async () => {
+    const { wb, ws } = book();
+    ws.addRow([1, 2, 3]);
+    ws.addRow([4]);
+    // exceljs 4.4.0 gives "a,b\n1,2\n4,".
+    expect(await text(wb, { formatterOptions: { headers: ['a', 'b'] } })).toBe('a,b\n1,2\n4,');
+    expect(await text(wb, { formatterOptions: { headers: ['=h', 'b'] } })).toBe(`"'=h",b\n1,2\n4,`);
+  });
+
+  it('names the line where an unclosed quote opens and refuses long quote and escape characters', async () => {
+    const read = async (csv: string, parserOptions?: unknown) => {
+      const { wb } = book();
+      return wb.csv.read([new TextEncoder().encode(csv)], { parserOptions });
+    };
+    await expect(read('"abc\ndef\n')).rejects.toThrow(/CSV line 1:/);
+    await expect(read('a,"b\nc')).rejects.toThrow(/CSV line 1:/);
+    await expect(read('x\n"y')).rejects.toThrow(/CSV line 2:/);
+    await expect(read('a', { quote: '""' })).rejects.toMatchObject({ code: 'XLV_E_INVALID_OPTION' });
+    await expect(read('a', { escape: '\\\\' })).rejects.toMatchObject({ code: 'XLV_E_INVALID_OPTION' });
   });
 });

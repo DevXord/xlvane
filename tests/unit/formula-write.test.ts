@@ -7,6 +7,7 @@ import { editCells } from '../../packages/xlvane/src/edit';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
 import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
+import { buildXlsx } from '../helpers/xlsx-builder';
 import { expectXlvError, expectXlvErrorAsync } from '../helpers/expect-error';
 
 const sheetXml = (bytes: Uint8Array): string => strFromU8(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
@@ -135,5 +136,16 @@ describe('editCells', () => {
     const edited = readWorkbook(editCells(bytes, [{ sheet: 'S', cell: 'C3', value: 9 }]).bytes).getSheet('S');
     expect(edited.cell('C3')?.value).toBe(9);
     expect(edited.cell('C2')?.formula?.text).toBe('A2+1');
+  });
+});
+
+describe('review fixes (D-E06): `$` in a shared formula ref', () => {
+  it('reads the dependents of a master whose ref has $ marks, as exceljs writes them', () => {
+    const bytes = buildXlsx({
+      sheets: [{ name: 'S', data: '<row r="1"><c r="A1"><f t="shared" ref="$A$1:$A$3" si="0">B1*2</f><v>2</v></c></row><row r="2"><c r="A2"><f t="shared" si="0"/><v>4</v></c></row><row r="3"><c r="A3"><f t="shared" si="0"/><v>6</v></c></row>' }],
+    });
+    const sheet = readWorkbook(bytes).getSheet('S');
+    expect(sheet.cell('A1')?.formula).toMatchObject({ kind: 'shared', ref: 'A1:A3' });
+    expect(sheet.cell('A3')?.formula?.text).toBe('B3*2');
   });
 });

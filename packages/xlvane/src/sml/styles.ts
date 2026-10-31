@@ -491,10 +491,13 @@ function parseAlignment(el: XmlElement | undefined, warn: (message: string) => v
   }
   const indent = el.attrs.get('indent');
   const indentN = indent === undefined ? null : parseUnsignedInt(indent);
+  // An indent above Office's 255 is kept as stored (D-1101: existing styles stay editable).
   if (indentN !== null && indentN > 0) a.indent = indentN;
   const rotation = el.attrs.get('textRotation');
   const rotationN = rotation === undefined ? null : parseUnsignedInt(rotation);
-  if (rotationN !== null && rotationN > 0) a.textRotation = rotationN;
+  // ST_TextRotation: 0 to 180, or 255 for vertical text (sml.xsd; W2-17).
+  if (rotationN !== null && rotationN > 180 && rotationN !== 255) warn(`The text rotation ${quote(rotation ?? '')} is not 0 to 180 or 255; it is ignored.`);
+  else if (rotationN !== null && rotationN > 0) a.textRotation = rotationN;
   return Object.keys(a).length > 0 ? Object.freeze(a) : undefined;
 }
 

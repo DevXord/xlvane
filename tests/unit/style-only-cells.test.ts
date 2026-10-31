@@ -10,6 +10,7 @@ import { readTable } from '../../packages/xlvane/src/table';
 import { toCSV } from '../../packages/xlvane/src/csv';
 import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
 import { XlvError } from '../../packages/xlvane/src/errors';
+import { buildXlsx } from '../helpers/xlsx-builder';
 
 function book(): Uint8Array {
   const wb = createWorkbook();
@@ -70,5 +71,34 @@ describe('style-only cells (D-E05)', () => {
     }
     expect(code).toBe('XLV_E_LIMIT_EXCEEDED');
     expect(() => readWorkbook(book(), { limits: { maxCells: 7 } })).not.toThrow();
+  });
+});
+
+describe('review fixes (D-E06): duplicate definitions', () => {
+  const sheetOf = (data: string) => {
+    const wb = readWorkbook(
+      buildXlsx({
+        sheets: [{ name: 'S', data }],
+        styles: '<fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellXfs count="2"><xf/><xf applyFont="1"><alignment wrapText="1"/></xf></cellXfs>',
+      }),
+    );
+    return { wb, sheet: wb.getSheet('S') };
+  };
+
+  it('uses the last definition in both orders, with XLV_W_DUPLICATE_CELL', () => {
+    const a = sheetOf('<row r="1"><c r="A1" s="1"/><c r="A1"><v>5</v></c></row>');
+    expect(a.sheet.cell('A1')?.value).toBe(5);
+    expect([...a.sheet.styledCells()]).toEqual([]);
+    expect(a.wb.warnings.map((w) => w.code)).toContain('XLV_W_DUPLICATE_CELL');
+    const b = sheetOf('<row r="1"><c r="A1"><v>5</v></c><c r="A1" s="1"/></row>');
+    expect(b.sheet.cell('A1')).toBeUndefined();
+    expect(b.sheet.cellCount).toBe(0);
+    expect([...b.sheet.styledCells()].map((c) => c.ref)).toEqual(['A1']);
+    expect(b.wb.warnings.map((w) => w.code)).toContain('XLV_W_DUPLICATE_CELL');
+  });
+
+  it('builds style-only cells only when they are asked for, in column order', () => {
+    const { sheet } = sheetOf('<row r="1"><c r="C1" s="1"/><c r="A1" s="1"/><c r="B1"><v>1</v></c></row>');
+    expect([...sheet.styledCells()].map((c) => c.ref)).toEqual(['A1', 'C1']);
   });
 });

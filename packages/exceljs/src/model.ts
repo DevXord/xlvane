@@ -428,7 +428,10 @@ export class Cell {
       if (typeof v['error'] === 'string') return v['error'];
       if (typeOf(v) === ValueType.Hyperlink) return String(v['hyperlink']);
       if (Array.isArray(v['richText'])) return `"${this.text.replace(/"/g, '""')}"`;
+      // A JSON value gives its JSON text, as exceljs's JSONValue does (D-E06).
+      return JSON.stringify(v);
     }
+    if (Array.isArray(v)) return JSON.stringify(v);
     return String(v);
   }
 
@@ -552,7 +555,8 @@ export class Row {
     return this._outlineLevel;
   }
   set outlineLevel(v: number) {
-    this._outlineLevel = v || 0;
+    // Checked when set, not only when the file is written (D-E06; [MS-OI29500] 0–7, W2-65).
+    this._outlineLevel = v ? checkInteger('row.outlineLevel', 'value', v, 0, 7) : 0;
   }
 
   /** As exceljs: the level is at least the sheet's `properties.outlineLevelRow` (lib/doc/row.js L326). */
@@ -846,7 +850,7 @@ export class Column {
     return this._outlineLevel;
   }
   set outlineLevel(v: number) {
-    this._outlineLevel = v || 0;
+    this._outlineLevel = v ? checkInteger('column.outlineLevel', 'value', v, 0, 7) : 0;
   }
 
   /** As exceljs: the level is at least the sheet's `properties.outlineLevelCol` (lib/doc/column.js L124). */
@@ -1033,7 +1037,8 @@ export class Worksheet {
     this.id = id;
     this.state = options?.state ?? 'visible';
     this.views = options?.views ? [...options.views] : [];
-    this.properties = { ...(options?.properties as Record<string, unknown> | undefined) };
+    // exceljs's defaults of a new worksheet (lib/doc/worksheet.js L52–60; D-E06).
+    this.properties = { defaultRowHeight: 15, dyDescent: 55, outlineLevelCol: 0, outlineLevelRow: 0, ...(options?.properties as Record<string, unknown> | undefined) };
     this.pageSetup = defaultPageSetup(options?.pageSetup);
     this.headerFooter = defaultHeaderFooter(options?.headerFooter);
     this.name = name ?? `sheet${String(id)}`;
@@ -1460,7 +1465,7 @@ export class Worksheet {
    * @internal The autofilter range and every formula of the workbook follow a splice of this
    * sheet. `formulas` are the new texts computed by `_checkFormulas` before the splice.
    */
-  _afterSplice(change: SpliceChange, formulas: ReadonlyMap<Cell, string>): void {
+  _afterSplice(change: SpliceChange, formulas: ReadonlyMap<Cell, Record<string, unknown>>): void {
     if (this.autoFilter) {
       const f = this.autoFilter;
       const text = typeof f === 'string' ? f : `${typeof f.from === 'string' ? f.from : `${columnLetter(f.from.column)}${String(f.from.row)}`}:${typeof f.to === 'string' ? f.to : `${columnLetter(f.to.column)}${String(f.to.row)}`}`;
@@ -1488,10 +1493,7 @@ export class Worksheet {
       const ref = moveSqref(cf.ref, change);
       return ref === null ? [] : [{ ...cf, ref }];
     });
-    for (const [cell, text] of formulas) {
-      const v = cell.value;
-      if (v !== null && typeof v === 'object' && !(v instanceof Date)) cell.value = { ...(v as Record<string, unknown>), formula: text } as CellValue;
-    }
+    for (const [cell, value] of formulas) cell.value = value as CellValue;
     // Pictures move with their cells, as in a spreadsheet application (exceljs leaves them; X4-22).
     // _checkMedia has made sure no corner is in a removed band.
     for (const m of this._media) {
@@ -1541,13 +1543,27 @@ export class Worksheet {
    * @internal Computes the new text of every formula of the workbook that `change` alters, and
    * throws before anything changes when one cannot follow it. Each formula is parsed once.
    */
-  _checkFormulas(change: SpliceChange, method: string): Map<Cell, string> {
+  _checkFormulas(change: SpliceChange, method: string): Map<Cell, Record<string, unknown>> {
     const names = this._sheetNames();
-    const out = new Map<Cell, string>();
-    this._eachFormula((sheet, cell, _v, formula) => {
-      const text = adjustFormulaText(formula, sheet.name, change, names);
-      if (text === null) formulaNotAdjustable(method, sheet.name, cell.address, formula);
-      if (text !== formula) out.set(cell, text);
+    const out = new Map<Cell, Record<string, unknown>>();
+    this._eachFormula((sheet, cell, v, formula) => {
+      const text = formula === '' ? null : adjustFormulaText(formula, sheet.name, change, names);
+      if (text === null) formulaNotAdjustable(method, sheet.name, cell.address, formula === '' ? String(v['sharedFormula']) : formula);
+      // Shared formulas become plain formulas: a splice can change the references of the master
+      // and of its dependents differently, so moving the master's text to each dependent would
+      // give wrong formulas (D-E06). Array formulas keep their group; their range moves with the
+      // cells of this sheet.
+      if (typeof v['sharedFormula'] === 'string' || (v['shareType'] !== 'array' && typeof v['ref'] === 'string')) {
+        const { sharedFormula: _d, shareType: _t, ref: _r, ...rest } = v;
+        out.set(cell, { ...rest, formula: text });
+        return;
+      }
+      if (v['shareType'] === 'array' && typeof v['ref'] === 'string' && sheet === this) {
+        const ref = moveSqref(v['ref'], change);
+        out.set(cell, ref === null ? { ...v, formula: text } : { ...v, formula: text, ref });
+        return;
+      }
+      if (text !== formula) out.set(cell, { ...v, formula: text });
     });
     return out;
   }
@@ -1564,8 +1580,12 @@ export class Worksheet {
           if (!cell || cell._master) continue;
           const v = cell.value;
           if (v === null || typeof v !== 'object' || v instanceof Date) continue;
-          const formula = (v as { formula?: unknown }).formula;
+          // A shared-formula dependent has no text of its own: its formula is the master's, moved.
+          const dependent = typeof (v as { sharedFormula?: unknown }).sharedFormula === 'string';
+          const formula = dependent ? cell.formula : (v as { formula?: unknown }).formula;
+          // A dependent whose master is missing or cannot be moved to it gives '' and is refused.
           if (typeof formula === 'string') fn(sheet, cell, v as Record<string, unknown>, formula);
+          else if (dependent) fn(sheet, cell, v as Record<string, unknown>, '');
         }
       }
     }
@@ -1630,7 +1650,8 @@ export class Worksheet {
 
   /** Rows from `start`, `length` of them, without creating missing rows (lib/doc/worksheet.js `findRows`). */
   findRows(start: number, length: number): (Row | undefined)[] {
-    return Array.from({ length: Math.max(0, length) }, (_, i) => this.findRow(start + i));
+    // exceljs returns `this._rows.slice(start - 1, start - 1 + length)` (D-E06).
+    return this._rows.slice(start - 1, start - 1 + length);
   }
 
   /** The last column with a definition (lib/doc/worksheet.js `lastColumn`). */

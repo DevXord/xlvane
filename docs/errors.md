@@ -17,7 +17,7 @@ An option is unknown, has the wrong type or is out of range. The hint lists the 
 **Fix:** correct the option name or value.
 
 ### XLV_E_INVALID_ARGUMENT
-An argument of a method of `@xlvane/exceljs` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an error: for example `insertRow(0, …)`, a row position given as a string, a negative count in `spliceRows` or `spliceColumns`, `duplicateRow` of a row that does not exist, `insertRows` without an array of values, or rows or columns pushed beyond the sheet (row 1048576, column XFD). `details.method`, `details.argument` and `details.value` name the method, the argument and its value (docs/exceljs-compat.md).
+An argument of a method of `@xlvane/exceljs` is not valid, in a case where exceljs 4.4.0 accepts it and loses or moves data without an error: for example `insertRow(0, …)`, a row position given as a string, a negative count in `spliceRows` or `spliceColumns`, an outline level outside 0–7 set on a row or column (exceljs writes it), `duplicateRow` of a row that does not exist, `insertRows` without an array of values, or rows or columns pushed beyond the sheet (row 1048576, column XFD). `details.method`, `details.argument` and `details.value` name the method, the argument and its value (docs/exceljs-compat.md).
 **Fix:** pass a whole number in the range the hint gives (rows from 1, columns from 1), or remove rows at the end of the sheet before inserting.
 
 ### XLV_E_LIMIT_EXCEEDED
@@ -221,7 +221,7 @@ The workbook contains a VBA project or Excel 4.0 macro sheets. xlvane never runs
 The workbook links to other workbooks. xlvane never follows the links; values that come from them are the copies cached in the file.
 
 ### XLV_W_DUPLICATE_CELL
-A sheet defines the same cell more than once. The last definition is used.
+A sheet defines the same cell more than once. The last definition is used, also when one definition holds only a style (D-E06): a later cell with a value replaces a style-only one, and a later style-only cell replaces one with a value.
 
 ### XLV_W_INVALID_VALUE
 A value does not match its declared type and is returned in a safe form, for example a numeric cell whose text is not a number (returned as text), a boolean cell that is neither 0 nor 1, a shared-string index that does not exist (the cell is treated as empty), a date serial outside the date system (returned as a number), an unknown sheet state (treated as visible), or an invalid style index or range. The message says what was found and what was done.

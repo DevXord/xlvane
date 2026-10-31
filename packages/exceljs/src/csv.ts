@@ -117,7 +117,8 @@ function zone(offset: number, colon: boolean): string {
 export function formatDate(date: Date, format: string | undefined, utc: boolean): string {
   const p = parts(date, utc);
   // dayjs utc plugin: format() without a pattern ends in "Z" in UTC mode.
-  const pattern = format ?? (utc ? 'YYYY-MM-DDTHH:mm:ss[Z]' : 'YYYY-MM-DDTHH:mm:ssZ');
+  // dayjs format(formatStr) uses `formatStr || default`, so '' gives the default too (D-E06).
+  const pattern = format || (utc ? 'YYYY-MM-DDTHH:mm:ss[Z]' : 'YYYY-MM-DDTHH:mm:ssZ');
   const h12 = p.H % 12 || 12;
   return pattern.replace(FORMAT_TOKENS, (token, literal: string | undefined) => {
     if (literal !== undefined) return literal;
@@ -178,69 +179,83 @@ export function formatDate(date: Date, format: string | undefined, utc: boolean)
   });
 }
 
-// dayjs customParseFormat: formattingTokens and the expression of each token.
-const PARSE_TOKENS = /(\[[^[]*\])|([-_:/.,()\s]+)|(A|a|YYYY|YY?|MM?M?M?|DD?|hh?|HH?|mm?|ss?|S{1,3}|ZZ?)/g;
+// dayjs customParseFormat (1.11, as installed with exceljs 4.4.0): formattingTokens and the
+// expression of each token. Characters that are no token are not in the list at all, as
+// `String.match` with these tokens drops them (X4-23, D-E06).
+const PARSE_TOKENS = /(\[[^[]*\])|([-_:/.,()\s]+)|(A|a|Q|YYYY|YY?|ww?|MM?M?M?|Do|DD?|hh?|HH?|mm?|ss?|S{1,3}|z|ZZ?)/g;
+const WORD = /\d*[^-_:/,()\s\d]+/;
+const ONE_OR_TWO = /\d\d?/;
 const PARSE_EXPRESSIONS: Record<string, RegExp> = {
-  A: /^\d*[^-_:/,()\s\d]+/,
-  a: /^\d*[^-_:/,()\s\d]+/,
-  S: /^\d/,
-  SS: /^\d\d/,
-  SSS: /^\d{3}/,
-  s: /^\d\d?/,
-  ss: /^\d\d?/,
-  m: /^\d\d?/,
-  mm: /^\d\d?/,
-  H: /^\d\d?/,
-  h: /^\d\d?/,
-  HH: /^\d\d?/,
-  hh: /^\d\d?/,
-  D: /^\d\d?/,
-  DD: /^\d\d/,
-  M: /^\d\d?/,
-  MM: /^\d\d/,
-  MMM: /^\d*[^-_:/,()\s\d]+/,
-  MMMM: /^\d*[^-_:/,()\s\d]+/,
-  Y: /^[+-]?\d+/,
-  YY: /^\d\d/,
-  YYYY: /^\d{4}/,
-  Z: /^(?:[+-]\d\d:?(\d\d)?|Z)/,
-  ZZ: /^(?:[+-]\d\d:?(\d\d)?|Z)/,
+  A: WORD,
+  a: WORD,
+  Q: /\d/,
+  S: /\d/,
+  SS: /\d\d/,
+  SSS: /\d{3}/,
+  s: ONE_OR_TWO,
+  ss: ONE_OR_TWO,
+  m: ONE_OR_TWO,
+  mm: ONE_OR_TWO,
+  H: ONE_OR_TWO,
+  h: ONE_OR_TWO,
+  HH: ONE_OR_TWO,
+  hh: ONE_OR_TWO,
+  D: ONE_OR_TWO,
+  DD: /\d\d/,
+  Do: WORD,
+  w: ONE_OR_TWO,
+  ww: /\d\d/,
+  M: ONE_OR_TWO,
+  MM: /\d\d/,
+  MMM: WORD,
+  MMMM: WORD,
+  Y: /[+-]?\d+/,
+  YY: /\d\d/,
+  YYYY: /\d{4}/,
+  Z: /[+-]\d\d:?(\d\d)?|Z/,
+  ZZ: /[+-]\d\d:?(\d\d)?|Z/,
 };
 
 /**
  * A date parsed from `text` with a dayjs format in strict mode, as exceljs's CSV reader parses
- * it (`dayjs(text, format, true)`): local time unless the text has an offset, and only when
- * formatting the result again gives the same text. `null` otherwise.
+ * it (`dayjs(text, format, true)`; dayjs customParseFormat `makeParser`): literal parts only
+ * advance the position, each token's expression is searched (not anchored) in the rest of the
+ * input and its first match is then removed from the input; the result is local time unless the
+ * text has an offset, and only valid when formatting it again gives the same text. `null`
+ * otherwise.
  */
 export function parseDate(text: string, format: string): Date | null {
   const tokens = format.match(PARSE_TOKENS) ?? [];
-  let rest = text;
+  let input = text;
+  let start = 0;
   let year: number | undefined;
   let month: number | undefined;
   let day: number | undefined;
-  let hours = 0;
-  let minutes = 0;
-  let seconds = 0;
-  let ms = 0;
+  let hours: number | undefined;
+  let minutes: number | undefined;
+  let seconds: number | undefined;
+  let ms: number | undefined;
   let afternoon: boolean | undefined;
   let offset: number | undefined;
   for (const token of tokens) {
     const expression = PARSE_EXPRESSIONS[token];
     if (!expression) {
-      const literal = token.replace(/^\[|\]$/g, '');
-      if (!rest.startsWith(literal)) return null;
-      rest = rest.slice(literal.length);
+      start += token.replace(/^\[|\]$/g, '').length;
       continue;
     }
-    const match = expression.exec(rest);
+    const match = expression.exec(input.slice(start));
+    // dayjs reads match[0] of a failed match, throws and gives an invalid date.
     if (!match) return null;
     const value = match[0];
-    rest = rest.slice(value.length);
+    input = input.replace(value, '');
     const n = Number(value);
     switch (token) {
       case 'A':
       case 'a':
         afternoon = value === (token === 'a' ? 'pm' : 'PM');
+        break;
+      case 'Q':
+        month = (n - 1) * 3 + 1;
         break;
       case 'S':
         ms = n * 100;
@@ -269,6 +284,13 @@ export function parseDate(text: string, format: string): Date | null {
       case 'DD':
         day = n;
         break;
+      case 'Do':
+        day = Number(/\d+/.exec(value)?.[0] ?? Number.NaN);
+        break;
+      case 'w':
+      case 'ww':
+        // dayjs needs its weekOfYear plugin for this, which exceljs does not load: invalid date.
+        return null;
       case 'M':
       case 'MM':
         month = n;
@@ -299,15 +321,20 @@ export function parseDate(text: string, format: string): Date | null {
       }
     }
   }
-  if (afternoon !== undefined) {
+  if (afternoon !== undefined && hours !== undefined) {
     if (afternoon && hours < 12) hours += 12;
     else if (!afternoon && hours === 12) hours = 0;
   }
+  // dayjs parseFormattedInput uses `||`, so 0 counts as missing.
   const now = new Date();
-  const d = day ?? (year === undefined && month === undefined ? now.getDate() : 1);
-  const y = year ?? now.getFullYear();
-  const M = year !== undefined && month === undefined ? 0 : month !== undefined && month > 0 ? month - 1 : now.getMonth();
-  const date = offset === undefined ? new Date(y, M, d, hours, minutes, seconds, ms) : new Date(Date.UTC(y, M, d, hours, minutes, seconds, ms) - offset * 60_000);
+  const d = day || (!year && !month ? now.getDate() : 1);
+  const y = year || now.getFullYear();
+  const M = year && !month ? 0 : month !== undefined && month > 0 ? month - 1 : now.getMonth();
+  const h = hours || 0;
+  const mi = minutes || 0;
+  const se = seconds || 0;
+  const millis = ms || 0;
+  const date = offset === undefined ? new Date(y, M, d, h, mi, se, millis) : new Date(Date.UTC(y, M, d, h, mi, se, millis) - offset * 60_000);
   if (Number.isNaN(date.getTime())) return null;
   // Strict mode: the date formatted with the same pattern (in local time) must give the input.
   if (formatDate(date, format, false) !== text) return null;
@@ -344,6 +371,9 @@ function parserOptions(raw: Record<string, unknown> | undefined): ParserOptions 
   if (delimiter.length !== 1) throw invalid('parserOptions.delimiter', 'parserOptions.delimiter must be one character long.', 'Use one character, for example ";" or "\\t".');
   const quote = o['quote'] === null || o['quote'] === false ? '' : str('quote', '"');
   const escape = o['escape'] === null || o['escape'] === undefined ? quote : str('escape', quote);
+  // fast-csv compares single characters; longer quote or escape strings would never match (D-E06).
+  if (quote.length > 1) throw invalid('parserOptions.quote', 'parserOptions.quote must be one character long.', 'Use one character, for example "\\"" or "\'".');
+  if (escape.length > 1) throw invalid('parserOptions.escape', 'parserOptions.escape must be one character long.', 'Use one character, for example "\\\\".');
   const count = (name: string): number => {
     const v = o[name] ?? 0;
     if (typeof v !== 'number' || !Number.isInteger(v) || v < 0) throw invalid(`parserOptions.${name}`, `parserOptions.${name} must be a whole number of at least 0.`, 'For example 1.');
@@ -408,8 +438,10 @@ export function parseCsv(text: string, o: ParserOptions): string[][] {
       if (o.quote !== '' && text[start] === o.quote) {
         let value = '';
         let i = start + 1;
+        // A quote left open is reported on the line where it opens (D-E06).
+        const opened = line;
         for (;;) {
-          if (i >= n) throw malformed(line, `missing closing ${o.quote}.`);
+          if (i >= n) throw malformed(opened, `missing closing ${o.quote} for the field that starts here.`);
           const ch = text[i]!;
           // An escaped quote: `""` by default, or the `escape` character followed by the quote.
           if (ch === o.escape && text[i + 1] === o.quote) {
@@ -559,13 +591,27 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   const map = options.map ?? defaultWriteMap(options.dateFormat, options.dateUTC === true);
   const includeEmptyRows = options.includeEmptyRows === undefined || options.includeEmptyRows;
   const lines: string[] = [];
-  if (f.headers) lines.push(f.headers.map((h, i) => formatField(h, i, f, false)).join(f.delimiter));
+  const escape = (out: unknown): [unknown, boolean] =>
+    injection === 'escape' && typeof out === 'string' && out.length > 0 && INJECTION_START.has(out[0]!) ? [`'${out}`, f.quote !== ''] : [out, false];
+  if (f.headers) {
+    lines.push(
+      f.headers
+        .map((h, i) => {
+          const [out, force] = escape(h);
+          return formatField(out, i, f, force);
+        })
+        .join(f.delimiter),
+    );
+  }
   if (sheet) {
     // exceljs starts at 1 and so writes one blank line too few before the first row; xlvane writes one per missing row.
     let lastRow = 0;
     sheet.eachRow((row, rowNumber) => {
       if (includeEmptyRows) while (++lastRow < rowNumber) lines.push('');
-      const values = row.values.slice(1);
+      let values = row.values.slice(1);
+      // With headers, fast-csv writes one field per header for an array row (RowFormatter
+      // gatherColumns): longer rows are cut, shorter ones end in empty fields (D-E06).
+      if (f.headers) values = f.headers.map((_h, i) => values[i]);
       const fields: string[] = [];
       for (let i = 0; i < values.length; i++) {
         // Array.prototype.map skips holes, and fast-csv writes them as empty, unquoted fields.
@@ -573,12 +619,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
           fields.push('');
           continue;
         }
-        let out = map(values[i], i);
-        let force = false;
-        if (injection === 'escape' && typeof out === 'string' && out.length > 0 && INJECTION_START.has(out[0]!)) {
-          out = `'${out}`;
-          force = f.quote !== '';
-        }
+        const [out, force] = escape(map(values[i], i));
         fields.push(formatField(out, i, f, force));
       }
       lines.push(fields.join(f.delimiter));

@@ -87,7 +87,7 @@ export interface FontStyle {
   readonly color?: Color;
   /** Superscript or subscript (ECMA-376 Part 1 §18.4.14). */
   readonly vertAlign?: VerticalAlignRun;
-  /** Font family, 0 to 5 in Office ([MS-OI29500] §2.1.703; the schema allows 0 to 14). */
+  /** Font family, 0 to 14 (ST_FontFamily); Office uses 0 to 5 ([MS-OI29500] §2.1.703). */
   readonly family?: number;
   /** Theme font scheme (ECMA-376 Part 1 §18.8.35). */
   readonly scheme?: FontScheme;
@@ -663,7 +663,9 @@ function normalizeFont(value: unknown, source: StyleSource): NonNullable<Normali
   }
   const family = o.get('family');
   // [MS-OI29500] §2.1.703: Office accepts 0 to 5; the schema's ST_FontFamily allows 0 to 14.
-  if (family !== undefined) out.family = integer(family, 'font.family', 0, source === 'input' ? 5 : 14, undefined, 2);
+  // ST_FontFamily allows 0 to 14; Office uses 0 to 5 ([MS-OI29500] §2.1.703). Files carry the
+  // larger values, so the schema range is accepted (D-E06).
+  if (family !== undefined) out.family = integer(family, 'font.family', 0, 14, undefined, 2);
   const scheme = o.get('scheme');
   if (scheme !== undefined) out.scheme = oneOf(scheme, 'font.scheme', FONT_SCHEMES);
   const charset = o.get('charset');
@@ -683,23 +685,26 @@ function normalizeGradient(value: unknown): NormalizedGradient {
   const out: NormalizedGradient = { type: 'gradient', gradient, stops: [] };
   const degree = o.get('degree');
   if (degree !== undefined) {
-    const d = finite(degree, 'fill.degree', -360, 360, 90);
+    // xsd:double in the schema; the meaning of the number is PROVISIONAL (W2-60), so any finite
+    // value a file may hold is accepted (D-E06).
+    const d = finite(degree, 'fill.degree', -Number.MAX_VALUE, Number.MAX_VALUE, 90);
     if (d !== 0) out.degree = d;
   }
   for (const side of ['left', 'right', 'top', 'bottom'] as const) {
     const v = o.get(side);
     if (v === undefined) continue;
-    const n = finite(v, `fill.${side}`, 0, 1, 0.5);
+    const n = finite(v, `fill.${side}`, -Number.MAX_VALUE, Number.MAX_VALUE, 0.5);
     if (n !== 0) out[side] = n;
   }
   const stops = o.get('stops');
-  if (!Array.isArray(stops) || stops.length < 2 || stops.length > 256) {
-    throw invalid('fill.stops', 'must be an array of 2 to 256 stops.', 'Use stops such as [{ position: 0, color: "FFFFFF" }, { position: 1, color: "4472C4" }].');
+  // CT_GradientFill allows any number of stops, also none (sml.xsd; D-E06).
+  if (!Array.isArray(stops)) {
+    throw invalid('fill.stops', 'must be an array of stops.', 'Use stops such as [{ position: 0, color: "FFFFFF" }, { position: 1, color: "4472C4" }].');
   }
   stops.forEach((stop: unknown, i) => {
     const so = readObject(stop, `fill.stops[${String(i)}]`, ['position', 'color']);
     out.stops.push({
-      position: finite(so.get('position'), `fill.stops[${String(i)}].position`, 0, 1, 0.5),
+      position: finite(so.get('position'), `fill.stops[${String(i)}].position`, -Number.MAX_VALUE, Number.MAX_VALUE, 0.5),
       color: normalizeColor(so.get('color'), `fill.stops[${String(i)}].color`),
     });
   });

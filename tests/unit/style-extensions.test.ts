@@ -7,6 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { editCells } from '../../packages/xlvane/src/edit';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
+import { buildXlsx } from '../helpers/xlsx-builder';
 import type { CellStyle } from '../../packages/xlvane/src/style';
 import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
 
@@ -58,12 +59,12 @@ describe('writing the style extensions', () => {
   it('refuses values outside the documented ranges', () => {
     const s = createWorkbook().addSheet('S');
     const bad: unknown[] = [
-      { font: { family: 6 } }, // [MS-OI29500] §2.1.703: 0 … 5
+      { font: { family: 15 } }, // ST_FontFamily: 0 … 14
       { font: { charset: -1 } }, // Part 1 §18.4.1: 0 … 255
       { font: { scheme: 'body' } },
       { fill: { type: 'gradient', gradient: 'angle', stops: [] } },
-      { fill: { type: 'gradient', gradient: 'linear', stops: [{ position: 0, color: 'FFFFFF' }] } },
-      { fill: { type: 'gradient', gradient: 'linear', stops: [{ position: 0, color: 'FFFFFF' }, { position: 2, color: '000000' }] } },
+      { fill: { type: 'gradient', gradient: 'linear', stops: [{ position: Number.NaN, color: 'FFFFFF' }] } },
+      { fill: { type: 'gradient', gradient: 'linear', stops: 'none' } },
       { fill: { type: 'pattern', pattern: 'solid' } },
       { border: { diagonalUp: 1 } },
       { alignment: { readingOrder: 'ltr' } },
@@ -131,5 +132,31 @@ describe('editCells and differential formats', () => {
     const rule = readWorkbook(bytes).getSheet('S').conditionalFormats[0]!.rules[0]!;
     expect(rule.style?.fill).toEqual({ type: 'gradient', gradient: 'linear', degree: 90, stops: [{ position: 0, color: 'FFFFFFFF' }, { position: 1, color: 'FF4472C4' }] });
     expect(rule.style?.font).toEqual({ vertAlign: 'subscript' });
+  });
+});
+
+describe('review fixes (D-E06): styles read from a file can be written again', () => {
+  it('accepts schema-valid gradients and font families that the old checks refused', () => {
+    const s = createWorkbook().addSheet('S');
+    for (const style of [
+      { font: { family: 10 } },
+      { fill: { type: 'gradient', gradient: 'linear', stops: [] } },
+      { fill: { type: 'gradient', gradient: 'linear', degree: 400, stops: [{ position: 0, color: 'FFFFFF' }] } },
+      { fill: { type: 'gradient', gradient: 'path', left: 2, stops: [{ position: 0, color: 'FFFFFF' }, { position: 2, color: '000000' }] } },
+    ]) expect(() => s.set('A1', 1, style as never), JSON.stringify(style)).not.toThrow();
+  });
+
+  it('drops a schema-invalid text rotation on read, with a warning, and keeps an indent above 255 (D-1101)', () => {
+    const bytes = buildXlsx({
+      sheets: [{ name: 'S', data: '<row r="1"><c r="A1" s="1"><v>1</v></c><c r="B1" s="2"><v>2</v></c></row>' }],
+      styles:
+        '<fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders>' +
+        '<cellXfs count="3"><xf/><xf applyAlignment="1"><alignment textRotation="200"/></xf><xf applyAlignment="1"><alignment indent="300" horizontal="left"/></xf></cellXfs>',
+    });
+    const wb = readWorkbook(bytes);
+    const s = wb.getSheet('S');
+    expect(s.cell('A1')!.style.alignment).toBeUndefined();
+    expect(s.cell('B1')!.style.alignment).toEqual({ horizontal: 'left', indent: 300 });
+    expect(wb.warnings.some((w) => w.code === 'XLV_W_INVALID_VALUE')).toBe(true);
   });
 });

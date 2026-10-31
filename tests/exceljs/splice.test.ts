@@ -318,3 +318,48 @@ describe('review fixes: defined names', () => {
     expect((ws.getCell('A1').value as { formula: string }).formula).toBe('SUM(Data!Total)+B6');
   });
 });
+
+describe('review fixes (D-E06): shared and array formulas follow splices', () => {
+  const build = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    ws.getCell('A1').value = 1;
+    ws.getCell('A2').value = 2;
+    ws.getCell('A3').value = 3;
+    ws.fillFormula('B1:B3', 'A1*2', [2, 4, 6]);
+    ws.getCell('D1').value = { formula: 'A1:A3*3', ref: 'D1:D3', shareType: 'array', result: 3 };
+    return roundTrip(wb);
+  };
+  const formulas = (ws: any): string[] => {
+    const out: string[] = [];
+    ws.eachRow((r: any) => r.eachCell((c: any) => {
+      if (c.formula !== undefined) out.push(`${c.address}=${c.formula}`);
+    }));
+    return out;
+  };
+
+  it('a loaded shared group survives insertRow and is written as plain formulas', async () => {
+    const wb = await build();
+    const ws = wb.getWorksheet('S');
+    ws.insertRow(1, ['new']);
+    expect(formulas(ws)).toEqual(['B2=A2*2', 'D2=A2:A4*3', 'B3=A3*2', 'B4=A4*2']);
+    expect(ws.getCell('D2').value.ref).toBe('D2:D4');
+    const back = (await roundTrip(wb)).getWorksheet('S');
+    expect(formulas(back)).toEqual(['B2=A2*2', 'D2=A2:A4*3', 'B3=A3*2', 'B4=A4*2']);
+  });
+
+  it('spliceColumns and removing the master row keep the dependents right', async () => {
+    const wb = await build();
+    const ws = wb.getWorksheet('S');
+    ws.spliceColumns(1, 0, ['x']);
+    expect(formulas(ws)).toEqual(['C1=B1*2', 'E1=B1:B3*3', 'C2=B2*2', 'C3=B3*2']);
+    expect(ws.getCell('E1').value.ref).toBe('E1:E3');
+    await roundTrip(wb);
+    const wb2 = await build();
+    const ws2 = wb2.getWorksheet('S');
+    ws2.spliceRows(1, 1);
+    expect(formulas(ws2).filter((f) => f.startsWith('B'))).toEqual(['B1=A1*2', 'B2=A2*2']);
+    const back = (await roundTrip(wb2)).getWorksheet('S');
+    expect(formulas(back).filter((f) => f.startsWith('B'))).toEqual(['B1=A1*2', 'B2=A2*2']);
+  });
+});

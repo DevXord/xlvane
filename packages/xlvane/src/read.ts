@@ -23,7 +23,7 @@ import {
 import { parseSharedStrings } from './sml/shared-strings';
 import { EMPTY_STYLES, parseStyles, type Styles } from './sml/styles';
 import { parseWorkbookPart } from './sml/workbook';
-import { DEFAULT_SHEET_PROPERTIES, DEFAULT_SHEET_VIEW, parseWorksheet, type NumberFormat, type WorksheetData } from './sml/worksheet';
+import { DEFAULT_SHEET_PROPERTIES, DEFAULT_SHEET_VIEW, parseWorksheet, styledCellsOf, type NumberFormat, type WorksheetData } from './sml/worksheet';
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 import { openZip } from './zip/reader';
@@ -179,11 +179,10 @@ class ReadSheet implements Sheet {
   }
 
   *styledCells(): IterableIterator<Cell> {
-    const rows = this.data?.styleOnly ?? new Map<number, Map<number, Cell>>();
-    for (const r of [...rows.keys()].sort((a, b) => a - b)) {
-      const cells = rows.get(r) ?? new Map<number, Cell>();
-      for (const c of [...cells.keys()].sort((a, b) => a - b)) yield cells.get(c) as Cell;
-    }
+    // Built when asked for (D-E06): readers of values never pay for them.
+    const data = this.data;
+    if (!data) return;
+    for (const r of [...data.styleOnly.keys()].sort((a, b) => a - b)) yield* styledCellsOf(r, data.styleOnly.get(r) ?? [], data.styledCell);
   }
 }
 

@@ -61,9 +61,13 @@ export interface WorksheetData {
   readonly cellCount: number;
   /**
    * Cells with a style but no value and no formula (D-E05), kept apart from `rows` so that
-   * every reader of values sees the same cells as before. Row number → (column → cell).
+   * every reader of values sees the same cells as before. Stored compactly (D-E06): row number →
+   * flat list `[column, styleIndex, column, styleIndex, …]`; `styledCell` builds a Cell from one
+   * entry when it is asked for.
    */
-  readonly styleOnly: Map<number, Map<number, Cell>>;
+  readonly styleOnly: Map<number, number[]>;
+  /** Builds the Cell of a style-only entry. */
+  readonly styledCell: (row: number, col: number, styleIndex: number) => Cell;
   /** `col` elements in file order (W2-03). */
   readonly columns: ColumnInfo[];
   /** Rows with a height or hidden flag (W2-04). */
@@ -186,12 +190,23 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
  * read and then dropped, so memory does not grow with the sheet; rows come in file order, and
  * shared formulas whose master comes later in the file cannot be expanded.
  */
+/** The cells of one row's style-only list (`[col, styleIndex, …]`), in column order. */
+export function styledCellsOf(row: number, list: readonly number[], make: (row: number, col: number, styleIndex: number) => Cell): Cell[] {
+  const pairs: [number, number][] = [];
+  for (let i = 0; i + 1 < list.length; i += 2) pairs.push([list[i]!, list[i + 1]!]);
+  pairs.sort((a, b) => a[0] - b[0]);
+  return pairs.map(([col, styleIndex]) => make(row, col, styleIndex));
+}
+
 export function createWorksheetParser(
   ctx: WorksheetContext,
   onRow?: (row: number, cells: readonly Cell[], info: RowInfo | undefined, styleOnly: readonly Cell[]) => void,
 ): { handler: XmlHandler; finish(): WorksheetData } {
   const rows = new Map<number, Map<number, Cell>>();
-  const styleOnly = new Map<number, Map<number, Cell>>();
+  // Style-only cells (D-E05, D-E06): row → [col, styleIndex, …], and the largest column per row,
+  // so that the usual ascending order needs no search.
+  const styleOnly = new Map<number, number[]>();
+  const styleOnlyMax = new Map<number, number>();
   const merges: string[] = [];
   const formats = ctx.formatCache;
   const path: string[] = [];
@@ -207,7 +222,9 @@ export function createWorksheetParser(
   let tabColor: Color | null = null;
   let view: SheetView = DEFAULT_SHEET_VIEW;
   let properties: SheetProperties = DEFAULT_SHEET_PROPERTIES;
-  let selections = 0;
+  // Active cells of the selections of the first view, by pane, and the pane that is active.
+  const selections = new Map<string, string>();
+  let activePane = 'topLeft';
   const hyperlinks: RawHyperlink[] = [];
   let drawingRelId: string | null = null;
   let pictureRelId: string | null = null;
@@ -264,6 +281,20 @@ export function createWorksheetParser(
       formats.set(id, format);
     }
     return format;
+  };
+
+  /** Position of `col` in the style-only list of `row`, or -1; searched only below the largest column seen. */
+  const styledIndex = (row: number, col: number): number => {
+    const max = styleOnlyMax.get(row);
+    if (max === undefined || col > max) return -1;
+    const list = styleOnly.get(row);
+    if (list === undefined) return -1;
+    for (let i = list.length - 2; i >= 0; i -= 2) if (list[i] === col) return i;
+    return -1;
+  };
+  const styledCell = (row: number, col: number, styleIndex: number): Cell => {
+    const code = numberFormat(styleIndex).code;
+    return { ref: formatCellRef(row, col), row, col, type: 'empty', value: null, formula: null, styleIndex, numFmt: code, style: ctx.styles.cellStyle(styleIndex, code) };
   };
 
   const finishCell = (p: PendingCell): void => {
@@ -377,7 +408,10 @@ export function createWorksheetParser(
       let kind = FORMULA_KINDS.find((k) => k === rawKind) ?? 'normal';
       const si = p.formulaAttrs.get('si');
       const sharedIndex = si === undefined ? null : parseUint(si, 10);
-      const ref = p.formulaAttrs.get('ref') ?? null;
+      // exceljs writes `$` in the ref of a fillFormula over an absolute range ("$A$1:$A$3"); the
+      // marks carry no meaning in a ref (ST_Ref, A1 references), so they are dropped (D-E06).
+      const rawRef = p.formulaAttrs.get('ref');
+      const ref = rawRef === undefined ? null : rawRef.replace(/\$/g, '');
       // A formula is shared only when both t="shared" and si are present (E-28).
       if (kind === 'shared' && sharedIndex === null) kind = 'normal';
       // ST_Formula is an ST_Xstring (W2-02), so _xHHHH_ escapes are decoded.
@@ -405,35 +439,41 @@ export function createWorksheetParser(
     if (value === null && formula === null) {
       // A cell with only a style keeps its style (D-E05); a cell without one is nothing.
       if (p.styleIndex === 0) return;
-      if (rows.get(p.row)?.has(p.col) === true) return;
+      // The last definition of a cell is used (D-E06): a style-only cell after a cell with a value
+      // replaces it.
+      const valued = rows.get(p.row);
+      if (valued?.has(p.col) === true) {
+        valued.delete(p.col);
+        cellCount--;
+        ctx.budget.remaining++;
+        ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
+      }
       let styled = styleOnly.get(p.row);
       if (styled === undefined) {
-        styled = new Map();
+        styled = [];
         styleOnly.set(p.row, styled);
       }
-      if (!styled.has(p.col) && --ctx.budget.remaining < 0) {
+      const at = styledIndex(p.row, p.col);
+      if (at >= 0) {
+        styled[at + 1] = p.styleIndex;
+        ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
+        return;
+      }
+      if (--ctx.budget.remaining < 0) {
         throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The workbook has more cells than the limit.', {
           location: loc(p.ref),
           hint: `Cells that hold only a style count too. If you trust this file, raise the limit, for example { limits: { maxCells: ${String(ctx.limits.maxCells * 4)} } }.`,
           details: { limit: 'maxCells', value: ctx.limits.maxCells },
         });
       }
-      styled.set(p.col, {
-        ref: p.ref,
-        row: p.row,
-        col: p.col,
-        type: 'empty',
-        value: null,
-        formula: null,
-        styleIndex: p.styleIndex,
-        numFmt: format.code,
-        style: ctx.styles.cellStyle(p.styleIndex, format.code),
-      });
+      styled.push(p.col, p.styleIndex);
+      if (p.col > (styleOnlyMax.get(p.row) ?? 0)) styleOnlyMax.set(p.row, p.col);
       return;
     }
     // A later definition with a value replaces a style-only one (the last definition is used).
-    const styledRow = styleOnly.get(p.row);
-    if (styledRow?.delete(p.col) === true) {
+    const at = styledIndex(p.row, p.col);
+    if (at >= 0) {
+      styleOnly.get(p.row)?.splice(at, 2);
       ctx.budget.remaining++;
       ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
     }
@@ -491,11 +531,9 @@ export function createWorksheetParser(
     }
     rows.clear();
     const styled: Cell[] = [];
-    for (const r of [...styleOnly.keys()].sort((a, b) => a - b)) {
-      const cells = styleOnly.get(r);
-      if (cells) for (const c of [...cells.keys()].sort((a, b) => a - b)) styled.push(cells.get(c) as Cell);
-    }
+    for (const r of [...styleOnly.keys()].sort((a, b) => a - b)) styled.push(...styledCellsOf(r, styleOnly.get(r) ?? [], styledCell));
     styleOnly.clear();
+    styleOnlyMax.clear();
     if (out.length > 0 || styled.length > 0) onRow(currentRow, out, info, styled);
   };
 
@@ -572,15 +610,16 @@ export function createWorksheetParser(
           if (sheetViews === 1) view = parseSheetView(attrs, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
         } else if (depth === 4 && local === 'pane' && parent === 'sheetView' && sheetViews === 1) {
           const warn = (message: string): void => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc());
+          // ST_Pane; the schema default of pane@activePane is topLeft (CT_Pane, sml.xsd; W2-51).
+          activePane = attrs.get('activePane') ?? 'topLeft';
           freeze = parsePane(attrs, warn);
           const split = parseSplit(attrs, warn);
           if (split !== null) view = Object.freeze({ ...view, split });
         } else if (depth === 4 && local === 'selection' && parent === 'sheetView' && sheetViews === 1) {
-          // The active cell of the first selection of the first view (CT_Selection; W2-51).
-          if (selections++ === 0) {
-            const cell = parseCellRef((attrs.get('activeCell') ?? '').trim());
-            if (cell !== null) view = Object.freeze({ ...view, activeCell: formatCellRef(cell.row, cell.col) });
-          }
+          // Each pane may have its own selection; the view's active cell is the one of the active
+          // pane, as exceljs reads it (sheet-view-xform.js L129–186; CT_Selection; W2-51, D-E06).
+          const cell = parseCellRef((attrs.get('activeCell') ?? '').trim());
+          if (cell !== null) selections.set(attrs.get('pane') ?? 'topLeft', formatCellRef(cell.row, cell.col));
         } else if (depth === 2 && local === 'sheetFormatPr') {
           properties = parseSheetFormat(attrs, properties, (message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
         } else if (depth === 3 && local === 'outlinePr' && parent === 'sheetPr') {
@@ -714,7 +753,9 @@ export function createWorksheetParser(
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
     else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
-    return { rows, styleOnly, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
+    const activeCell = selections.get(activePane);
+    if (activeCell !== undefined) view = Object.freeze({ ...view, activeCell });
+    return { rows, styleOnly, styledCell, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
   };
   return { handler, finish };
 }

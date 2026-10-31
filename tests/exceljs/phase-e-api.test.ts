@@ -5,6 +5,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { readWorkbook } from '../../packages/xlvane/src/read';
+import { buildXlsx } from '../helpers/xlsx-builder';
 import { ExcelJS } from './helpers';
 
 const part = (bytes: Uint8Array, name: string): string => strFromU8(unzipSync(bytes)[name]!);
@@ -261,7 +262,11 @@ describe('model snapshots and smaller members', () => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('S');
     ws.addRow([1]);
-    expect(ws.findRows(1, 2).map((r: any) => r?.number)).toEqual([1, undefined]);
+    // exceljs: this._rows.slice(start - 1, start - 1 + length), so no row past the last one.
+    expect(ws.findRows(1, 2).map((r: any) => r?.number)).toEqual([1]);
+    ws.getCell('A3').value = 3;
+    expect(ws.findRows(1, 4).map((r: any) => r?.number)).toEqual([1, undefined, 3]);
+    expect(ws.findRows(0, 2)).toEqual([]);
     ws.getColumn(3).width = 20;
     expect(ws.lastColumn.number).toBe(3);
     ws.getCell('A5').value = 'm';
@@ -276,5 +281,88 @@ describe('model snapshots and smaller members', () => {
     expect(wb.getWorksheet('T')).toBeUndefined();
     wb.clearThemes();
     expect(ws.getCell('A1').workbook).toBe(wb);
+  });
+});
+
+describe('review fixes (D-E06)', () => {
+  it('textRotation and indent follow exceljs validInt: truncated, numeric strings, out of range dropped', async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    const cases: [unknown, number | undefined][] = [[45.7, 45], ['30', 30], [-91, undefined], [100, undefined], [-30, 120], ['vertical', 255]];
+    cases.forEach(([tr], i) => {
+      ws.getCell(1, i + 1).value = i;
+      ws.getCell(1, i + 1).alignment = { textRotation: tr as never };
+    });
+    ws.getCell('A2').value = 'x';
+    ws.getCell('A2').alignment = { indent: 2.5 as never };
+    const bytes = await wb.xlsx.writeBuffer();
+    const sheet = readWorkbook(bytes as Uint8Array).getSheet('S');
+    cases.forEach(([tr, expected], i) => expect(sheet.cell(`${String.fromCharCode(65 + i)}1`)?.style.alignment?.textRotation, String(tr)).toBe(expected));
+    expect(sheet.cell('A2')?.style.alignment?.indent).toBe(2);
+  });
+
+  it('gives the JSON text of a JSON value from toCsvString, as exceljs', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('S');
+    ws.getCell('A1').value = { json: 1 } as never;
+    expect(ws.getCell('A1').toCsvString()).toBe('{"json":1}');
+  });
+
+  it('the streaming WorkbookWriter writes workbook views, as exceljs workbook-writer.js L321', async () => {
+    const chunks: Uint8Array[] = [];
+    const writer = new ExcelJS.stream.xlsx.WorkbookWriter({
+      stream: { write: (c: Uint8Array, cb: () => void) => (chunks.push(new Uint8Array(c)), cb()), end: (cb: () => void) => cb() },
+    });
+    writer.views = [{ x: 0, y: 0, width: 10000, height: 20000, firstSheet: 0, activeTab: 1, visibility: 'visible' }];
+    writer.addWorksheet('A').addRow([1]).commit();
+    writer.addWorksheet('B').addRow([2]).commit();
+    await writer.commit();
+    const bytes = new Uint8Array(chunks.reduce((n, c) => n + c.length, 0));
+    let at = 0;
+    for (const c of chunks) {
+      bytes.set(c, at);
+      at += c.length;
+    }
+    expect(part(bytes, 'xl/workbook.xml')).toContain('<workbookView xWindow="0" yWindow="0" windowWidth="10000" windowHeight="20000" firstSheet="0" activeTab="1"/>');
+  });
+
+  it('loads a file whose indent is above 255 and writes it again without the indent', async () => {
+    const bytes = buildXlsx({
+      sheets: [{ name: 'S', data: '<row r="1"><c r="A1" s="1"><v>1</v></c></row>' }],
+      styles: '<fonts count="1"><font/></fonts><fills count="1"><fill/></fills><borders count="1"><border/></borders><cellXfs count="2"><xf/><xf applyAlignment="1"><alignment indent="300" horizontal="left"/></xf></cellXfs>',
+    });
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(bytes);
+    expect(wb.getWorksheet('S').getCell('A1').alignment).toEqual({ horizontal: 'left' });
+    await expect(wb.xlsx.writeBuffer()).resolves.toBeDefined();
+  });
+
+  it('checks outline levels when they are set, and gives new worksheets exceljs default properties', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('S');
+    expect(ws.properties).toEqual({ defaultRowHeight: 15, dyDescent: 55, outlineLevelCol: 0, outlineLevelRow: 0 });
+    expect(() => {
+      ws.getRow(1).outlineLevel = 8;
+    }).toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_ARGUMENT' }));
+    expect(() => {
+      ws.getColumn(1).outlineLevel = -1;
+    }).toThrow(expect.objectContaining({ code: 'XLV_E_INVALID_ARGUMENT' }));
+    ws.getRow(1).outlineLevel = 7;
+    expect(ws.getRow(1).outlineLevel).toBe(7);
+  });
+
+  it('styles a file holds can be written again after loading (gradients, font families)', async () => {
+    const src = new ExcelJS.Workbook();
+    const ws = src.addWorksheet('S');
+    ws.getCell('A1').value = 1;
+    ws.getCell('A1').fill = { type: 'gradient', gradient: 'angle', degree: 400, stops: [{ position: 0, color: { argb: 'FF0000FF' } }] } as never;
+    ws.getCell('A2').value = 2;
+    ws.getCell('A2').fill = { type: 'gradient', gradient: 'path', center: { left: 2, top: 0.5 }, stops: [] } as never;
+    ws.getCell('A3').value = 3;
+    ws.getCell('A3').font = { name: 'Arial', family: 10 } as never;
+    const loaded = await roundTrip(src);
+    // An indent above 255, as another application may have written it, is left out on load.
+    const sheet = loaded.getWorksheet('S');
+    expect(sheet.getCell('A1').fill.type).toBe('gradient');
+    await expect(loaded.xlsx.writeBuffer()).resolves.toBeDefined();
+    expect((loaded.getWorksheet('S').getCell('A3').font as { family: number }).family).toBe(10);
   });
 });
