@@ -26,8 +26,10 @@ jobs:
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: ${{ matrix.node }}
+      # python3-uno runs the UNO fact scripts (tests/libreoffice/*.py); Carlito is the metric-compatible
+      # substitute for Calibri, so default row heights (and image anchors) match the local runs.
       - name: Install LibreOffice Calc
-        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-calc
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends libreoffice-calc python3-uno fonts-crosextra-carlito
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
