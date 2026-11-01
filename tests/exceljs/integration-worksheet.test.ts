@@ -323,7 +323,7 @@ describe('Worksheet', () => {
     ws.getCell('A1').value = 'lotion';
   });
 
-  it.skip('Should not break when importing a .numbers file — fixture not copied', () => {});
-  it.skip('Should not break when importing an Excel file that contains a chartsheet — fixture not copied', () => {});
-  it.skip('Hidden: should set hidden attribute correctly — fixtures not copied', () => {});
+  it.skip('Should not break when importing a .numbers file - fixture not copied', () => {});
+  it.skip('Should not break when importing an Excel file that contains a chartsheet - fixture not copied', () => {});
+  it.skip('Hidden: should set hidden attribute correctly - fixtures not copied', () => {});
 });

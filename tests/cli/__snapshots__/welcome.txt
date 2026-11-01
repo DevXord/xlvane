@@ -1,4 +1,4 @@
-xlvane 0.0.0-test — read, write and inspect Excel files
+xlvane 0.0.0-test - read, write and inspect Excel files
 
 Common tasks:
   xlvane inspect report.xlsx                See sheets, columns and problems

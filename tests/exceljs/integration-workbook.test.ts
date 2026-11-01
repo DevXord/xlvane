@@ -23,7 +23,7 @@ import { splicedSheets } from './spliced-sheets';
 
 describe('Workbook', () => {
   describe('Serialise', () => {
-    it.skip('xlsx file — createTestBook fixture not ported', () => {});
+    it.skip('xlsx file - createTestBook fixture not ported', () => {});
 
     describe('Xlsx Zip Compression', () => {
       // createTestBook is not ported; each level writes an own sheet with the upstream zip option.
@@ -228,7 +228,7 @@ describe('Workbook', () => {
       await withTempDir((dir) => wb.xlsx.writeFile(join(dir, 'wb.test.xlsx')));
     });
 
-    it.skip('a lot of sheets to xlsx file — createTestBook fixture not ported', () => {});
+    it.skip('a lot of sheets to xlsx file - createTestBook fixture not ported', () => {});
 
     // exceljs spec/utils/data/sheet-values.json.
     const testValues = { str: 'Hello, World!', str2: '<a href="www.whatever.com">Talk to the H&</a>', date: new Date('2016-08-16T16:23:59.720Z') };

@@ -59,7 +59,7 @@ describe('Cell', () => {
     expect(a1.type).toBe(ExcelJS.ValueType.String);
   });
 
-  it.skip('validates options on construction — not supported: Cell constructor is internal', () => {});
+  it.skip('validates options on construction - not supported: Cell constructor is internal', () => {});
 
   it('merges', () => {
     const a1 = ws.getCell('A1');
@@ -89,8 +89,8 @@ describe('Cell', () => {
     expect(ws.getCell('A1').master).toBe(ws.getCell('A1'));
   });
 
-  it.skip('upgrades from string to hyperlink — not supported: internal _upgradeToHyperlink', () => {});
-  it.skip("doesn't upgrade from non-string to hyperlink — not supported: internal _upgradeToHyperlink", () => {});
+  it.skip('upgrades from string to hyperlink - not supported: internal _upgradeToHyperlink', () => {});
+  it.skip("doesn't upgrade from non-string to hyperlink - not supported: internal _upgradeToHyperlink", () => {});
 
   it('inherits column styles', () => {
     ws.getColumn(1).style = { font: styles.fonts.arialBlackUI14 };
@@ -139,7 +139,7 @@ describe('Cell', () => {
     expect(c1.formulaType).toBe(ExcelJS.FormulaType.Shared);
     expect(c1.formula).toBe('B1+1');
   });
-  it.skip('escapes dangerous html — not supported: cell.html', () => {});
+  it.skip('escapes dangerous html - not supported: cell.html', () => {});
 
   it('can set comment', () => {
     const a1 = ws.getCell('A1');

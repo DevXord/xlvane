@@ -1,7 +1,7 @@
 // Builds ZIP archives byte by byte, including deliberately broken or hostile ones.
 // Compression and CRC-32 come from node:zlib, so the tests do not rely on the code under test.
 // Layouts follow APPNOTE.TXT 6.3.10 sections 4.3.7 (local header), 4.3.12 (central directory),
-// 4.3.14-4.3.16 (ZIP64 and end of central directory) — see docs/facts/zip-xml-web.md Z-*.
+// 4.3.14-4.3.16 (ZIP64 and end of central directory) - see docs/facts/zip-xml-web.md Z-*.
 import { crc32, deflateRawSync } from 'node:zlib';
 
 export interface RawEntry {

@@ -1,4 +1,4 @@
-xlvane migrate — Switch a project from exceljs to @xlvane/compat
+xlvane migrate - Switch a project from exceljs to @xlvane/compat
 
 Usage:
   xlvane migrate [project-dir] [options]

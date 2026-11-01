@@ -1,6 +1,6 @@
 // Style extensions of phase E1 (docs/decisions.md D-E01; docs/facts/sml-write.md W2-60 … W2-63):
 // gradient fills, diagonal borders, the remaining font properties, shrinkToFit / justifyLastLine /
-// readingOrder, and cell protection — in cell formats, rich text runs and differential formats,
+// readingOrder, and cell protection - in cell formats, rich text runs and differential formats,
 // through the batch writer, the streaming writer, the reader and editCells.
 import { strFromU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';

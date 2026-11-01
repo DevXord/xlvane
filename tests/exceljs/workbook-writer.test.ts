@@ -37,7 +37,7 @@ describe('WorkbookWriter', () => {
   });
 
   describe('Serialise', () => {
-    it.skip('xlsx file — createTestBook fixture not ported', () => {});
+    it.skip('xlsx file - createTestBook fixture not ported', () => {});
     it('shared formula', async () => {
       await withTempDir(async (dir) => {
         const filename = join(dir, 'wb.test.xlsx');
@@ -73,7 +73,7 @@ describe('WorkbookWriter', () => {
       });
     });
 
-    it.skip('Without styles — createTestBook fixture not ported', () => {});
+    it.skip('Without styles - createTestBook fixture not ported', () => {});
 
     it('serializes row styles and columns properly', async () => {
       await withTempDir(async (dir) => {
@@ -200,7 +200,7 @@ describe('WorkbookWriter', () => {
       });
     });
 
-    it('names or properties changed after the first committed row — not supported', async () => {
+    it('names or properties changed after the first committed row - not supported', async () => {
       await withTempDir(async (dir) => {
         const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename: join(dir, 'wb.test.xlsx') });
         const ws = wb.addWorksheet('blort');

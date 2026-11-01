@@ -2,6 +2,14 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Release preparation (2026-10-31)
+
+- PR #1-#4 merged into `main`; tag `v1.0.0` at 257ee9e (to be moved to the merge of the next PR, which holds the em-dash replacement and the new RELEASING.md).
+- D-R04: defaults approved. D-R05: licence review (exceljs MIT notice in @xlvane/compat, not-affiliated statement). D-R06: `@xlvane/exceljs` renamed `@xlvane/compat` (packages/compat).
+- Packed tarballs tested in outside projects (core API in TS/ESM/CJS with LibreOffice checks; @xlvane/compat against exceljs 4.4.0; every CLI command; esbuild, vite, webpack, Chromium, Bun, Deno, workerd; HTTP server, invoice migration). Fixes: D-R07 (compat bundling through package imports), D-R08 (appendRows below merges, split views, CF hints, CLI dry run and suggestions, bidi escaping), D-R09 (compat columns, linear streaming writer, types, underline, orderNo, getSheetValues, tables), `addImage({ filename })` read at write time; an independent review of these fixes found two more (jq hint target, appendRows merges), fixed.
+- First npm attempt: rejecting the local first stages unpublished both packages (24 h block on the names, until about 2026-11-01 19:36 UTC). D-R10: 1.0.0 is published from the maintainer's machine without provenance; trusted publishing is set up afterwards.
+- All em dashes replaced with hyphen-minus at the maintainer's request.
+
 ## Pre-release audit (2026-10-31)
 
 - Five audits: security and penetration test, use in real projects (packed tarballs in ESM/CJS/TS/Vite/esbuild/webpack/Bun/Deno/workerd), functional review, AI-friendliness, developer-friendliness.
