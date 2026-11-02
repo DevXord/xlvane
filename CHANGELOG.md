@@ -1,5 +1,26 @@
 # Changelog
 
+## 1.1.1
+
+A security release: small, crafted files could make reading, converting or the command line take minutes or run out of memory. Upgrading is recommended for everyone who opens files from untrusted sources. No API changes besides two new warning codes.
+
+### Security
+
+- **Output budgets:** `toCSV`, `readTable`, `toJSON`, `readTableStream`, `xlvane read` and `xlvane convert` write at most `max(maxCells, 16 × cells read)` positions; beyond that they throw `XLV_E_LIMIT_EXCEEDED` (`details.limit` `maxCells`). Before, two cells A1 and XFD1048576 made `toCSV` write billions of empty fields, and a header 16 384 columns wide made `readTable` build 16 384 properties per cell. Pass a smaller `range` to read part of a large sheet.
+- **Shared formulas:** the text of cells sharing a formula counts against `maxSharedStringChars` (the master's length once per cell, apart from shared strings). Before, a 13 KB file sharing a 1 MiB formula with 2 000 cells took about 2 GB once the formulas were read.
+- **Sheets sharing one part:** a worksheet part used by several sheets is read once; the other sheets are returned without cells and with the new warning `XLV_W_SHEET_PART_SHARED`. Before, it was decompressed and parsed once per sheet, outside the limit on decompressed bytes.
+- **Hyperlinks:** linking hyperlinks to cells is limited; beyond the limit `cell.hyperlink` is not set, with the new warning `XLV_W_LIMIT_REACHED` (`sheet.hyperlinks` lists every link).
+- **Linear time:** the streaming XML parser on long comments, attributes or text arriving in many pieces; opening a ZIP archive from a `Blob` with many entries; `insertRows`/`deleteRows` on sheets with comments holding `<drawing `; rows of style-only cells written right to left. XML comments and processing instructions longer than `maxXmlTextLength` are refused, as text is.
+- **`insertRows`/`deleteRows`** no longer take a `drawing` element inside an XML comment for the sheet's drawing.
+- **Command line:** `inspect` and `diff` escape sheet names, formulas and other text from files also when colours are on (before, an escape sequence for a colour passed through); `--json` writes control and bidirectional characters as `\uXXXX` escapes (the same JSON value). `xlvane migrate` does not follow symbolic links, and `--force` changes the `exceljs` entry of the dependency section instead of the first `"exceljs"` in the file (which could be in `overrides`).
+- **CSV formula injection:** text that starts with a control character (NUL included) or with the small forms `﹦`, `﹢`, `﹣`, `﹫` also gets the leading `'`, as a precaution.
+- `readTableStream` without a header no longer throws a `RangeError` on rows with very many cells.
+
+### @xlvane/compat
+
+- `xlsx.load` limits the cells it creates for merged ranges, tables and column definitions (`XLV_E_LIMIT_EXCEEDED`); before, one merged range covering the whole sheet ran out of memory. Checking a new merge against earlier ones takes linear time.
+- `workbook.csv` escapes the same additional formula-like starts as `toCSV`.
+
 ## 1.1.0
 
 ### xlvane

@@ -91,6 +91,12 @@ An argument of a method of `@xlvane/compat` is not valid, in a case where excelj
 ### XLV_E_LIMIT_EXCEEDED
 The file exceeds one of the resource limits (`ReadLimits`): input size, number of ZIP entries, decompressed size of one entry or of all entries, compression ratio, XML nesting depth, attribute count, name or text length, number of elements in a tree-parsed part, or number of cells. `details.limit` names the limit and `details.value` its current value. Sizes are measured on the bytes actually produced by decompression, so a file cannot avoid a limit by declaring false sizes.
 
+Some limits also bound work derived from a small file (1.1.1, D-H01):
+
+- `maxCells` (`details.limit` `maxCells`, `details.value` the budget): `toCSV`, `readTable`, `toJSON`, `readTableStream`, `xlvane read` and `xlvane convert` write at most `max(maxCells, 16 × cells read)` positions (rows × columns of the output), so a few cells far apart cannot make them produce a value for every position between; `@xlvane/compat`'s `xlsx.load` creates at most as many cells for merged ranges, tables and column definitions. Pass a smaller `range`, or raise `maxCells` for a trusted file.
+- `maxXmlTextLength`: also the length of an XML comment or processing instruction.
+- `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the master formula's length once per cell that shares it.
+
 `fromCSV` (and `xlvane convert`/`create` with CSV input) throws it for text with more fields than `maxCells` (default 5 000 000, `details.limit` `maxCells`), more than 16 384 fields on a line or more than 1 048 576 lines.
 
 `NewSheet.validate` throws it when a sheet would get more than 65534 data validations ([MS-OI29500] §2.1.614 g; `details.limit` `dataValidations`). When reading, the conditional formatting and data validations of one sheet count against `maxXmlTreeElements`.

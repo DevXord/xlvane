@@ -2,6 +2,12 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase H: security release 1.1.1 (2026-11-02)
+
+- Two independent security reviews with proof-of-concept files (library and CLI; website and GitHub workflows) at the maintainer's request. No code execution, XSS, workflow injection, leaked secrets or prototype pollution; 14 denial-of-service findings by amplification in the library and CLI, all fixed test-first (D-H01): budgets for output positions, compat load, hyperlinks and shared-formula text; a part shared by sheets read once; linear streaming XML parsing, Blob ZIP loading, row changes and style-only cells; CLI escaping with colours and in `--json`; `migrate` without symbolic links and with an exact `--force` edit; more CSV formula-injection starts.
+- New warning codes `XLV_W_LIMIT_REACHED` and `XLV_W_SHEET_PART_SHARED`; `maxXmlTextLength` also limits comments and processing instructions; `maxSharedStringChars` also counts shared-formula text (separately).
+- Docs: SECURITY.md (amplification row, command line), errors.md, README limits, docs/facts/csv.md CSV-12, CHANGELOG 1.1.1.
+
 ## 1.1.0 published; website (2026-11-02)
 
 - 1.1.0 published from GitHub Actions with provenance (run #5 of the Release workflow): tag `v1.1.0` at fdd772c, both packages `latest`, tarballs equal the packages built from the tag, smoke test from the registry passes, the new features work from the registry.
