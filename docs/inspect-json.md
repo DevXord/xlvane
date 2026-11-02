@@ -34,6 +34,7 @@
 |---|---|---|
 | `name` | string | sheet name |
 | `index` | number | 0-based position |
+| `sheetId` | number or `null` | the sheet's id in the file (`sheet@sheetId`), independent of its position; `null` when the file has none, an invalid one or a repeated one |
 | `kind` | `"worksheet" \| "chartsheet" \| "dialogsheet" \| "macrosheet"` | only worksheets have cells |
 | `state` | `"visible" \| "hidden" \| "veryHidden"` | visibility |
 | `dimension` | string or `null` | range declared in the file, e.g. `"A1:D20"` |
@@ -112,6 +113,7 @@ Values in `samples` are JSON-safe: numbers, booleans, strings (cut to 100 charac
     {
       "name": "Sales",
       "index": 0,
+      "sheetId": 1,
       "kind": "worksheet",
       "state": "visible",
       "dimension": "A1:C3",

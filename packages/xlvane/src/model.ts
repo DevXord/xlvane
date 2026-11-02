@@ -241,13 +241,19 @@ export type SheetLayout = 'normal' | 'pageBreakPreview' | 'pageLayout';
  * ```ts
  * import type { SplitPanes } from 'xlvane';
  *
- * const split: SplitPanes = { x: 120, y: 60 };
- * console.log(split.x);
+ * const split: SplitPanes = { x: 120, y: 60, topLeftCell: 'H20' };
+ * console.log(split.x, split.topLeftCell);
  * ```
  */
 export interface SplitPanes {
   readonly x: number;
   readonly y: number;
+  /**
+   * The top-left visible cell of the bottom-right pane (`pane@topLeftCell`): its column is the
+   * first one shown right of the vertical bar, its row the first one shown below the horizontal
+   * bar. Absent when the file does not set it.
+   */
+  readonly topLeftCell?: string;
 }
 
 /**
@@ -417,6 +423,12 @@ export interface Sheet {
   readonly name: string;
   /** 0-based position in the workbook. */
   readonly index: number;
+  /**
+   * The sheet's id in the file (`sheet@sheetId`), which does not depend on its position; `null`
+   * when the file has none, an invalid one or one repeated from an earlier sheet (reported as
+   * `XLV_W_INVALID_VALUE`).
+   */
+  readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
   /** Part name of the sheet, for example `/xl/worksheets/sheet1.xml`; `null` if it is missing. */

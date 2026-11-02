@@ -104,7 +104,7 @@ describe('reading', () => {
 
   it('reads a pane without state as a split, and frozen panes not as one', () => {
     const split = readWorkbook(withSheet('<sheetViews><sheetView workbookViewId="0"><pane xSplit="2310" ySplit="2070" topLeftCell="C1" activePane="bottomRight"/></sheetView></sheetViews>')).getSheet('S');
-    expect(split.view.split).toEqual({ x: 115.5, y: 103.5 });
+    expect(split.view.split).toEqual({ x: 115.5, y: 103.5, topLeftCell: 'C1' });
     expect(split.freeze).toBeNull();
     const frozen = readWorkbook(withSheet('<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" state="frozen"/></sheetView></sheetViews>')).getSheet('S');
     expect(frozen.view.split).toBeNull();
@@ -149,5 +149,48 @@ describe('reading', () => {
         expect(sheetXml(bytes)).toContain(`<selection pane="${pane}" activeCell="C5" sqref="C5"/>`);
       }
     }
+  });
+});
+
+describe('pane@topLeftCell of a split window (D-F02)', () => {
+  // pane@topLeftCell holds the first visible column of the right panes and the first visible row
+  // of the bottom panes: LibreOffice reads it as PositionRight/PositionBottom
+  // (sc/source/filter/oox/viewsettings.cxx) and exceljs 4.4.0 writes and reads it for a split view
+  // (sheet-view-xform.js L72-85, L118-124); W2-69.
+  it('is written on the pane and read back, in both writers', async () => {
+    for (const split of [{ x: 100, y: 50, topLeftCell: 'F20' }, { x: 0, y: 50, topLeftCell: 'A20' }, { x: 100, y: 0, topLeftCell: 'F1' }]) {
+      const wb = createWorkbook();
+      wb.addSheet('S').view({ split, topLeftCell: 'B3' });
+      const batch = writeWorkbook(wb);
+      const stream = writeWorkbookStream({ sheets: [{ name: 'S', view: { split }, rows: [[1]] }] });
+      const streamed = new Uint8Array(await new Response(stream).arrayBuffer());
+      for (const bytes of [batch, streamed]) {
+        expect(sheetXml(bytes)).toMatch(new RegExp(`<pane[^>]* topLeftCell="${split.topLeftCell}"[^>]* state="split"/>`));
+        expect(readWorkbook(bytes).getSheet('S').view.split).toEqual(split);
+      }
+      // sheetView@topLeftCell stays the top-left pane's cell (D-R08).
+      expect(sheetXml(batch)).toMatch(/<sheetView[^>]* topLeftCell="B3"/);
+    }
+  });
+
+  it('is optional, upper-cased, checked, and removed with the split or by freezing', () => {
+    const plain = createWorkbook();
+    plain.addSheet('S').view({ split: { y: 50 } });
+    expect(sheetXml(writeWorkbook(plain))).toContain('<pane ySplit="1000" activePane="bottomLeft" state="split"/>');
+    expect(readWorkbook(writeWorkbook(plain)).getSheet('S').view.split).toEqual({ x: 0, y: 50 });
+    const lower = createWorkbook();
+    lower.addSheet('S').view({ split: { y: 50, topLeftCell: 'a20' } });
+    expect(readWorkbook(writeWorkbook(lower)).getSheet('S').view.split?.topLeftCell).toBe('A20');
+    expectXlvError(() => createWorkbook().addSheet('S').view({ split: { y: 50, topLeftCell: 'nope' } }), 'XLV_E_INVALID_OPTION');
+    const frozen = createWorkbook();
+    frozen.addSheet('S').view({ split: { y: 50, topLeftCell: 'A20' } }).freeze({ rows: 1 });
+    expect(sheetXml(writeWorkbook(frozen))).toContain('topLeftCell="A2"');
+    expect(sheetXml(writeWorkbook(frozen))).not.toContain('A20');
+  });
+
+  it('is read from a file, and ignored when it is not a cell reference', () => {
+    const view = (pane: string) => readWorkbook(withSheet(`<sheetViews><sheetView workbookViewId="0">${pane}</sheetView></sheetViews>`)).getSheet('S').view.split;
+    expect(view('<pane xSplit="2000" ySplit="1000" topLeftCell="D12" activePane="bottomRight"/>')).toEqual({ x: 100, y: 50, topLeftCell: 'D12' });
+    expect(view('<pane xSplit="2000" topLeftCell="Sheet1" activePane="topRight"/>')).toEqual({ x: 100, y: 0 });
   });
 });

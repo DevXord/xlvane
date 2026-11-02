@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0
+
+### xlvane
+
+- **Sheet ids:** `addSheet(name, { sheetId })` and the `sheetId` of a streamed sheet set the sheet's id in the file (1 to 65534, unique); other sheets get the lowest unused ids, so workbooks without given ids are written as before. Reading gives `sheet.sheetId` and `StreamSheetInfo.sheetId` (`null` with `XLV_W_INVALID_VALUE` for a missing, invalid or repeated id), and `inspect()` / `xlvane inspect --json` report it per sheet.
+- **Split windows:** `view({ split: { x, y, topLeftCell } })` writes the top-left cell of the bottom-right pane (`pane@topLeftCell`), and reading gives it as `view.split.topLeftCell`.
+- **`insertRows`/`deleteRows`** move the conditional formats and data validations of the [MS-XLSX] extension (extended data bars, the icon sets `3Stars`, `3Triangles`, `5Boxes`, `NoIcons`, rules written by Excel) instead of refusing the sheet, with the same results as LibreOffice. Sparklines, slicers and other extended content that refers to cells are still refused.
+- **Fixes:**
+  - `insertRows`/`deleteRows` now move conditional format thresholds that refer to cells (`{ type: 'formula', value: '$C$12' }`); before, they kept the old reference.
+  - `insertRows`/`deleteRows` wrote a moved value containing `$` followed by a digit wrongly, for example a hyperlink location `Main!$A$12` became `Main!$A location=4`.
+  - A sheet named like a word in the extension namespaces (for example `Main`) no longer makes `insertRows`/`deleteRows` refuse because of conditional formats on other sheets.
+- **Command line:** tables, cut cells and wrapped text count terminal columns, so CJK text and emoji stay aligned; the `xlvane` command no longer makes Node.js print its own warning when both `NO_COLOR` and `FORCE_COLOR` are set (started through `npx`, npm itself may still print it).
+
+### @xlvane/compat
+
+- `worksheet.id` is written as `sheetId` and kept when a file is loaded and by the `model` setter, as in exceljs, so `getWorksheet(id)` finds the same sheet after removing one, writing and loading.
+- A split view's `topLeftCell` is written and read back, as in exceljs.
+
 ## 1.0.1
 
 ### xlvane

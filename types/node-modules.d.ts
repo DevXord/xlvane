@@ -20,7 +20,7 @@ declare module 'node:fs/promises' {
     options?: { flag?: string },
   ): Promise<void>;
   export function unlink(path: string | URL): Promise<void>;
-  /** https://nodejs.org/api/fs.html#class-filehandle (F-NODE-11). */
+  /** https://nodejs.org/api/fs.html#class-filehandle (F-NODE-15). */
   export interface FileHandle {
     write(data: Uint8Array, offset?: number): Promise<{ bytesWritten: number }>;
     close(): Promise<void>;
@@ -83,6 +83,11 @@ declare module 'node:child_process' {
     args: readonly string[],
     options?: { timeout?: number; encoding?: 'utf8'; cwd?: string; env?: Record<string, string | undefined> },
   ): { status: number | null; stdout: string; stderr: string; error?: Error };
+}
+
+declare module 'node:module' {
+  /** https://nodejs.org/api/module.html#modulecreaterequirefilename (the CLI loads node:util with it; F-NODE-15). */
+  export function createRequire(filename: string | URL): (id: string) => unknown;
 }
 
 declare module 'node:util' {

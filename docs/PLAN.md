@@ -250,6 +250,7 @@ Decyzja Pana: 1.0.0 ma być pełnoprawnym zamiennikiem `exceljs`, więc publikac
 - **Faza C: reguły arkusza.** Walidacja danych, formatowanie warunkowe, ochrona arkusza, ustawienia wydruku (`pageSetup`, `headerFooter`, obszar wydruku).
 - **Faza D: tabele i obrazy.** `addTable`, `addImage` (rysunki).
 - **Faza E: domknięcie zgodności.** `workbook.csv.*`, brakujące style (gradienty, przekątne, atrybuty czcionki i wyrównania) i widoki, ponowne porównanie z exceljs 4.4.0 na wszystkich przeniesionych testach; w docs/exceljs-compat.md nie zostaje żadne „not supported” poza opisanymi świadomymi wyjątkami.
+- **Faza F: backlog 1.1 (dopisana 2026-11-02, wydanie 1.1.0).** Szerokość znaków w tabelach CLI (CJK, emoji) i brak ostrzeżenia Node przy NO_COLOR + FORCE_COLOR; `pane@topLeftCell` widoku podzielonego; `sheetId` w core i zachowanie `worksheet.id` w `@xlvane/compat`; `insertRows`/`deleteRows` przesuwają formatowanie warunkowe i walidacje z rozszerzenia [MS-XLSX] oraz progi `cfvo` odwołujące się do komórek. Odłożone: czytanie stdin w CLI, usuwanie `@internal` z plików .d.ts, sprawdzanie `activeTab` przy ustawianiu.
 
 **Etap „AI Friendly” (później, po 1.0.0 lub równolegle za Pana zgodą).** Wraca praca odłożona w fazach 7 i 8:
 - serwer MCP `@xlvane/mcp` (oficjalne SDK MCP, `--root`, narzędzia zapisu tylko z `--allow-write`);

@@ -118,7 +118,8 @@ export function withPrefix(xml: string, prefix: string): string {
 /** Sets (or adds) an attribute in a start tag given as source text. */
 export function setAttr(tag: string, name: string, value: string): string {
   const pattern = new RegExp(`(\\s${name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*=\\s*)("[^"]*"|'[^']*')`);
-  if (pattern.test(tag)) return tag.replace(pattern, `$1"${escapeAttr(value)}"`);
+  // A function, so that "$1" or "$&" in the value (such as "$C$14") is not a replacement pattern.
+  if (pattern.test(tag)) return tag.replace(pattern, (_m, head: string) => `${head}"${escapeAttr(value)}"`);
   const close = tag.endsWith('/>') ? tag.length - 2 : tag.length - 1;
   return `${tag.slice(0, close)} ${name}="${escapeAttr(value)}"${tag.slice(close)}`;
 }
@@ -165,6 +166,8 @@ function asUtf8(text: string): string {
 
 export interface Element {
   readonly local: string;
+  /** Namespace URI ('' for none). */
+  readonly ns: string;
   readonly depth: number;
   readonly attrs: ReadonlyMap<string, string>;
   readonly start: XmlSpan;
@@ -172,7 +175,7 @@ export interface Element {
 }
 
 /** Scans a part and records the elements `keep` selects, with their spans. */
-export function scan(text: string, part: string, limits: ReadLimits, keep: (local: string, depth: number, parent: string) => boolean): { root: Element; elements: Element[] } {
+export function scan(text: string, part: string, limits: ReadLimits, keep: (local: string, depth: number, parent: string, ns: string) => boolean): { root: Element; elements: Element[] } {
   const elements: Element[] = [];
   const stack: (Element | null)[] = [];
   const names: string[] = [];
@@ -180,13 +183,13 @@ export function scan(text: string, part: string, limits: ReadLimits, keep: (loca
   parseXml(
     text,
     {
-      start(_ns, local, attrs, span) {
+      start(ns, local, attrs, span) {
         const depth = names.length + 1;
         const parent = names[names.length - 1] ?? '';
         names.push(local);
         let element: Element | null = null;
-        if (depth === 1 || keep(local, depth, parent)) {
-          element = { local, depth, attrs, start: span, end: span };
+        if (depth === 1 || keep(local, depth, parent, ns)) {
+          element = { local, ns, depth, attrs, start: span, end: span };
           if (depth === 1) root = element;
           else elements.push(element);
         }

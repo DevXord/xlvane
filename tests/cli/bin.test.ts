@@ -52,4 +52,15 @@ describe('dist/cli.js', () => {
       expect(xlvane(['read', 'report.xlsx'], cwd, { FORCE_COLOR: '1' }).stdout).toContain('\u001b[');
     });
   });
+
+  it('prints no Node.js warning when both NO_COLOR and FORCE_COLOR are set (F-NODE-15)', async () => {
+    await withFixtures(async (cwd) => {
+      for (const disable of ['NO_COLOR', 'NODE_DISABLE_COLORS']) {
+        const r = xlvane(['read', 'report.xlsx'], cwd, { [disable]: '1', FORCE_COLOR: '1' });
+        expect(r.status).toBe(0);
+        expect(r.stdout).toContain('\u001b[');
+        expect(r.stderr).not.toContain('Warning');
+      }
+    });
+  });
 });

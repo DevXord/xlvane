@@ -120,13 +120,19 @@ export interface CreateWorkbookOptions {
  * ```ts
  * import { createWorkbook, type AddSheetOptions } from 'xlvane';
  *
- * const options: AddSheetOptions = { state: 'hidden' };
+ * const options: AddSheetOptions = { state: 'hidden', sheetId: 3 };
  * createWorkbook().addSheet('Lookup', options);
  * ```
  */
 export interface AddSheetOptions {
   /** Visibility. Default `"visible"`. */
   readonly state?: SheetState;
+  /**
+   * The sheet's id in the file (`sheet@sheetId`), a whole number from 1 to 65534, unique in the
+   * workbook. It does not change the sheet's position. Sheets without one get the lowest unused
+   * ids when the workbook is written, so a workbook without given ids has the ids 1, 2, 3, ….
+   */
+  readonly sheetId?: number;
 }
 
 /**
@@ -323,8 +329,10 @@ export interface SheetViewOptions {
   readonly layout?: SheetLayout;
   /**
    * Splits the window (without freezing) at `x` points from the left and `y` points from the
-   * top; a missing one is 0, but not both. `null` removes the split. A split replaces frozen
-   * panes, and {@link NewSheet.freeze} replaces a split.
+   * top; a missing one is 0, but not both. `topLeftCell` (optional) is the top-left visible cell
+   * of the bottom-right pane: the first column shown right of the vertical bar and the first row
+   * below the horizontal bar. `null` removes the split. A split replaces frozen panes, and
+   * {@link NewSheet.freeze} replaces a split.
    */
   readonly split?: Partial<SplitPanes> | null;
   /** The top-left visible cell (`sheetView@topLeftCell`), e.g. `"C10"`; `null` for the default. */
@@ -367,6 +375,8 @@ function readOutline(o: ReadonlyMap<string, unknown>, current: { outlineLevel: n
 }
 /** Largest split position accepted, in points: an implementation bound, not a documented limit. */
 const MAX_SPLIT_POINTS = 1_000_000;
+/** Office uses sheet ids from 1 to 65534 ([MS-OI29500] §2.1.578; W2-20). */
+const MAX_SHEET_ID = 65_534;
 /** Most characters a cell can contain (Excel specifications and limits, W-04). */
 const MAX_CELL_TEXT = 32_767;
 /** Widest column, in characters (Excel specifications and limits, W-04). */
@@ -515,6 +525,8 @@ function checkSheetName(name: unknown): string {
 export class NewSheet {
   /** Visibility of the sheet. */
   readonly state: SheetState;
+  /** The id given to {@link NewWorkbook.addSheet}, or `null` when the lowest unused id is taken when writing. */
+  readonly sheetId: number | null;
   /** @internal */
   readonly cellMap: Map<number, Map<number, StoredCell>> = new Map();
   /** @internal */
@@ -565,8 +577,10 @@ export class NewSheet {
     readonly name: string,
     state: SheetState,
     private readonly book: NewWorkbook,
+    sheetId: number | null = null,
   ) {
     this.state = state;
+    this.sheetId = sheetId;
   }
 
   /** Number of cells that have a value or a style. */
@@ -935,7 +949,7 @@ export class NewSheet {
         const split = o.get('split');
         if (split === null) next.split = null;
         else {
-          const p = readOptions(split, ['x', 'y'], 'view option "split"');
+          const p = readOptions(split, ['x', 'y', 'topLeftCell'], 'view option "split"');
           const at = (key: string): number => {
             const v = p.get(key) ?? 0;
             if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_SPLIT_POINTS) {
@@ -947,7 +961,13 @@ export class NewSheet {
           const y = at('y');
           // Office does not support a split pane at 0, 0 ([MS-OI29500] §2.1.640 e).
           if (x === 0 && y === 0) throw invalidOption('A split needs "x" or "y" greater than 0.', 'For example { split: { y: 50 } }, or { split: null } to remove it.');
-          next.split = { x, y };
+          const corner = p.get('topLeftCell');
+          if (corner === undefined || corner === null) next.split = { x, y };
+          else {
+            const cell = typeof corner === 'string' ? parseCellRef(corner.toUpperCase()) : null;
+            if (cell === null) throw invalidOption('The split option "topLeftCell" must be a cell reference such as "F20".', 'For example { split: { x: 100, y: 50, topLeftCell: "F20" } }: the first column shown right of the vertical bar and the first row below the horizontal bar.');
+            next.split = { x, y, topLeftCell: formatCellRef(cell.row, cell.col) };
+          }
           unfreeze = true;
         }
       }
@@ -1303,6 +1323,7 @@ export class NewSheet {
     return {
       name: this.name,
       state: this.state,
+      sheetId: this.sheetId,
       cells: this.cellMap,
       columns: this.columnMap,
       rows: this.rowMap,
@@ -1747,11 +1768,11 @@ export class NewWorkbook {
    *
    * const workbook = createWorkbook();
    * workbook.addSheet('Data');
-   * workbook.addSheet('Lookup', { state: 'hidden' });
+   * workbook.addSheet('Lookup', { state: 'hidden', sheetId: 5 });
    * ```
    */
   addSheet(name: string, options?: AddSheetOptions): NewSheet {
-    const o = readOptions(options, ['state'], 'sheet options');
+    const o = readOptions(options, ['state', 'sheetId'], 'sheet options');
     const state = o.get('state') ?? 'visible';
     if (state !== 'visible' && state !== 'hidden' && state !== 'veryHidden') {
       throw invalidOption(`Sheet state ${JSON.stringify(String(state).slice(0, 40))} is not valid.`, 'Use "visible", "hidden" or "veryHidden".');
@@ -1765,7 +1786,17 @@ export class NewWorkbook {
         details: { name: checked, existing: existing.name },
       });
     }
-    const sheet = new NewSheet(checked, state, this);
+    let sheetId: number | null = null;
+    if (o.has('sheetId')) {
+      const id = o.get('sheetId');
+      if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > MAX_SHEET_ID) {
+        throw invalidOption(`The sheet option "sheetId" must be a whole number from 1 to ${String(MAX_SHEET_ID)}.`, 'For example { sheetId: 3 }, or leave it out to take the lowest unused id.', { name: checked });
+      }
+      const owner = this.list.find((s) => s.sheetId === id);
+      if (owner) throw invalidOption(`Sheet "${owner.name}" already has the sheetId ${String(id)}.`, 'Sheet ids must be unique in the workbook. Give another id, or leave it out to take the lowest unused id.', { name: checked, existing: owner.name });
+      sheetId = id;
+    }
+    const sheet = new NewSheet(checked, state, this, sheetId);
     this.list.push(sheet);
     return sheet;
   }

@@ -25,6 +25,7 @@ import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type Ce
 import { shiftFormula } from './sml/formula-shift';
 import { classifyRelationship } from './sml/namespaces';
 import { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
+import { X14_CF_URI, X14_DV_URI, X14_NS, XM_NS } from './sheet-rules';
 import { readOptions } from './util/options';
 import { WarningCollector } from './util/warnings';
 import { escapeAttr, escapeText } from './xml/writer';
@@ -146,13 +147,28 @@ function notSupported(message: string, location: { part?: string; sheet?: string
 function adjustText(raw: string, c: RowChange, formulaSheet: string): string | null {
   if (raw.includes('<')) return null;
   const text = decodeEntities(raw);
+  const out = adjustDecoded(text, c, formulaSheet);
+  if (out === null) return null;
+  return out === text ? raw : escapeText(out);
+}
+
+/** {@link adjustText} for formula text that is already decoded, such as an attribute value. */
+function adjustDecoded(text: string, c: RowChange, formulaSheet: string): string | null {
   const out = adjustFormula(text, refChange(c, formulaSheet));
   if (out === null) {
     // A formula on another sheet without any sheet-qualified reference cannot refer to the changed sheet.
-    return formulaSheet.toLowerCase() !== c.sheet.toLowerCase() && !text.includes('!') ? raw : null;
+    return formulaSheet.toLowerCase() !== c.sheet.toLowerCase() && !text.includes('!') ? text : null;
   }
-  return out === text ? raw : escapeText(out);
+  return out;
 }
+
+/** `ext@uri` values of the worksheet extensions whose ranges and formulas are rewritten (SR-40, D-F04). */
+const KNOWN_EXTENSIONS = new Set([X14_CF_URI, X14_DV_URI].map((u) => u.toLowerCase()));
+const isKnownExtension = (e: Element): boolean => KNOWN_EXTENSIONS.has((e.attrs.get('uri') ?? '').trim().toLowerCase());
+/** Start tags named `f` or `sqref`, with any prefix: the formulas and ranges an extension can hold. */
+const FORMULA_OR_RANGE_TAG = /<(?:[\w.-]+:)?(?:f|sqref)[\s/>]/g;
+const CFVO_PARENTS = new Set(['colorScale', 'dataBar', 'iconSet']);
+const within = (outer: Element, inner: Element): boolean => inner.start.start >= outer.start.start && inner.end.end <= outer.end.end;
 
 /**
  * Applies non-overlapping replacements in one pass (linear in the text size, unlike edit.ts
@@ -201,11 +217,14 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     text,
     part,
     limits,
-    (local, depth, parent) =>
+    (local, depth, parent, ns) =>
       depth === 2 ||
-      (depth === 3 && KEEP_DEPTH3.has(local)) ||
+      (depth === 3 && (KEEP_DEPTH3.has(local) || (local === 'ext' && parent === 'extLst'))) ||
       (depth === 4 && ((local === 'c' && parent === 'row') || (local === 'formula' && parent === 'cfRule') || ((local === 'formula1' || local === 'formula2') && parent === 'dataValidation'))) ||
-      (depth === 5 && local === 'f' && parent === 'c'),
+      (depth === 5 && ((local === 'f' && parent === 'c') || (local === 'cfvo' && CFVO_PARENTS.has(parent)))) ||
+      // The [MS-XLSX] extension: containers, items, rules, the x14:id of a classic rule, xm:sqref and xm:f (SR-40, SR-41).
+      (ns === X14_NS && ((depth === 4 && (local === 'conditionalFormattings' || local === 'dataValidations')) || (depth === 5 && (local === 'conditionalFormatting' || local === 'dataValidation')) || (depth === 6 && (local === 'cfRule' || (local === 'id' && parent === 'ext'))))) ||
+      (ns === XM_NS && ((depth === 6 && local === 'sqref') || (depth >= 7 && local === 'f'))),
   );
   const edits: [number, number, string][] = [];
   const tagOf = (e: Element): string => text.slice(e.start.start, e.start.end);
@@ -222,13 +241,36 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
       if (e.depth !== 2) continue;
       const what = REFUSED_ELEMENTS[e.local];
       if (what !== undefined) throw notSupported(`Sheet "${sheet.name}" has ${what}, which xlvane cannot move with its rows yet.`, where(), { element: e.local });
-      if (e.local === 'extLst' && /sqref|<xm:f|sparkline|slicer/i.test(text.slice(e.start.start, e.end.end))) {
-        throw notSupported(`Sheet "${sheet.name}" has extended content (such as data bars, sparklines or slicers) that refers to cells, which xlvane cannot move with its rows yet.`, where(), { element: 'extLst' });
-      }
     }
-  } else {
-    const ext = elements.find((e) => e.depth === 2 && e.local === 'extLst');
-    if (ext && /<xm:f|sparkline/i.test(text.slice(ext.start.start, ext.end.end)) && text.slice(ext.start.start, ext.end.end).toLowerCase().includes(c.sheet.toLowerCase())) {
+  }
+  // The conditional format and data validation extensions of [MS-XLSX] are moved when each of their
+  // f and sqref elements is an xm:f or xm:sqref at the depth the schema gives (D-F04); one in
+  // another layout (another namespace, mc:AlternateContent) is treated like other extensions.
+  const knownExts = new Set<Element>();
+  {
+    let current: Element | null = null;
+    let found = 0;
+    const close = (): void => {
+      if (current !== null && (text.slice(current.start.start, current.end.end).match(FORMULA_OR_RANGE_TAG) ?? []).length === found) knownExts.add(current);
+    };
+    for (const e of elements) {
+      if (e.depth === 3 && e.local === 'ext') {
+        close();
+        current = isKnownExtension(e) ? e : null;
+        found = 0;
+      } else if (current !== null && e.ns === XM_NS && ((e.depth === 6 && e.local === 'sqref') || (e.depth >= 7 && e.local === 'f')) && within(current, e)) found++;
+    }
+    close();
+  }
+  // Other worksheet extensions: refused on the changed sheet when they refer to cells, and on other
+  // sheets when they may refer to the changed one.
+  for (const ext of elements) {
+    if (ext.depth !== 3 || ext.local !== 'ext' || knownExts.has(ext)) continue;
+    const body = text.slice(ext.start.start, ext.end.end);
+    if (target && /sqref|<xm:f|sparkline|slicer/i.test(body)) {
+      throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines or slicers) that refers to cells, which xlvane cannot move with its rows yet.`, where(), { element: 'extLst' });
+    }
+    if (!target && /<xm:f|sparkline/i.test(body) && body.toLowerCase().includes(c.sheet.toLowerCase())) {
       throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines) that may refer to sheet "${c.sheet}", which xlvane cannot rewrite yet.`, where(), { element: 'extLst' });
     }
   }
@@ -248,7 +290,9 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     });
   };
   let hasFormulas = false;
+  let extension: Element | null = null;
   for (const e of elements) {
+    if (e.depth === 3 && e.local === 'ext') extension = knownExts.has(e) ? e : null;
     if (e.depth === 3 && e.local === 'row') {
       const r = e.attrs.get('r');
       const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
@@ -274,6 +318,22 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
       const out = adjustText(raw, c, sheet.name);
       if (out === null) {
         const owner = e.local === 'formula' ? 'conditional format' : 'data validation';
+        throw notSupported(`A ${owner} formula of sheet "${sheet.name}" cannot be adjusted safely: "${decodeEntities(raw).slice(0, 60)}".`, where(), { formula: decodeEntities(raw).slice(0, 80) });
+      }
+      if (out !== raw) edits.push([e.start.end, e.end.start, out]);
+    } else if (e.depth === 5 && e.local === 'cfvo') {
+      // A threshold is a formula (SR-12), such as a reference to a cell (R-18).
+      const val = e.attrs.get('val');
+      if (val === undefined) continue;
+      const out = adjustDecoded(val, c, sheet.name);
+      if (out === null) throw notSupported(`A conditional format threshold of sheet "${sheet.name}" cannot be adjusted safely: "${val.slice(0, 60)}".`, where(), { formula: val.slice(0, 80) });
+      if (out !== val) replaceTag(e, setAttr(tagOf(e), 'val', out));
+    } else if (e.ns === XM_NS && e.local === 'f' && extension !== null && within(extension, e)) {
+      // xm:f of an extension rule, threshold or validation (SR-42, SR-44; R-19).
+      const raw = content(text, e);
+      const out = adjustText(raw, c, sheet.name);
+      if (out === null) {
+        const owner = (extension.attrs.get('uri') ?? '').toLowerCase() === X14_DV_URI.toLowerCase() ? 'data validation' : 'conditional format';
         throw notSupported(`A ${owner} formula of sheet "${sheet.name}" cannot be adjusted safely: "${decodeEntities(raw).slice(0, 60)}".`, where(), { formula: decodeEntities(raw).slice(0, 80) });
       }
       if (out !== raw) edits.push([e.start.end, e.end.start, out]);
@@ -396,6 +456,18 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
   }
 
   // Elements of the changed sheet that hold ranges.
+  const removedIds = new Set<string>();
+  // The x14:id values of the rules of each classic conditional format, collected in one pass.
+  const linkIds = new Map<Element, string[]>();
+  let format: Element | null = null;
+  for (const e of elements) {
+    if (e.depth === 2) format = e.local === 'conditionalFormatting' ? e : null;
+    else if (format !== null && e.depth === 6 && e.ns === X14_NS && e.local === 'id') {
+      const list = linkIds.get(format) ?? [];
+      list.push(content(text, e).trim().toLowerCase());
+      linkIds.set(format, list);
+    }
+  }
   const containers = new Map<Element, { kept: number; total: number }>();
   let parent2: Element | null = null;
   for (const e of elements) {
@@ -413,8 +485,11 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
         const sqref = e.attrs.get('sqref') ?? '';
         const out = adjustRange(sqref, refChange(c, sheet.name));
         if (out === null) throw notSupported(`A conditional format of sheet "${sheet.name}" has a range xlvane cannot adjust: "${sqref.slice(0, 60)}".`, where());
-        if (out === '') removeElement(e);
-        else if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
+        if (out === '') {
+          removeElement(e);
+          // The extension parts of its rules go too (the x14:id link, SR-41).
+          for (const id of linkIds.get(e) ?? []) removedIds.add(id);
+        } else if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
       }
       continue;
     }
@@ -484,8 +559,89 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     }
   }
 
+  rewriteExtensionRanges(text, elements, knownExts, c, sheet, removedIds, edits, where);
+
   const result = applyEdits(text, edits);
   return { text: /sortState/.test(result) ? rewriteSortStates(result, part, sheet, c, limits) : result, hasFormulas };
+}
+
+/**
+ * Moves the ranges (`xm:sqref`) of the extension conditional formats and data validations of the
+ * changed sheet (SR-40, SR-44; R-20; D-F04). An item whose cells are all deleted is removed, as is
+ * an extension rule linked to a removed classic rule (SR-41); emptied containers, `ext` and
+ * `extLst` elements are removed, and `x14:dataValidations@count` is updated.
+ */
+function rewriteExtensionRanges(text: string, elements: readonly Element[], knownExts: ReadonlySet<Element>, c: RowChange, sheet: Sheet, removedIds: ReadonlySet<string>, edits: [number, number, string][], where: () => { part: string; sheet: string }): void {
+  // The extension elements as a tree, built in one pass in document order (elements nest by span).
+  interface Node {
+    readonly e: Element;
+    readonly children: Node[];
+  }
+  const roots: Node[] = [];
+  const stack: Node[] = [];
+  for (const e of elements) {
+    const relevant = (e.depth === 2 && e.local === 'extLst') || (e.depth === 3 && e.local === 'ext') || (e.ns === X14_NS && e.depth >= 4 && e.depth <= 6) || (e.ns === XM_NS && e.depth === 6 && e.local === 'sqref');
+    if (!relevant) continue;
+    while (stack.length > 0 && !within(stack[stack.length - 1]!.e, e)) stack.pop();
+    const node: Node = { e, children: [] };
+    (stack.length > 0 ? stack[stack.length - 1]!.children : roots).push(node);
+    stack.push(node);
+  }
+  const tagOf = (e: Element): string => text.slice(e.start.start, e.start.end);
+  const remove = (e: Element): void => {
+    edits.push([e.start.start, e.end.end, '']);
+  };
+  for (const list of roots) {
+    if (list.e.local !== 'extLst') continue;
+    let extsKept = 0;
+    for (const ext of list.children) {
+      if (ext.e.local !== 'ext' || !knownExts.has(ext.e)) {
+        extsKept++;
+        continue;
+      }
+      let containersKept = 0;
+      let containersTotal = 0;
+      for (const container of ext.children) {
+        if (container.e.depth !== 4 || container.e.ns !== X14_NS) continue;
+        containersTotal++;
+        let kept = 0;
+        let total = 0;
+        for (const item of container.children) {
+          if (item.e.depth !== 5 || item.e.ns !== X14_NS) continue;
+          total++;
+          let gone = false;
+          const sqref = item.children.find((n) => n.e.ns === XM_NS && n.e.local === 'sqref')?.e;
+          if (sqref) {
+            const raw = decodeEntities(content(text, sqref));
+            const normal = raw.trim().split(/\s+/).join(' ');
+            // An empty range is left as it is; adjustRange would read it as deleted.
+            const out = normal === '' ? '' : adjustRange(normal, refChange(c, sheet.name));
+            if (out === null) throw notSupported(`An extension ${item.e.local === 'dataValidation' ? 'data validation' : 'conditional format'} of sheet "${sheet.name}" has a range xlvane cannot adjust: "${normal.slice(0, 60)}".`, where());
+            if (out === '' && normal !== '') gone = true;
+            else if (out !== normal) edits.push([sqref.start.end, sqref.end.start, escapeText(out)]);
+          }
+          if (!gone && removedIds.size > 0) {
+            const rules = item.children.filter((n) => n.e.ns === X14_NS && n.e.local === 'cfRule').map((n) => n.e);
+            const linked = rules.filter((r) => removedIds.has((r.attrs.get('id') ?? '').trim().toLowerCase()));
+            if (linked.length > 0 && linked.length === rules.length) gone = true;
+            else for (const r of linked) remove(r);
+          }
+          if (gone) remove(item.e);
+          else kept++;
+        }
+        if (kept === 0 && total > 0) {
+          // An emptied container goes; if no container stays, the ext goes below.
+          remove(container.e);
+          continue;
+        }
+        containersKept++;
+        if (kept < total && container.e.attrs.has('count')) edits.push([container.e.start.start, container.e.start.end, setAttr(tagOf(container.e), 'count', String(kept))]);
+      }
+      if (containersTotal > 0 && containersKept === 0) remove(ext.e);
+      else extsKept++;
+    }
+    if (list.children.length > 0 && extsKept === 0) remove(list.e);
+  }
 }
 
 /**
@@ -858,15 +1014,14 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
  * Inserts empty rows into a sheet of an existing XLSX file and returns the new file. Rows below
  * move down, and every reference follows them as in a spreadsheet application: formulas on all
  * sheets (ranges that the new rows fall into grow), merged cells, hyperlinks, notes, the
- * autofilter, conditional formats, data validation, page breaks, defined names, tables (which
- * grow when rows are inserted inside them) and pictures placed on the sheet. Every other part of
- * the file stays exactly as it was.
+ * autofilter, conditional formats (also those of the [MS-XLSX] extension, and thresholds that
+ * refer to cells), data validation (also of the extension), page breaks, defined names, tables
+ * (which grow when rows are inserted inside them) and pictures placed on the sheet. Every other
+ * part of the file stays exactly as it was.
  *
  * Refused with `XLV_E_NOT_SUPPORTED`, leaving the file unchanged: a drawing that holds charts,
  * shapes or anything besides pictures; embedded objects, form controls, scenarios, cell watches,
- * custom sheet views, extended content that refers to cells (data bars, sparklines, slicers -
- * including the extended data bar settings and the icon sets `3Stars`, `3Triangles`, `5Boxes`, `NoIcons`
- * that xlvane itself writes) and
+ * custom sheet views, other extended content that refers to cells (sparklines, slicers) and
  * other related parts xlvane does not know; charts or pivot tables anywhere in the workbook that
  * may refer to the sheet; data tables; an array formula the change would split; and formulas it
  * cannot rewrite safely (docs/facts/ref-adjust.md).

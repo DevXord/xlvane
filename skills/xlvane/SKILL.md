@@ -167,7 +167,7 @@ const { bytes: wider } = insertRows(bytes, { sheet: 'Sales', at: 5, count: 2, st
 const { bytes: shorter } = deleteRows(wider, { sheet: 'Sales', at: 5, count: 2 });
 ```
 
-Formulas on every sheet, merged cells, links, notes, conditional formats, data validation and defined names follow the rows; references to deleted cells become `#REF!`. Tables and pictures move with their rows. Drawings with charts or shapes, and a deletion that would cut a picture or remove a table's header row, totals row or all of its data rows, are refused with `XLV_E_NOT_SUPPORTED`.
+Formulas on every sheet, merged cells, links, notes, conditional formats (also extended data bars and icon sets, and thresholds that refer to cells), data validation and defined names follow the rows; references to deleted cells become `#REF!`. Tables and pictures move with their rows. Drawings with charts or shapes, sparklines and slicers, and a deletion that would cut a picture or remove a table's header row, totals row or all of its data rows, are refused with `XLV_E_NOT_SUPPORTED`.
 
 `inspect()` reports the same items (`properties`, `definedNames`, and per sheet `richTextCellCount`, `styledColumns`, `hyperlinkCount` and `noteCount`). A column style is a default for cells added later; xlvane does not apply it to cells you set.
 

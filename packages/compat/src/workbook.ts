@@ -322,7 +322,11 @@ export class Workbook {
 
   /** Adds a worksheet. Names follow exceljs rules (31 characters at most; longer names are cut). */
   addWorksheet(name?: string, options?: WorksheetOptions): Worksheet {
-    const id = this.nextId;
+    return this._addWorksheetWithId(this.nextId, name, options);
+  }
+
+  /** @internal Adds a worksheet with a given id (a loaded file's sheetId, a model's id; D-F03). */
+  _addWorksheetWithId(id: number, name?: string, options?: WorksheetOptions): Worksheet {
     const sheet = new Worksheet(this, id, name, options);
     // exceljs: one more than the largest orderNo (lib/doc/workbook.js L81-85).
     const last = this._sheets.reduce((acc, ws) => (ws?.orderNo !== undefined && ws.orderNo > acc ? ws.orderNo : acc), 0);
@@ -389,8 +393,12 @@ export class Workbook {
     this.views = Array.isArray(value['views']) ? [...(value['views'] as Record<string, unknown>[])] : [];
     this._media = Array.isArray(value['media']) ? [...(value['media'] as ImageData[])] : [];
     for (const ws of this.worksheets) this.removeWorksheet(ws.id);
-    for (const m of Array.isArray(value['worksheets']) ? (value['worksheets'] as Record<string, unknown>[]) : []) {
-      const ws = this.addWorksheet(String(m['name'] ?? ''), { state: (m['state'] as 'visible') ?? 'visible' });
+    const models = Array.isArray(value['worksheets']) ? (value['worksheets'] as Record<string, unknown>[]) : [];
+    // The model's ids are kept, as exceljs keeps them (lib/doc/workbook.js L201-212); a missing or
+    // repeated one takes the lowest free id (D-F03).
+    const ids = freeIds(models.map((m) => m['id']));
+    for (const [i, m] of models.entries()) {
+      const ws = this._addWorksheetWithId(ids[i] ?? this.nextId, String(m['name'] ?? ''), { state: (m['state'] as 'visible') ?? 'visible' });
       ws.model = m;
     }
     this._definedNames.model = Array.isArray(value['definedNames']) ? (value['definedNames'] as { name: string; ranges: string[] }[]) : [];
@@ -504,9 +512,12 @@ export class Workbook {
     this.calcProperties = read.calculation?.fullCalcOnLoad ? { fullCalcOnLoad: true } : {};
     const mediaIds = new Map<WorkbookImage, number>(read.images.map((img, i) => [img, i]));
     this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
+    // Worksheets keep the file's sheetId as id, as exceljs reads it (sheet-xform.js L18,
+    // workbook-xform.js L161-186); a missing or repeated one takes the lowest free id (D-F03).
+    const ids = freeIds(read.sheets.map((s) => (s.kind === 'worksheet' ? s.sheetId : undefined)));
     for (const [position, s] of read.sheets.entries()) {
       if (s.kind !== 'worksheet') continue;
-      const ws = this.addWorksheet(s.name, { state: s.state });
+      const ws = this._addWorksheetWithId(ids[position] ?? this.nextId, s.name, { state: s.state });
       // exceljs: the sheet's 0-based position in the file (lib/doc/workbook.js L203).
       ws.orderNo = position;
       for (const c of use('cols') ? s.columns : []) {
@@ -602,4 +613,29 @@ export class Workbook {
       if (background !== undefined && use('picture')) ws._media.push({ type: 'background', imageId: background });
     }
   }
+}
+
+/**
+ * Worksheet ids for a list of wanted ids: each whole number from 1 to 65534 (the sheet ids Office
+ * uses, W2-20) that is not wanted by an earlier entry is kept; other entries (missing, invalid,
+ * larger or repeated ids) get the lowest ids no entry wants, in order. The limit keeps the
+ * `_sheets` array small: an id from an untrusted file such as 4294967295 is not an array index and
+ * 20000000 makes every scan of the array slow (found by review, D-F03). `undefined` entries
+ * (sheets that are not worksheets) get no id.
+ */
+function freeIds(wanted: readonly unknown[]): (number | undefined)[] {
+  const taken = new Set<number>();
+  const kept = wanted.map((w) => {
+    if (typeof w !== 'number' || !Number.isInteger(w) || w < 1 || w > 65_534 || taken.has(w)) return null;
+    taken.add(w);
+    return w;
+  });
+  let next = 1;
+  return kept.map((k, i) => {
+    if (wanted[i] === undefined) return undefined;
+    if (k !== null) return k;
+    while (taken.has(next)) next++;
+    taken.add(next);
+    return next;
+  });
 }

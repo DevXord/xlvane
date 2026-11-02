@@ -491,9 +491,10 @@ export interface SheetLayoutIn {
  * The first exceljs view and the tab colour (X4-11, X4-12). xlvane writes one view: frozen panes
  * (`xSplit`/`ySplit` in columns and rows) or a split window (`xSplit`/`ySplit` in 1/20 point, as
  * exceljs), plus `zoomScale`, `showGridLines`, `showRowColHeaders`, `rightToLeft` and `style`.
- * `activeCell` is written for every view; `topLeftCell` only for a normal view (a split view's
- * exceljs `topLeftCell` is `pane@topLeftCell`, which the core does not write); `activePane`
- * follows from the panes.
+ * `activeCell` is written for every view; `topLeftCell` for a normal view as
+ * `sheetView@topLeftCell` and for a split view as `pane@topLeftCell`, as exceljs writes them
+ * (sheet-view-xform.js L72-85; D-F02); a frozen view's `topLeftCell` follows from the panes;
+ * `activePane` follows from the panes.
  */
 export function layoutIn(ws: Worksheet): SheetLayoutIn {
   const v = ws.views[0];
@@ -512,7 +513,10 @@ export function layoutIn(ws: Worksheet): SheetLayoutIn {
     if (typeof v['activeCell'] === 'string' && v['activeCell'] !== '') view.activeCell = v['activeCell'];
     if (v.state !== 'frozen' && v.state !== 'split' && typeof v['topLeftCell'] === 'string' && v['topLeftCell'] !== '') view.topLeftCell = v['topLeftCell'];
     if (v.state === 'frozen') freeze = { rows: v.ySplit ?? 0, cols: v.xSplit ?? 0 };
-    else if (v.state === 'split' && ((v.xSplit ?? 0) > 0 || (v.ySplit ?? 0) > 0)) view.split = { x: (v.xSplit ?? 0) / 20, y: (v.ySplit ?? 0) / 20 };
+    else if (v.state === 'split' && ((v.xSplit ?? 0) > 0 || (v.ySplit ?? 0) > 0)) {
+      const corner = typeof v['topLeftCell'] === 'string' && v['topLeftCell'] !== '' ? { topLeftCell: v['topLeftCell'] } : {};
+      view.split = { x: (v.xSplit ?? 0) / 20, y: (v.ySplit ?? 0) / 20, ...corner };
+    }
   }
   let tab = ws.properties['tabColor'] as Partial<Color> | undefined;
   // The exceljs README sets a red tab with the 7-digit argb "FFC0000", which exceljs writes as
@@ -619,7 +623,9 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   // writes it only for fullCalcOnLoad, without an application's calcId (X4-28).
   if (meta.calcProperties?.['fullCalcOnLoad']) book.calculation({ fullCalcOnLoad: true });
   for (const ws of sheets) at(ws.name, undefined, () => {
-    const sheet = book.addSheet(ws.name, { state: ws.state });
+    // worksheet.id is written as sheetId, as exceljs writes it (sheet-xform.js L7); an id outside
+    // the 1 to 65534 that Office uses takes the lowest unused one (D-F03).
+    const sheet = book.addSheet(ws.name, { state: ws.state, ...sheetIdOf(ws.id) });
     const useStyles = meta.useStyles !== false;
     const sharedRanges = sharedFormulaRanges(ws);
     const props = sheetPropertiesIn(ws.properties);
@@ -772,8 +778,9 @@ function fontOut(f: FontStyle): Partial<Font> {
 /**
  * An exceljs view from the view read by xlvane, shaped as exceljs reads one (sheet-view-xform.js
  * L145–192; X4-11): a missing `zoomScaleNormal` reads as 100; a frozen view gets the default
- * `topLeftCell`; a split view gets `xSplit`/`ySplit` in 1/20 point and the active pane xlvane
- * writes; a normal view has no `topLeftCell`, as in exceljs.
+ * `topLeftCell`; a split view gets `xSplit`/`ySplit` in 1/20 point, `pane@topLeftCell` as
+ * `topLeftCell` (sheet-view-xform.js L118-124) and the active pane xlvane writes; a normal view
+ * has no `topLeftCell`, as in exceljs.
  */
 export function viewOut(view: SheetView, freeze: FrozenPanes | null): WorksheetView {
   const common: WorksheetView = {
@@ -795,9 +802,9 @@ export function viewOut(view: SheetView, freeze: FrozenPanes | null): WorksheetV
   }
   const active = view.activeCell !== null ? { activeCell: view.activeCell } : {};
   if (view.split) {
-    const { x, y } = view.split;
+    const { x, y, topLeftCell } = view.split;
     const activePane = x > 0 && y > 0 ? 'bottomRight' : y > 0 ? 'bottomLeft' : 'topRight';
-    return { ...common, state: 'split', xSplit: Math.round(x * 20), ySplit: Math.round(y * 20), topLeftCell: undefined, activePane, ...active, ...style };
+    return { ...common, state: 'split', xSplit: Math.round(x * 20), ySplit: Math.round(y * 20), topLeftCell, activePane, ...active, ...style };
   }
   return { ...common, state: 'normal', ...active, ...style };
 }
@@ -896,4 +903,9 @@ export function styleOut(s: CellStyle, numFmt: string | null): Style {
 /** Reads a file with xlvane; returns the read model for `fillFromRead`. */
 export function readBytes(bytes: Uint8Array): XlvWorkbook {
   return readWorkbook(bytes);
+}
+
+/** `{ sheetId }` for a worksheet id that Office accepts (1 to 65534, W2-20), otherwise nothing (D-F03). */
+export function sheetIdOf(id: number): { sheetId?: number } {
+  return Number.isInteger(id) && id >= 1 && id <= 65_534 ? { sheetId: id } : {};
 }

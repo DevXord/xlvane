@@ -133,6 +133,7 @@ describe('corpus: Apache POI', () => {
     let checked = 0;
     let withTables = 0;
     let withImages = 0;
+    let withRules = 0;
     for (const name of files) {
       const bytes = readFileSync(new URL(name, dir));
       const { workbook } = outcome(bytes);
@@ -154,6 +155,10 @@ describe('corpus: Apache POI', () => {
         const images = (w: Workbook): string => JSON.stringify(w.sheets.map((s) => s.images.map((i) => i.anchor)));
         if (images(readWorkbook(back)) !== images(workbook)) problems.push(`${name}: pictures differ after insert and delete`);
         if (sheet.images.length > 0) withImages++;
+        // Conditional formats and data validations, also of the [MS-XLSX] extension, move back (D-F04).
+        const rules = (w: Workbook): string => JSON.stringify(w.sheets.map((s) => [s.conditionalFormats, s.dataValidations]));
+        if (rules(readWorkbook(back)) !== rules(workbook)) problems.push(`${name}: conditional formats or data validations differ after insert and delete`);
+        if (sheet.conditionalFormats.length > 0 || sheet.dataValidations.length > 0) withRules++;
         checked++;
       } catch (error) {
         const code = error instanceof XlvError ? error.code : 'CRASH';
@@ -166,5 +171,6 @@ describe('corpus: Apache POI', () => {
     expect(withTables).toBeGreaterThan(10);
     // Sheets with pictures only (no charts or shapes) are moved too (D-D03).
     expect(withImages).toBeGreaterThan(0);
+    expect(withRules).toBeGreaterThan(10);
   });
 });

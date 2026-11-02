@@ -104,6 +104,13 @@
                     "type": "integer",
                     "minimum": 0
                   },
+                  "sheetId": {
+                    "type": [
+                      "integer",
+                      "null"
+                    ],
+                    "minimum": 0
+                  },
                   "kind": {
                     "enum": [
                       "worksheet",
@@ -454,6 +461,7 @@
                 "required": [
                   "name",
                   "index",
+                  "sheetId",
                   "kind",
                   "state",
                   "dimension",

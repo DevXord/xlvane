@@ -1,9 +1,10 @@
 // Argument parsing on util.parseArgs (F-NODE-09). parseArgs runs with `strict: false` and
 // `tokens: true`, and the tokens are checked here, so that every mistake gets an XLV_E_USAGE
 // error with a "Did you mean" suggestion instead of Node's ERR_PARSE_ARGS_* text (D-603).
-import { parseArgs, type ParseArgsOptionConfig } from 'node:util';
+import type { ParseArgsOptionConfig } from 'node:util';
 import { XlvError } from '../errors';
 import { suggest } from '../util/suggest';
+import { nodeUtil } from './node-util';
 import type { CommandSpec, OptionSpec, ParsedArgs } from './types';
 
 /** Options every command accepts. */
@@ -37,7 +38,7 @@ export function parseCommandArgs(spec: CommandSpec, args: readonly string[]): Pa
   for (const [name, o] of Object.entries(options)) {
     config[name] = { type: o.type, ...(o.short ? { short: o.short } : {}), ...(o.multiple ? { multiple: true } : {}) };
   }
-  const { tokens } = parseArgs({ args: [...args], options: config, strict: false, allowPositionals: true, tokens: true });
+  const { tokens } = nodeUtil.parseArgs({ args: [...args], options: config, strict: false, allowPositionals: true, tokens: true });
   const help = `Run "xlvane help ${spec.name}" for the options and examples.`;
   const positionals: string[] = [];
   const values: Record<string, string | boolean | string[]> = {};

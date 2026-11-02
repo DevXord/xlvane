@@ -104,6 +104,8 @@ export type StreamRowInput =
 export interface StreamSheetSpec {
   readonly name: string;
   readonly state?: SheetState;
+  /** The sheet's id in the file, as for `addSheet` (1 to 65534, unique; D-F03). */
+  readonly sheetId?: number;
   /** Column options by position (column A first); `undefined` entries keep the default. */
   readonly columns?: readonly (ColumnOptions | undefined)[];
   readonly freeze?: FreezeOptions;
@@ -313,9 +315,10 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
   const prepare = (raw: unknown, i: number): PreparedSheet => {
-    const s = readOptions(raw, ['name', 'state', 'columns', 'freeze', 'tabColor', 'view', 'properties', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'rows'], `sheets[${String(i)}]`);
+    const s = readOptions(raw, ['name', 'state', 'sheetId', 'columns', 'freeze', 'tabColor', 'view', 'properties', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
-    const sheet = book.addSheet(s.get('name') as string, state === undefined ? undefined : { state: state as SheetState });
+    const sheetId = s.get('sheetId');
+    const sheet = book.addSheet(s.get('name') as string, { ...(state === undefined ? {} : { state: state as SheetState }), ...(sheetId === undefined ? {} : { sheetId: sheetId as number }) });
     const columns = s.get('columns');
     if (columns !== undefined) {
       if (!Array.isArray(columns)) throw new XlvError('XLV_E_INVALID_OPTION', `sheets[${String(i)}].columns must be an array.`, { hint: 'Pass column options by position, e.g. [{ width: 20 }, undefined, { hidden: true }].', details: { option: 'columns' } });
@@ -566,7 +569,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     checkBookViews(book.bookViews, prepared.map((p) => p.sheet.name));
     yield {
       name: 'xl/workbook.xml',
-      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection, { bookViews: book.bookViews, calculation: book.calcProps })),
+      data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, sheetId: p.sheet.sheetId, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection, { bookViews: book.bookViews, calculation: book.calcProps })),
     };
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
     yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true, book.dxfStyles()).xml) };

@@ -35,6 +35,8 @@ import type { StoredCell, StoredNote, StoredRun, StoredValue, WorkbookViewOption
 export interface WriteSheetData {
   readonly name: string;
   readonly state: SheetState;
+  /** The given sheet id, or `null` for the lowest unused one (D-F03). */
+  readonly sheetId?: number | null;
   readonly cells: ReadonlyMap<number, ReadonlyMap<number, StoredCell>>;
   /** Width, visibility and interned style id (0 = none) by column number. */
   readonly columns: ReadonlyMap<number, { readonly width: number | null; readonly hidden: boolean; readonly style: number; readonly outlineLevel?: number; readonly collapsed?: boolean }>;
@@ -501,13 +503,15 @@ export function sheetHead(
   xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(attrsView)} workbookViewId="0"`;
   const split = sheet.view?.split ?? null;
   if (split !== null && !sheet.freeze) {
-    // A split window: positions in 1/20 point, xSplit for the vertical bar; pane@topLeftCell is
-    // optional for state="split" ([MS-OI29500] §2.1.640 a, d; W2-51). sheetView@topLeftCell (the
-    // top-left pane) is written above; the active cell is the selection of the active pane.
+    // A split window: positions in 1/20 point, xSplit for the vertical bar; pane@topLeftCell (the
+    // bottom-right pane's top-left visible cell, W2-69) is optional for state="split"
+    // ([MS-OI29500] §2.1.640 a, d; W2-51). sheetView@topLeftCell (the top-left pane) is written
+    // above; the active cell is the selection of the active pane.
     const pane = split.x > 0 && split.y > 0 ? 'bottomRight' : split.y > 0 ? 'bottomLeft' : 'topRight';
     xml += '><pane';
     if (split.x > 0) xml += attr('xSplit', split.x * 20);
     if (split.y > 0) xml += attr('ySplit', split.y * 20);
+    if (split.topLeftCell !== undefined) xml += attr('topLeftCell', split.topLeftCell);
     xml += `${attr('activePane', pane)} state="split"/>`;
     const active = sheet.view?.activeCell;
     xml += active ? `<selection${attr('pane', pane)}${attr('activeCell', active)}${attr('sqref', active)}/></sheetView>` : '</sheetView>';
@@ -1062,9 +1066,25 @@ export function nameTitles(definedNames: readonly NormalizedDefinedName[]): stri
     });
 }
 
+/**
+ * The sheet ids to write: the given ones, and the lowest unused ids for the other sheets in sheet
+ * order, so that sheets without given ids get 1, 2, 3, … (unique, as E-09 requires; D-F03).
+ */
+function sheetIds(sheets: readonly { readonly sheetId?: number | null }[]): number[] {
+  const used = new Set<number>();
+  for (const s of sheets) if (typeof s.sheetId === 'number') used.add(s.sheetId);
+  let next = 1;
+  return sheets.map((s) => {
+    if (typeof s.sheetId === 'number') return s.sheetId;
+    while (used.has(next)) next++;
+    used.add(next);
+    return next;
+  });
+}
+
 /** The workbook part: date system, book view, sheets, and the autofilter and user defined names. */
 export function workbookXml(
-  sheets: readonly { readonly name: string; readonly state: SheetState; readonly autoFilter: CellRange | null }[],
+  sheets: readonly { readonly name: string; readonly state: SheetState; readonly sheetId?: number | null; readonly autoFilter: CellRange | null }[],
   dateSystem: DateSystem,
   definedNames: readonly NormalizedDefinedName[] = [],
   protection: NormalizedWorkbookProtection | null = null,
@@ -1095,8 +1115,9 @@ export function workbookXml(
     workbook += '</bookViews>';
   }
   workbook += '<sheets>';
+  const ids = sheetIds(sheets);
   sheets.forEach((sheet, i) => {
-    workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', i + 1)}`;
+    workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', ids[i] ?? i + 1)}`;
     if (sheet.state !== 'visible') workbook += attr('state', sheet.state);
     workbook += `${attr('r:id', `rId${String(i + 1)}`)}/>`;
   });

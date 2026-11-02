@@ -41,6 +41,18 @@ describe('linear time on hostile input', () => {
     expect(timed(() => insertRows(bytes, { sheet: 'S', at: 1, count: 1 })).ms).toBeLessThan(2000);
   });
 
+  it('moves many extension conditional formats and validations on a sheet with many cells quickly (D-F04)', () => {
+    const X14 = 'http://schemas.microsoft.com/office/spreadsheetml/2009/9/main';
+    const XM = 'http://schemas.microsoft.com/office/excel/2006/main';
+    const rows = Array.from({ length: 20000 }, (_, i) => `<row r="${String(i + 1)}"><c r="A${String(i + 1)}"><v>1</v></c><c r="B${String(i + 1)}"><v>2</v></c></row>`).join('');
+    const items = Array.from({ length: 4000 }, (_, i) => `<x14:conditionalFormatting><x14:cfRule type="iconSet" priority="${String(i + 1)}"><x14:iconSet iconSet="3Stars"><x14:cfvo type="percent"><xm:f>0</xm:f></x14:cfvo><x14:cfvo type="formula"><xm:f>$C$${String(i + 1)}</xm:f></x14:cfvo><x14:cfvo type="percent"><xm:f>67</xm:f></x14:cfvo></x14:iconSet></x14:cfRule><xm:sqref>A${String(i + 1)}</xm:sqref></x14:conditionalFormatting>`).join('');
+    const classic = Array.from({ length: 2000 }, (_, i) => `<conditionalFormatting sqref="B${String(i + 1)}"><cfRule type="dataBar" priority="${String(5000 + i)}"><dataBar><cfvo type="min"/><cfvo type="max"/><color rgb="FF638EC6"/></dataBar><extLst><ext uri="{B025F937-C7B1-47D3-B67F-A62EFF666E3E}" xmlns:x14="${X14}"><x14:id>{0000${String(i).padStart(4, '0')}-0000-0000-0000-000000000000}</x14:id></ext></extLst></cfRule></conditionalFormatting>`).join('');
+    const bytes = buildXlsx({ sheets: [{ name: 'S', data: rows, after: `${classic}<extLst><ext uri="{78C0D931-6437-407D-A8EE-F0AAD7539E65}" xmlns:x14="${X14}" xmlns:xm="${XM}"><x14:conditionalFormattings>${items}</x14:conditionalFormattings></ext></extLst>` }] });
+    const run = timed(() => deleteRows(bytes, { sheet: 'S', at: 1, count: 1000 }));
+    expect(run.value).not.toBeInstanceOf(Error);
+    expect(run.ms).toBeLessThan(5000);
+  });
+
   it('moves the row of a picture marker and keeps the rest of the anchor', () => {
     const anchor = (row: number) =>
       `<xdr:twoCellAnchor editAs="oneCell"><xdr:from><xdr:col>1</xdr:col><xdr:colOff>5</xdr:colOff><xdr:row>${String(row)}</xdr:row><xdr:rowOff>7</xdr:rowOff></xdr:from><xdr:to><xdr:col>3</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>${String(row + 4)}</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:to><xdr:pic></xdr:pic><xdr:clientData/></xdr:twoCellAnchor>`;

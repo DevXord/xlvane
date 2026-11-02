@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, shiftFormula, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 
 /**
  * A cell value for the streaming writer. Rows are written as they are committed, before later
@@ -195,6 +195,8 @@ export class WorksheetWriter extends Worksheet {
     return {
       name: this.name,
       state: this.state,
+      // worksheet.id as sheetId, as exceljs writes it (D-F03).
+      ...sheetIdOf(this.id),
       // Columns created by cell access are default ones and are not written; dropping the trailing
       // ones keeps the layout of a sheet whose later rows use more columns unchanged.
       columns: trimTrailing(this.columns.map((c) => columnIn(c, this.writer._useStyles))),
