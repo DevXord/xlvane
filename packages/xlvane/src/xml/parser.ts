@@ -403,7 +403,9 @@ class Parser {
         const dashes = s.indexOf('--', Math.max(at + 4, this.tokenFrom));
         done = dashes !== -1 && dashes + 2 < length;
         if (!done) {
-          this.tokenFrom = Math.max(at + 4, length - 1);
+          // A "--" at the very end waits for the next character; the search resumes at it, not
+          // after it (resuming at length - 1 skipped its first "-", found by fuzzing).
+          this.tokenFrom = dashes !== -1 ? dashes : Math.max(at + 4, length - 1);
           // Already longer than the limit whatever follows: fail now, as skipComment would.
           if (length - (at + 4) > this.options.limits.maxXmlTextLength + 2) this.limit('maxXmlTextLength', COMMENT_TOO_LONG, at);
         }

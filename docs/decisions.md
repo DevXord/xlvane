@@ -731,6 +731,13 @@ Kept as they are, by the policy:
 - a hard link inside a root to a file outside it is read like any file there (the tools cannot create links);
 - the result limit counts the JSON text once, and the message also carries the same data as `structuredContent`.
 
+### D-I05 Streaming parser: a comment ending at a piece boundary (2026-11-02)
+The property test comparing streamed and whole-text XML parsing (`tests/fuzz/xml-stream.test.ts`, 100 000 runs) found `<!--!;--><a></a>` written one character at a time and refused with `maxXmlTextLength` 2.
+- **Cause:** when the `--` of a comment was the last two characters received, the resumable search continued after its first `-`, so the end of the comment was missed.
+- **Before 1.1.1** this only delayed the comment until a later `--` or the end of input.
+- **Since the comment limit of 1.1.1 (D-H01)**, it made a valid file fail once more than the limit followed.
+- **Fix:** the search resumes at the `--`. Two regression tests were added to `tests/security/xml-stream-time.test.ts`.
+
 ### D-I03 Releasing a new package (2026-11-02)
 npm sets up a trusted publisher only for a package that already exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from the maintainer's machine without provenance, as `xlvane` 1.0.0 was (D-R10), and its trusted publisher is configured afterwards. The release workflow stages `@xlvane/mcp` only when the package exists and the version is not on npm yet, and otherwise prints a notice, so the 1.2.0 release of the other two packages is not blocked. `scripts/check-release-version.mjs` checks all three versions and both dependencies on `xlvane`.
 

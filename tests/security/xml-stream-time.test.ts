@@ -180,3 +180,27 @@ describe('unfinished tokens are not held without limit (independent review of th
     expect(written).toBeLessThan(4 * limits.maxXmlTextLength);
   });
 });
+
+describe('a comment whose "--" ends a piece (found by fuzzing, regression of 1.1.1)', () => {
+  it('is complete when the next piece starts with ">"', () => {
+    const doc = '<!--!;--><a></a>';
+    const limits = { ...DEFAULT_READ_LIMITS, maxXmlTextLength: 2 };
+    const p = createXmlStreamParser(handler, { ...options, limits });
+    expect(() => {
+      for (const ch of doc) p.write(ch);
+      p.end();
+    }).not.toThrow();
+  });
+
+  it('is not taken for a comment longer than the limit when much text without "--" follows', () => {
+    const limits = { ...DEFAULT_READ_LIMITS, maxXmlTextLength: 1000 };
+    const p = createXmlStreamParser(handler, { ...options, limits });
+    expect(() => {
+      p.write('<r><!--a--');
+      p.write(`><t>${'x'.repeat(999)}</t>`);
+      for (let i = 0; i < 20; i++) p.write(`<t>${'x'.repeat(999)}</t>`);
+      p.write('</r>');
+      p.end();
+    }).not.toThrow();
+  });
+});

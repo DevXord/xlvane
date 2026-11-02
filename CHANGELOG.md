@@ -20,6 +20,7 @@
 
 - The command `xlvane mcp` starts the server from `@xlvane/mcp` (a separate package), and prints how to install it when it is missing (`XLV_E_NOT_INSTALLED`). The error code `XLV_E_PATH_NOT_ALLOWED` is used by the server.
 - The Agent Skill describes the MCP server.
+- **Fix:** the streaming reader (`openWorkbookStream`, `readTableStream`) could refuse a valid file with "Comment is longer than the limit" (1.1.1). This happened when the `--` that ends an XML comment was the last thing in one piece of decompressed data and more than `maxXmlTextLength` (8 Mi characters) of the part followed without another `--`. It was found by fuzzing.
 
 ### @xlvane/compat
 
