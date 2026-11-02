@@ -3,11 +3,11 @@
 import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
 import { colorOut, formulaOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
-import { DefinedNames, extractRanges } from './defined-names';
+import { DefinedNames, extractRanges, rangeCellCount } from './defined-names';
 import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageData } from './media';
-import { Worksheet } from './model';
+import { checkSheetName, columnLetter, Worksheet } from './model';
 import { readFileBytes, xlvaneNode } from './node-api';
-import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut } from './sheet-rules';
+import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut, validationBudget } from './sheet-rules';
 import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
 import type { Image } from './compat-types';
 
@@ -159,12 +159,7 @@ export class XlsxIO {
 
   /** Reads XLSX data from a readable stream (Node.js stream or any async iterable of bytes). */
   async read(stream: AsyncIterable<Uint8Array>, options?: XlsxReadOptions): Promise<Workbook> {
-    const chunks: Uint8Array[] = [];
-    let size = 0;
-    for await (const chunk of stream) {
-      chunks.push(chunk);
-      size += chunk.length;
-    }
+    const { chunks, size } = await collectInput(stream, 'xlsx.read()');
     const all = new Uint8Array(size);
     let at = 0;
     for (const c of chunks) {
@@ -311,13 +306,83 @@ export class Workbook {
     return this.properties.date1904 === true;
   }
 
-  /** @internal Names of the other sheets, for the duplicate check of Worksheet.name. */
-  readonly _names = (exclude: Worksheet): string[] => this.worksheets.filter((w) => w !== exclude).map((w) => w.name);
+  // Indexes of `_sheets`, so that adding, naming and finding sheets takes constant time and a
+  // workbook of many sheets loads in linear time (security review J, C3): the sheets by lower-case
+  // name, a position below which every id is taken, and the largest orderNo (recomputed as exceljs
+  // computes it when a sheet holding it was removed or lowered).
+  private _byName = new Map<string, Worksheet>();
+  private _firstFree = 1;
+  private _maxOrderNo = 0;
+  private _maxOrderNoStale = false;
 
-  /** The id the next worksheet gets (lib/doc/workbook.js `nextId`). */
+  /** @internal Whether a sheet other than `exclude` has this name, ignoring case (the duplicate check of Worksheet.name). */
+  _nameTaken(name: string, exclude?: Worksheet): boolean {
+    const sheet = this._byName.get(name.toLowerCase());
+    return sheet !== undefined && sheet !== exclude;
+  }
+
+  /** @internal Keeps the name index in step with a renamed sheet. */
+  _renamed(sheet: Worksheet, oldName: string): void {
+    if (this._sheets[sheet.id] !== sheet) return;
+    const old = oldName.toLowerCase();
+    if (this._byName.get(old) === sheet) this._byName.delete(old);
+    this._byName.set(sheet.name.toLowerCase(), sheet);
+  }
+
+  /** @internal Keeps the largest orderNo in step with a changed one. */
+  _orderNoChanged(sheet: Worksheet, oldOrderNo: number | undefined): void {
+    if (this._sheets[sheet.id] !== sheet || this._maxOrderNoStale) return;
+    const value = sheet.orderNo;
+    const plain = (v: unknown): v is number | undefined => v === undefined || (typeof v === 'number' && !Number.isNaN(v));
+    if (!plain(value) || !plain(oldOrderNo)) this._maxOrderNoStale = true;
+    else if (value !== undefined && value > this._maxOrderNo) this._maxOrderNo = value;
+    else if (oldOrderNo !== undefined && oldOrderNo >= this._maxOrderNo && (value === undefined || value < oldOrderNo)) this._maxOrderNoStale = true;
+  }
+
+  /** @internal Puts a worksheet into `_sheets` at its id and indexes it. */
+  _putSheet(sheet: Worksheet): void {
+    const previous = this._sheets[sheet.id];
+    if (previous && previous !== sheet) this._dropSheet(previous);
+    this._sheets[sheet.id] = sheet;
+    this._byName.set(sheet.name.toLowerCase(), sheet);
+    this._orderNoChanged(sheet, undefined);
+  }
+
+  /** Takes a worksheet out of `_sheets` and its indexes. */
+  private _dropSheet(sheet: Worksheet): void {
+    this._sheets[sheet.id] = undefined;
+    const key = sheet.name.toLowerCase();
+    if (this._byName.get(key) === sheet) this._byName.delete(key);
+    if (sheet.id < this._firstFree) this._firstFree = Math.max(1, sheet.id);
+    const order = sheet.orderNo;
+    if (order !== undefined && !(typeof order === 'number' && order < this._maxOrderNo)) this._maxOrderNoStale = true;
+  }
+
+  /** Empties `_sheets` and its indexes. */
+  private _clearSheets(): void {
+    this._sheets = [];
+    this._byName = new Map();
+    this._firstFree = 1;
+    this._maxOrderNo = 0;
+    this._maxOrderNoStale = false;
+  }
+
+  /** The largest orderNo of the sheets, as exceljs computes it (lib/doc/workbook.js L81-85). */
+  private _lastOrderNo(): number {
+    if (this._maxOrderNoStale) {
+      this._maxOrderNo = this._sheets.reduce((acc, ws) => (ws?.orderNo !== undefined && ws.orderNo > acc ? ws.orderNo : acc), 0);
+      this._maxOrderNoStale = false;
+    }
+    return this._maxOrderNo;
+  }
+
+  /** The id the next worksheet gets (lib/doc/workbook.js `nextId`): the lowest free id. */
   get nextId(): number {
-    for (let i = 1; i < this._sheets.length; i++) if (!this._sheets[i]) return i;
-    return this._sheets.length || 1;
+    const sheets = this._sheets;
+    let i = Math.max(1, this._firstFree);
+    while (i < sheets.length && sheets[i]) i++;
+    this._firstFree = i;
+    return i < sheets.length ? i : sheets.length || 1;
   }
 
   /** Adds a worksheet. Names follow exceljs rules (31 characters at most; longer names are cut). */
@@ -329,17 +394,35 @@ export class Workbook {
   _addWorksheetWithId(id: number, name?: string, options?: WorksheetOptions): Worksheet {
     const sheet = new Worksheet(this, id, name, options);
     // exceljs: one more than the largest orderNo (lib/doc/workbook.js L81-85).
-    const last = this._sheets.reduce((acc, ws) => (ws?.orderNo !== undefined && ws.orderNo > acc ? ws.orderNo : acc), 0);
+    const last = this._lastOrderNo();
+    this._putSheet(sheet);
     sheet.orderNo = last + 1;
-    this._sheets[id] = sheet;
     return sheet;
+  }
+
+  /**
+   * @internal Adds a worksheet read from a file (`xlsx.load`, `stream.xlsx.WorkbookReader`). A
+   * name exceljs refuses gives an XlvError with exceljs's message, the sheet and a hint, instead
+   * of the plain Error of `addWorksheet`; an empty name is refused too.
+   */
+  _addReadWorksheet(id: number, name: string, options?: WorksheetOptions): Worksheet {
+    const checked = checkSheetName(name, (n) => this._nameTaken(n));
+    if (checked.message !== undefined) {
+      const existing = checked.duplicate ? this._byName.get(checked.name.toLowerCase())?.name : undefined;
+      throw new XlvError(checked.duplicate ? 'XLV_E_DUPLICATE_SHEET_NAME' : 'XLV_E_INVALID_SHEET_NAME', checked.message, {
+        location: { sheet: name },
+        hint: checked.duplicate
+          ? 'Two worksheets of the file have the same name, ignoring case and after the first 31 characters, which exceljs does not accept. Rename one in a spreadsheet application, or read the file with xlvane\'s readWorkbook.'
+          : 'The file names a worksheet in a way exceljs does not accept. Rename the sheet in a spreadsheet application, or read the file with xlvane\'s readWorkbook.',
+        details: existing === undefined ? { name } : { name, existing },
+      });
+    }
+    return this._addWorksheetWithId(id, name, options);
   }
 
   removeWorksheet(id: number | string): void {
     const sheet = this.getWorksheet(id);
-    if (sheet) {
-      this._sheets[sheet.id] = undefined;
-    }
+    if (sheet) this._dropSheet(sheet);
   }
 
   /** Removes a worksheet by id or name, as `removeWorksheet` (lib/doc/workbook.js L77). */
@@ -408,7 +491,12 @@ export class Workbook {
   getWorksheet(id?: number | string): Worksheet | undefined {
     if (id === undefined) return this.worksheets[0];
     if (typeof id === 'number') return this._sheets[id];
-    if (typeof id === 'string') return this.worksheets.find((w) => w.name === id);
+    if (typeof id === 'string') {
+      const sheet = this._byName.get(id.toLowerCase());
+      if (sheet?.name === id) return sheet;
+      // Only sheets without a name (a model without names) can share an index entry.
+      return id === '' ? this.worksheets.find((w) => w.name === id) : undefined;
+    }
     return undefined;
   }
 
@@ -461,12 +549,17 @@ export class Workbook {
     for (const s of read.sheets) cellsRead += s.cellCount;
     const budget = Math.max(DEFAULT_READ_LIMITS.maxCells, 16 * cellsRead);
     let spent = 0;
-    const spend = (positions: number, what: string, sheet: string): void => {
+    // `sheet` is undefined for what belongs to the workbook (defined names).
+    const spend = (positions: number, what: string, sheet: string | undefined): void => {
       spent += positions;
       if (spent <= budget) return;
-      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what} of worksheet "${sheet}" would create more than ${String(budget)} cells or columns for ${String(cellsRead)} cells in the file.`, {
-        location: { sheet },
-        hint: 'The file declares ranges far larger than its data. Load it with ignoreNodes for that element (for example ignoreNodes: ["mergeCells"]), or read it with xlvane\'s readWorkbook, which does not create these objects.',
+      const of = sheet === undefined ? '' : ` of worksheet "${sheet}"`;
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what}${of} would create more than ${String(budget)} cells or columns for ${String(cellsRead)} cells in the file.`, {
+        ...(sheet === undefined ? {} : { location: { sheet } }),
+        hint:
+          sheet === undefined
+            ? 'The file declares names far larger than its data. Read it with xlvane\'s readWorkbook, which does not create these objects.'
+            : 'The file declares ranges far larger than its data. Load it with ignoreNodes for that element (for example ignoreNodes: ["mergeCells"]), or read it with xlvane\'s readWorkbook, which does not create these objects.',
         details: { limit: 'maxCells', value: budget },
       });
     };
@@ -474,6 +567,8 @@ export class Workbook {
     // last cell: no object per row, but a lookup each, so a dimension of a million rows on many
     // sheets is limited too (D-H01): 64 Mi lookups or 16 per cell read, whichever is larger.
     const rowBudget = Math.max(64 * 1024 * 1024, 16 * cellsRead);
+    // Data validations given to each cell they cover: 100 000 cells for the whole workbook (C2).
+    const validations = validationBudget();
     let rowsLooked = 0;
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet' || (options.maxRows === undefined && options.maxCols === undefined) || !use('sheetData')) continue;
@@ -489,7 +584,7 @@ export class Workbook {
       if (options.maxRows !== undefined && perRow.size > options.maxRows) limit('maxRows', options.maxRows, perRow.size);
       if (options.maxCols !== undefined) for (const count of perRow.values()) if (count > options.maxCols) limit('maxCols', options.maxCols, count);
     }
-    this._sheets = [];
+    this._clearSheets();
     if (read.dateSystem === '1904') this.properties.date1904 = true;
     else delete this.properties.date1904;
     // exceljs assigns every core property from the file, so missing ones become undefined (workbook.js L184).
@@ -519,11 +614,10 @@ export class Workbook {
     // bookViews and calcPr as exceljs reads them (workbook-view-xform.js L19–43; calcPr gives {}; X4-28).
     // The indexes count every sheet of the file; chart sheets are not loaded (D-R01), so an index
     // is mapped to the worksheet it falls on, or to the worksheet before a chart sheet.
-    const sheetIndex = (i: number): number => {
-      let n = -1;
-      for (let k = 0; k <= i && k < read.sheets.length; k++) if (read.sheets[k]!.kind === 'worksheet') n++;
-      return Math.max(n, 0);
-    };
+    // worksheetsUpTo[k]: the worksheets among the first k + 1 sheets, counted once (C3).
+    const worksheetsUpTo: number[] = [];
+    for (const s of read.sheets) worksheetsUpTo.push((worksheetsUpTo[worksheetsUpTo.length - 1] ?? 0) + (s.kind === 'worksheet' ? 1 : 0));
+    const sheetIndex = (i: number): number => (i < 0 || worksheetsUpTo.length === 0 ? 0 : Math.max((worksheetsUpTo[Math.min(i, worksheetsUpTo.length - 1)] ?? 0) - 1, 0));
     this.views = read.views.map((v) => {
       const view: Record<string, unknown> = { x: v.x ?? 0, y: v.y ?? 0, width: v.width ?? 25000, height: v.height ?? 10000, visibility: v.visibility };
       if (v.activeTab !== null) view['activeTab'] = sheetIndex(v.activeTab);
@@ -532,13 +626,26 @@ export class Workbook {
     });
     this.calcProperties = read.calculation?.fullCalcOnLoad ? { fullCalcOnLoad: true } : {};
     const mediaIds = new Map<WorkbookImage, number>(read.images.map((img, i) => [img, i]));
-    this._definedNames.model = read.definedNames.filter((d) => !d.name.startsWith('_xlnm.')).map((d) => ({ name: d.name, ranges: extractRanges(d.refersTo) }));
+    // A defined name is one object per cell, as in exceljs (cell-matrix.js), so its cells count
+    // against the budget too; a range reaching past the sheet is dropped, as extractRanges drops
+    // other invalid ranges (security review J, C1).
+    this._definedNames.model = read.definedNames
+      .filter((d) => !d.name.startsWith('_xlnm.'))
+      .map((d) => {
+        const ranges = extractRanges(d.refersTo).filter((range) => {
+          const cells = rangeCellCount(range);
+          if (cells === null) return false;
+          spend(cells, `The defined name "${d.name.slice(0, 255)}"`, undefined);
+          return true;
+        });
+        return { name: d.name, ranges };
+      });
     // Worksheets keep the file's sheetId as id, as exceljs reads it (sheet-xform.js L18,
     // workbook-xform.js L161-186); a missing or repeated one takes the lowest free id (D-F03).
     const ids = freeIds(read.sheets.map((s) => (s.kind === 'worksheet' ? s.sheetId : undefined)));
     for (const [position, s] of read.sheets.entries()) {
       if (s.kind !== 'worksheet') continue;
-      const ws = this._addWorksheetWithId(ids[position] ?? this.nextId, s.name, { state: s.state });
+      const ws = this._addReadWorksheet(ids[position] ?? this.nextId, s.name, { state: s.state });
       // exceljs: the sheet's 0-based position in the file (lib/doc/workbook.js L203).
       ws.orderNo = position;
       for (const c of use('cols') ? s.columns : []) {
@@ -622,7 +729,19 @@ export class Workbook {
       for (const m of use('mergeCells') ? s.merges : []) {
         if (!m.includes(':')) continue;
         spend(areaOf(m), 'A merged range', s.name);
-        ws.mergeCells(m);
+        try {
+          ws.mergeCells(m);
+        } catch (error) {
+          // exceljs's plain Error for overlapping merges becomes an XlvError on load.
+          if (error instanceof XlvError || !(error instanceof Error) || error.message !== 'Cannot merge already merged cells') throw error;
+          const other = mergeOverlapping(ws, m);
+          throw new XlvError('XLV_E_OVERLAPPING_MERGE', `Cannot merge already merged cells: the merged range ${m} of worksheet "${s.name}" shares cells with ${other ?? 'an earlier merged range'}.`, {
+            location: { sheet: s.name, cell: m },
+            hint: 'The file has merged ranges that share cells, which exceljs does not accept. Load it with ignoreNodes: ["mergeCells"], or read it with xlvane\'s readWorkbook.',
+            details: other === undefined ? {} : { other },
+            cause: error,
+          });
+        }
       }
       // exceljs reads one view per sheetView, with every setting (sheet-view-xform.js; X4-11).
       if (use('sheetViews')) ws.views = [viewOut(s.view, s.freeze)];
@@ -630,7 +749,7 @@ export class Workbook {
       if (tab && use('sheetPr')) ws.properties['tabColor'] = tab;
       if (s.autoFilter && use('autoFilter')) ws.autoFilter = s.autoFilter;
       // Validations, conditional formats, protection and printing (X4-16 … X4-19; D-C06).
-      if (use('dataValidations')) ws.dataValidations.model = dataValidationsOut(s.dataValidations, read.dateSystem === '1904');
+      if (use('dataValidations')) ws.dataValidations.model = dataValidationsOut(s.dataValidations, read.dateSystem === '1904', validations);
       if (use('conditionalFormatting')) ws.conditionalFormattings = conditionalFormatsOut(s.conditionalFormats);
       if (use('sheetProtection')) ws.sheetProtection = s.protection ? protectionOut(s.protection) : null;
       if (use('pageSetup')) ws.pageSetup = pageSetupOut(s.pageSetup, s.printArea, s.printTitles);
@@ -650,6 +769,28 @@ export class Workbook {
       if (background !== undefined && use('picture')) ws._media.push({ type: 'background', imageId: background });
     }
   }
+}
+
+/**
+ * @internal The chunks of an input stream, read until it ends. Reading stops with
+ * XLV_E_LIMIT_EXCEEDED as soon as the chunks pass maxInputBytes, the size the core reads at most,
+ * so an endless stream is not collected first (security review J, C8).
+ */
+export async function collectInput(stream: AsyncIterable<Uint8Array>, what: string): Promise<{ chunks: Uint8Array[]; size: number }> {
+  const limit = DEFAULT_READ_LIMITS.maxInputBytes;
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of stream) {
+    chunks.push(chunk);
+    size += chunk.length;
+    if (size > limit) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The stream given to ${what} holds more than ${String(limit)} bytes (maxInputBytes).`, {
+        hint: 'Check that the stream is the XLSX file you expect. A larger file from a trusted source can be read with xlvane\'s readWorkbook and a higher limit, for example { limits: { maxInputBytes: 1073741824 } }.',
+        details: { limit: 'maxInputBytes', value: limit },
+      });
+    }
+  }
+  return { chunks, size };
 }
 
 /**
@@ -677,15 +818,31 @@ function freeIds(wanted: readonly unknown[]): (number | undefined)[] {
   });
 }
 
-/** Cells in a range such as "A1:C3" (1 for a cell, 0 for anything else). */
-function areaOf(ref: string): number {
+/** The rows and columns of a range such as "A1:C3" or a cell, or `null` for anything else. */
+function rangeOf(ref: string): { top: number; left: number; bottom: number; right: number } | null {
   const m = /^([A-Z]{1,3})(\d{1,7})(?::([A-Z]{1,3})(\d{1,7}))?$/.exec(ref.replace(/\$/g, ''));
-  if (!m) return 0;
+  if (!m) return null;
   const col = (letters: string): number => {
     let n = 0;
     for (const ch of letters) n = n * 26 + ch.charCodeAt(0) - 64;
     return n;
   };
   const [, c1 = 'A', r1 = '1', c2 = c1, r2 = r1] = m;
-  return (Math.abs(Number(r2) - Number(r1)) + 1) * (Math.abs(col(c2) - col(c1)) + 1);
+  return { top: Math.min(Number(r1), Number(r2)), left: Math.min(col(c1), col(c2)), bottom: Math.max(Number(r1), Number(r2)), right: Math.max(col(c1), col(c2)) };
+}
+
+/** Cells in a range such as "A1:C3" (1 for a cell, 0 for anything else). */
+function areaOf(ref: string): number {
+  const r = rangeOf(ref);
+  return r ? (r.bottom - r.top + 1) * (r.right - r.left + 1) : 0;
+}
+
+/** A merged range of the worksheet that shares cells with `ref`, as "A1:B2". */
+function mergeOverlapping(ws: Worksheet, ref: string): string | undefined {
+  const r = rangeOf(ref);
+  if (!r) return undefined;
+  for (const o of ws._merges.values()) {
+    if (o.top <= r.bottom && r.top <= o.bottom && o.left <= r.right && r.left <= o.right) return `${columnLetter(o.left)}${String(o.top)}:${columnLetter(o.right)}${String(o.bottom)}`;
+  }
+  return undefined;
 }

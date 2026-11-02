@@ -1,6 +1,7 @@
 // exceljs `DefinedNames` (lib/doc/defined-names.js) and the cell matrix behind it
 // (lib/utils/cell-matrix.js): names are sets of cells, grouped into ranges when written
 // (docs/facts/exceljs.md X4-05 … X4-08).
+import { XlvError } from 'xlvane';
 import { columnLetter } from './model';
 
 /**
@@ -90,6 +91,35 @@ export function decodeEx(value: string): DecodedLocation {
   return sheetName ? { sheetName, ...address } : address;
 }
 
+/**
+ * Refuses a range that reaches past the sheet (row 1048576, column XFD) before its cells are
+ * created one by one. exceljs bounds only column letters, so a range such as `$A$1:$A$99999999999`
+ * makes it loop for hours; xlvane throws instead (security review J, C1).
+ */
+function checkGrid(location: DecodedLocation): void {
+  const { bottom = 0, right = 0 } = location;
+  if (bottom <= 1_048_576 && right <= 16_384) return;
+  const where = `${location.sheetName === undefined ? '' : `${location.sheetName}!`}rows ${String(location.top)}-${String(bottom)}, columns ${String(location.left)}-${String(right)}`;
+  throw new XlvError('XLV_E_INVALID_CELL_REF', `The range ${where.slice(0, 80)} reaches past the sheet (row 1048576, column XFD).`, {
+    hint: 'Use a range inside A1:XFD1048576, for example "Data!$A$1:$B$10".',
+    details: { ref: where.slice(0, 80) },
+  });
+}
+
+/**
+ * @internal The number of cells the `model` setter of {@link DefinedNames} creates for one range
+ * read from a file, or `null` for a range that reaches past the sheet (it is dropped, as invalid
+ * ranges are; security review J, C1).
+ */
+export function rangeCellCount(rangeStr: string): number | null {
+  if (!RANGE.test(rangeStr.split('!').pop() ?? '')) return 0;
+  const location = decodeEx(rangeStr);
+  if (!location.top) return location.row !== undefined && location.col !== undefined ? 1 : 0;
+  const { top, left = 0, bottom = 0, right = 0 } = location;
+  if (bottom > 1_048_576 || right > 16_384) return null;
+  return Math.max(0, bottom - top + 1) * Math.max(0, right - left + 1);
+}
+
 /** The sheet prefix exceljs writes (lib/doc/range.js L153): quoted unless letters and digits only. */
 function sheetPrefix(sheetName: string | undefined): string {
   if (!sheetName) return '';
@@ -130,6 +160,7 @@ export class CellMatrix {
 
   addCellEx(address: DecodedLocation): void {
     if (address.top) {
+      checkGrid(address);
       for (let row = address.top; row <= (address.bottom ?? 0); row++) {
         for (let col = address.left ?? 0; col <= (address.right ?? 0); col++) this.getCellAt(address.sheetName, row, col);
       }
@@ -242,6 +273,7 @@ export class DefinedNames {
   }
 
   addEx(location: DecodedLocation, name: string): void {
+    if (location.top) checkGrid(location);
     const matrix = this.getMatrix(name);
     if (location.top) {
       for (let col = location.left ?? 0; col <= (location.right ?? 0); col++) {

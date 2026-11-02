@@ -1018,6 +1018,36 @@ export function parseRangeArgs(args: readonly unknown[]): { top: number; left: n
 /** A merged range of a worksheet. */
 type MergeRange = { top: number; left: number; bottom: number; right: number };
 
+/**
+ * @internal exceljs's rules for a worksheet name (lib/doc/worksheet.js L134-173): the name to
+ * use, cut to 31 characters, or exceljs's message for a name it refuses. `taken` tells whether
+ * another sheet of the workbook has a name (already cut) that equals it ignoring case.
+ */
+export function checkSheetName(value: unknown, taken: (name: string) => boolean): { name: string; message?: undefined; duplicate?: undefined } | { name: string; message: string; duplicate: boolean } {
+  const fail = (message: string): { name: string; message: string; duplicate: boolean } => ({ name: typeof value === 'string' ? value : '', message, duplicate: false });
+  if (typeof value !== 'string') return fail('The name has to be a string.');
+  if (value === '') return fail("The name can't be empty.");
+  if (value === 'History') return fail('The name "History" is protected. Please use a different name.');
+  if (/[*?:/\\[\]]/.test(value)) return fail(`Worksheet name ${value} cannot include any of the following characters: * ? : \\ / [ ]`);
+  if (/(^')|('$)/.test(value)) return fail(`The first or last character of worksheet name cannot be a single quotation mark: ${value}`);
+  const name = value.length > 31 ? value.substring(0, 31) : value;
+  if (taken(name)) return { name, message: `Worksheet name already exists: ${name}`, duplicate: true };
+  return { name };
+}
+
+/**
+ * @internal What a worksheet needs from its workbook: the duplicate check of its name and, for a
+ * workbook that indexes its sheets, notices of a new name or orderNo.
+ */
+export interface WorksheetHost {
+  /** Whether a sheet other than `exclude` has this name, ignoring case. */
+  _nameTaken(name: string, exclude: Worksheet): boolean;
+  _renamed?(sheet: Worksheet, oldName: string): void;
+  _orderNoChanged?(sheet: Worksheet, oldOrderNo: number | undefined): void;
+  readonly definedNames?: DefinedNames;
+  readonly worksheets?: readonly Worksheet[];
+}
+
 /** The merged ranges of a worksheet by master address, with a counter of changes (D-H01). */
 class MergeMap extends Map<string, MergeRange> {
   version = 0;
@@ -1056,7 +1086,15 @@ export class Worksheet {
    * largest of the other sheets for a new sheet (lib/doc/workbook.js L81-85), the 0-based position
    * in the file for a loaded one (L203). Worksheets are listed in this order.
    */
-  orderNo: number | undefined;
+  get orderNo(): number | undefined {
+    return this._orderNo;
+  }
+  set orderNo(value: number | undefined) {
+    const old = this._orderNo;
+    this._orderNo = value;
+    this.workbook._orderNoChanged?.(this, old);
+  }
+  private _orderNo: number | undefined;
   state: 'visible' | 'hidden' | 'veryHidden';
   views: WorksheetView[];
   autoFilter: string | { from: string | { row: number; column: number }; to: string | { row: number; column: number } } | null = null;
@@ -1088,7 +1126,7 @@ export class Worksheet {
 
   /** @internal Use `workbook.addWorksheet()`. */
   constructor(
-    readonly workbook: { readonly _names: (exclude: Worksheet) => string[]; readonly definedNames?: DefinedNames; readonly worksheets?: readonly Worksheet[] },
+    readonly workbook: WorksheetHost,
     id: number,
     name: string | undefined,
     options: WorksheetOptions | undefined,
@@ -1109,16 +1147,14 @@ export class Worksheet {
 
   /** Sheet name rules of exceljs (lib/doc/worksheet.js L134–173), including truncation to 31 characters. */
   set name(value: string) {
-    let name = value;
-    if (name === this._name) return;
-    if (typeof name !== 'string') throw new Error('The name has to be a string.');
-    if (name === '') throw new Error("The name can't be empty.");
-    if (name === 'History') throw new Error('The name "History" is protected. Please use a different name.');
-    if (/[*?:/\\[\]]/.test(name)) throw new Error(`Worksheet name ${name} cannot include any of the following characters: * ? : \\ / [ ]`);
-    if (/(^')|('$)/.test(name)) throw new Error(`The first or last character of worksheet name cannot be a single quotation mark: ${name}`);
-    if (name.length > 31) name = name.substring(0, 31);
-    if (this.workbook._names(this).some((n) => n.toLowerCase() === name.toLowerCase())) throw new Error(`Worksheet name already exists: ${name}`);
-    this._name = name;
+    if (value === this._name) return;
+    // The workbook answers the duplicate check from an index of names, so adding many sheets
+    // takes linear time (security review J, C3).
+    const checked = checkSheetName(value, (name) => this.workbook._nameTaken(name, this));
+    if (checked.message !== undefined) throw new Error(checked.message);
+    const old = this._name;
+    this._name = checked.name;
+    this.workbook._renamed?.(this, old);
   }
 
   /** Deprecated in exceljs in favour of `properties.tabColor`, which it reads and sets (lib/doc/worksheet.js L827). */

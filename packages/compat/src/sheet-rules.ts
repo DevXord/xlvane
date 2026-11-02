@@ -78,11 +78,18 @@ function rangeText(r: { top: number; left: number; bottom: number; right: number
 // Data validations (X4-16; D-C01)
 
 /**
- * Cells per sheet up to which validations read from a file are given to every cell they cover,
- * as exceljs does (data-validations-xform.js L229–239). Larger ranges, such as whole columns,
- * keep their range as the key; `find()` and `cell.dataValidation` still answer for every cell.
+ * Cells per workbook up to which validations read from a file are given to every cell they
+ * cover, as exceljs does (data-validations-xform.js L229–239). Larger ranges, such as whole
+ * columns, and ranges read after the budget is spent keep their range as the key; `find()` and
+ * `cell.dataValidation` still answer for every cell. The budget is shared by all sheets of a
+ * load, so many sheets cannot each expand 100 000 cells (security review J, C2).
  */
 const MAX_EXPANDED_CELLS = 100_000;
+
+/** @internal The budget of {@link dataValidationsOut} for one workbook load. */
+export function validationBudget(): { left: number } {
+  return { left: MAX_EXPANDED_CELLS };
+}
 
 /**
  * The data validations of a worksheet (`worksheet.dataValidations`), keyed by cell address or
@@ -263,21 +270,23 @@ function validationOut(d: XlvDataValidation, date1904: boolean): DataValidation 
   return out as unknown as DataValidation;
 }
 
-/** The `worksheet.dataValidations` model of validations read by xlvane. */
-export function dataValidationsOut(list: readonly XlvDataValidation[], date1904: boolean): Record<string, DataValidation> {
+/**
+ * The `worksheet.dataValidations` model of validations read by xlvane. `budget` is the number of
+ * cells still to expand; pass the same object for every sheet of a workbook.
+ */
+export function dataValidationsOut(list: readonly XlvDataValidation[], date1904: boolean, budget: { left: number } = validationBudget()): Record<string, DataValidation> {
   const model = Object.create(null) as Record<string, DataValidation>;
-  let budget = MAX_EXPANDED_CELLS;
   for (const d of list) {
     const v = validationOut(d, date1904);
     for (const part of d.sqref.split(/\s+/)) {
       const r = parseRange(part);
       if (!r) continue;
       const size = (r.bottom - r.top + 1) * (r.right - r.left + 1);
-      if (size > budget) {
+      if (size > budget.left) {
         model[part] = v;
         continue;
       }
-      budget -= size;
+      budget.left -= size;
       for (let row = r.top; row <= r.bottom; row++) for (let col = r.left; col <= r.right; col++) model[address(row, col)] = v;
     }
   }
