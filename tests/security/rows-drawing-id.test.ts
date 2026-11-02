@@ -46,4 +46,14 @@ describe('drawing elements of the changed sheet', () => {
     });
     expect(() => insertRows(bytes, { sheet: 'S', at: 1, count: 1 })).toThrow(/charts, shapes or other objects/);
   });
+
+  it('a drawing element inside mc:AlternateContent is still found, as before 1.1.1 (independent review)', () => {
+    const drawing = `<xdr:wsDr xmlns:xdr="${XDR}"><xdr:oneCellAnchor><xdr:from><xdr:col>0</xdr:col><xdr:colOff>0</xdr:colOff><xdr:row>0</xdr:row><xdr:rowOff>0</xdr:rowOff></xdr:from><xdr:ext cx="1" cy="1"/><xdr:sp/><xdr:clientData/></xdr:oneCellAnchor></xdr:wsDr>`;
+    const MC = 'http://schemas.openxmlformats.org/markup-compatibility/2006';
+    const bytes = buildXlsx({
+      sheets: [{ name: 'S', data: one, after: `<mc:AlternateContent xmlns:mc="${MC}"><mc:Choice Requires="x14"><drawing r:id="rId1"/></mc:Choice><mc:Fallback><drawing r:id="rId1"/></mc:Fallback></mc:AlternateContent>` }],
+      extraParts: { 'xl/worksheets/_rels/sheet1.xml.rels': rels([['rId1', 'drawing', '../drawings/drawing1.xml']]), 'xl/drawings/drawing1.xml': drawing },
+    });
+    expect(() => insertRows(bytes, { sheet: 'S', at: 1, count: 1 })).toThrow(/charts, shapes or other objects/);
+  });
 });

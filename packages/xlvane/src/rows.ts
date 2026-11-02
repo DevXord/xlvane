@@ -23,7 +23,7 @@ import { openPackage, type OpcPackage } from './opc/package';
 import { readWorkbook } from './read';
 import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { shiftFormula } from './sml/formula-shift';
-import { classifyRelationship, REL_NS } from './sml/namespaces';
+import { classifyRelationship, REL_NS, SML_NS } from './sml/namespaces';
 import { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
 import { X14_CF_URI, X14_DV_URI, X14_NS, XM_NS } from './sheet-rules';
 import { readOptions } from './util/options';
@@ -738,12 +738,13 @@ interface DrawingIds {
 }
 
 /**
- * Finds the `drawing` and `legacyDrawing` children of the worksheet with the element scanner, so
- * that comments are skipped and the time is linear in the part's size (D-H01); the id is the
+ * Finds the first `drawing` and `legacyDrawing` elements of the worksheet (SpreadsheetML
+ * namespace, any depth, so also inside `mc:AlternateContent`) with the element scanner, so that
+ * comments are skipped and the time is linear in the part's size (D-H01); the id is the
  * attribute `id` in the relationships namespace, whatever its prefix.
  */
 function drawingIds(text: string, part: string, limits: ReadLimits): DrawingIds {
-  const { elements } = scan(text, part, limits, (local, depth) => depth === 2 && (local === 'drawing' || local === 'legacyDrawing'));
+  const { elements } = scan(text, part, limits, (local, depth, _parent, ns) => depth >= 2 && (local === 'drawing' || local === 'legacyDrawing') && (ns === SML_NS.transitional || ns === SML_NS.strict));
   const idOf = (local: string): string | undefined => {
     const e = elements.find((x) => x.local === local);
     return e?.attrs.get(`{${REL_NS.transitional}}id`) ?? e?.attrs.get(`{${REL_NS.strict}}id`);
