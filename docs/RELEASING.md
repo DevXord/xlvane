@@ -2,7 +2,7 @@
 
 Releases are published from a tag by `.github/workflows/release.yml` through npm **trusted publishing** (OIDC: no npm tokens, no secrets) and **staged publishing**: the workflow only stages the packages, and a maintainer approves them with two-factor authentication before they become public. Provenance is generated automatically by trusted publishing. Sources of these facts are in docs/decisions.md (F-NPM-01 … F-NPM-03).
 
-Published packages: `xlvane` and `@xlvane/compat`, always with the same version.
+Published packages: `xlvane`, `@xlvane/compat` and (from 1.2.0) `@xlvane/mcp`, always with the same version.
 
 ## Once, before the first release
 
@@ -37,17 +37,34 @@ npm configures a trusted publisher in the settings of an existing package, so th
 5. On npmjs.com, for **each** package: Settings → Trusted publishing → GitHub Actions: organization or user `DevXord`, repository `xlvane`, workflow filename `release.yml`, environment `npm-release`; allowed action: `npm stage publish` only. The configuration must be used within 2 days, or it expires (F-NPM-01); if it expires before the next release, add it again then.
 6. On npmjs.com, for each package: Settings → Publishing access → "Require two-factor authentication and disallow tokens".
 
+## First release of `@xlvane/mcp` (1.2.0)
+
+npm sets up a trusted publisher only for a package that exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from your machine, like `xlvane` 1.0.0 (D-R10, D-I03). The workflow stages `xlvane` and `@xlvane/compat` 1.2.0 as usual and only prints a notice for `@xlvane/mcp`.
+
+1. Steps 1 and 3 to 5 of "Every later release" below for `xlvane` and `@xlvane/compat`; approve their stages first.
+2. In a clean checkout of the tag (npm 11.15.0 or later):
+   ```sh
+   git switch --detach v1.2.0
+   npm login
+   npm ci && npm run build
+   npm stage publish -w packages/mcp --provenance=false
+   npm stage list
+   npm stage approve <stage-id>    # asks for 2FA; never reject the first stage of a new package
+   ```
+3. Check: `npm view @xlvane/mcp version` prints `1.2.0`, and `npm view @xlvane/mcp dependencies` lists `@modelcontextprotocol/server` and `xlvane` only.
+4. On npmjs.com for `@xlvane/mcp`: Settings → Trusted publishing → GitHub Actions with the same values as the other packages (step 5 of "First release"), and Settings → Publishing access → "Require two-factor authentication and disallow tokens". The configuration must be used by the next release within 2 days, or it expires (F-NPM-01); if it expires, add it again before that release.
+
 ## Every later release
 
-1. Bump the version of both packages in one commit (`packages/xlvane/package.json`, `packages/compat/package.json` and its `xlvane` dependency `^X.Y.Z`), update CHANGELOG.md.
-2. Check the trusted publisher of both packages: `npm trust list xlvane` and `npm trust list @xlvane/compat` print `github`, `release.yml`, `DevXord/xlvane`, `npm-release` and `stage publish` (F-NPM-04). A configuration that was added more than 2 days ago and never used has expired: delete it and add it again (F-NPM-01).
+1. Bump the version of all packages in one commit (`packages/xlvane/package.json`, `packages/compat/package.json` and `packages/mcp/package.json` with their `xlvane` dependency `^X.Y.Z`, and `SERVER_VERSION` in `packages/mcp/src/server.ts`), update CHANGELOG.md.
+2. Check the trusted publisher of each package: `npm trust list xlvane`, `npm trust list @xlvane/compat` and `npm trust list @xlvane/mcp` print `github`, `release.yml`, `DevXord/xlvane`, `npm-release` and `stage publish` (F-NPM-04). A configuration that was added more than 2 days ago and never used has expired: delete it and add it again (F-NPM-01).
 3. Tag `vX.Y.Z` and push the tag. `scripts/check-release-version.mjs` stops the release if the tag and the versions differ.
 4. When the `verify` job has passed, approve the `publish` job (Review deployments → `npm-release` → Approve and deploy).
-5. When the workflow has staged both packages: `npm stage list`, inspect, `npm stage approve <stage-id>` (2FA).
+5. When the workflow has staged the packages: `npm stage list`, inspect, `npm stage approve <stage-id>` (2FA). Approve `xlvane` first: the other packages depend on its new version.
 
 ## After a release
 
-- `npm view xlvane dependencies` lists only `fflate`.
+- `npm view xlvane dependencies` lists only `fflate`; `npm view @xlvane/mcp dependencies` lists only `@modelcontextprotocol/server` and `xlvane`.
 - The package page on npmjs.com shows the provenance of the release.
 - `npm audit signatures` in a project that installs the packages verifies their signatures and attestations.
 - Rebuild the website in the repository `xlvane/xlvane.github.io` (D-G01): `node scripts/build.mjs --version X.Y.Z`, then `node scripts/check.mjs` and `node --test test/*.test.mjs`; commit `docs/` and push. The pages are generated from the packages just published on npm.

@@ -1,20 +1,21 @@
 ---
 name: xlvane
-description: Read, inspect, write, edit, convert, compare and validate Excel XLSX files with the xlvane library or its xlvane command line. Use when a task involves .xlsx files, sheets turned into JSON or CSV, spreadsheet reports, or checking changes to a workbook.
+description: Read, inspect, write, edit, convert, compare and validate Excel XLSX files with the xlvane library, its xlvane command line or its MCP server. Use when a task involves .xlsx files, sheets turned into JSON or CSV, spreadsheet reports, or checking changes to a workbook.
 license: MIT
-compatibility: Node.js 22 or later. The library core works on Uint8Array and has no Node.js dependencies; the CLI and the file helpers in xlvane/node need Node.js.
+compatibility: Node.js 22 or later. The library core works on Uint8Array and has no Node.js dependencies; the CLI, the file helpers in xlvane/node and the MCP server need Node.js.
 ---
 
 # xlvane: XLSX files
 
 xlvane reads, writes and edits `.xlsx` files. It treats input files as untrusted (size and ZIP limits, no external entities, macros are never run, links are never followed). It does not calculate formulas: it reads the cached results stored in the file and writes the formula text you give.
 
-Two ways to use it, with the same behaviour:
+Three ways to use it, with the same behaviour:
 
 | Way | When | Start |
 |---|---|---|
 | Library `xlvane` | You write JavaScript or TypeScript code | `npm install xlvane` |
 | Command line `xlvane` | You run shell commands | `npx xlvane help` |
+| MCP server `@xlvane/mcp` | Your client calls MCP tools | `npx @xlvane/mcp --root <dir>` |
 
 ## Recommended order of work
 
@@ -189,6 +190,10 @@ xlvane validate report.xlsx --columns "Region:string,Revenue:number"
 ```
 
 Add `--json` to any command for one JSON document with a documented schema (`docs/cli-json.md` in the package). Exit codes: 0 success, 1 a check found something, 2 usage error, 3 input or file error. Nothing is overwritten without `--force`; commands that write accept `--dry-run`.
+
+## MCP server
+
+`npx @xlvane/mcp --root ./data` serves the tools `inspect_workbook`, `read_table`, `diff` and `validate` for files inside `./data` only. With `--allow-write` it also serves `write_table`, `edit_cells` and `convert`; they create new files and replace an existing file only when the call passes `"overwrite": true`. Paths outside the roots, also through `..` or symbolic links, are refused with `XLV_E_PATH_NOT_ALLOWED`. A result is at most 1 Mi characters of JSON (`--max-response-chars`): `read_table` then returns the rows that fit, with `truncated: true` and `nextOffset` for the next call.
 
 ## Errors
 

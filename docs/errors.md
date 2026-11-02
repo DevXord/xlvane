@@ -97,6 +97,8 @@ Some limits also bound work derived from a small file (1.1.1, D-H01):
 - `maxXmlTextLength`: also the length of an XML comment or processing instruction.
 - `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the length of each sharing cell's formula, as moved to that cell.
 
+The MCP server (`@xlvane/mcp`) returns it as a tool error for a file larger than `--max-file-size` (`details.limit` `maxFileBytes`) and for a result longer than `--max-response-chars` (`details.limit` `maxResponseChars`; `read_table` instead returns the rows that fit).
+
 `fromCSV` (and `xlvane convert`/`create` with CSV input) throws it for text with more fields than `maxCells` (default 5 000 000, `details.limit` `maxCells`), more than 16 384 fields on a line or more than 1 048 576 lines.
 
 `NewSheet.validate` throws it when a sheet would get more than 65534 data validations ([MS-OI29500] §2.1.614 g; `details.limit` `dataValidations`). When reading, the conditional formatting and data validations of one sheet count against `maxXmlTreeElements`.

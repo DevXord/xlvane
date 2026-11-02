@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.2.0
+
+### @xlvane/mcp (new)
+
+- An MCP (Model Context Protocol) server for XLSX files, on the official MCP TypeScript SDK (`@modelcontextprotocol/server` 2.4.0, protocol revision 2026-07-28), over stdio:
+  - start it with `npx @xlvane/mcp --root ./data` or `xlvane mcp --root ./data`;
+  - `inspect_workbook`, `read_table`, `diff` and `validate` are always available;
+  - `write_table`, `edit_cells` and `convert` only with `--allow-write`.
+- **Directories:** files are read and written only inside the `--root` directories, after symbolic links are resolved. A file is checked again after it is opened. Writes never replace a file without `"overwrite": true`.
+- **Limits:**
+  - files above `--max-file-size` (default 64 MiB) are refused;
+  - a tool result is at most `--max-response-chars` (default 1 Mi characters of JSON): `read_table` returns the rows that fit, with `nextOffset`;
+  - `validate` lists at most 1 000 problems.
+- **Errors:** tool errors carry the `XlvError` code, location and hint.
+- **API:** `createServer()` and `runCli()` for other transports and tests.
+
+### xlvane
+
+- The command `xlvane mcp` starts the server from `@xlvane/mcp` (a separate package), and prints how to install it when it is missing (`XLV_E_NOT_INSTALLED`). The error code `XLV_E_PATH_NOT_ALLOWED` is used by the server.
+- The Agent Skill describes the MCP server.
+
+### @xlvane/compat
+
+- No changes besides the version.
+
 ## 1.1.1
 
 A security release: small, crafted files could make reading, converting or the command line take minutes or run out of memory. Upgrading is recommended for everyone who opens files from untrusted sources. No API changes besides two new warning codes.

@@ -7,7 +7,7 @@ import { resolveRoots, type Roots } from './paths';
 import { registerTools, type ToolLimits } from './tools';
 
 /** Version reported in server info; kept equal to package.json by tests/mcp/server.test.ts. */
-export const SERVER_VERSION = '1.1.1';
+export const SERVER_VERSION = '1.2.0';
 
 /** Default largest file read or written by the tools: 64 MiB. */
 export const DEFAULT_MAX_FILE_BYTES: number = 64 * 1024 * 1024;
@@ -98,7 +98,7 @@ export interface CliIO {
   readonly serve: (factory: () => McpServer) => Promise<void>;
 }
 
-const HELP = `xlvane-mcp — MCP server for XLSX files (xlvane)
+const HELP = `xlvane-mcp - MCP server for XLSX files (xlvane)
 
 Usage:
   xlvane-mcp --root <dir> [--root <dir>...] [options]
