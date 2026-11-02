@@ -426,3 +426,14 @@ describe('fromCSV output budget with the maxCells option (D-J01)', () => {
     expect(() => fromCSV(text, { header: false, maxCells: 1000 })).toThrow(expect.objectContaining({ code: 'XLV_E_LIMIT_EXCEEDED' }));
   });
 });
+
+describe('writeTable and fromJSON take maxCells (independent review of the patch, D-J01)', () => {
+  const rows = Array.from({ length: 30_000 }, (_, i) => ({ [`c${String(i % 20)}`]: i }));
+  const columns = Array.from({ length: 20 }, (_, i) => `c${String(i)}`);
+  it('a lower maxCells refuses a sparse table, a higher one accepts it', async () => {
+    const { writeTable, fromJSON } = await import('../../packages/xlvane/src/table');
+    expect(() => writeTable(rows, { columns, maxCells: 100_000 })).toThrow(expect.objectContaining({ code: 'XLV_E_LIMIT_EXCEEDED' }));
+    expect(() => fromJSON(rows, { maxCells: 100_000 })).toThrow(expect.objectContaining({ code: 'XLV_E_LIMIT_EXCEEDED' }));
+    expect(writeTable(rows, { columns, maxCells: 1_000_000, preset: 'plain' }).length).toBeGreaterThan(0);
+  });
+});

@@ -388,7 +388,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 | `maxXmlTextLength` | 8 Mi characters | huge text nodes, attribute values, comments or processing instructions |
 | `maxXmlTreeElements` | 1 000 000 | huge workbook, styles or relationship parts (elements plus attributes) |
 | `maxCells` | 5 000 000 | workbooks too large to hold in memory (measured: about 180 bytes per numeric cell, Node.js 26); also bounds the output of `toCSV`, `readTable`, `toJSON` and `readTableStream` to `max(maxCells, 16 × cells read)` positions, and of `fromCSV`, `fromJSON` and `writeTable` to `max(maxCells, 16 × cells written)` |
-| `maxSharedStringChars` | 512 Mi characters | many cells pointing at one huge shared string (a few MB that become many GB when values are copied); counted separately, the same for cells sharing one huge formula and for header names repeated in every row object of `readTable`, `toJSON` and `readTableStream` |
+| `maxSharedStringChars` | 512 Mi characters | many cells pointing at one huge shared string (a few MB that become many GB when values are copied); counted separately, the same for cells sharing one huge formula and for header names repeated in every row object of `readTable` and `toJSON` |
 
 ## Package size
 

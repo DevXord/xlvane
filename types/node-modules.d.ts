@@ -30,10 +30,14 @@ declare module 'node:fs/promises' {
     read(buffer: Uint8Array, offset: number, length: number, position: number | null): Promise<{ bytesRead: number; buffer: Uint8Array }>;
     /** https://nodejs.org/api/fs.html#filehandlestatoptions */
     stat(): Promise<Stats>;
+    /** https://nodejs.org/api/fs.html#filehandlewritefiledata-options (F-NODE-16). */
+    writeFile(data: Uint8Array | string): Promise<void>;
+    /** https://nodejs.org/api/fs.html#filehandlechmodmode (F-NODE-16). */
+    chmod(mode: number): Promise<void>;
     close(): Promise<void>;
   }
   /** https://nodejs.org/api/fs.html#fspromisesopenpath-flags-mode (flags as a string or fs.constants bits). */
-  export function open(path: string | URL, flags?: string | number): Promise<FileHandle>;
+  export function open(path: string | URL, flags?: string | number, mode?: number): Promise<FileHandle>;
   export function stat(path: string | URL): Promise<Stats>;
   export function readdir(path: string | URL): Promise<string[]>;
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;
@@ -44,6 +48,7 @@ declare module 'node:fs/promises' {
   export function rename(oldPath: string | URL, newPath: string | URL): Promise<void>;
   export function realpath(path: string | URL): Promise<string>;
   export function lstat(path: string | URL): Promise<Stats>;
+  export function readlink(path: string | URL): Promise<string>;
   export function symlink(target: string | URL, path: string | URL): Promise<void>;
   export function copyFile(src: string | URL, dest: string | URL): Promise<void>;
 }

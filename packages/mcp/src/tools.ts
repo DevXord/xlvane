@@ -124,7 +124,7 @@ async function book(roots: Roots, limits: ToolLimits, path: string): Promise<Wor
 /**
  * `JSON.stringify(rows, null, 2)` plus a line feed, built row by row: every row repeats the header
  * names, so a small file can make a text far larger than the file limit, or than a string can be.
- * The text stops as soon as it is longer than `maxChars` (D-J01).
+ * The text stops as soon as it is longer than `maxChars` characters, before encoding (D-J01).
  */
 function jsonText(rows: readonly unknown[], maxChars: number, path: string): string {
   if (rows.length === 0) return '[]\n';
@@ -134,7 +134,7 @@ function jsonText(rows: readonly unknown[], maxChars: number, path: string): str
     const part = `${i === 0 ? '' : ','}\n  ${JSON.stringify(rows[i], null, 2).replace(/\n/g, '\n  ')}`;
     length += part.length;
     if (length > maxChars) {
-      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The JSON text would be more than the server's limit of ${String(maxChars)} bytes.`, {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The JSON text would be longer than the server's limit of ${String(maxChars)} bytes.`, {
         hint: 'Convert fewer rows or columns (sheet with a smaller table), or raise --max-file-size.',
         details: { path, limit: 'maxFileBytes', value: maxChars },
       });
@@ -443,13 +443,17 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       const warnings: XlvWarning[] = [];
       try {
         if (edits.length > 0) {
-          const r = editCells(bytes, edits.map((e): CellEdit => ({ sheet: e.sheet, cell: e.cell.toUpperCase(), value: cellInput(e.value) })));
+          const r = editCells(
+            bytes,
+            edits.map((e): CellEdit => ({ sheet: e.sheet, cell: e.cell.toUpperCase(), value: cellInput(e.value) })),
+            { limits: { maxCells: limits.maxCells } },
+          );
           bytes = r.bytes;
           warnings.push(...r.warnings);
         }
         if (append) {
           const rows = append.rows.map((r) => (Array.isArray(r) ? r.map(cellInput) : Object.fromEntries(Object.entries(r as Json).map(([k, v]) => [k, cellInput(v)]))));
-          const r = appendRows(bytes, append.sheet, rows as never, append.header !== undefined ? { header: append.header } : undefined);
+          const r = appendRows(bytes, append.sheet, rows as never, { limits: { maxCells: limits.maxCells }, ...(append.header !== undefined ? { header: append.header } : {}) });
           bytes = r.bytes;
           warnings.push(...r.warnings);
         }
@@ -501,7 +505,10 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
           throw new XlvError('XLV_E_INVALID_INPUT', `"${input}" is not valid UTF-8 text.`, { hint: 'Save the CSV or JSON file as UTF-8 and convert it again.', details: { path: input } });
         }
         try {
-          data = from === 'json' ? fromJSON(text, { ...sheet, preset: 'plain' }) : fromCSV(text, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (from === 'tsv' ? '\t' : ',') });
+          data =
+            from === 'json'
+              ? fromJSON(text, { ...sheet, preset: 'plain', maxCells: limits.maxCells })
+              : fromCSV(text, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (from === 'tsv' ? '\t' : ','), maxCells: limits.maxCells });
         } catch (error) {
           throw withPath(error, input);
         }

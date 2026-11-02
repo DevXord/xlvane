@@ -2,7 +2,7 @@
 // directories given at start (--root), after symbolic links are resolved (docs/decisions.md D-703,
 // D-I02, D-I04).
 import { constants } from 'node:fs';
-import { chmod, lstat, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, open, readlink, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { XlvError } from 'xlvane';
 
@@ -66,25 +66,51 @@ async function realInside(roots: Roots, path: string, target: string, onMissing:
   try {
     real = await realpath(target);
   } catch (error) {
-    let ancestor = target;
-    const rest: string[] = [];
-    for (;;) {
-      const parent = dirname(ancestor);
-      if (parent === ancestor) throw onMissing(error);
-      rest.unshift(basename(ancestor));
-      ancestor = parent;
-      let resolved: string;
-      try {
-        resolved = await realpath(ancestor);
-      } catch {
-        continue;
-      }
-      if (!inside(roots, join(resolved, ...rest))) throw notAllowed(roots, path, '');
-      throw onMissing(error);
-    }
+    if (await leadsOutside(roots, target, 0)) throw notAllowed(roots, path, '');
+    throw onMissing(error);
   }
   if (!inside(roots, real)) throw notAllowed(roots, path, '');
   return real;
+}
+
+/**
+ * Whether a path that does not resolve would lead outside the roots: its nearest existing
+ * ancestor is found with `lstat`; a symbolic link there (also one whose target is missing) is
+ * followed by its text, anything else by its real path, and the rest of the path is added.
+ */
+async function leadsOutside(roots: Roots, path: string, depth: number): Promise<boolean> {
+  // A chain of links longer than the system follows is refused like a path outside.
+  if (depth > 40) return true;
+  let ancestor = path;
+  const rest: string[] = [];
+  for (;;) {
+    let info;
+    try {
+      info = await lstat(ancestor);
+    } catch {
+      const parent = dirname(ancestor);
+      if (parent === ancestor) return false;
+      rest.unshift(basename(ancestor));
+      ancestor = parent;
+      continue;
+    }
+    if (info.isSymbolicLink()) {
+      let text: string;
+      try {
+        text = await readlink(ancestor);
+      } catch {
+        return true;
+      }
+      return leadsOutside(roots, join(resolve(dirname(ancestor), text), ...rest), depth + 1);
+    }
+    let real: string;
+    try {
+      real = await realpath(ancestor);
+    } catch {
+      return true;
+    }
+    return !inside(roots, join(real, ...rest));
+  }
 }
 
 function notAllowed(roots: Roots, path: string, why: string): XlvError {
@@ -261,9 +287,15 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
   try {
     // Readable by the owner only until it has the permissions of the file it replaces; setuid,
     // setgid and sticky bits are not carried over (D-J01).
-    await writeFile(temp, bytes, { flag: 'wx', mode: 0o600 });
+    const handle = await open(temp, 'wx', 0o600);
     created = true;
-    await chmod(temp, existing.mode & 0o777);
+    try {
+      await handle.writeFile(bytes);
+      // Through the open handle, so a file swapped in for the temporary one is not changed (D-J01).
+      await handle.chmod(existing.mode & 0o777);
+    } finally {
+      await handle.close();
+    }
     await rename(temp, file);
   } catch (error) {
     if (created) await rm(temp, { force: true });

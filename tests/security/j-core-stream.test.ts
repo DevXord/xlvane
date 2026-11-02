@@ -155,8 +155,8 @@ describe('header text repeated in every row object (M4)', () => {
     expectXlvError(() => readTable(longHeader(200)), 'XLV_E_LIMIT_EXCEEDED', { limit: 'maxSharedStringChars' });
   }, 60_000);
 
-  it('refuses the same rows in readTableStream', async () => {
-    await expectXlvErrorAsync(() => drain(readTableStream(longHeader(100), { limits: lowered })), 'XLV_E_LIMIT_EXCEEDED', { limit: 'maxSharedStringChars', value: 100_000_000 });
+  it('streams the same rows one at a time: only the names of one row count there', async () => {
+    expect(await drain(readTableStream(longHeader(100), { limits: lowered }))).toHaveLength(100);
     expect(await drain(readTableStream(longHeader(100)))).toHaveLength(100);
   }, 60_000);
 
@@ -165,5 +165,19 @@ describe('header text repeated in every row object (M4)', () => {
     expect(readTable(bytes, { limits: { maxSharedStringChars: 9 } }).rows).toEqual([{ Name: 'x', Total: 3 }]);
     expectXlvError(() => readTable(bytes, { limits: { maxSharedStringChars: 8 } }), 'XLV_E_LIMIT_EXCEEDED', { limit: 'maxSharedStringChars' });
     expect((await drain(readTableStream(bytes, { limits: { maxSharedStringChars: 9 } }))).map((i) => i.value)).toEqual([{ Name: 'x', Total: 3 }]);
+  });
+});
+
+describe('readTableStream and repeated header names (independent review of the patch, D-J01)', () => {
+  it('checks the header names per row, not over every row streamed', async () => {
+    const { readTableStream } = await import('../../packages/xlvane/src/stream-read');
+    const { createWorkbook: create, writeWorkbook: write } = await import('../../packages/xlvane/src/write');
+    const wb = create();
+    const s = wb.addSheet('S');
+    for (let c = 1; c <= 10; c++) s.set(`${String.fromCharCode(64 + c)}1`, `${'h'.repeat(100)}${String(c)}`);
+    for (let r = 2; r <= 201; r++) s.set(`A${String(r)}`, r);
+    let n = 0;
+    for await (const _row of readTableStream(new Blob([write(wb) as BlobPart]), { limits: { maxSharedStringChars: 10_000 } })) n++;
+    expect(n).toBe(200);
   });
 });

@@ -500,7 +500,6 @@ export async function* readTableStream(
   const outputCells = (limits as Partial<ReadLimits> | undefined)?.maxCells ?? DEFAULT_READ_LIMITS.maxCells;
   // The column names that the row objects repeat, as for readTable (D-H01).
   const keyTextLimit = (limits as Partial<ReadLimits> | undefined)?.maxSharedStringChars ?? DEFAULT_READ_LIMITS.maxSharedStringChars;
-  let rowObjects = 0;
   const sheetName = (o.get('sheet') as string | undefined) ?? (book.sheets.find((s) => s.kind === 'worksheet' && s.state === 'visible') ?? book.sheets[0])?.name;
   if (sheetName === undefined) return;
 
@@ -573,7 +572,8 @@ export async function* readTableStream(
     checkOutputPositions(positions, cellsRead, outputCells, 'The table', sheetName);
     const byCol = new Map(r.cells.map((c) => [c.col, c]));
     if (cols.every((c) => byCol.get(c.col)?.value == null)) return null;
-    checkKeyText(cols, ++rowObjects, keyTextLimit, sheetName);
+    // Rows are yielded one at a time, so only the names of one row count (D-J01).
+    checkKeyText(cols, 1, keyTextLimit, sheetName);
     const row: Record<string, TableValue> = {};
     for (const c of cols) setOwn(row, c.key, value(byCol.get(c.col)));
     if (schema === undefined) return { row: r.number, value: row, issues: [] };

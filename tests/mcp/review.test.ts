@@ -284,3 +284,33 @@ describe('1.2.3: stderr of xlvane-mcp, --max-cells and JSON output (D-J01)', () 
     expect(JSON.parse(text)).toEqual([{ x: 'text' }, { x: 'text' }, { x: 'text' }]);
   });
 });
+
+describe('1.2.3: dangling links and --max-cells for every tool (independent review of the patch, D-J01)', () => {
+  it('a link inside a root to a missing outside file or directory gives the same answer as to an existing one', async () => {
+    const outside = join(base, 'outside');
+    await mkdir(outside);
+    const { symlink } = await import('node:fs/promises');
+    await symlink(join(outside, 'secret.xlsx'), join(root, 'l.xlsx'));
+    await symlink(join(outside, 'dir'), join(root, 'd'));
+    c = await connect({ roots: [root], allowWrite: true });
+    const codes: string[] = [];
+    codes.push(((await c.call('inspect_workbook', { path: 'l.xlsx' })).result['error'] as { code: string }).code);
+    codes.push(((await c.call('write_table', { path: 'd/x.xlsx', rows: [{ a: 1 }] })).result['error'] as { code: string }).code);
+    codes.push(((await c.call('write_table', { path: 'l.xlsx', rows: [{ a: 1 }] })).result['error'] as { code: string }).code);
+    await writeFile(join(outside, 'secret.xlsx'), texts(1));
+    await mkdir(join(outside, 'dir'));
+    codes.push(((await c.call('inspect_workbook', { path: 'l.xlsx' })).result['error'] as { code: string }).code);
+    codes.push(((await c.call('write_table', { path: 'd/x.xlsx', rows: [{ a: 1 }] })).result['error'] as { code: string }).code);
+    expect(codes).toEqual(Array(5).fill('XLV_E_PATH_NOT_ALLOWED'));
+  });
+
+  it('--max-cells also limits edit_cells and convert from CSV', async () => {
+    await writeFile(join(root, 'v.xlsx'), texts(30));
+    await writeFile(join(root, 'v.csv'), `a,b\n${'1,2\n'.repeat(30)}`);
+    c = await connect({ roots: [root], allowWrite: true, maxCells: 10 });
+    const e = await c.call('edit_cells', { path: 'v.xlsx', output: 'w.xlsx', edits: [{ sheet: 'S', cell: 'A1', value: 'x' }] });
+    expect((e.result['error'] as { code: string } | undefined)?.code).toBe('XLV_E_LIMIT_EXCEEDED');
+    const v = await c.call('convert', { input: 'v.csv', output: 'v2.xlsx' });
+    expect((v.result['error'] as { code: string } | undefined)?.code).toBe('XLV_E_LIMIT_EXCEEDED');
+  });
+});

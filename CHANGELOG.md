@@ -8,14 +8,14 @@ A security release: three ways around the CSV formula-injection escape, an infor
 
 - **CSV:** while formulas are escaped (the default), `toCSV` refuses a delimiter that starts a formula (`=`, `+`, `-`, `@` and their full-width and small forms): a line with an empty first field started with it (affects 1.0.0 to 1.2.2). `xlvane convert --delimiter` likewise.
 - **Linear time:** notes with many VML parts, pictures with many relationships, header detection (`readTable`, `inspect`), schema issues of `readTable`/`readTableStream`, `editCells` adding many rows, `diff` with styles, and writing many sheets, merges, tables and defined names.
-- **Budgets:** `fromCSV`, `fromJSON` and `writeTable` write at most `max(maxCells, 16 × cells written)` positions (very sparse tables beyond 5 000 000 positions are refused); `readTable`, `toJSON` and `readTableStream` count header names repeated in every row against `maxSharedStringChars`.
+- **Budgets:** `fromCSV`, `fromJSON` and `writeTable` write at most `max(maxCells, 16 × cells written)` positions (very sparse tables beyond 5 000 000 positions are refused; the new `maxCells` option of `writeTable` and `fromJSON` raises the bound); `readTable` and `toJSON` count header names repeated in every row against `maxSharedStringChars`.
 - **Streaming:** one `<row>` element holds at most 16 384 cells (before: millions, until the process ran out of memory); unreferenced `.rels` entries are no longer decompressed; part names with percent-encoded characters are found, as in `readWorkbook`.
 - Messages that quote text from a file (declared encoding, `date1904`, sheet state) cut it to 200 characters.
 - **Command line:** `--force` uses a random temporary file name, removes only a file it created, and does not carry setuid/setgid bits to the new file; `migrate` refuses a `package.json` that is a symbolic link; "Try:" commands put options before `--`; `convert` to JSON reports a text too long for a string as `XLV_E_LIMIT_EXCEEDED`.
 
 ### @xlvane/compat
 
-- **CSV:** with `encoding: "latin1"`, characters above U+00FF are written as `?` before fields are checked (U+013D became `=` and U+010A a new row); while formulas are escaped, a `delimiter` starting with a formula sign, an `escape` other than the quote, and (without the default quote) a field starting with `"` are refused (affects 1.0.0 to 1.2.2). `formulaInjection: "off"` keeps exceljs's behaviour.
+- **CSV:** with `encoding: "latin1"`, characters above U+00FF are written as `?` before fields are checked (U+013D became `=` and U+010A a new row); while formulas are escaped, a `delimiter` holding a formula sign or control character (a lone tab is allowed), a `rowDelimiter` other than a line break, a `quote` other than `"` or `false`, an `escape` other than the quote, and with `quote: false` a field starting with `"` are refused (affects 1.0.0 to 1.2.2). `formulaInjection: "off"` keeps exceljs's behaviour.
 - **Load:** cells of defined names count against the load budget (a name over the whole sheet ran out of memory); data validations expand at most 100 000 cells per workbook; 16 000 sheets load in about a second (14 s before); bad sheet names and overlapping merges throw `XlvError` codes instead of plain `Error`s on load.
 - **Streams:** `xlsx.read`, `csv.read` and `stream.xlsx.WorkbookReader` stop collecting input after 256 MiB.
 - **Write:** shared and array formulas and many images of the same size are handled in near-linear time.
@@ -23,8 +23,8 @@ A security release: three ways around the CSV formula-injection escape, an infor
 
 ### @xlvane/mcp
 
-- **Paths:** a path through a symbolic link inside a root to an outside directory gave different errors for existing and missing files, revealing what exists outside the roots (affects 1.2.0 to 1.2.2). It is now always `XLV_E_PATH_NOT_ALLOWED`.
-- New option `--max-cells` (default 5 000 000) for every workbook read; `convert` to JSON stops at `--max-file-size` while building the text; a replaced file does not keep setuid/setgid bits; messages on stderr show control characters as `\uXXXX`.
+- **Paths:** a path through a symbolic link inside a root to an outside directory (or a dangling link to an outside file) gave different errors for existing and missing files, revealing what exists outside the roots (affects 1.2.0 to 1.2.2). It is now always `XLV_E_PATH_NOT_ALLOWED`.
+- New option `--max-cells` (default 5 000 000) for every workbook read, edited or created from CSV or JSON; `convert` to JSON stops at `--max-file-size` while building the text; a replaced file does not keep setuid/setgid bits; messages on stderr show control characters as `\uXXXX`.
 
 ### All packages
 

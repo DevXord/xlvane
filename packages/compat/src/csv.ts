@@ -611,9 +611,19 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
     }
   }
   if (injection === 'escape') {
-    // Ways around the escape that a standard (RFC 4180) reader would split differently (D-J01).
-    if (FORMULA_SIGNS.has(f.delimiter[0] ?? '')) {
-      throw invalid('delimiter', `The delimiter "${f.delimiter}" starts with a formula sign, so lines with an empty first field would run as formulas.`, 'Use "," (default), ";", "|" or "\\t", or pass formulaInjection: "off" for a trusted consumer.');
+    // Ways around the escape that a standard (RFC 4180) reader would split differently (D-J01):
+    // formula signs or controls in the delimiter (a line with an empty first field starts with
+    // it), a row delimiter other than a line break, and a quote other than '"', which such a
+    // reader does not take as quoting, so line breaks and delimiters in a value split it.
+    const off = 'or pass formulaInjection: "off" for a trusted consumer.';
+    if (f.delimiter !== '\t' && [...f.delimiter].some((c) => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20)) {
+      throw invalid('delimiter', `The delimiter ${JSON.stringify(f.delimiter)} holds a formula sign or a control character, so a line could start with a formula.`, `Use "," (default), ";", "|" or "\\t", ${off}`);
+    }
+    if (!['\n', '\r\n', '\r'].includes(f.rowDelimiter)) {
+      throw invalid('rowDelimiter', `The row delimiter ${JSON.stringify(f.rowDelimiter)} is not a line break, so a standard CSV reader would not split rows where it is written.`, `Use "\\n" (default), "\\r\\n" or "\\r", ${off}`);
+    }
+    if (f.quote !== '' && f.quote !== '"') {
+      throw invalid('quote', `The quote ${JSON.stringify(f.quote)} is not '"', so a standard CSV reader would split a value that holds a line break or the delimiter.`, `Leave formatterOptions.quote at its default ("), or use quote: false, ${off}`);
     }
     if (f.quote !== '' && f.escapedQuote !== `${f.quote}${f.quote}`) {
       throw invalid('escape', 'An escape character other than the quote lets a standard CSV reader end a quoted field early, so a value could start a new field with a formula.', 'Leave formatterOptions.escape unset (the quote is doubled), or pass formulaInjection: "off" for a trusted consumer.');

@@ -610,9 +610,15 @@ export interface WriteTableOptions {
   readonly preset?: 'report' | 'plain';
   /** Date system of the new workbook. Default `"1900"`. */
   readonly dateSystem?: DateSystem;
+  /**
+   * Bounds the sheet: at most `max(maxCells, 16 × cells written)` positions (rows × columns), so
+   * a few values spread over many rows and columns are refused with `XLV_E_LIMIT_EXCEEDED`.
+   * Default 5 000 000, the `maxCells` read limit; raise it for a large sparse table.
+   */
+  readonly maxCells?: number;
 }
 
-const WRITE_OPTIONS = ['columns', 'sheet', 'preset', 'dateSystem'];
+const WRITE_OPTIONS = ['columns', 'sheet', 'preset', 'dateSystem', 'maxCells'];
 /** Header style of the `report` preset (D-304). */
 const REPORT_HEADER: CellStyle = { font: { bold: true }, fill: { color: 'D9E1F2' }, border: { bottom: { style: 'thin' } } };
 const MIN_WIDTH = 8;
@@ -776,7 +782,7 @@ export function addTableSheet(workbook: NewWorkbook, rows: unknown, options: Map
     typeof maxCells === 'number' ? maxCells : DEFAULT_READ_LIMITS.maxCells,
     'The table',
     sheet.name,
-    'The rows are spread over far more columns than they fill, for example after one row with many keys or a long first CSV line. Pass the columns to write with the "columns" option, or split the data over several tables.',
+    'The rows are spread over far more columns than they fill, for example after one row with many keys or a long first CSV line. Write fewer columns (the "columns" option), split the data over several tables, or raise the "maxCells" option for a trusted sparse table.',
   );
   columns.forEach((column, c) => {
     if (column.width !== undefined) sheet.column(c + 1, { width: column.width });
@@ -810,6 +816,10 @@ export function addTableSheet(workbook: NewWorkbook, rows: unknown, options: Map
  */
 export function writeTable(rows: readonly object[] | readonly (readonly unknown[])[], options?: WriteTableOptions): Uint8Array {
   const o = readOptions(options, WRITE_OPTIONS, 'writeTable options');
+  const maxCells = o.get('maxCells');
+  if (maxCells !== undefined && (typeof maxCells !== 'number' || !(maxCells > 0))) {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "maxCells" must be a positive number.', { hint: 'For example { maxCells: 20_000_000 }, or Infinity.', details: { option: 'maxCells' } });
+  }
   const dateSystem = o.get('dateSystem');
   const workbook = createWorkbook(dateSystem === undefined ? undefined : { dateSystem: dateSystem as DateSystem });
   addTableSheet(workbook, rows, o);

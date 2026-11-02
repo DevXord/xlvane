@@ -177,11 +177,7 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
  * ```
  */
 export interface FromCSVOptions {
-  /**
-   * Field separator: one character other than `"`, CR or LF. Default `","`. While formulas are
-   * escaped (`formulaInjection: "escape"`), `=`, `+`, `-`, `@` and their full-width and small forms
-   * are refused, because a line whose first field is empty would start with them.
-   */
+  /** Field separator: one character other than `"`, CR or LF. Default `","`. */
   readonly delimiter?: string;
   /** The first line holds column names. Default `true`. */
   readonly header?: boolean;
