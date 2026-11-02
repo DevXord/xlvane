@@ -27,7 +27,11 @@ export interface ToCSVOptions {
   readonly sheet?: string;
   /** Only this range, for example `"A1:D100"`. Default: from A1 to the last used row and column. */
   readonly range?: string;
-  /** Field separator: one character other than `"`, CR or LF. Default `","`. */
+  /**
+   * Field separator: one character other than `"`, CR or LF. Default `","`. While formulas are
+   * escaped (`formulaInjection: "escape"`), `=`, `+`, `-`, `@` and their full-width and small forms
+   * are refused, because a line whose first field is empty would start with them.
+   */
   readonly delimiter?: string;
   /** Line ending. Default `"\r\n"` (RFC 4180). */
   readonly newline?: '\r\n' | '\n';
@@ -52,6 +56,9 @@ export interface ToCSVOptions {
  * C0 control character is escaped too (see `injectionStart`).
  */
 const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
+
+/** Signs that start a formula: refused as the delimiter while formulas are escaped (D-J01). */
+const FORMULA_SIGNS = new Set(['=', '+', '-', '@', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
 
 /** Whether text starting with `c` is escaped: one of INJECTION_START or a C0 control (NUL included). */
 const injectionStart = (c: string): boolean => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20;
@@ -84,6 +91,14 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
   const newline = oneOfOption('newline', o.get('newline'), ['\r\n', '\n'], '\r\n');
   const bom = booleanOption('bom', o.get('bom'), false);
   const injection = oneOfOption('formulaInjection', o.get('formulaInjection'), ['escape', 'off'], 'escape');
+  // A line whose first field is empty starts with the delimiter, so a delimiter that starts a
+  // formula would get around the escape (D-J01).
+  if (injection === 'escape' && FORMULA_SIGNS.has(delimiter)) {
+    throw new XlvError('XLV_E_INVALID_OPTION', `The delimiter "${delimiter}" starts a formula, so lines with an empty first field would run as formulas.`, {
+      hint: 'Use "," (default), ";", "|" or "\\t", or pass formulaInjection: "off" for a trusted consumer.',
+      details: { option: 'delimiter' },
+    });
+  }
   const limits = resolveLimits(o.get('limits'));
   const workbook = openInput(input, o.get('limits'), o.get('onWarning'));
   const sheet = pickSheet(workbook, o.get('sheet'));
@@ -162,7 +177,11 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
  * ```
  */
 export interface FromCSVOptions {
-  /** Field separator: one character other than `"`, CR or LF. Default `","`. */
+  /**
+   * Field separator: one character other than `"`, CR or LF. Default `","`. While formulas are
+   * escaped (`formulaInjection: "escape"`), `=`, `+`, `-`, `@` and their full-width and small forms
+   * are refused, because a line whose first field is empty would start with them.
+   */
   readonly delimiter?: string;
   /** The first line holds column names. Default `true`. */
   readonly header?: boolean;
