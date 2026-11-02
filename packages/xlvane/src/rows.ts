@@ -437,6 +437,17 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
 
   // Elements of the changed sheet that hold ranges.
   const removedIds = new Set<string>();
+  // The x14:id values of the rules of each classic conditional format, collected in one pass.
+  const linkIds = new Map<Element, string[]>();
+  let format: Element | null = null;
+  for (const e of elements) {
+    if (e.depth === 2) format = e.local === 'conditionalFormatting' ? e : null;
+    else if (format !== null && e.depth === 6 && e.ns === X14_NS && e.local === 'id') {
+      const list = linkIds.get(format) ?? [];
+      list.push(content(text, e).trim().toLowerCase());
+      linkIds.set(format, list);
+    }
+  }
   const containers = new Map<Element, { kept: number; total: number }>();
   let parent2: Element | null = null;
   for (const e of elements) {
@@ -457,7 +468,7 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
         if (out === '') {
           removeElement(e);
           // The extension parts of its rules go too (the x14:id link, SR-41).
-          for (const id of elements) if (id.ns === X14_NS && id.local === 'id' && within(e, id)) removedIds.add(content(text, id).trim().toLowerCase());
+          for (const id of linkIds.get(e) ?? []) removedIds.add(id);
         } else if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
       }
       continue;
@@ -541,58 +552,71 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
  * `extLst` elements are removed, and `x14:dataValidations@count` is updated.
  */
 function rewriteExtensionRanges(text: string, elements: readonly Element[], c: RowChange, sheet: Sheet, removedIds: ReadonlySet<string>, edits: [number, number, string][], where: () => { part: string; sheet: string }): void {
-  const exts = elements.filter((e) => e.depth === 3 && e.local === 'ext' && isKnownExtension(e));
-  if (exts.length === 0) return;
+  // The extension elements as a tree, built in one pass in document order (elements nest by span).
+  interface Node {
+    readonly e: Element;
+    readonly children: Node[];
+  }
+  const roots: Node[] = [];
+  const stack: Node[] = [];
+  for (const e of elements) {
+    const relevant = (e.depth === 2 && e.local === 'extLst') || (e.depth === 3 && e.local === 'ext') || (e.ns === X14_NS && e.depth >= 4 && e.depth <= 6) || (e.ns === XM_NS && e.depth === 6 && e.local === 'sqref');
+    if (!relevant) continue;
+    while (stack.length > 0 && !within(stack[stack.length - 1]!.e, e)) stack.pop();
+    const node: Node = { e, children: [] };
+    (stack.length > 0 ? stack[stack.length - 1]!.children : roots).push(node);
+    stack.push(node);
+  }
   const tagOf = (e: Element): string => text.slice(e.start.start, e.start.end);
   const remove = (e: Element): void => {
     edits.push([e.start.start, e.end.end, '']);
   };
-  const extLsts = new Map<Element, { kept: number; total: number }>();
-  for (const list of elements) {
-    if (list.depth !== 2 || list.local !== 'extLst') continue;
-    const total = elements.filter((e) => e.depth === 3 && e.local === 'ext' && within(list, e)).length;
-    extLsts.set(list, { kept: total, total });
-  }
-  for (const ext of exts) {
-    let extKept = 0;
-    let extTotal = 0;
-    for (const container of elements) {
-      if (container.depth !== 4 || container.ns !== X14_NS || !within(ext, container)) continue;
-      let kept = 0;
-      let total = 0;
-      for (const item of elements) {
-        if (item.depth !== 5 || item.ns !== X14_NS || !within(container, item)) continue;
-        total++;
-        const sqref = elements.find((e) => e.depth === 6 && e.ns === XM_NS && e.local === 'sqref' && within(item, e));
-        let gone = false;
-        if (sqref) {
-          const raw = decodeEntities(content(text, sqref));
-          const normal = raw.trim().split(/\s+/).join(' ');
-          const out = adjustRange(normal, refChange(c, sheet.name));
-          if (out === null) throw notSupported(`An extension ${item.local === 'dataValidation' ? 'data validation' : 'conditional format'} of sheet "${sheet.name}" has a range xlvane cannot adjust: "${normal.slice(0, 60)}".`, where());
-          if (out === '') gone = true;
-          else if (out !== normal) edits.push([sqref.start.end, sqref.end.start, escapeText(out)]);
-        }
-        if (!gone && removedIds.size > 0) {
-          const rules = elements.filter((e) => e.depth === 6 && e.ns === X14_NS && e.local === 'cfRule' && within(item, e));
-          const linked = rules.filter((r) => removedIds.has((r.attrs.get('id') ?? '').trim().toLowerCase()));
-          if (linked.length > 0 && linked.length === rules.length) gone = true;
-          else for (const r of linked) remove(r);
-        }
-        if (gone) remove(item);
-        else kept++;
+  for (const list of roots) {
+    if (list.e.local !== 'extLst') continue;
+    let extsKept = 0;
+    for (const ext of list.children) {
+      if (ext.e.local !== 'ext' || !isKnownExtension(ext.e)) {
+        extsKept++;
+        continue;
       }
-      extTotal++;
-      if (kept === 0 && total > 0) continue;
-      extKept++;
-      if (kept < total && container.attrs.has('count')) edits.push([container.start.start, container.start.end, setAttr(tagOf(container), 'count', String(kept))]);
+      let containersKept = 0;
+      let containersTotal = 0;
+      for (const container of ext.children) {
+        if (container.e.depth !== 4 || container.e.ns !== X14_NS) continue;
+        containersTotal++;
+        let kept = 0;
+        let total = 0;
+        for (const item of container.children) {
+          if (item.e.depth !== 5 || item.e.ns !== X14_NS) continue;
+          total++;
+          let gone = false;
+          const sqref = item.children.find((n) => n.e.ns === XM_NS && n.e.local === 'sqref')?.e;
+          if (sqref) {
+            const raw = decodeEntities(content(text, sqref));
+            const normal = raw.trim().split(/\s+/).join(' ');
+            const out = adjustRange(normal, refChange(c, sheet.name));
+            if (out === null) throw notSupported(`An extension ${item.e.local === 'dataValidation' ? 'data validation' : 'conditional format'} of sheet "${sheet.name}" has a range xlvane cannot adjust: "${normal.slice(0, 60)}".`, where());
+            if (out === '') gone = true;
+            else if (out !== normal) edits.push([sqref.start.end, sqref.end.start, escapeText(out)]);
+          }
+          if (!gone && removedIds.size > 0) {
+            const rules = item.children.filter((n) => n.e.ns === X14_NS && n.e.local === 'cfRule').map((n) => n.e);
+            const linked = rules.filter((r) => removedIds.has((r.attrs.get('id') ?? '').trim().toLowerCase()));
+            if (linked.length > 0 && linked.length === rules.length) gone = true;
+            else for (const r of linked) remove(r);
+          }
+          if (gone) remove(item.e);
+          else kept++;
+        }
+        if (kept === 0 && total > 0) continue;
+        containersKept++;
+        if (kept < total && container.e.attrs.has('count')) edits.push([container.e.start.start, container.e.start.end, setAttr(tagOf(container.e), 'count', String(kept))]);
+      }
+      if (containersTotal > 0 && containersKept === 0) remove(ext.e);
+      else extsKept++;
     }
-    if (extTotal > 0 && extKept === 0) {
-      remove(ext);
-      for (const [list, n] of extLsts) if (within(list, ext)) n.kept--;
-    }
+    if (list.children.length > 0 && extsKept === 0) remove(list.e);
   }
-  for (const [list, n] of extLsts) if (n.total > 0 && n.kept === 0) remove(list);
 }
 
 /**
