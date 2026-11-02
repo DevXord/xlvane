@@ -175,7 +175,7 @@ describe('xlvane mcp', () => {
 
   it('help names the server options', async () => {
     const r = await cli(['mcp', '--help'], { cwd: base });
-    for (const option of ['--root', '--allow-write', '--max-file-size', '--max-rows', '--max-response-chars']) expect(r.stdout).toContain(option);
+    for (const option of ['--root', '--allow-write', '--max-file-size', '--max-rows', '--max-response-chars', '--max-cells']) expect(r.stdout).toContain(option);
   });
 
   it('a missing dependency of @xlvane/mcp is not reported as @xlvane/mcp missing', async () => {
@@ -185,5 +185,102 @@ describe('xlvane mcp', () => {
     const r = await cli(['mcp', '--root', '.'], { cwd: base, importModule });
     expect(r.stderr).not.toContain('XLV_E_NOT_INSTALLED');
     expect(r.stderr).toContain('@modelcontextprotocol/server');
+  });
+});
+
+describe('1.2.3: a symbolic link inside a root reveals nothing about what lies outside (D-J01)', () => {
+  it('reading and writing through a link to an outside directory give one answer', async () => {
+    const outside = join(base, 'outside');
+    await mkdir(outside);
+    await writeFile(join(outside, 'secret.xlsx'), texts(1));
+    await writeFile(join(outside, 'secret.txt'), 'x');
+    await mkdir(join(outside, 'sub'));
+    const { symlink } = await import('node:fs/promises');
+    await symlink(outside, join(root, 'link-dir'));
+    c = await connect({ roots: [root], allowWrite: true });
+    const answers: string[] = [];
+    for (const path of ['link-dir/secret.xlsx', 'link-dir/missing.xlsx', 'link-dir/secret.txt/x.xlsx', 'link-dir/nodir/x.xlsx']) {
+      const r = await c.call('inspect_workbook', { path });
+      const e = r.result['error'] as { code: string; message: string };
+      answers.push(`${e.code} ${e.message.replace(path, 'P')}`);
+    }
+    for (const path of ['link-dir/new.xlsx', 'link-dir/nodir/new.xlsx', 'link-dir/secret.txt/new.xlsx', 'link-dir/sub/new.xlsx']) {
+      const r = await c.call('write_table', { path, rows: [{ a: 1 }] });
+      const e = r.result['error'] as { code: string; message: string };
+      answers.push(`${e.code} ${e.message.replace(path, 'P')}`);
+    }
+    expect(new Set(answers.map((a) => a.split(' ')[0]))).toEqual(new Set(['XLV_E_PATH_NOT_ALLOWED']));
+    expect(answers.some((a) => /ENOENT|ENOTDIR|does not exist/.test(a))).toBe(false);
+  });
+
+  it('a missing file inside a root is still reported as missing', async () => {
+    c = await connect({ roots: [root], allowWrite: true });
+    const r = await c.call('inspect_workbook', { path: 'missing.xlsx' });
+    expect((r.result['error'] as { code: string }).code).toBe('XLV_E_FILE_READ');
+    const w = await c.call('write_table', { path: 'nodir/new.xlsx', rows: [{ a: 1 }] });
+    expect((w.result['error'] as { code: string }).code).toBe('XLV_E_FILE_WRITE');
+  });
+});
+
+describe('1.2.3: stderr of xlvane-mcp, --max-cells and JSON output (D-J01)', () => {
+  const run = async (args: string[]): Promise<{ code: number; err: string; out: string }> => {
+    const { runWith } = await import('../../packages/mcp/src/server');
+    let err = '';
+    let out = '';
+    const code = await runWith(args, { stdout: (t) => (out += t), stderr: (t) => (err += t), cwd: base, serve: async () => {} });
+    return { code, err, out };
+  };
+
+  it('writes no escape sequence from arguments or directory names to stderr', async () => {
+    const esc = '\u001b]0;pwned\u0007';
+    for (const args of [[`--bogus${esc}`], ['--root', `nodir${esc}`], ['--root', root, '--max-rows', `x${esc}`]]) {
+      const r = await run(args);
+      expect(r.code).not.toBe(0);
+      expect(r.err).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+      expect(r.err).toContain('\\u001b');
+    }
+    const odd = join(base, `dir${esc}`);
+    await mkdir(odd);
+    const r = await run(['--root', odd]);
+    expect(r.code).toBe(0);
+    expect(r.err).not.toMatch(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/);
+  });
+
+  it('--max-cells limits the cells of every workbook read', async () => {
+    expect((await run(['--help'])).out).toContain('--max-cells');
+    await writeFile(join(root, 'v.xlsx'), texts(30));
+    c = await connect({ roots: [root], maxCells: 10 });
+    const r = await c.call('read_table', { path: 'v.xlsx' });
+    expect((r.result['error'] as { code: string }).code).toBe('XLV_E_LIMIT_EXCEEDED');
+    await c.close();
+    c = await connect({ roots: [root] });
+    expect((await c.call('read_table', { path: 'v.xlsx' })).isError).toBe(false);
+  });
+
+  it('convert to JSON of a header repeated in many rows ends as a limit error, not an internal one', async () => {
+    // 4 000 000 header characters in 140 rows: 560 million characters of JSON, more than a
+    // JavaScript string can hold (before: "Invalid string length" as XLV_E_INTERNAL).
+    let seed = 7;
+    let header = '';
+    for (let i = 0; i < 4_000_000; i++) header += ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648) < 0.01 ? 'x' : 'h';
+    let data = `<row r="1"><c r="A1" t="inlineStr"><is><t>${header}</t></is></c></row>`;
+    for (let r = 2; r <= 141; r++) data += `<row r="${String(r)}"><c r="A${String(r)}"><v>${String(r)}</v></c></row>`;
+    const { buildXlsx } = await import('../helpers/xlsx-builder');
+    await writeFile(join(root, 'wide.xlsx'), buildXlsx({ sheets: [{ name: 'S', data }] }));
+    c = await connect({ roots: [root], allowWrite: true });
+    const start = performance.now();
+    const r = await c.call('convert', { input: 'wide.xlsx', output: 'wide.json' });
+    expect((r.result['error'] as { code: string }).code).toBe('XLV_E_LIMIT_EXCEEDED');
+    expect(performance.now() - start).toBeLessThan(10_000);
+  }, 60_000);
+
+  it('the JSON written row by row is the text JSON.stringify gives', async () => {
+    await writeFile(join(root, 'v.xlsx'), texts(3));
+    c = await connect({ roots: [root], allowWrite: true });
+    expect((await c.call('convert', { input: 'v.xlsx', output: 'v.json' })).isError).toBe(false);
+    const { readFile } = await import('node:fs/promises');
+    const text = await readFile(join(root, 'v.json'), 'utf8');
+    expect(text).toBe(`${JSON.stringify(JSON.parse(text), null, 2)}\n`);
+    expect(JSON.parse(text)).toEqual([{ x: 'text' }, { x: 'text' }, { x: 'text' }]);
   });
 });

@@ -2,7 +2,7 @@
 import { parseArgs } from 'node:util';
 import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
-import { isXlvError } from 'xlvane';
+import { DEFAULT_READ_LIMITS, isXlvError } from 'xlvane';
 import { resolveRoots, type Roots } from './paths';
 import { registerTools, type ToolLimits } from './tools';
 
@@ -42,6 +42,8 @@ export interface ServerOptions {
    * (`truncated`, `nextOffset`); other tools return `XLV_E_LIMIT_EXCEEDED`. Default 1 Mi.
    */
   readonly maxResponseChars?: number;
+  /** Largest number of cells in a workbook the tools read (the `maxCells` read limit). Default 5 000 000. */
+  readonly maxCells?: number;
   /** Directory that relative roots are resolved against. Default: the current directory. */
   readonly cwd?: string;
 }
@@ -66,7 +68,11 @@ function build(roots: Roots, allowWrite: boolean, limits: ToolLimits): McpServer
 }
 
 async function prepare(options: ServerOptions): Promise<{ roots: Roots; allowWrite: boolean; limits: ToolLimits }> {
-  const limits = { maxRows: options.maxRows ?? DEFAULT_MAX_ROWS, maxResponseChars: options.maxResponseChars ?? DEFAULT_MAX_RESPONSE_CHARS };
+  const limits = {
+    maxRows: options.maxRows ?? DEFAULT_MAX_ROWS,
+    maxResponseChars: options.maxResponseChars ?? DEFAULT_MAX_RESPONSE_CHARS,
+    maxCells: options.maxCells ?? DEFAULT_READ_LIMITS.maxCells,
+  };
   const roots = await resolveRoots(options.roots, options.cwd ?? '.', options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES);
   return { roots, allowWrite: options.allowWrite === true, limits };
 }
@@ -111,6 +117,7 @@ Options:
   --max-rows <n>          Largest number of rows per read_table call (default ${String(DEFAULT_MAX_ROWS)})
   --max-response-chars <n>
                           Largest tool result in characters of JSON (default ${String(DEFAULT_MAX_RESPONSE_CHARS)})
+  --max-cells <n>         Largest number of cells in a workbook read (default ${String(DEFAULT_READ_LIMITS.maxCells)})
   -h, --help              Show this help
 
 The server speaks MCP over stdin and stdout; messages for people go to stderr.
@@ -123,13 +130,23 @@ function positive(value: string | undefined, name: string): number | undefined {
   return Number(value);
 }
 
+/**
+ * Text for stderr with control characters (other than line feeds), C1 controls and bidirectional
+ * formatting characters written as `\uXXXX`: arguments and directory names come from the client
+ * configuration and must not reach the terminal as escape sequences (D-J01).
+ */
+function printable(text: string): string {
+  return text.replace(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u061c\u200e\u200f\u2028\u2029\u202a-\u202e\u2066-\u2069]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+}
+
 /** runCli with its environment passed in (tests). */
-export async function runWith(args: readonly string[], io: CliIO): Promise<number> {
+export async function runWith(args: readonly string[], rawIO: CliIO): Promise<number> {
+  const io: CliIO = { ...rawIO, stderr: (text) => rawIO.stderr(printable(text)) };
   let values: Record<string, unknown>;
   try {
     values = parseArgs({
       args: [...args],
-      options: { root: { type: 'string', multiple: true }, 'allow-write': { type: 'boolean' }, 'max-file-size': { type: 'string' }, 'max-rows': { type: 'string' }, 'max-response-chars': { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: { root: { type: 'string', multiple: true }, 'allow-write': { type: 'boolean' }, 'max-file-size': { type: 'string' }, 'max-rows': { type: 'string' }, 'max-response-chars': { type: 'string' }, 'max-cells': { type: 'string' }, help: { type: 'boolean', short: 'h' } },
       strict: true,
       allowPositionals: false,
       tokens: true,
@@ -152,6 +169,7 @@ export async function runWith(args: readonly string[], io: CliIO): Promise<numbe
     const maxFileBytes = positive(values['max-file-size'] as string | undefined, 'max-file-size');
     const maxRows = positive(values['max-rows'] as string | undefined, 'max-rows');
     const maxResponseChars = positive(values['max-response-chars'] as string | undefined, 'max-response-chars');
+    const maxCells = positive(values['max-cells'] as string | undefined, 'max-cells');
     prepared = await prepare({
       roots,
       cwd: io.cwd,
@@ -159,6 +177,7 @@ export async function runWith(args: readonly string[], io: CliIO): Promise<numbe
       ...(maxFileBytes !== undefined ? { maxFileBytes } : {}),
       ...(maxRows !== undefined ? { maxRows } : {}),
       ...(maxResponseChars !== undefined ? { maxResponseChars } : {}),
+      ...(maxCells !== undefined ? { maxCells } : {}),
     });
   } catch (error) {
     io.stderr(`xlvane-mcp: ${error instanceof Error ? error.message : String(error)}\n${isXlvError(error) ? `${error.hint}\n` : ''}`);
@@ -172,7 +191,7 @@ export async function runWith(args: readonly string[], io: CliIO): Promise<numbe
 
 /**
  * Runs the server from the command line: parses `--root`, `--allow-write`, `--max-file-size`,
- * `--max-rows` and `--max-response-chars`, then serves MCP over stdio until the client closes stdin. Returns the exit
+ * `--max-rows`, `--max-response-chars` and `--max-cells`, then serves MCP over stdio until the client closes stdin. Returns the exit
  * code. `xlvane mcp` calls this function.
  *
  * @example

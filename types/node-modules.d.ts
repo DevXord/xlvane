@@ -20,7 +20,7 @@ declare module 'node:fs/promises' {
   export function writeFile(
     path: string | URL,
     data: Uint8Array | string | AsyncIterable<Uint8Array>,
-    options?: { flag?: string },
+    options?: { flag?: string; mode?: number },
   ): Promise<void>;
   export function unlink(path: string | URL): Promise<void>;
   /** https://nodejs.org/api/fs.html#class-filehandle (F-NODE-15). */

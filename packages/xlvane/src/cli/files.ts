@@ -167,8 +167,9 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
   try {
     const info = await stat(target);
     exists = true;
-    // Permission bits of the file being replaced (fs.Stats.mode; the type bits are dropped).
-    mode = info.mode & 0o7777;
+    // Permission bits of the file being replaced (fs.Stats.mode; the type bits and the setuid,
+    // setgid and sticky bits are dropped, D-J01).
+    mode = info.mode & 0o777;
     if (!info.isFile()) {
       throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is a directory.`, { hint: 'Give a file name for the output.', details: { path, code: 'EISDIR' } });
     }
@@ -184,14 +185,19 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
   if (options.dryRun) return { path, bytes: bytes.length, written: false, replaced: exists };
   try {
     if (exists) {
-      const temp = join(dirname(target), `.${basename(target)}.xlvane-${String(Date.now())}.tmp`);
+      // A random name nobody else has; only a temporary file this call created is removed (D-J01).
+      const random = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+      const temp = join(dirname(target), `.${basename(target)}.xlvane-${random}.tmp`);
+      let created = false;
       try {
-        await writeFile(temp, bytes, { flag: 'wx' });
+        // Readable by the owner only until it has the permissions of the file it replaces.
+        await writeFile(temp, bytes, { flag: 'wx', mode: 0o600 });
+        created = true;
         // The replacement keeps the permissions of the file it replaces, as editing in place would.
         if (mode !== null) await chmod(temp, mode);
         await rename(temp, target);
       } catch (error) {
-        await rm(temp, { force: true });
+        if (created) await rm(temp, { force: true });
         throw error;
       }
     } else {
