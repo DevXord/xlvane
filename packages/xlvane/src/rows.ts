@@ -165,6 +165,8 @@ function adjustDecoded(text: string, c: RowChange, formulaSheet: string): string
 /** `ext@uri` values of the worksheet extensions whose ranges and formulas are rewritten (SR-40, D-F04). */
 const KNOWN_EXTENSIONS = new Set([X14_CF_URI, X14_DV_URI].map((u) => u.toLowerCase()));
 const isKnownExtension = (e: Element): boolean => KNOWN_EXTENSIONS.has((e.attrs.get('uri') ?? '').trim().toLowerCase());
+/** Start tags named `f` or `sqref`, with any prefix: the formulas and ranges an extension can hold. */
+const FORMULA_OR_RANGE_TAG = /<(?:[\w.-]+:)?(?:f|sqref)[\s/>]/g;
 const CFVO_PARENTS = new Set(['colorScale', 'dataBar', 'iconSet']);
 const within = (outer: Element, inner: Element): boolean => inner.start.start >= outer.start.start && inner.end.end <= outer.end.end;
 
@@ -241,11 +243,29 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
       if (what !== undefined) throw notSupported(`Sheet "${sheet.name}" has ${what}, which xlvane cannot move with its rows yet.`, where(), { element: e.local });
     }
   }
-  // Worksheet extensions other than the conditional formats and data validations of [MS-XLSX]
-  // (D-F04): refused on the changed sheet when they refer to cells, and on other sheets when they
-  // may refer to the changed one.
+  // The conditional format and data validation extensions of [MS-XLSX] are moved when each of their
+  // f and sqref elements is an xm:f or xm:sqref at the depth the schema gives (D-F04); one in
+  // another layout (another namespace, mc:AlternateContent) is treated like other extensions.
+  const knownExts = new Set<Element>();
+  {
+    let current: Element | null = null;
+    let found = 0;
+    const close = (): void => {
+      if (current !== null && (text.slice(current.start.start, current.end.end).match(FORMULA_OR_RANGE_TAG) ?? []).length === found) knownExts.add(current);
+    };
+    for (const e of elements) {
+      if (e.depth === 3 && e.local === 'ext') {
+        close();
+        current = isKnownExtension(e) ? e : null;
+        found = 0;
+      } else if (current !== null && e.ns === XM_NS && ((e.depth === 6 && e.local === 'sqref') || (e.depth >= 7 && e.local === 'f')) && within(current, e)) found++;
+    }
+    close();
+  }
+  // Other worksheet extensions: refused on the changed sheet when they refer to cells, and on other
+  // sheets when they may refer to the changed one.
   for (const ext of elements) {
-    if (ext.depth !== 3 || ext.local !== 'ext' || isKnownExtension(ext)) continue;
+    if (ext.depth !== 3 || ext.local !== 'ext' || knownExts.has(ext)) continue;
     const body = text.slice(ext.start.start, ext.end.end);
     if (target && /sqref|<xm:f|sparkline|slicer/i.test(body)) {
       throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines or slicers) that refers to cells, which xlvane cannot move with its rows yet.`, where(), { element: 'extLst' });
@@ -272,7 +292,7 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
   let hasFormulas = false;
   let extension: Element | null = null;
   for (const e of elements) {
-    if (e.depth === 3 && e.local === 'ext') extension = isKnownExtension(e) ? e : null;
+    if (e.depth === 3 && e.local === 'ext') extension = knownExts.has(e) ? e : null;
     if (e.depth === 3 && e.local === 'row') {
       const r = e.attrs.get('r');
       const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
@@ -539,7 +559,7 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     }
   }
 
-  rewriteExtensionRanges(text, elements, c, sheet, removedIds, edits, where);
+  rewriteExtensionRanges(text, elements, knownExts, c, sheet, removedIds, edits, where);
 
   const result = applyEdits(text, edits);
   return { text: /sortState/.test(result) ? rewriteSortStates(result, part, sheet, c, limits) : result, hasFormulas };
@@ -551,7 +571,7 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
  * an extension rule linked to a removed classic rule (SR-41); emptied containers, `ext` and
  * `extLst` elements are removed, and `x14:dataValidations@count` is updated.
  */
-function rewriteExtensionRanges(text: string, elements: readonly Element[], c: RowChange, sheet: Sheet, removedIds: ReadonlySet<string>, edits: [number, number, string][], where: () => { part: string; sheet: string }): void {
+function rewriteExtensionRanges(text: string, elements: readonly Element[], knownExts: ReadonlySet<Element>, c: RowChange, sheet: Sheet, removedIds: ReadonlySet<string>, edits: [number, number, string][], where: () => { part: string; sheet: string }): void {
   // The extension elements as a tree, built in one pass in document order (elements nest by span).
   interface Node {
     readonly e: Element;
@@ -575,7 +595,7 @@ function rewriteExtensionRanges(text: string, elements: readonly Element[], c: R
     if (list.e.local !== 'extLst') continue;
     let extsKept = 0;
     for (const ext of list.children) {
-      if (ext.e.local !== 'ext' || !isKnownExtension(ext.e)) {
+      if (ext.e.local !== 'ext' || !knownExts.has(ext.e)) {
         extsKept++;
         continue;
       }
@@ -594,9 +614,10 @@ function rewriteExtensionRanges(text: string, elements: readonly Element[], c: R
           if (sqref) {
             const raw = decodeEntities(content(text, sqref));
             const normal = raw.trim().split(/\s+/).join(' ');
-            const out = adjustRange(normal, refChange(c, sheet.name));
+            // An empty range is left as it is; adjustRange would read it as deleted.
+            const out = normal === '' ? '' : adjustRange(normal, refChange(c, sheet.name));
             if (out === null) throw notSupported(`An extension ${item.e.local === 'dataValidation' ? 'data validation' : 'conditional format'} of sheet "${sheet.name}" has a range xlvane cannot adjust: "${normal.slice(0, 60)}".`, where());
-            if (out === '') gone = true;
+            if (out === '' && normal !== '') gone = true;
             else if (out !== normal) edits.push([sqref.start.end, sqref.end.start, escapeText(out)]);
           }
           if (!gone && removedIds.size > 0) {
@@ -608,7 +629,11 @@ function rewriteExtensionRanges(text: string, elements: readonly Element[], c: R
           if (gone) remove(item.e);
           else kept++;
         }
-        if (kept === 0 && total > 0) continue;
+        if (kept === 0 && total > 0) {
+          // An emptied container goes; if no container stays, the ext goes below.
+          remove(container.e);
+          continue;
+        }
         containersKept++;
         if (kept < total && container.e.attrs.has('count')) edits.push([container.e.start.start, container.e.start.end, setAttr(tagOf(container.e), 'count', String(kept))]);
       }

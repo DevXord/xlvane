@@ -58,6 +58,28 @@ describe('worksheet ids', () => {
     ]);
   });
 
+  it('above 65534 (from an untrusted file) take the lowest free id, without losing a sheet or slowing down', async () => {
+    const bytes = buildXlsx({ sheets: [{ name: 'A', sheetId: '1' }, { name: 'B', sheetId: '4294967295' }, { name: 'C', sheetId: '20000000' }] });
+    const wb = new ExcelJS.Workbook();
+    const t0 = performance.now();
+    await wb.xlsx.load(bytes);
+    expect(wb.worksheets.map((w: any) => [w.name, w.id])).toEqual([
+      ['A', 1],
+      ['B', 2],
+      ['C', 3],
+    ]);
+    const back = await reload(wb);
+    expect(back.worksheets.map((w: any) => w.name)).toEqual(['A', 'B', 'C']);
+    expect(performance.now() - t0).toBeLessThan(5000);
+    const copy = new ExcelJS.Workbook();
+    copy.model = { ...wb.model, worksheets: wb.model.worksheets.map((m: any, i: number) => ({ ...m, id: i === 0 ? 70000 : m.id })) };
+    expect(copy.worksheets.map((w: any) => [w.name, w.id])).toEqual([
+      ['A', 1],
+      ['B', 2],
+      ['C', 3],
+    ]);
+  });
+
   it('are kept by the model setter (lib/doc/workbook.js L201-212)', () => {
     const wb = new ExcelJS.Workbook();
     wb.addWorksheet('A');

@@ -79,6 +79,20 @@ describe('tables with wide characters', () => {
   });
 });
 
+describe('headers and styled text', () => {
+  it('a header with a line break or tab is measured as it is printed (found by review)', () => {
+    const out = new Output(false, 80);
+    const text = out.table(['Total\nsales', 'Q'], [['12', 'x']]);
+    expect(text.split('\n')[0]).toBe('Total⏎sales  Q');
+  });
+
+  it('colour codes take no columns', () => {
+    expect(displayWidth('\u001b[1mFix:\u001b[22m')).toBe(4);
+    const wrapped = wrap('aaaa bbbb cccc dddd', 19, '      ', '\u001b[1mFix:\u001b[22m  ');
+    expect(wrapped.split('\n')[0]).toBe('\u001b[1mFix:\u001b[22m  aaaa bbbb');
+  });
+});
+
 describe('wrap', () => {
   it('measures words by display width', () => {
     const text = wrap('漢字漢字 漢字漢字 漢字漢字', 18);

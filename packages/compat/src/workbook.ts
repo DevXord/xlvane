@@ -616,14 +616,17 @@ export class Workbook {
 }
 
 /**
- * Worksheet ids for a list of wanted ids: each whole number from 1 up that is not wanted by an
- * earlier entry is kept; other entries (missing, invalid or repeated ids) get the lowest ids no
- * entry wants, in order. `undefined` entries (sheets that are not worksheets) get no id.
+ * Worksheet ids for a list of wanted ids: each whole number from 1 to 65534 (the sheet ids Office
+ * uses, W2-20) that is not wanted by an earlier entry is kept; other entries (missing, invalid,
+ * larger or repeated ids) get the lowest ids no entry wants, in order. The limit keeps the
+ * `_sheets` array small: an id from an untrusted file such as 4294967295 is not an array index and
+ * 20000000 makes every scan of the array slow (found by review, D-F03). `undefined` entries
+ * (sheets that are not worksheets) get no id.
  */
 function freeIds(wanted: readonly unknown[]): (number | undefined)[] {
   const taken = new Set<number>();
   const kept = wanted.map((w) => {
-    if (typeof w !== 'number' || !Number.isInteger(w) || w < 1 || taken.has(w)) return null;
+    if (typeof w !== 'number' || !Number.isInteger(w) || w < 1 || w > 65_534 || taken.has(w)) return null;
     taken.add(w);
     return w;
   });

@@ -126,6 +126,33 @@ describe('attribute values with "$"', () => {
   });
 });
 
+describe('unusual extension layouts (found by review)', () => {
+  const sheet = (ext: string): Uint8Array => buildXlsx({ sheets: [{ name: 'S', data: '<row r="1"><c r="A1"><v>1</v></c></row>', after: `<extLst>${ext}</extLst>` }] });
+  const cf = (sqref: string) => `<x14:conditionalFormatting><x14:cfRule type="expression" priority="1"><xm:f>A1&gt;0</xm:f></x14:cfRule><xm:sqref>${sqref}</xm:sqref></x14:conditionalFormatting>`;
+  const dv = (sqref: string) => `<x14:dataValidation type="list"><x14:formula1><xm:f>$Z$1:$Z$3</xm:f></x14:formula1><xm:sqref>${sqref}</xm:sqref></x14:dataValidation>`;
+
+  it('an empty xm:sqref is left as it is', () => {
+    const bytes = insertRows(sheet(`<ext uri="{78C0D931-6437-407D-A8EE-F0AAD7539E65}" xmlns:x14="${X14}" xmlns:xm="${XM}"><x14:conditionalFormattings>${cf('')}${cf('B2')}</x14:conditionalFormattings></ext>`), { sheet: 'S', at: 1, count: 1 }).bytes;
+    expect(sheetXml(bytes)).toContain('<xm:sqref></xm:sqref>');
+    expect(sheetXml(bytes)).toContain('<xm:sqref>B3</xm:sqref>');
+  });
+
+  it('a container whose items are all removed is removed, also when another container of the ext stays', () => {
+    const ext = `<ext uri="{CCE6A557-97BC-4B89-ADB6-D9C93CAAB3DF}" xmlns:x14="${X14}" xmlns:xm="${XM}"><x14:dataValidations count="1">${dv('E5')}</x14:dataValidations><x14:dataValidations count="1">${dv('E9')}</x14:dataValidations></ext>`;
+    const xml = sheetXml(deleteRows(sheet(ext), { sheet: 'S', at: 5, count: 1 }).bytes);
+    expect(xml.match(/<x14:dataValidations /g)).toHaveLength(1);
+    expect(xml).toContain('<xm:sqref>E8</xm:sqref>');
+  });
+
+  it('a known extension in an unexpected layout is refused instead of left unmoved', () => {
+    const XM2 = 'urn:example:not-xm';
+    const other = sheet(`<ext uri="{78C0D931-6437-407D-A8EE-F0AAD7539E65}" xmlns:x14="${X14}" xmlns:xm="${XM2}"><x14:conditionalFormattings>${cf('B2')}</x14:conditionalFormattings></ext>`);
+    expectXlvError(() => insertRows(other, { sheet: 'S', at: 1, count: 1 }), 'XLV_E_NOT_SUPPORTED');
+    const wrapped = sheet(`<ext uri="{78C0D931-6437-407D-A8EE-F0AAD7539E65}" xmlns:x14="${X14}" xmlns:xm="${XM}" xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"><mc:AlternateContent><mc:Choice Requires="x14"><x14:conditionalFormattings>${cf('B2')}</x14:conditionalFormattings></mc:Choice></mc:AlternateContent></ext>`);
+    expectXlvError(() => insertRows(wrapped, { sheet: 'S', at: 1, count: 1 }), 'XLV_E_NOT_SUPPORTED');
+  });
+});
+
 describe('other extensions that refer to cells', () => {
   it('are still refused on the changed sheet', () => {
     const bytes = buildXlsx({

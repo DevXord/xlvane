@@ -69,7 +69,7 @@ export class Output {
    */
   table(headers: readonly string[], rows: readonly (readonly string[])[], indent = '', align: readonly ('left' | 'right')[] = []): string {
     const count = headers.length;
-    const widths = headers.map((h, i) => Math.max(displayWidth(h), ...rows.map((r) => displayWidth(oneLine(r[i] ?? '')))));
+    const widths = headers.map((h, i) => Math.max(displayWidth(oneLine(h)), ...rows.map((r) => displayWidth(oneLine(r[i] ?? '')))));
     const gap = 2;
     const available = Math.max(count * 4, this.width - indent.length - gap * (count - 1));
     let total = widths.reduce((a, b) => a + b, 0);
@@ -187,9 +187,11 @@ const segmenter = typeof Intl === 'object' && typeof Intl.Segmenter === 'functio
  * columns; control and format characters (except the soft hyphen), nonspacing and enclosing marks
  * and emoji modifiers that are not Wide take none; every other character, including East Asian
  * Ambiguous ones, takes one. Each code point of an emoji sequence is counted, as Node.js does by
- * default, so a terminal that draws the sequence as one picture shows it narrower.
+ * default, so a terminal that draws the sequence as one picture shows it narrower. Colour codes
+ * (`ESC [ … m`, as `Output` writes them) take no columns, as Node.js strips them first.
  */
 export function displayWidth(text: string): number {
+  if (text.includes('\u001b')) text = text.replace(/\u001b\[[0-9;]*m/g, '');
   let width = 0;
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);
