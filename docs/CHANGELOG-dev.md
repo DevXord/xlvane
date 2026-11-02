@@ -2,6 +2,15 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## 1.0.0 published; 1.0.1 prepared (2026-11-02)
+
+- PR #5 merged into `main` (3782db9); tag `v1.0.0` moved there; the Release run's `publish` job rejected. Both packages published from the maintainer's machine without provenance (D-R10) on 2026-11-02 07:45 UTC. Checked from the registry: version 1.0.0 and `latest`, `xlvane` depends on `fflate` only and `@xlvane/compat` on `xlvane` only, the tarballs equal the packed 3782db9 file by file, and a fresh project passes ESM, CJS, CLI and compat-as-`exceljs` checks; Bun and Deno (`npm:` specifiers) load both.
+- `packages/xlvane/README.md`: package size measured for 1.0.0, benchmark link to GitHub (`bench/` is not in the package), Agent Skill install command, Deno and bundler imports, links to the changelog, issues and security policy.
+- `packages/compat/README.md`: installing (npm alias, `xlvane migrate`), requirements and runtimes, TypeScript settings, the differences from exceljs most likely to matter (from docs/exceljs-compat.md), links.
+- `xlvane migrate` no longer reports `addImage({ filename })` as not supported (supported since c2ae24b); test first. docs/exceljs-compat.md gains the missing `ModelContainer` row (not supported).
+- Trusted publishing configured by the maintainer for both packages and checked with `npm trust list` (F-NPM-04); RELEASING.md "Every later release" gains that check and the deployment approval.
+- Versions 1.0.1 (both packages, compat depends on `^1.0.1`), CHANGELOG.md section 1.0.1. The first release through the workflow, with provenance.
+
 ## Release preparation (2026-10-31)
 
 - PR #1-#4 merged into `main`; tag `v1.0.0` at 257ee9e (to be moved to the merge of the next PR, which holds the em-dash replacement and the new RELEASING.md).

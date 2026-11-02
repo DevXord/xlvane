@@ -40,8 +40,10 @@ npm configures a trusted publisher in the settings of an existing package, so th
 ## Every later release
 
 1. Bump the version of both packages in one commit (`packages/xlvane/package.json`, `packages/compat/package.json` and its `xlvane` dependency `^X.Y.Z`), update CHANGELOG.md.
-2. Tag `vX.Y.Z` and push the tag. `scripts/check-release-version.mjs` stops the release if the tag and the versions differ.
-3. When the workflow has staged both packages: `npm stage list`, inspect, `npm stage approve <stage-id>` (2FA).
+2. Check the trusted publisher of both packages: `npm trust list xlvane` and `npm trust list @xlvane/compat` print `github`, `release.yml`, `DevXord/xlvane`, `npm-release` and `stage publish` (F-NPM-04). A configuration that was added more than 2 days ago and never used has expired: delete it and add it again (F-NPM-01).
+3. Tag `vX.Y.Z` and push the tag. `scripts/check-release-version.mjs` stops the release if the tag and the versions differ.
+4. When the `verify` job has passed, approve the `publish` job (Review deployments → `npm-release` → Approve and deploy).
+5. When the workflow has staged both packages: `npm stage list`, inspect, `npm stage approve <stage-id>` (2FA).
 
 ## After a release
 

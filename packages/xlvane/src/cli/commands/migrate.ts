@@ -18,7 +18,6 @@ const MAX_FILE_BYTES = 2 * 1024 * 1024;
  * (docs/exceljs-compat.md). Matching is textual, so a hit is a place to look at, not proof.
  */
 const PATTERNS: readonly { readonly api: string; readonly status: 'not supported' | 'partly'; readonly re: RegExp }[] = [
-  { api: 'addImage({ filename })', status: 'not supported', re: /\.addImage\s*\(\s*\{\s*filename\b/ },
   { api: 'ModelContainer', status: 'not supported', re: /\bModelContainer\b/ },
   { api: 'deep import (exceljs/lib/...)', status: 'not supported', re: /['"]exceljs\/lib\/[^'"]*['"]/ },
 ];

@@ -189,7 +189,9 @@ describe('migrate', () => {
       expect(report.code).toBe(0);
       expect(report.stdout).toContain('- "exceljs": "^4.4.0"');
       expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/compat@^1"');
-      expect(report.stdout).toContain('src/report.js:4:3  addImage({ filename })');
+      // addImage({ filename }) is supported since 1.0.0 (docs/exceljs-compat.md); ModelContainer is not.
+      expect(report.stdout).not.toContain('addImage({ filename })');
+      expect(report.stdout).toContain('src/report.js:5:27  ModelContainer');
       expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before);
       const forced = await cli(['migrate', 'my-app', '--force'], { cwd: dir });
       expect(forced.code).toBe(0);
@@ -202,6 +204,7 @@ describe('migrate', () => {
     expect(scanSource('a.js', 'ws.insertRow(1, [])')).toEqual([]);
     expect(scanSource('a.js', "import ExcelJS from 'exceljs';\nwb.csv.writeFile('x')").map((f) => f.api)).toEqual([]);
     expect(scanSource('a.js', "const ExcelJS = require('exceljs/dist/es5');\nconst cell = require('exceljs/lib/doc/cell');").map((f) => f.api)).toEqual(['deep import (exceljs/lib/...)']);
+    expect(scanSource('a.js', "const ExcelJS = require('exceljs');\nwb.addImage({ filename: 'logo.png', extension: 'png' });")).toEqual([]);
   });
 
   it('skips node_modules', async () => {
