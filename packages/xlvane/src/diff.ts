@@ -133,13 +133,31 @@ function toDiffCell(cell: Cell, styles: boolean): DiffCell {
   return out;
 }
 
-function sameCell(a: Cell, b: Cell, styles: boolean): boolean {
+/**
+ * Compares styles by their stable key, computed once per style object: the reader shares one
+ * frozen object per style, so a sheet of a million cells needs a few keys, not two per cell.
+ */
+function styleComparer(): (a: CellStyle, b: CellStyle) => boolean {
+  const keys = new Map<object, string>();
+  const keyOf = (style: CellStyle): string => {
+    if (typeof style !== 'object' || style === null) return stableKey(style);
+    let key = keys.get(style);
+    if (key === undefined) {
+      key = stableKey(style);
+      keys.set(style, key);
+    }
+    return key;
+  };
+  return (a, b) => a === b || keyOf(a) === keyOf(b);
+}
+
+function sameCell(a: Cell, b: Cell, sameStyle: ((a: CellStyle, b: CellStyle) => boolean) | null): boolean {
   if (a.type !== b.type) return false;
   const av = a.value instanceof Date ? a.value.getTime() : a.value;
   const bv = b.value instanceof Date ? b.value.getTime() : b.value;
   if (!Object.is(av, bv)) return false;
   if ((a.formula?.text ?? null) !== (b.formula?.text ?? null)) return false;
-  return !styles || stableKey(a.style) === stableKey(b.style);
+  return sameStyle === null || sameStyle(a.style, b.style);
 }
 
 /**
@@ -181,6 +199,7 @@ export function diff(a: Uint8Array | ArrayBuffer | Workbook, b: Uint8Array | Arr
   summary.sheetsRemoved = sheetsRemoved.length;
 
   const sheets: SheetDiff[] = [];
+  const sameStyle = styles ? styleComparer() : null;
   for (const after of second.sheets) {
     const before = firstNames.get(after.name);
     if (!before) continue;
@@ -190,22 +209,23 @@ export function diff(a: Uint8Array | ArrayBuffer | Workbook, b: Uint8Array | Arr
     const fromFirst: Entry[] = [];
     const fromSecond: Entry[] = [];
     let count = 0;
-    const record = (list: Entry[], row: number, col: number, change: CellChange): void => {
+    // The change is built only when it is kept; the others are only counted (D-H01).
+    const record = (list: Entry[], row: number, col: number, kind: CellChange['kind'], change: () => CellChange): void => {
       count++;
-      if (change.kind === 'added') summary.cellsAdded++;
-      else if (change.kind === 'removed') summary.cellsRemoved++;
+      if (kind === 'added') summary.cellsAdded++;
+      else if (kind === 'removed') summary.cellsRemoved++;
       else summary.cellsChanged++;
-      if (list.length < maxCells) list.push({ row, col, change });
+      if (list.length < maxCells) list.push({ row, col, change: change() });
     };
     for (const cell of before.cells()) {
       const other = after.cell(cell.ref);
-      if (other === undefined) record(fromFirst, cell.row, cell.col, { ref: cell.ref, kind: 'removed', before: toDiffCell(cell, styles), after: null });
-      else if (!sameCell(cell, other, styles)) {
-        record(fromFirst, cell.row, cell.col, { ref: cell.ref, kind: 'changed', before: toDiffCell(cell, styles), after: toDiffCell(other, styles) });
+      if (other === undefined) record(fromFirst, cell.row, cell.col, 'removed', () => ({ ref: cell.ref, kind: 'removed', before: toDiffCell(cell, styles), after: null }));
+      else if (!sameCell(cell, other, sameStyle)) {
+        record(fromFirst, cell.row, cell.col, 'changed', () => ({ ref: cell.ref, kind: 'changed', before: toDiffCell(cell, styles), after: toDiffCell(other, styles) }));
       }
     }
     for (const cell of after.cells()) {
-      if (before.cell(cell.ref) === undefined) record(fromSecond, cell.row, cell.col, { ref: cell.ref, kind: 'added', before: null, after: toDiffCell(cell, styles) });
+      if (before.cell(cell.ref) === undefined) record(fromSecond, cell.row, cell.col, 'added', () => ({ ref: cell.ref, kind: 'added', before: null, after: toDiffCell(cell, styles) }));
     }
     const stateChanged = before.state !== after.state;
     if (count === 0 && !stateChanged) continue;

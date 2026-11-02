@@ -152,13 +152,30 @@ export const OUTPUT_PER_CELL = 16;
 /**
  * Checks the number of positions an output built from a sheet would have against
  * max(`maxCells`, OUTPUT_PER_CELL × cells read). Throws `XLV_E_LIMIT_EXCEEDED` above it.
+ * `hint` replaces the default hint, which suits outputs read from a file.
  */
-export function checkOutputPositions(positions: number, cells: number, maxCells: number, what: string, sheet: string): void {
+export function checkOutputPositions(positions: number, cells: number, maxCells: number, what: string, sheet: string, hint?: string): void {
   const budget = Math.max(maxCells, OUTPUT_PER_CELL * cells);
   if (positions <= budget) return;
   throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what} of sheet "${sheet}" would have ${String(positions)} positions (rows × columns) for ${String(cells)} cells, more than the limit of ${String(budget)}.`, {
     location: { sheet },
-    hint: `The cells are spread over a far larger area than they fill. Pass a smaller range (for example { range: "A1:H1000" } or --range), or raise limits.maxCells if the file is trusted.`,
+    hint: hint ?? `The cells are spread over a far larger area than they fill. Pass a smaller range (for example { range: "A1:H1000" } or --range), or raise limits.maxCells if the file is trusted.`,
     details: { limit: 'maxCells', value: budget },
+  });
+}
+
+/**
+ * Every row object repeats the keys of all columns, so a long header makes a small file give
+ * gigabytes of keys (and JSON.stringify of the rows fail). The key text of all rows is bounded
+ * by `limits.maxSharedStringChars`, the bound on text that cells repeat (D-H01).
+ */
+export function checkKeyText(columns: readonly { readonly key: string }[], rows: number, limit: number, sheet: string): void {
+  let perRow = 0;
+  for (const c of columns) perRow += c.key.length;
+  if (perRow * rows <= limit) return;
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The rows of the table of sheet "${sheet}" would repeat ${String(perRow)} characters of column names in each of ${String(rows)} rows, more than the limit of ${String(limit)} characters.`, {
+    location: { sheet },
+    hint: `Each row object holds the text of every column name. Read fewer columns or rows with the range option (for example { range: "A1:H1000" } or --range), or raise limits.maxSharedStringChars if the file is trusted.`,
+    details: { limit: 'maxSharedStringChars', value: limit },
   });
 }

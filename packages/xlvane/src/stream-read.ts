@@ -6,11 +6,11 @@ import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import { checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
+import { checkKeyText, checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Conformance, DateSystem, SheetKind, SheetState, WorkbookFormat } from './model';
-import { openPackage } from './opc/package';
+import { openPackage, relationshipsPartName, type OpcPackage } from './opc/package';
 import type { Note } from './notes';
-import { partKey } from './opc/part-name';
+import { partKey, zipNameToPartName } from './opc/part-name';
 import { analyzeWorkbook, readNotes, workbookPartsToLoad, type WorkbookInfo } from './read';
 import { classifyRelationship } from './sml/namespaces';
 import { columnLetters, formatCellRef } from './sml/cell-ref';
@@ -18,6 +18,7 @@ import type { NumberFormat } from './sml/worksheet';
 import { createWorksheetParser } from './sml/worksheet';
 import type { StandardSchemaV1 } from './standard-schema';
 import type { TableColumn, TableIssue, TableRow, TableValue } from './table';
+import { clip } from './util/clip';
 import { oneOfOption, readOptions } from './util/options';
 import { sheetNotFound } from './util/sheet-not-found';
 import { WarningCollector } from './util/warnings';
@@ -159,22 +160,46 @@ class PreloadedZip implements ZipReader {
   readonly entries: readonly ZipEntry[];
   bytesRead = 0;
   private readonly data = new Map<string, Uint8Array>();
+  /**
+   * ZIP entries by the part name they map to, as openPackage maps them: percent-encoded
+   * non-ASCII characters of an item name are decoded (Part 2 §7.3.5; F-OPC-12).
+   */
+  private readonly byPart = new Map<string, ZipEntry>();
 
   constructor(
     private readonly zip: StreamZip,
     private readonly maxBufferedBytes: number,
   ) {
     this.entries = zip.entries;
+    for (const entry of zip.entries) {
+      if (entry.name.endsWith('/')) continue;
+      const key = partKey(zipNameToPartName(entry.name));
+      if (!this.byPart.has(key)) this.byPart.set(key, entry);
+    }
   }
 
-  async load(names: Iterable<string>): Promise<void> {
-    for (const name of names) {
-      const entry = this.zip.find(name);
+  /** The ZIP entry that stores a part, or undefined. */
+  entryOf(partName: string): ZipEntry | undefined {
+    return this.byPart.get(partKey(partName));
+  }
+
+  async load(entries: Iterable<ZipEntry | undefined>): Promise<void> {
+    for (const entry of entries) {
       if (entry === undefined || this.data.has(entry.name)) continue;
       const bytes = await this.zip.read(entry, this.maxBufferedBytes);
       this.data.set(entry.name, bytes);
       this.bytesRead += bytes.length;
     }
+  }
+
+  /** Loads the parts with these names that exist. */
+  async loadParts(partNames: Iterable<string>): Promise<void> {
+    await this.load([...partNames].map((name) => this.entryOf(name)));
+  }
+
+  /** Loads the Relationships parts of these sources (null: the package) that exist. */
+  async loadRelationships(sources: Iterable<string | null>): Promise<void> {
+    await this.loadParts([...sources].map(relationshipsPartName));
   }
 
   find(name: string): ZipEntry | undefined {
@@ -184,13 +209,31 @@ class PreloadedZip implements ZipReader {
   read(entry: ZipEntry | string): Uint8Array {
     const name = typeof entry === 'string' ? (this.zip.find(entry)?.name ?? entry) : entry.name;
     const bytes = this.data.get(name);
-    if (bytes === undefined) throw new Error(`internal: ZIP entry "${name}" was not preloaded`);
+    if (bytes === undefined) {
+      throw new XlvError('XLV_E_INTERNAL', `The ZIP entry "${clip(name)}" was read before it was loaded.`, {
+        location: { part: `/${clip(name)}` },
+        hint: 'This is a bug in xlvane. Please report it, with the file if you can share it; readWorkbook reads the file meanwhile.',
+      });
+    }
     return bytes;
   }
 }
 
-function zipName(partName: string): string {
-  return partName.slice(1);
+/**
+ * The internal targets of the workbook part's relationships: the sheets among them, whose
+ * Relationships parts analyzeWorkbook reads. Only these, and not every .rels entry of the ZIP,
+ * are loaded (D-H01).
+ */
+function workbookTargets(pkg: OpcPackage, workbookPart: string): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const rel of pkg.relationships(workbookPart)) {
+    const key = partKey(rel.target);
+    if (rel.external || seen.has(key) || !pkg.hasPart(rel.target)) continue;
+    seen.add(key);
+    out.push(rel.target);
+  }
+  return out;
 }
 
 function checkSource(source: unknown): Uint8Array | ArrayBuffer | Blob {
@@ -236,9 +279,19 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
   // default does.
   const maxBuffered = (userLimits as Partial<ReadLimits> | undefined)?.maxEntryBytes ?? DEFAULT_READ_LIMITS.maxEntryBytes;
   const preloaded = new PreloadedZip(zip, maxBuffered);
-  await preloaded.load(zip.entries.filter((e) => e.name.toLowerCase() === '[content_types].xml' || e.name.toLowerCase().endsWith('.rels')).map((e) => e.name));
+  // Only the parts the reader uses are inflated, in stages, as the batch reader reads them
+  // (D-H01): the Media Types stream and the package relationships, then the relationships of
+  // the workbook part, the workbook, styles and shared strings, then those of the sheets.
+  await preloaded.load(zip.entries.filter((e) => e.name.toLowerCase() === '[content_types].xml'));
+  await preloaded.loadRelationships([null]);
   const pkg = openPackage(preloaded, limits);
-  await preloaded.load(workbookPartsToLoad(pkg).map(zipName));
+  // The officeDocument relationship as workbookPartsToLoad and analyzeWorkbook find it.
+  const workbookPart = pkg.relationships(null).find((r) => !r.external && classifyRelationship(r.type)?.name === 'officeDocument')?.target;
+  if (workbookPart !== undefined) {
+    await preloaded.loadRelationships([workbookPart]);
+    await preloaded.loadParts(workbookPartsToLoad(pkg));
+    await preloaded.loadRelationships(workbookTargets(pkg, workbookPart));
+  }
   const warnings = new WarningCollector();
   const info: WorkbookInfo = analyzeWorkbook(pkg, limits, warnings);
   const formatCache = new Map<number, NumberFormat>();
@@ -257,7 +310,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     if (cached !== undefined) return cached;
     // The Comments part and the VML parts with the note boxes (W2-69).
     const parts = pkg.relationships(entry.part).filter((r) => !r.external && ['comments', 'vmlDrawing'].includes(classifyRelationship(r.type)?.name ?? '') && pkg.hasPart(r.target) && !entry.foreignParts.has(partKey(r.target)));
-    if (parts.length > 0) await preloaded.load(parts.map((r) => zipName(r.target)));
+    if (parts.length > 0) await preloaded.loadParts(parts.map((r) => r.target));
     const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts));
     noteCache.set(entry.part, notes);
     return notes;
@@ -295,7 +348,14 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
       (number, cells, rowInfo, styledCells) => ready.push({ number, cells: withNotes(cells), styledCells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
     );
     const parser = createXmlByteStreamParser(handler, { part, limits });
-    const reader = zip.stream(zipName(part)).getReader();
+    const stored = preloaded.entryOf(part);
+    if (stored === undefined) {
+      throw new XlvError('XLV_E_PART_MISSING', `The part ${clip(part)} of sheet "${entry.name}" is not in the archive.`, {
+        location: { part: clip(part), sheet: entry.name },
+        hint: 'The workbook is incomplete. Re-save it in a spreadsheet application.',
+      });
+    }
+    const reader = zip.stream(stored).getReader();
     try {
       for (;;) {
         const { done, value } = await reader.read();
@@ -437,6 +497,9 @@ export async function* readTableStream(
   const book = await openWorkbookStream(source, limits === undefined ? undefined : { limits: limits as Partial<ReadLimits> });
   // maxCells does not limit streamed cells, but it sets the output budget, as for readTable (D-H01).
   const outputCells = (limits as Partial<ReadLimits> | undefined)?.maxCells ?? DEFAULT_READ_LIMITS.maxCells;
+  // The column names that the row objects repeat, as for readTable (D-H01).
+  const keyTextLimit = (limits as Partial<ReadLimits> | undefined)?.maxSharedStringChars ?? DEFAULT_READ_LIMITS.maxSharedStringChars;
+  let rowObjects = 0;
   const sheetName = (o.get('sheet') as string | undefined) ?? (book.sheets.find((s) => s.kind === 'worksheet' && s.state === 'visible') ?? book.sheets[0])?.name;
   if (sheetName === undefined) return;
 
@@ -491,6 +554,17 @@ export async function* readTableStream(
   // Positions written (rows × columns) against the cells read (checkOutputPositions, D-H01).
   let positions = 0;
   let cellsRead = 0;
+  // Column keys are unique; a map instead of a search per schema issue (D-H01).
+  let byKey: Map<string, TableColumn> | null = null;
+  let byKeyOf: TableColumn[] | null = null;
+  const columnOf = (cols: TableColumn[], key: string): TableColumn | undefined => {
+    if (byKey === null || byKeyOf !== cols) {
+      byKey = new Map();
+      for (const c of cols) if (!byKey.has(c.key)) byKey.set(c.key, c);
+      byKeyOf = cols;
+    }
+    return byKey.get(key);
+  };
   const emit = async (r: StreamRow, cols: TableColumn[]): Promise<TableStreamItem<unknown> | null> => {
     if (headerRow !== null && r.number <= headerRow) return null;
     cellsRead += r.cells.length;
@@ -498,6 +572,7 @@ export async function* readTableStream(
     checkOutputPositions(positions, cellsRead, outputCells, 'The table', sheetName);
     const byCol = new Map(r.cells.map((c) => [c.col, c]));
     if (cols.every((c) => byCol.get(c.col)?.value == null)) return null;
+    checkKeyText(cols, ++rowObjects, keyTextLimit, sheetName);
     const row: Record<string, TableValue> = {};
     for (const c of cols) setOwn(row, c.key, value(byCol.get(c.col)));
     if (schema === undefined) return { row: r.number, value: row, issues: [] };
@@ -508,7 +583,7 @@ export async function* readTableStream(
         const key = typeof seg === 'object' && seg !== null ? seg.key : seg;
         return typeof key === 'number' ? key : String(key);
       });
-      const column = typeof path[0] === 'string' ? cols.find((c) => c.key === path[0]) : undefined;
+      const column = typeof path[0] === 'string' ? columnOf(cols, path[0]) : undefined;
       return { row: r.number, cell: column ? formatCellRef(r.number, column.col) : null, column: column?.key ?? null, message: String(issue.message), path };
     });
     return { row: r.number, value: undefined, issues };

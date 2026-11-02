@@ -500,7 +500,9 @@ export function detectHeader(
     const next = nonEmpty[i + 1];
     if (years.length > 0) {
       const consecutive = years.every((cell, k) => k === 0 || Math.abs((cell.value as number) - (years[k - 1]!.value as number)) === 1);
-      const below = next?.filter((cell) => years.some((y) => y.col === cell.col)) ?? [];
+      // A set of the year columns: a row may hold 16 384 cells (D-H01).
+      const yearCols = new Set(years.map((y) => y.col));
+      const below = next?.filter((cell) => yearCols.has(cell.col)) ?? [];
       if (!consecutive || !below.some((cell) => cell.value !== null && !isYear(cell.value))) continue;
     }
     const distinct = new Set(texts.map((cell) => (cell.value as string).trim().toLowerCase())).size === texts.length;

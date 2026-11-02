@@ -776,7 +776,11 @@ function editSheetXml(text: string, part: string, sheet: string, planned: readon
   for (const list of byRow.values()) list.sort((a, b) => a.col - b.col);
   const forceRefs = rows.some((r) => !r.hasR);
   const emitted = new Set<number>();
-  const pending = [...byRow.keys()].filter((n) => !rows.some((r) => r.number === n)).sort((a, b) => a - b);
+  // A set of the existing row numbers and an index into the sorted new ones: a search of every
+  // row per edited row, and shift(), made many edits on a long sheet quadratic (D-H01).
+  const existingRows = new Set(rows.map((r) => r.number));
+  const pending = [...byRow.keys()].filter((n) => !existingRows.has(n)).sort((a, b) => a - b);
+  let next = 0;
   const p = (xml: string): string => withPrefix(xml, prefix);
   const newRow = (n: number): string => {
     const cells = (byRow.get(n) ?? []).filter((c) => c.xml !== null).map((c) => p(c.xml ?? '')).join('');
@@ -785,7 +789,7 @@ function editSheetXml(text: string, part: string, sheet: string, planned: readon
 
   let inner = '';
   for (const row of rows) {
-    while (pending.length > 0 && (pending[0] ?? 0) < row.number) inner += newRow(pending.shift() ?? 0);
+    while (next < pending.length && (pending[next] ?? 0) < row.number) inner += newRow(pending[next++] ?? 0);
     const edits = byRow.get(row.number);
     const needsRefs = forceRefs || row.cells.some((c) => !c.hasR);
     if (!edits && row.hasR && !needsRefs) {
@@ -809,7 +813,7 @@ function editSheetXml(text: string, part: string, sheet: string, planned: readon
     while (k < toInsert.length) body += p(toInsert[k++]?.xml ?? '');
     inner += row.element.start.empty ? `${openTag(tag)}${body}</${row.element.start.qname}>` : `${tag}${body}${text.slice(row.element.end.start, row.element.end.end)}`;
   }
-  while (pending.length > 0) inner += newRow(pending.shift() ?? 0);
+  while (next < pending.length) inner += newRow(pending[next++] ?? 0);
 
   const changes: [number, number, string][] = [];
   if (sheetData.start.empty) changes.push([sheetData.start.start, sheetData.start.end, `${openTag(text.slice(sheetData.start.start, sheetData.start.end))}${inner}</${sheetData.start.qname}>`]);
