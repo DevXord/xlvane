@@ -2,6 +2,13 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase J: security release 1.2.3 (2026-11-02)
+
+- Review at the maintainer's request: the full test chain on 1.2.2 (typecheck, 1734 tests, fuzzing with 100 000 runs, `check:pkg`, Bun/Deno/browser/workerd), the 1.1.1 proofs of concept against all published versions 1.0.0 to 1.2.2, registry signatures of all 17 versions, and four independent penetration tests (core, MCP and CLI, compat, supply chain and website).
+- Fixed test-first (D-J01): three ways around the CSV formula-injection escape (delimiter, compat latin1, compat quoting options), an information leak through symbolic links in the MCP server, CLI and MCP file replacement, `migrate` with a linked `package.json`, stderr escaping of `xlvane-mcp`, and denial of service in the core (notes, pictures, header detection, table writers, schema issues, streaming rows and relationships, repeated header names, `editCells`, `diff`, sheet/merge/name lookups when writing) and in compat (defined names, data validations, many sheets, shared formulas, images, stream input). New MCP option `--max-cells`. `stage-publish.mjs` takes only E404 for a missing package; the website accepts a dependency only by name and locks the changelog.
+- The core and compat fixes were made by two sub-agents in separate worktrees on disjoint files and merged here; CSV, MCP, CLI, release and docs in this session.
+- Version 1.2.3 for all three packages. Docs: SECURITY.md (1.2.x, three packages, provenance), errors.md, README limits, docs/facts/csv.md CSV-13, exceljs-compat.md, CHANGELOG 1.2.3, facts F-NODE-16, F-NPM-06, F-MCP-04.
+
 ## 1.2.2: registry name with case, repeatable staging (2026-11-02)
 
 - The MCP Registry refused `io.github.devxord/xlvane` (403; granted `io.github.DevXord/*`): `mcpName` and `server.json` use `io.github.DevXord/xlvane` (D-I07).

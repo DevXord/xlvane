@@ -129,7 +129,7 @@ export interface WorkbookStream {
 export interface OpenWorkbookStreamOptions {
   /**
    * Read limits. Streaming defaults differ from `DEFAULT_READ_LIMITS`: `maxCells` does not apply
-   * (memory does not grow with cells), `maxEntryBytes` is 4 GiB for worksheets (inflated piece by
+   * (memory does not grow with cells; one `<row>` element may hold at most 16 384 cells), `maxEntryBytes` is 4 GiB for worksheets (inflated piece by
    * piece) and `maxTotalBytes` 8 GiB. Parts held in memory whole (shared strings, styles, the
    * workbook, relationships, notes) keep the batch bound of 256 MiB unless `maxEntryBytes` is given.
    */
@@ -138,7 +138,8 @@ export interface OpenWorkbookStreamOptions {
 
 const GiB = 1024 * 1024 * 1024;
 /**
- * Limits that differ in streaming mode (D-401): `maxCells` does not apply, and single parts may
+ * Limits that differ in streaming mode (D-401): `maxCells` does not apply (but one `<row>` element
+ * may hold at most 16 384 cells, D-J01), and single parts may
  * decompress to 4 GiB (8 GiB in total). All other `DEFAULT_READ_LIMITS` stay.
  *
  * @example
