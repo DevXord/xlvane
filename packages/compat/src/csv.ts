@@ -78,7 +78,8 @@ const SPECIAL_VALUES: ReadonlyMap<string, unknown> = new Map<string, unknown>(Ob
 }));
 const DEFAULT_DATE_FORMATS = ['YYYY-MM-DD[T]HH:mm:ssZ', 'YYYY-MM-DD[T]HH:mm:ss', 'MM-DD-YYYY', 'YYYY-MM-DD'];
 // docs/facts/csv.md CSV-10 (OWASP CSV Injection).
-const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠']);
+// The xlvane core's set (CSV-10, CSV-12); text starting with another C0 control is escaped too.
+const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
 
 function invalid(name: string, message: string, hint: string): XlvError {
   return new XlvError('XLV_E_INVALID_OPTION', message, { hint, details: { option: name } });
@@ -605,7 +606,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   const escape = (out: unknown): [unknown, boolean] => {
     if (injection !== 'escape' || typeof out !== 'string') return [out, false];
     const first = out.replace(/\0/g, '')[0];
-    return first !== undefined && INJECTION_START.has(first) ? [`'${out}`, f.quote !== ''] : [out, false];
+    return first !== undefined && (INJECTION_START.has(first) || first.charCodeAt(0) < 0x20) ? [`'${out}`, f.quote !== ''] : [out, false];
   };
   if (f.headers) {
     lines.push(

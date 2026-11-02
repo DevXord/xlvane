@@ -34,9 +34,10 @@ export interface ToCSVOptions {
   /** Start with a UTF-8 byte order mark, which helps Excel detect UTF-8. Default `false`. */
   readonly bom?: boolean;
   /**
-   * `"escape"` (default): text cells that start with `=`, `+`, `-`, `@`, tab, CR, LF or their
-   * full-width forms get a leading `'` and quotes, so spreadsheet applications show them as
-   * text instead of running them as formulas (OWASP CSV Injection). `"off"`: write them as is.
+   * `"escape"` (default): text cells that start with `=`, `+`, `-`, `@`, their full-width or small
+   * forms, or a control character (tab, CR, LF, NUL, …) get a leading `'` and quotes, so
+   * spreadsheet applications show them as text instead of running them as formulas (OWASP CSV
+   * Injection). `"off"`: write them as is.
    */
   readonly formulaInjection?: 'escape' | 'off';
   /** Read limits for byte input; see `ReadLimits`. */
@@ -45,8 +46,15 @@ export interface ToCSVOptions {
   readonly onWarning?: (warning: XlvWarning) => void;
 }
 
-/** First characters that make spreadsheet applications treat a CSV field as a formula (CSV-10). */
-const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠']);
+/**
+ * First characters that make spreadsheet applications treat a CSV field as a formula (CSV-10),
+ * plus, as a precaution, the small forms of = + - @ (CSV-12, D-H01). Text starting with any other
+ * C0 control character is escaped too (see `injectionStart`).
+ */
+const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
+
+/** Whether text starting with `c` is escaped: one of INJECTION_START or a C0 control (NUL included). */
+const injectionStart = (c: string): boolean => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20;
 
 /**
  * Converts a sheet to CSV text. Fields that contain the delimiter, a quote, CR or LF are
@@ -122,7 +130,7 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
     if (value instanceof Date) return isoDate(value);
     let s = String(value);
     let quote = needsQuotes(s);
-    if (injection === 'escape' && s.length > 0 && INJECTION_START.has(s[0] ?? '')) {
+    if (injection === 'escape' && s.length > 0 && injectionStart(s[0] ?? '')) {
       s = `'${s}`;
       quote = true;
     }
