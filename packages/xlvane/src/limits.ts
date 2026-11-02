@@ -36,7 +36,7 @@ export interface ReadLimits {
   readonly maxXmlAttributes: number;
   /** Maximum length of an XML element or attribute name. Default 1 024 characters. */
   readonly maxXmlNameLength: number;
-  /** Maximum length of one XML text node or attribute value. Default 8 Mi characters. */
+  /** Maximum length of one XML text node, attribute value, comment or processing instruction. Default 8 Mi characters. */
   readonly maxXmlTextLength: number;
   /** Maximum number of elements plus attributes in a part that is parsed into a tree (workbook, styles, relationships). Default 1 000 000. */
   readonly maxXmlTreeElements: number;

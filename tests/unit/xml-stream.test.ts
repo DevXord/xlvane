@@ -151,7 +151,9 @@ describe('createXmlStreamParser', () => {
     }
     expect(error).toBeInstanceOf(XlvError);
     expect((error as XlvError).code).toBe('XLV_E_LIMIT_EXCEEDED');
-    expect(held).toBeLessThan(2000 + 200);
+    // The unconsumed run (at most the limit), pending text (at most the limit) and pieces held
+    // while a long run is unfinished (shorter than the run, D-H01), plus one piece.
+    expect(held).toBeLessThan(3000 + 200);
   });
 
   it('rejects write after end', () => {
