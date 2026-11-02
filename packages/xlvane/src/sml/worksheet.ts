@@ -534,7 +534,7 @@ export function createWorksheetParser(
     if (ctx.budget.formulaText >= 0) return;
     throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The cells that share formulas would hold more formula text than the limit allows.', {
       location: loc(ref),
-      hint: `Small files can share one huge formula with many cells; the limit counts the shared formula's length once per cell. If you trust this file, raise the limit, for example { limits: { maxSharedStringChars: ${String(ctx.limits.maxSharedStringChars * 4)} } }.`,
+      hint: `Small files can share one huge formula with many cells; the limit counts the formula of each cell that shares it. If you trust this file, raise the limit, for example { limits: { maxSharedStringChars: ${String(ctx.limits.maxSharedStringChars * 4)} } }.`,
       details: { limit: 'maxSharedStringChars', value: ctx.limits.maxSharedStringChars },
     });
   };
@@ -835,7 +835,6 @@ function expandSharedFormulas(
       warn(d.ref);
       continue;
     }
-    spend(master.text.length, d.ref);
     let formula = compiled.get(d.si);
     if (formula === undefined) {
       formula = compileFormula(master.text);
@@ -847,6 +846,8 @@ function expandSharedFormulas(
       warn(d.ref);
       continue;
     }
+    // The length of the moved text, which can exceed the master's (1:1 becomes 1048567:1048567).
+    spend(formula.renderedLength(dRow, dCol), d.ref);
     rowCells.set(d.col, { ...cell, formula: lazySharedFormula(formula, dRow, dCol, d.si) });
   }
 }

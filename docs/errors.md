@@ -95,7 +95,7 @@ Some limits also bound work derived from a small file (1.1.1, D-H01):
 
 - `maxCells` (`details.limit` `maxCells`, `details.value` the budget): `toCSV`, `readTable`, `toJSON`, `readTableStream`, `xlvane read` and `xlvane convert` write at most `max(maxCells, 16 × cells read)` positions (rows × columns of the output), so a few cells far apart cannot make them produce a value for every position between; `@xlvane/compat`'s `xlsx.load` creates at most as many cells for merged ranges, tables and column definitions. Pass a smaller `range`, or raise `maxCells` for a trusted file.
 - `maxXmlTextLength`: also the length of an XML comment or processing instruction.
-- `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the master formula's length once per cell that shares it.
+- `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the length of each sharing cell's formula, as moved to that cell.
 
 `fromCSV` (and `xlvane convert`/`create` with CSV input) throws it for text with more fields than `maxCells` (default 5 000 000, `details.limit` `maxCells`), more than 16 384 fields on a line or more than 1 048 576 lines.
 

@@ -181,3 +181,20 @@ describe('reading shared formulas', () => {
     expect(s.cell('A2000')?.formula?.text).toBe(`${'A2000+'.repeat(2000)}A2000`);
   });
 });
+
+describe('renderedLength', () => {
+  it('equals the length of render() for every kind of reference (D-H01)', () => {
+    const formulas = ['SUM(A1:B2)*$C$3+Sheet2!D4', "'My Sheet'!$A1:B$2", 'A:A+1:1+$Z$9+XFD1', 'SUM(1:1,$2:3)+IF(A1>0,"A1",B9)', 'Z26+AA27+ZZ702+AAA703', 'A1'];
+    let checked = 0;
+    for (const f of formulas) {
+      const c = compileFormula(f);
+      expect(c).not.toBeNull();
+      for (const [dr, dc] of [[0, 0], [9, 25], [1048000, 0], [0, 16000], [99999, 700]] as const) {
+        if (!c!.canShift(dr, dc)) continue;
+        expect(c!.renderedLength(dr, dc)).toBe(c!.render(dr, dc).length);
+        checked++;
+      }
+    }
+    expect(checked).toBeGreaterThan(15);
+  });
+});
