@@ -97,6 +97,8 @@ Some limits also bound work derived from a small file (1.1.1, D-H01):
 - `maxXmlTextLength`: also the length of an XML comment or processing instruction.
 - `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the length of each sharing cell's formula, as moved to that cell.
 
+The MCP server (`@xlvane/mcp`) returns it as a tool error for a file larger than `--max-file-size` (`details.limit` `maxFileBytes`) and for a result longer than `--max-response-chars` (`details.limit` `maxResponseChars`; `read_table` instead returns the rows that fit).
+
 `fromCSV` (and `xlvane convert`/`create` with CSV input) throws it for text with more fields than `maxCells` (default 5 000 000, `details.limit` `maxCells`), more than 16 384 fields on a line or more than 1 048 576 lines.
 
 `NewSheet.validate` throws it when a sheet would get more than 65534 data validations ([MS-OI29500] §2.1.614 g; `details.limit` `dataValidations`). When reading, the conditional formatting and data validations of one sheet count against `maxXmlTreeElements`.
@@ -272,9 +274,17 @@ For `insertRows`/`deleteRows`, insert or delete the rows in a spreadsheet applic
 The `xlvane` command line was used incorrectly: an unknown command or option, a missing or extra argument, an option without its value, or an option value that is not allowed. `details` names the command and the option or argument; `details.suggestions` lists close matches ("Did you mean ...?"). Exit code 2.
 **Fix:** run `xlvane help <command>` for the usage and examples of the command.
 
+### XLV_E_NOT_INSTALLED
+`xlvane mcp` needs the separate package `@xlvane/mcp`, which could not be loaded. `details.package` names it.
+**Fix:** install it next to xlvane, for example `npm install @xlvane/mcp`.
+
 ### XLV_E_INTERNAL
 The `xlvane` command line caught an error that is not an `XlvError`. This is a bug in xlvane. `details.name` is the error's name; `--verbose` prints the stack trace.
 **Fix:** report it with the command and, if possible, the input file (see SECURITY.md for files that must stay private).
+
+### XLV_E_PATH_NOT_ALLOWED
+The MCP server (`@xlvane/mcp`) was asked to read or write a path outside the directories it was started with (`--root`), including paths that leave them through `..` or a symbolic link, or to write through a symbolic link. Nothing was read or written. `details.path` is the path as given and `details.roots` lists the allowed directories.
+**Fix:** use a path inside one of the listed directories, or restart the server with another `--root`.
 
 ## Warnings
 

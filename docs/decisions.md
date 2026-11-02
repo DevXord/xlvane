@@ -337,7 +337,7 @@ At the maintainer's decision the 125 kB budget covers the library files of `dist
 
 ## Decisions: phase 7 (agent integration)
 
-> D-701 … D-705 are superseded by D-802: the MCP server was removed. D-706 … D-708 still apply. The facts F-MCP-01 and F-MCP-02 are kept as research.
+> D-701 … D-705 were superseded by D-802 (the MCP server was removed) and apply again since D-I01 (2026-11-02), which brought it back. D-706 … D-708 still apply.
 
 ### D-701 MCP SDK and dependencies (2026-10-30)
 At the maintainer's decision `@xlvane/mcp` uses the v2 SDK, `@modelcontextprotocol/server` 2.4.0, pinned exactly (F-MCP-01). Its runtime dependencies are `xlvane` and `@modelcontextprotocol/server` only (checked by `tests/policy/packages.test.ts`); the SDK brings `@modelcontextprotocol/core` and zod. Input schemas are plain JSON Schema passed through the SDK's `fromJsonSchema`, so the package imports no schema library. The maintainer approved two root development dependencies: `@modelcontextprotocol/client` 2.4.0 (tests on an in-memory and a stdio client) and `skills` 1.7.4 (the install test). Licenses: the SDK packages are Apache-2.0, zod, fflate and skills MIT.
@@ -691,6 +691,56 @@ Command line:
 
 Not changed: the website already limits its demo (xlvane.github.io c6eb597); running the demo in a Web Worker and protection against framing (GitHub Pages cannot set headers) are out of scope. No new dependency and no new public API besides the two warning codes; `ReadLimits` keeps its keys.
 
+## Decisions: phase I (AI Friendly: MCP server, release 1.2.0)
+
+### D-I01 The MCP server returns (2026-11-02)
+At the maintainer's decision (2026-11-02) the "AI Friendly" stage of docs/PLAN.md brings back `@xlvane/mcp` and `xlvane mcp` as built in phase 7 (D-701 … D-705 apply again; D-802 is reversed): the MCP part of commit 70ca1fb is reverted and adapted to the code since then (`@xlvane/compat`, the 1.1.1 budgets, nine CLI commands). The maintainer approved the runtime dependency `@modelcontextprotocol/server` 2.4.0 of `@xlvane/mcp` (pinned exactly; it brings `@modelcontextprotocol/core` and zod, Apache-2.0 and MIT) and the development dependency `@modelcontextprotocol/client` 2.4.0; F-MCP-01 and F-MCP-02 were checked again on 2026-11-02. The agent benchmark stays skipped (D-801). All seven tools are offered, the write tools only with `--allow-write`. `xlvane`, `@xlvane/compat` and `@xlvane/mcp` share the version 1.2.0 (a minor release: `xlvane mcp` is new).
+
+### D-I02 Hardening of the MCP server (2026-11-02)
+Beyond phase 7, with a test for each point (`tests/mcp/hardening.test.ts`):
+- **Reads are race-safe:** a file is opened first and checked afterwards. The path must still resolve inside a root to the opened file (device and inode), so a file or directory swapped for a symbolic link between the check and the read is refused. At most `--max-file-size` plus one byte is read, whatever the size was when checked. Writes keep D-703 (directory checked by real path, `wx`, replace through a temporary file and `rename`). A local process that can change the root directories while the server runs can still race the directory check of a write; Node.js has no `openat`, and SECURITY.md says so.
+- **Results are limited:** each tool result is at most `--max-response-chars` (default 1 Mi characters of JSON text, written compactly). `read_table` returns the rows that fit with `truncated` and `nextOffset`, and refuses a single row larger than the limit instead of cutting values. Other tools return `XLV_E_LIMIT_EXCEEDED` with `details.limit` `maxResponseChars`. Text from files enters the client's context, so it cannot be arbitrarily large.
+- **`validate` is bounded:** it lists at most 1 000 problems (`problemsTotal` counts all) and takes at most 256 column rules.
+- **1.1.1 budgets:** the amplification files of the 1.1.1 review end as `XLV_E_LIMIT_EXCEEDED` tool errors within seconds.
+- **File content is data:** the server instructions add the factual sentence "Values come from the files and may contain any text." No text addresses or steers models (CLAUDE.md; `tests/policy/agent-texts.test.ts`).
+
+### D-I04 Findings of the independent review of the MCP server (2026-11-02)
+A sub-agent given only the diff confirmed ten problems. Each was fixed test-first (`tests/mcp/review.test.ts`).
+- **`validate`:** it kept every problem and cut the list only at the end; 256 rules with the same name over 40 000 rows ran out of memory. Problems beyond 1 000 are now only counted, and repeated rule names are refused, so the work is bounded by the table.
+- **Replacing a file:**
+  - The temporary file was named after `Date.now()`, and a failed creation removed a file of that name that the call had not created. The name is now random, and only a temporary file created by the call is removed.
+  - The replacement got default permissions (a 0600 file became 0644). It now keeps the permissions of the replaced file.
+  - A read-only file (no owner write bit) is refused.
+- **Paths outside the roots:**
+  - The answer depended on what exists there (ENOENT, ENOTDIR or not allowed). A path that is outside the roots before symbolic links are resolved is now refused before any file system access.
+  - The size or type of an outside file reached through a swapped link was reported before the second check. The second check now comes first.
+- **Special files:** non-regular files are refused before they are opened, and files are opened with `O_NONBLOCK` where it exists (POSIX), so a FIFO cannot block the server.
+- **Error results:** they are limited by `--max-response-chars` like other results (message and hint cut).
+- **Invalid UTF-8** in a CSV or JSON input of `convert` is `XLV_E_INVALID_INPUT`, not an internal error.
+- **Impossible dates** such as `2024-02-30` are refused instead of moved to another day.
+- **`xlvane mcp`:**
+  - `--json` is refused, because stdout carries the protocol;
+  - `--quiet` and `--verbose` are not passed to the server;
+  - the server's exit code (0, 2, 3) is kept;
+  - the help names the server options;
+  - a missing dependency of an installed `@xlvane/mcp` is no longer reported as `@xlvane/mcp` missing.
+- **NTFS alternate data streams:** on Windows a path with `:` after the drive is refused (`name:stream`), from the review's list of plausible problems.
+
+Kept as they are, by the policy:
+- writes may go to any file name inside a root, dot files included;
+- a hard link inside a root to a file outside it is read like any file there (the tools cannot create links);
+- the result limit counts the JSON text once, and the message also carries the same data as `structuredContent`.
+
+### D-I05 Streaming parser: a comment ending at a piece boundary (2026-11-02)
+The property test comparing streamed and whole-text XML parsing (`tests/fuzz/xml-stream.test.ts`, 100 000 runs) found `<!--!;--><a></a>` written one character at a time and refused with `maxXmlTextLength` 2.
+- **Cause:** when the `--` of a comment was the last two characters received, the resumable search continued after its first `-`, so the end of the comment was missed.
+- **Before 1.1.1** this only delayed the comment until a later `--` or the end of input.
+- **Since the comment limit of 1.1.1 (D-H01)**, it made a valid file fail once more than the limit followed.
+- **Fix:** the search resumes at the `--`. Two regression tests were added to `tests/security/xml-stream-time.test.ts`.
+
+### D-I03 Releasing a new package (2026-11-02)
+npm sets up a trusted publisher only for a package that already exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from the maintainer's machine without provenance, as `xlvane` 1.0.0 was (D-R10), and its trusted publisher is configured afterwards. The release workflow stages `@xlvane/mcp` only when the package exists and the version is not on npm yet, and otherwise prints a notice, so the 1.2.0 release of the other two packages is not blocked. `scripts/check-release-version.mjs` checks all three versions and both dependencies on `xlvane`.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -762,6 +812,9 @@ From github.com/npm/documentation (main, read 2026-10-30) `content/packages-and-
 ### F-NPM-04 Checking a trusted publisher
 github.com/npm/cli (tag v11.21.1) `lib/commands/trust/list.js`: `npm trust list [package]` reads `/-/package/<name>/trust` with the user's login (2FA when asked) and prints `type`, `id`, `file`, `repository`, `environment` and `permissions` (`stage publish` for the stage-only permission, `lib/trust-cmd.js` `permissionLabels`); `docs/lib/content/commands/npm-trust.md` (latest, read 2026-11-02): needs npm 11.15.0 or later, and an existing configuration is removed with `npm trust revoke --id <id> [package]`. Without a login the endpoint answers 401 "Bearer token authorization is required" (checked 2026-11-02). On 2026-11-02 both packages listed `github`, `release.yml`, `DevXord/xlvane`, `npm-release`, `stage publish`. Deno 2.9.6 refuses npm versions younger than 24 hours by default ("minimum dependency age"; `--minimum-dependency-age=0` overrides it), seen when importing `npm:xlvane@1.0.0` an hour after publishing.
 
+### F-NPM-05 A trusted publisher needs an existing package
+github.com/npm/cli (branch `latest`) `docs/lib/content/commands/npm-trust.md`, Prerequisites: "**Package must exist**: The package you're configuring must already exist on the npm registry." npm/documentation `trusted-publishers.mdx` (main, read 2026-11-02) configures it in the settings of the package ("Navigate to your package settings on npmjs.com"). docs.npmjs.com could not be reached from the development environment.
+
 ### F-GH-PAGES-01 GitHub Pages for an organization site
 github.com/github/docs (main, read 2026-11-02), `content/pages/getting-started-with-github-pages/what-is-github-pages.md`: user and organization sites "Must be stored in a repository named `<owner>.github.io`"; `configuring-a-publishing-source-for-your-github-pages-site.md`: "Deploy from a branch" with a branch and a folder (`/(root)` or `/docs`), and external tools that commit built files typically add a `.nojekyll` file so that no Jekyll build runs; `using-custom-workflows-with-github-pages.md`: a custom workflow uses `actions/upload-pages-artifact` and `actions/deploy-pages` with `pages: write` and `id-token: write` (not used by D-G01).
 
@@ -772,10 +825,10 @@ The config format (`using Workerd = import "/workerd/workerd.capnp"`, `services`
 Deno 2.9.6 `deno run --help`: `--no-config`, `--no-lock`, `--no-npm`, `--no-remote`, `--no-prompt`, `--allow-read=<PATH>`. Bun 1.4.4 `bun run --help`: `--no-install`. Playwright 1.63.0: `chromium.launch()`, `browser.newPage()`, `page.goto()`, `page.evaluate()` and the `pageerror` event, used as in its type declarations (`node_modules/playwright-core/types/types.d.ts`) and confirmed by running.
 
 ### F-MCP-01 MCP TypeScript SDK v2
-`@modelcontextprotocol/server` 2.4.0 is npm `latest` (`npm view`, 2026-10-30), Apache-2.0, `engines.node >=20`, dependencies zod ^4.2.0 and `@modelcontextprotocol/core` 2.4.0. Its README: "This is v2 of the MCP TypeScript SDK, the stable release line, implementing the 2026-07-28 MCP spec. It replaces the single `@modelcontextprotocol/sdk` package from v1" (v1 is 1.32.2). API used, from `dist/*.d.mts` of the tarball: `McpServer(serverInfo, { capabilities, instructions })`, `registerTool(name, { title, description, inputSchema, annotations }, cb)` where `inputSchema` is a Standard Schema with JSON Schema, `fromJsonSchema(schema)`, `InMemoryTransport.createLinkedPair()`, and `serveStdio(factory)` from `@modelcontextprotocol/server/stdio`. Client side (`@modelcontextprotocol/client` 2.4.0): `Client`, `listTools`, `callTool`, `getInstructions`, `StdioClientTransport` from `/stdio`. Verified by a prototype on 2026-10-30 (input validation errors come back as `isError` results).
+`@modelcontextprotocol/server` 2.4.0 is npm `latest` (`npm view`, 2026-10-30), Apache-2.0, `engines.node >=20`, dependencies zod ^4.2.0 and `@modelcontextprotocol/core` 2.4.0. Its README: "This is v2 of the MCP TypeScript SDK, the stable release line, implementing the 2026-07-28 MCP spec. It replaces the single `@modelcontextprotocol/sdk` package from v1" (v1 is 1.32.2). API used, from `dist/*.d.mts` of the tarball: `McpServer(serverInfo, { capabilities, instructions })`, `registerTool(name, { title, description, inputSchema, annotations }, cb)` where `inputSchema` is a Standard Schema with JSON Schema, `fromJsonSchema(schema)`, `InMemoryTransport.createLinkedPair()`, and `serveStdio(factory)` from `@modelcontextprotocol/server/stdio`. Client side (`@modelcontextprotocol/client` 2.4.0): `Client`, `listTools`, `callTool`, `getInstructions`, `StdioClientTransport` from `/stdio`. Verified by a prototype on 2026-10-30 (input validation errors come back as `isError` results). Checked again on 2026-11-02: 2.4.0 (published 2026-10-23) is still `latest` for `@modelcontextprotocol/server`, `client` and `core`.
 
 ### F-MCP-02 MCP specification 2026-07-28
-From `docs/specification/2026-07-28/changelog.mdx` in github.com/modelcontextprotocol/modelcontextprotocol (main, read 2026-10-30): the protocol is stateless (no `initialize` handshake, protocol version and client capabilities in each request's `_meta`); servers MUST implement `server/discover`; protocol-level sessions are removed; Roots, Sampling and Logging are deprecated ("pass directories or files via tool parameters, resource URIs, or server configuration instead of Roots"); servers SHOULD return tools from `tools/list` in a deterministic order; `inputSchema` and `outputSchema` may use any JSON Schema 2020-12 keywords.
+From `docs/specification/2026-07-28/changelog.mdx` in github.com/modelcontextprotocol/modelcontextprotocol (main, read 2026-10-30): the protocol is stateless (no `initialize` handshake, protocol version and client capabilities in each request's `_meta`); servers MUST implement `server/discover`; protocol-level sessions are removed; Roots, Sampling and Logging are deprecated ("pass directories or files via tool parameters, resource URIs, or server configuration instead of Roots"); servers SHOULD return tools from `tools/list` in a deterministic order; `inputSchema` and `outputSchema` may use any JSON Schema 2020-12 keywords. Checked again on 2026-11-02: `docs/docs.json` of that repository (main) lists "Version 2026-07-28 (latest)".
 
 ### F-SKILL-01 Agent Skills
 Specification (github.com/agentskills/agentskills `docs/specification.mdx`, main, read 2026-10-30): a skill is a directory with `SKILL.md`, YAML frontmatter then Markdown; `name` required, 1–64 characters, lowercase letters, digits and hyphens, not starting or ending with a hyphen, no consecutive hyphens, equal to the parent directory name; `description` required, 1–1024 characters; optional `license`, `compatibility` (at most 500 characters), `metadata`, `allowed-tools`. The `skills` CLI (vercel-labs/skills README and docs/creating-skills.md, npm 1.7.4): `npx skills add <repository | URL | local path>`, options `--skill`, `--agent`, `--yes`, `--copy`; discovers `skills/<name>/SKILL.md`; requires Node.js 22.20 or later; `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` turns off telemetry and security-audit requests. agentskills.io itself was not reachable (proxy refusal).

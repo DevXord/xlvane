@@ -17,6 +17,7 @@ export interface RunOptions {
   readonly env?: Record<string, string | undefined>;
   readonly tty?: boolean;
   readonly columns?: number;
+  readonly importModule?: (specifier: string) => Promise<unknown>;
 }
 
 /** Runs `xlvane <argv>` in-process. Colour is off unless the test turns it on. */
@@ -35,6 +36,12 @@ export async function cli(argv: readonly string[], options: RunOptions): Promise
     stdoutIsTTY: options.tty ?? false,
     stderrIsTTY: options.tty ?? false,
     columns: options.columns ?? 100,
+    importModule:
+      options.importModule ??
+      (async () => {
+        // The message format of Node.js 22 for a missing package (checked by running an import).
+        throw Object.assign(new Error("Cannot find package '@xlvane/mcp' imported from /x/node_modules/xlvane/dist/cli.js"), { code: 'ERR_MODULE_NOT_FOUND' });
+      }),
     version: '0.0.0-test',
   };
   const code = await run(argv, io);

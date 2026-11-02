@@ -58,7 +58,7 @@ xlvane help edit                          # usage and examples of one command
 - `--json` prints one JSON document per command with a documented schema ([docs/cli-json.md](https://github.com/DevXord/xlvane/blob/main/docs/cli-json.md)). Exit codes: 0 success, 1 a check found something (`diff`, `validate`), 2 usage error, 3 input or file error.
 - Colour (red errors, yellow warnings, green results, bold headings) is used only on a terminal and never carries information alone; `NO_COLOR` or `TERM=dumb` turn it off, `FORCE_COLOR=1` turns it on. Control characters from files, such as an escape character in a cell, are shown as `\x1b` and never reach the terminal.
 - Tables and summaries go to separate streams: `xlvane read report.xlsx > out.txt` writes only the table; the row count and warnings notes go to stderr.
-- `xlvane migrate` prepares a project for `@xlvane/compat`.
+- `xlvane migrate` prepares a project for `@xlvane/compat`, and `xlvane mcp` starts the MCP server from `@xlvane/mcp` (a separate package; [its README](https://github.com/DevXord/xlvane/blob/main/packages/mcp/README.md)).
 
 ## Reading a workbook
 

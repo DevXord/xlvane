@@ -12,6 +12,8 @@ export interface CliIO {
   readonly stderrIsTTY: boolean;
   /** Terminal width, when stdout is a terminal. */
   readonly columns: number | undefined;
+  /** Loads an optional package (used by `xlvane mcp`). */
+  readonly importModule: (specifier: string) => Promise<unknown>;
   /** Version of the xlvane package. */
   readonly version: string;
 }
@@ -43,7 +45,7 @@ export interface CommandOutcome {
   readonly result: unknown;
   readonly render: (out: Output) => string;
   /** 0 success, 1 a check found something (diff, validate). */
-  readonly exitCode: 0 | 1;
+  readonly exitCode: 0 | 1 | 2 | 3;
 }
 
 /** What a command gets when it runs. */
@@ -74,6 +76,8 @@ export interface CommandSpec {
   readonly options: Readonly<Record<string, OptionSpec>>;
   /** The command writes files: adds --force and --dry-run. */
   readonly writes?: boolean;
+  /** Arguments are passed on unparsed (`xlvane mcp`). */
+  readonly passThrough?: boolean;
   /** Exit code 1 means "a check found something" for this command. */
   readonly checks?: string;
   readonly examples: readonly Example[];

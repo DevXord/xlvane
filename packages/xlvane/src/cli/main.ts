@@ -78,8 +78,8 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
       stdout(commandHelp(out, spec));
       return EXIT.ok;
     }
-    const args = parseCommandArgs(spec, rest);
-    checkPositionals(spec, args);
+    const args = spec.passThrough ? { positionals: rest, values: {} } : parseCommandArgs(spec, rest);
+    if (!spec.passThrough) checkPositionals(spec, args);
     const quiet = args.values['quiet'] === true;
     const ctx: CommandContext = {
       io,
@@ -212,6 +212,7 @@ function suggestCommand(error: XlvError, first: string | undefined, rest: readon
     const at = rest.findIndex((a, i) => a === path && rest[i - 1] !== '-o' && rest[i - 1] !== '--output');
     if (at >= 0) return commandLine([spec.name, ...rest.map((a, i) => (i === at ? suggestions[0]! : a))]);
   }
+  if (error.code === 'XLV_E_NOT_INSTALLED' && typeof d['package'] === 'string') return `npm install ${d['package']}`;
   return null;
 }
 

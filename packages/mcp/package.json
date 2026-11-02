@@ -1,0 +1,53 @@
+{
+  "name": "@xlvane/mcp",
+  "version": "1.2.0",
+  "description": "MCP server for XLSX files: inspect, read, write, edit, convert, compare and validate workbooks with xlvane, limited to the directories given at start.",
+  "keywords": [
+    "xlsx",
+    "excel",
+    "spreadsheet",
+    "mcp",
+    "model-context-protocol"
+  ],
+  "license": "MIT",
+  "homepage": "https://github.com/DevXord/xlvane#readme",
+  "bugs": {
+    "url": "https://github.com/DevXord/xlvane/issues"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/DevXord/xlvane.git",
+    "directory": "packages/mcp"
+  },
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "xlvane-mcp": "./dist/cli.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "tsdown"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.4.0",
+    "xlvane": "^1.2.0"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

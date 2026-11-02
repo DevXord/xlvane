@@ -2,6 +2,13 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase I: AI Friendly, MCP server (2026-11-02)
+
+- At the maintainer's decision, `@xlvane/mcp` and `xlvane mcp` are back from phase 7 (D-I01, reversing D-802); dependencies `@modelcontextprotocol/server` 2.4.0 (runtime) and `@modelcontextprotocol/client` 2.4.0 (development) approved; the agent benchmark stays skipped (D-801).
+- Hardening (D-I02, `tests/mcp/hardening.test.ts`): reads opened first and checked afterwards (device and inode), bounded reads, a result size limit (`--max-response-chars`, `read_table` with `nextOffset`), `validate` with at most 1 000 problems and 256 rules, the 1.1.1 amplification files ending as tool errors, the factual sentence about file content in the instructions.
+- Release (D-I03, F-NPM-05): version 1.2.0 for all three packages; the workflow stages `@xlvane/mcp` only when the package exists; RELEASING.md describes the first, local publication of `@xlvane/mcp`.
+- Docs: READMEs, the Agent Skill, SECURITY.md (MCP row), errors.md, CHANGELOG 1.2.0, PLAN.md (phase I); CLAUDE.md no longer calls `@xlvane/mcp` planned or absent.
+
 ## Phase H: security release 1.1.1 (2026-11-02)
 
 - Two independent security reviews with proof-of-concept files (library and CLI; website and GitHub workflows) at the maintainer's request. No code execution, XSS, workflow injection, leaked secrets or prototype pollution; 14 denial-of-service findings by amplification in the library and CLI, all fixed test-first (D-H01): budgets for output positions, compat load, hyperlinks and shared-formula text; a part shared by sheets read once; linear streaming XML parsing, Blob ZIP loading, row changes and style-only cells; CLI escaping with colours and in `--json`; `migrate` without symbolic links and with an exact `--force` edit; more CSV formula-injection starts.
