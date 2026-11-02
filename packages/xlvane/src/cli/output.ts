@@ -1,6 +1,7 @@
 // Text output of the CLI: colour, tables and quoting (docs/decisions.md D-602).
-import { styleText } from 'node:util';
 import { isoDate } from '../util/iso-date';
+import { EAST_ASIAN_WIDE } from './east-asian-width';
+import { nodeUtil } from './node-util';
 import type { CliIO } from './types';
 
 /**
@@ -40,7 +41,7 @@ export class Output {
   ) {}
 
   private style(format: string | readonly string[], text: string): string {
-    return this.color && text !== '' ? styleText(format, text, { validateStream: false }) : text;
+    return this.color && text !== '' ? nodeUtil.styleText(format, text, { validateStream: false }) : text;
   }
 
   bold(text: string): string {
@@ -64,11 +65,11 @@ export class Output {
 
   /**
    * An aligned table. Columns are cut with "…" to fit `width`; the widest columns shrink first.
-   * Width is counted in UTF-16 code units, so wide characters may misalign (documented).
+   * Widths are display columns ({@link displayWidth}), so CJK text and emoji stay aligned.
    */
   table(headers: readonly string[], rows: readonly (readonly string[])[], indent = '', align: readonly ('left' | 'right')[] = []): string {
     const count = headers.length;
-    const widths = headers.map((h, i) => Math.max(h.length, ...rows.map((r) => oneLine(r[i] ?? '').length)));
+    const widths = headers.map((h, i) => Math.max(displayWidth(h), ...rows.map((r) => displayWidth(oneLine(r[i] ?? '')))));
     const gap = 2;
     const available = Math.max(count * 4, this.width - indent.length - gap * (count - 1));
     let total = widths.reduce((a, b) => a + b, 0);
@@ -85,7 +86,8 @@ export class Output {
         .map((c, i) => {
           const w = widths[i] ?? 0;
           const text = fit(oneLine(c), w);
-          const padded = align[i] === 'right' && !head ? text.padStart(w) : i === count - 1 ? text : text.padEnd(w);
+          const pad = ' '.repeat(Math.max(0, w - displayWidth(text)));
+          const padded = align[i] === 'right' && !head ? pad + text : i === count - 1 ? text : text + pad;
           return head ? this.bold(padded) : padded;
         })
         .join(' '.repeat(gap))
@@ -153,8 +155,74 @@ export function terminalSafe(text: string, keepStyles: boolean): string {
   return start === 0 ? text : result + text.slice(start);
 }
 
+/** Cuts text to `width` display columns with "…", between grapheme clusters. */
 function fit(text: string, width: number): string {
-  return text.length <= width ? text : `${text.slice(0, Math.max(0, width - 1))}…`;
+  if (displayWidth(text) <= width) return text;
+  let result = '';
+  let used = 0;
+  for (const part of graphemes(text)) {
+    const w = displayWidth(part);
+    if (used + w > width - 1) break;
+    result += part;
+    used += w;
+  }
+  return `${result}…`;
+}
+
+/**
+ * Grapheme clusters of a text (Intl.Segmenter), or its code points when the Node.js build has no
+ * Intl support, so that cutting never splits a surrogate pair or a letter from its accent.
+ */
+function graphemes(text: string): Iterable<string> {
+  if (segmenter === undefined) return Array.from(text);
+  return Array.from(segmenter.segment(text), (s) => s.segment);
+}
+
+const segmenter = typeof Intl === 'object' && typeof Intl.Segmenter === 'function' ? new Intl.Segmenter(undefined, { granularity: 'grapheme' }) : undefined;
+
+/**
+ * The number of terminal columns a text takes, counted as Node.js counts them for its own output
+ * (src/node_i18n.cc GetColumnWidth, v22.23.4; F-UNICODE-01): East Asian Wide and Fullwidth
+ * characters (Unicode East_Asian_Width W and F) and emoji with Emoji_Presentation take two
+ * columns; control and format characters (except the soft hyphen), nonspacing and enclosing marks
+ * and emoji modifiers that are not Wide take none; every other character, including East Asian
+ * Ambiguous ones, takes one. Each code point of an emoji sequence is counted, as Node.js does by
+ * default, so a terminal that draws the sequence as one picture shows it narrower.
+ */
+export function displayWidth(text: string): number {
+  let width = 0;
+  for (let i = 0; i < text.length; i++) {
+    const code = text.charCodeAt(i);
+    if (code >= 0x20 && code < 0x7f) width++;
+    else {
+      for (const ch of text.slice(i)) width += codePointWidth(ch.codePointAt(0) ?? 0, ch);
+      break;
+    }
+  }
+  return width;
+}
+
+function codePointWidth(code: number, ch: string): number {
+  if (isEastAsianWide(code) || EMOJI_PRESENTATION.test(ch)) return 2;
+  if (code !== 0xad && ZERO_WIDTH.test(ch)) return 0;
+  return 1;
+}
+
+const EMOJI_PRESENTATION = /^\p{Emoji_Presentation}$/u;
+const ZERO_WIDTH = /^[\p{Cc}\p{Cf}\p{Me}\p{Mn}\p{Emoji_Modifier}]$/u;
+
+/** Binary search in the sorted [first, last, first, last, …] ranges of EAST_ASIAN_WIDE. */
+function isEastAsianWide(code: number): boolean {
+  if (code < 0x1100) return false;
+  let lo = 0;
+  let hi = EAST_ASIAN_WIDE.length / 2 - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (code < EAST_ASIAN_WIDE[mid * 2]!) hi = mid - 1;
+    else if (code > EAST_ASIAN_WIDE[mid * 2 + 1]!) lo = mid + 1;
+    else return true;
+  }
+  return false;
 }
 
 /** Quotes an argument for a POSIX shell when needed, so "Try:" commands can be copied. */
@@ -191,13 +259,13 @@ export function humanSize(bytes: number): string {
   return `${(bytes / 1_000_000).toFixed(1)} MB`;
 }
 
-/** Wraps a paragraph at `width` columns; lines after the first start with `indent`. */
+/** Wraps a paragraph at `width` display columns; lines after the first start with `indent`. */
 export function wrap(text: string, width: number, indent = '', firstIndent: string = indent): string {
   const lines: string[] = [];
   let line = '';
   let prefix = firstIndent;
   for (const word of text.split(/\s+/).filter((w) => w !== '')) {
-    if (line !== '' && prefix.length + line.length + 1 + word.length > width) {
+    if (line !== '' && displayWidth(prefix) + displayWidth(line) + 1 + displayWidth(word) > width) {
       lines.push(prefix + line);
       prefix = indent;
       line = word;
