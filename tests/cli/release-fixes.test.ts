@@ -142,7 +142,7 @@ describe('bidirectional text controls (L3)', () => {
     }
   });
 
-  it('do not reach the terminal from cells, sheet names and notes; --json keeps them', async () => {
+  it('do not reach the terminal from cells, sheet names and notes; --json keeps them as \\u escapes', async () => {
     await withFixtures(async (dir) => {
       const wb = createWorkbook();
       wb.addSheet('Data‮').set('A1', 'Name').set('A2', 'abc‮gnp.exe').note('A2', 'x⁧y');
@@ -153,7 +153,9 @@ describe('bidirectional text controls (L3)', () => {
         expect(r.stdout).toContain('\\u202e');
       }
       const json = await cli(['read', 'bidi.xlsx', '--json'], { cwd: dir });
-      expect(json.stdout).toContain('‮');
+      // The same value, written as \u escapes (D-H01).
+      expect(json.stdout).not.toMatch(/[\u202a-\u202e\u2066-\u2069]/);
+      expect(JSON.stringify(JSON.parse(json.stdout))).toContain('\u202e');
     });
   });
 });

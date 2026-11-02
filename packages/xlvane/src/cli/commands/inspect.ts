@@ -1,7 +1,7 @@
 import { inspect, type InspectReport } from '../../inspect';
 import { str, usageError } from '../args';
 import { readBook } from '../files';
-import { plural, showValue, type Output } from '../output';
+import { escapeControls as t, plural, showValue, type Output } from '../output';
 import type { CommandContext, CommandSpec } from '../types';
 import { warningsBlock } from '../warnings';
 
@@ -53,21 +53,24 @@ export const inspectCommand: CommandSpec = {
   },
 };
 
+// Text from the file (and the file name) is escaped where it is inserted: with colours on, the
+// final filter keeps the colour sequences the CLI writes, and a sheet name could hold the same
+// bytes (D-H01). Table cells are escaped by Output.table.
 function renderReport(out: Output, file: string, r: InspectReport, verbose: boolean): string {
   const lines = [
-    `${out.bold(file)}: ${r.format}, ${plural(r.sheetCount, 'sheet')}, date system ${r.dateSystem}${r.conformance === 'strict' ? ', Strict conformance' : ''}`,
+    `${out.bold(t(file))}: ${r.format}, ${plural(r.sheetCount, 'sheet')}, date system ${r.dateSystem}${r.conformance === 'strict' ? ', Strict conformance' : ''}`,
   ];
   if (r.hasMacros) lines.push('Contains macros (not run).');
   if (r.externalLinkCount > 0) lines.push(`Links to ${plural(r.externalLinkCount, 'other workbook')} (not followed).`);
   const props = Object.entries(r.properties);
   if (props.length > 0) {
     const keyWidth = Math.max(...props.map(([k]) => k.length));
-    lines.push(out.bold('Properties:'), ...props.map(([k, v]) => `  ${k.padEnd(keyWidth)}  ${v}`));
+    lines.push(out.bold('Properties:'), ...props.map(([k, v]) => `  ${k.padEnd(keyWidth)}  ${t(String(v))}`));
   }
   // Built-in names Excel keeps hidden (_xlnm._FilterDatabase and the like) only with --verbose.
   const names = verbose ? r.definedNames : r.definedNames.filter((n) => !(n.hidden && n.name.startsWith('_xlnm.')));
   if (names.length > 0) {
-    const shown = names.slice(0, 5).map((n) => `${n.name}${n.sheet === null ? '' : ` (sheet "${n.sheet}")`}${n.hidden ? ' (hidden)' : ''} =${n.refersTo}`);
+    const shown = names.slice(0, 5).map((n) => `${t(n.name)}${n.sheet === null ? '' : ` (sheet "${t(n.sheet)}")`}${n.hidden ? ' (hidden)' : ''} =${t(n.refersTo)}`);
     const more = names.length > 5 || r.definedNamesTruncated ? `, … (${r.definedNamesTruncated ? 'more than ' : ''}${String(names.length)} in total; see --json)` : '';
     lines.push(`${out.bold('Defined names:')} ${shown.join(', ')}${more}`);
   }
@@ -75,18 +78,18 @@ function renderReport(out: Output, file: string, r: InspectReport, verbose: bool
     lines.push('');
     const state = s.state === 'visible' ? '' : ` (${s.state})`;
     if (s.kind !== 'worksheet') {
-      lines.push(`${out.bold(`Sheet "${s.name}"`)}${state}: ${s.kind}, no cells`);
+      lines.push(`${out.bold(`Sheet "${t(s.name)}"`)}${state}: ${s.kind}, no cells`);
       continue;
     }
     if (s.usedRange === null) {
-      lines.push(`${out.bold(`Sheet "${s.name}"`)}${state}: empty`);
+      lines.push(`${out.bold(`Sheet "${t(s.name)}"`)}${state}: empty`);
       continue;
     }
     lines.push(
-      `${out.bold(`Sheet "${s.name}"`)}${state}: ${s.usedRange}, ${plural(s.rowCount, 'row')} × ${plural(s.columnCount, 'column')}, ${plural(s.cellCount, 'cell')}, ${plural(s.formulaCount, 'formula')}`,
+      `${out.bold(`Sheet "${t(s.name)}"`)}${state}: ${s.usedRange}, ${plural(s.rowCount, 'row')} × ${plural(s.columnCount, 'column')}, ${plural(s.cellCount, 'cell')}, ${plural(s.formulaCount, 'formula')}`,
     );
     lines.push(s.headerRow ? `  Header row: ${String(s.headerRow.row)} (${s.headerRow.confidence} confidence)` : '  Header row: none detected');
-    if (s.mergedRangeCount > 0) lines.push(`  Merged: ${s.mergedRanges.slice(0, 10).join(', ')}${s.mergedRangeCount > 10 ? `, … (${String(s.mergedRangeCount)} in total)` : ''}`);
+    if (s.mergedRangeCount > 0) lines.push(`  Merged: ${t(s.mergedRanges.slice(0, 10).join(', '))}${s.mergedRangeCount > 10 ? `, … (${String(s.mergedRangeCount)} in total)` : ''}`);
     if (s.columns.length > 0) {
       lines.push(
         out.table(
@@ -97,23 +100,23 @@ function renderReport(out: Output, file: string, r: InspectReport, verbose: bool
       );
       if (s.columnsTruncated) lines.push(`  … ${plural(s.columnCount - s.columns.length, 'more column')}; use --max-columns ${String(s.columnCount)} to see them`);
     }
-    if (s.formulas.length > 0) lines.push(`  Formulas: ${s.formulas.slice(0, 3).map((f) => `${f.cell} =${f.formula ?? '(shared)'}`).join(', ')}`);
+    if (s.formulas.length > 0) lines.push(`  Formulas: ${s.formulas.slice(0, 3).map((f) => `${f.cell} =${t(f.formula ?? '(shared)')}`).join(', ')}`);
     if (s.richTextCellCount > 0) lines.push(`  Rich text: ${plural(s.richTextCellCount, 'cell')} (${s.richTextCells.slice(0, 5).join(', ')}${s.richTextCellCount > 5 ? ', …' : ''})`);
     if (s.styledColumns.length > 0) lines.push(`  Column styles: ${s.styledColumns.slice(0, 10).join(', ')}${s.styledColumns.length > 10 ? ', …' : ''}`);
     if (s.hyperlinkCount > 0) {
-      const shown = s.hyperlinks.slice(0, 3).map((l) => `${l.ref} → ${l.target ?? ''}${l.location === null ? '' : `${l.target === null ? '' : '#'}${l.location}`}`);
+      const shown = s.hyperlinks.slice(0, 3).map((l) => `${l.ref} → ${t(l.target ?? '')}${l.location === null ? '' : `${l.target === null ? '' : '#'}${t(l.location)}`}`);
       lines.push(`  Hyperlinks: ${plural(s.hyperlinkCount, 'link')} (${shown.join(', ')}${s.hyperlinkCount > 3 ? ', …' : ''})`);
     }
     if (s.imageCount > 0) lines.push(`  Images: ${plural(s.imageCount, 'picture')} (${s.images.slice(0, 5).map((i) => `${i.cell ?? 'absolute'} ${i.format ?? 'other'}`).join(', ')}${s.imageCount > 5 ? ', …' : ''})`);
     if (s.noteCount > 0) lines.push(`  Notes: ${plural(s.noteCount, 'note')} (${s.notes.slice(0, 5).join(', ')}${s.noteCount > 5 ? ', …' : ''})`);
-    if (s.tables.length > 0) lines.push(`  Tables: ${s.tables.slice(0, 5).map((t) => `${t.name} ${t.ref}`).join(', ')}${s.tables.length > 5 ? ', …' : ''}`);
+    if (s.tables.length > 0) lines.push(`  Tables: ${s.tables.slice(0, 5).map((table) => `${t(table.name)} ${t(table.ref)}`).join(', ')}${s.tables.length > 5 ? ', …' : ''}`);
     if (s.dataValidationCount > 0 || s.conditionalFormatCount > 0) {
       const parts = [s.dataValidationCount > 0 ? plural(s.dataValidationCount, 'data validation') : null, s.conditionalFormatCount > 0 ? plural(s.conditionalFormatCount, 'conditional format rule') : null];
       lines.push(`  Rules: ${parts.filter((p) => p !== null).join(', ')}`);
     }
     if (s.protected) lines.push('  Protected: yes');
     if (s.printArea !== null || s.pageBreakCount > 0) {
-      const parts = [s.printArea === null ? null : `print area ${s.printArea.join(', ')}`, s.pageBreakCount > 0 ? plural(s.pageBreakCount, 'page break') : null];
+      const parts = [s.printArea === null ? null : `print area ${t(s.printArea.join(', '))}`, s.pageBreakCount > 0 ? plural(s.pageBreakCount, 'page break') : null];
       lines.push(`  Printing: ${parts.filter((p) => p !== null).join(', ')}`);
     }
   }
