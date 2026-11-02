@@ -71,6 +71,7 @@ class ReadSheet implements Sheet {
     readonly state: SheetState,
     readonly part: string | null,
     private readonly data: WorksheetData | null,
+    readonly sheetId: number | null,
     readonly hyperlinks: readonly Hyperlink[] = [],
     readonly notes: readonly Note[] = [],
     private readonly names: readonly DefinedName[] = [],
@@ -295,7 +296,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     const links = data === null || entry.part === null ? [] : resolveHyperlinks(pkg, entry.part, entry.name, data, warnings);
     const notes = data === null || entry.part === null ? [] : readNotes(pkg, entry.part, entry.name, limits, warnings);
     if (data !== null) attachNotes(data.rows, notes);
-    const sheet = new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, links, notes, book.definedNames);
+    const sheet = new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, entry.sheetId, links, notes, book.definedNames);
     if (data !== null && entry.part !== null) sheet.tables = readTables(pkg, entry.part, entry.name, limits, warnings);
     if (data !== null && entry.part !== null) {
       const drawing = readSheetDrawing(pkg, entry.part, entry.name, { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null }, { limits, warnings }, media);
@@ -440,6 +441,8 @@ export function attachNotes(rows: Map<number, Map<number, Cell>>, notes: readonl
 export interface SheetEntry {
   readonly name: string;
   readonly index: number;
+  /** `sheet@sheetId`, or `null` when it is missing, invalid or repeated (D-F03). */
+  readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
   /** Part name, or `null` when the part is missing (reported as XLV_W_SHEET_PART_MISSING). */
@@ -560,9 +563,9 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
         sheet: entry.name,
         part: workbookPart,
       });
-      return { name: entry.name, index, kind, state: entry.state, part: null };
+      return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null };
     }
-    return { name: entry.name, index, kind, state: entry.state, part: rel.target };
+    return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: rel.target };
   });
   const definedNames = info.definedNames.map((n): DefinedName => {
     let sheet: string | null = null;

@@ -95,6 +95,7 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
       hint: 'Every workbook must list its sheets. Re-save the file in a spreadsheet application.',
     });
   }
+  const seenIds = new Set<number>();
   const sheets = childrenNamed(sheetsElement, ns, 'sheet').map((el): WorkbookSheetEntry => {
     const name = decodeXstring(el.attrs.get('name') ?? '');
     const rawState = el.attrs.get('state') ?? 'visible';
@@ -106,8 +107,17 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
       });
       state = 'visible';
     }
+    // sheetId is a required, unique xsd:unsignedInt (E-09); a missing, invalid or repeated one is
+    // reported and read as null (D-F03).
     const rawId = el.attrs.get('sheetId');
-    const sheetId = rawId !== undefined && /^\d{1,10}$/.test(rawId) ? Number(rawId) : null;
+    let sheetId = rawId !== undefined && /^\d{1,10}$/.test(rawId.trim()) ? Number(rawId.trim()) : null;
+    if (sheetId !== null && sheetId > 4_294_967_295) sheetId = null;
+    if (sheetId === null) {
+      ctx.warnings.add('XLV_W_INVALID_VALUE', rawId === undefined ? `Sheet "${name}" has no sheetId.` : `Sheet "${name}" has the invalid sheetId "${rawId.slice(0, 20)}".`, { part: ctx.part, sheet: name });
+    } else if (seenIds.has(sheetId)) {
+      ctx.warnings.add('XLV_W_INVALID_VALUE', `Sheet "${name}" repeats the sheetId ${String(sheetId)} of an earlier sheet; its sheetId is read as null.`, { part: ctx.part, sheet: name });
+      sheetId = null;
+    } else seenIds.add(sheetId);
     return { name, sheetId, state, relId: el.attrs.get(relIdKey) ?? null };
   });
   const namesElement = childNamed(root, ns, 'definedNames');

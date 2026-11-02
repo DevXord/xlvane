@@ -623,7 +623,9 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   // writes it only for fullCalcOnLoad, without an application's calcId (X4-28).
   if (meta.calcProperties?.['fullCalcOnLoad']) book.calculation({ fullCalcOnLoad: true });
   for (const ws of sheets) at(ws.name, undefined, () => {
-    const sheet = book.addSheet(ws.name, { state: ws.state });
+    // worksheet.id is written as sheetId, as exceljs writes it (sheet-xform.js L7); an id outside
+    // the 1 to 65534 that Office uses takes the lowest unused one (D-F03).
+    const sheet = book.addSheet(ws.name, { state: ws.state, ...sheetIdOf(ws.id) });
     const useStyles = meta.useStyles !== false;
     const sharedRanges = sharedFormulaRanges(ws);
     const props = sheetPropertiesIn(ws.properties);
@@ -901,4 +903,9 @@ export function styleOut(s: CellStyle, numFmt: string | null): Style {
 /** Reads a file with xlvane; returns the read model for `fillFromRead`. */
 export function readBytes(bytes: Uint8Array): XlvWorkbook {
   return readWorkbook(bytes);
+}
+
+/** `{ sheetId }` for a worksheet id that Office accepts (1 to 65534, W2-20), otherwise nothing (D-F03). */
+export function sheetIdOf(id: number): { sheetId?: number } {
+  return Number.isInteger(id) && id >= 1 && id <= 65_534 ? { sheetId: id } : {};
 }

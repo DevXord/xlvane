@@ -39,6 +39,8 @@ export interface SheetSpec {
   /** Extra elements placed before <sheetData> (e.g. '<dimension ref="A1:B2"/>'). */
   before?: string;
   state?: string;
+  /** The `sheetId` attribute as written (default: the 1-based position); `null` leaves it out. */
+  sheetId?: string | null;
   kind?: 'worksheet' | 'chartsheet';
   /** Leaves the sheet's part out of the package. */
   missingPart?: boolean;
@@ -136,7 +138,7 @@ export function buildXlsx(spec: XlsxSpec = {}): Uint8Array {
   const sheetElements = sheets
     .map(
       (s, i) =>
-        `<sheet name="${escapeXml(s.name)}" sheetId="${i + 1}"${s.state ? ` state="${s.state}"` : ''} r:id="rId${i + 1}"/>`,
+        `<sheet name="${escapeXml(s.name)}"${s.sheetId === null ? '' : ` sheetId="${s.sheetId ?? String(i + 1)}"`}${s.state ? ` state="${s.state}"` : ''} r:id="rId${i + 1}"/>`,
     )
     .join('');
   put(

@@ -66,6 +66,8 @@ export interface StreamRow {
 export interface StreamSheetInfo {
   readonly name: string;
   readonly index: number;
+  /** `sheet@sheetId`, as `Sheet.sheetId`. */
+  readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
 }
@@ -310,7 +312,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
   }
 
   return {
-    sheets: info.sheets.map((s) => ({ name: s.name, index: s.index, kind: s.kind, state: s.state })),
+    sheets: info.sheets.map((s) => ({ name: s.name, index: s.index, sheetId: s.sheetId, kind: s.kind, state: s.state })),
     dateSystem: info.dateSystem,
     conformance: info.conformance,
     format: info.format,

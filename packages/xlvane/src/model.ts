@@ -423,6 +423,12 @@ export interface Sheet {
   readonly name: string;
   /** 0-based position in the workbook. */
   readonly index: number;
+  /**
+   * The sheet's id in the file (`sheet@sheetId`), which does not depend on its position; `null`
+   * when the file has none, an invalid one or one repeated from an earlier sheet (reported as
+   * `XLV_W_INVALID_VALUE`).
+   */
+  readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
   /** Part name of the sheet, for example `/xl/worksheets/sheet1.xml`; `null` if it is missing. */

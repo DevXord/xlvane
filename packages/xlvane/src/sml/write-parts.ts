@@ -35,6 +35,8 @@ import type { StoredCell, StoredNote, StoredRun, StoredValue, WorkbookViewOption
 export interface WriteSheetData {
   readonly name: string;
   readonly state: SheetState;
+  /** The given sheet id, or `null` for the lowest unused one (D-F03). */
+  readonly sheetId?: number | null;
   readonly cells: ReadonlyMap<number, ReadonlyMap<number, StoredCell>>;
   /** Width, visibility and interned style id (0 = none) by column number. */
   readonly columns: ReadonlyMap<number, { readonly width: number | null; readonly hidden: boolean; readonly style: number; readonly outlineLevel?: number; readonly collapsed?: boolean }>;
@@ -1064,9 +1066,25 @@ export function nameTitles(definedNames: readonly NormalizedDefinedName[]): stri
     });
 }
 
+/**
+ * The sheet ids to write: the given ones, and the lowest unused ids for the other sheets in sheet
+ * order, so that sheets without given ids get 1, 2, 3, … (unique, as E-09 requires; D-F03).
+ */
+function sheetIds(sheets: readonly { readonly sheetId?: number | null }[]): number[] {
+  const used = new Set<number>();
+  for (const s of sheets) if (typeof s.sheetId === 'number') used.add(s.sheetId);
+  let next = 1;
+  return sheets.map((s) => {
+    if (typeof s.sheetId === 'number') return s.sheetId;
+    while (used.has(next)) next++;
+    used.add(next);
+    return next;
+  });
+}
+
 /** The workbook part: date system, book view, sheets, and the autofilter and user defined names. */
 export function workbookXml(
-  sheets: readonly { readonly name: string; readonly state: SheetState; readonly autoFilter: CellRange | null }[],
+  sheets: readonly { readonly name: string; readonly state: SheetState; readonly sheetId?: number | null; readonly autoFilter: CellRange | null }[],
   dateSystem: DateSystem,
   definedNames: readonly NormalizedDefinedName[] = [],
   protection: NormalizedWorkbookProtection | null = null,
@@ -1097,8 +1115,9 @@ export function workbookXml(
     workbook += '</bookViews>';
   }
   workbook += '<sheets>';
+  const ids = sheetIds(sheets);
   sheets.forEach((sheet, i) => {
-    workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', i + 1)}`;
+    workbook += `<sheet${attr('name', encodeXstring(sheet.name))}${attr('sheetId', ids[i] ?? i + 1)}`;
     if (sheet.state !== 'visible') workbook += attr('state', sheet.state);
     workbook += `${attr('r:id', `rId${String(i + 1)}`)}/>`;
   });
