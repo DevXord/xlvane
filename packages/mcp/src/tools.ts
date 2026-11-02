@@ -29,7 +29,12 @@ import { readAllowed, writeAllowed, type Roots } from './paths';
 export interface ToolLimits {
   /** Largest number of rows `read_table` returns in one call. */
   readonly maxRows: number;
+  /** Largest result, in characters of its JSON text (D-I02). */
+  readonly maxResponseChars: number;
 }
+
+/** Problems `validate` lists; `problemsTotal` counts all of them (D-I02). */
+const MAX_PROBLEMS = 1000;
 
 type Json = Record<string, unknown>;
 type Args = Record<string, unknown>;
@@ -59,8 +64,18 @@ function object(properties: Json, required: readonly string[] = []): ReturnType<
   return fromJsonSchema({ type: 'object', properties, required: [...required], additionalProperties: false } as never);
 }
 
-function ok(result: Json): CallToolResult {
-  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result };
+function ok(result: Json, maxChars: number): CallToolResult {
+  const text = JSON.stringify(result);
+  // Text from a file goes into the client's context, so a result has a size limit (D-I02).
+  if (text.length > maxChars) {
+    return fail(
+      new XlvError('XLV_E_LIMIT_EXCEEDED', `The result is ${String(text.length)} characters of JSON, more than the server's limit of ${String(maxChars)}.`, {
+        hint: 'Ask for less: one sheet, a smaller range, fewer changes (maxChanges) or fewer rows; the limit is set when the server starts (--max-response-chars).',
+        details: { limit: 'maxResponseChars', value: maxChars },
+      }),
+    );
+  }
+  return { content: [{ type: 'text', text }], structuredContent: result };
 }
 
 function fail(error: unknown): CallToolResult {
@@ -71,13 +86,13 @@ function fail(error: unknown): CallToolResult {
         details: { name: error instanceof Error ? error.name : typeof error },
       });
   const result = { error: e.toJSON() };
-  return { content: [{ type: 'text', text: JSON.stringify(result, null, 2) }], structuredContent: result, isError: true };
+  return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result, isError: true };
 }
 
-function handler(run: (args: Args) => Promise<Json>): (args: unknown) => Promise<CallToolResult> {
+function handler(maxChars: number, run: (args: Args) => Promise<Json>): (args: unknown) => Promise<CallToolResult> {
   return async (args) => {
     try {
-      return ok(await run((args ?? {}) as Args));
+      return ok(await run((args ?? {}) as Args), maxChars);
     } catch (error) {
       return fail(error);
     }
@@ -141,7 +156,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       inputSchema: object({ path: PATH, sheet: { ...SHEET, description: 'Describe only this sheet.' } }, ['path']),
       annotations: READ,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const workbook = await book(roots, a['path'] as string);
       const report = inspect(workbook);
       if (typeof a['sheet'] !== 'string') return report as unknown as Json;
@@ -168,7 +183,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       ),
       annotations: READ,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const workbook = await book(roots, a['path'] as string);
       const table = readTable(workbook, {
         ...(typeof a['sheet'] === 'string' ? { sheet: a['sheet'] } : {}),
@@ -177,17 +192,38 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       });
       const offset = (a['offset'] as number | undefined) ?? 0;
       const limit = (a['limit'] as number | undefined) ?? Math.min(200, limits.maxRows);
-      const rows = table.rows.slice(offset, offset + limit);
-      return {
+      const head = {
         sheet: table.sheet,
         headerRow: table.headerRow,
         range: table.range,
         columns: table.columns.map((c) => ({ key: c.key, header: c.header, letter: c.letter })),
-        rows: rows.map(isoValues),
-        rowNumbers: table.rowNumbers.slice(offset, offset + limit),
+      };
+      // The rows that fit in the result size limit (D-I02); the rest are read with nextOffset.
+      // The JSON text of the result is the parts below plus each row and its number.
+      let used = JSON.stringify({ ...head, rows: [], rowNumbers: [], offset, totalRows: table.rows.length, truncated: true, nextOffset: table.rows.length }).length;
+      const rows: Record<string, unknown>[] = [];
+      for (let i = offset; i < Math.min(table.rows.length, offset + limit); i++) {
+        const row = isoValues(table.rows[i]!);
+        const cost = JSON.stringify(row).length + String(table.rowNumbers[i]!).length + 2;
+        if (used + cost > limits.maxResponseChars) break;
+        used += cost;
+        rows.push(row);
+      }
+      if (rows.length === 0 && offset < table.rows.length && limit > 0) {
+        throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Row ${String(table.rowNumbers[offset]!)} alone is larger than the server's result limit of ${String(limits.maxResponseChars)} characters.`, {
+          hint: 'Read fewer columns with range (for example "A1:D100"); the limit is set when the server starts (--max-response-chars).',
+          details: { limit: 'maxResponseChars', value: limits.maxResponseChars },
+        });
+      }
+      const end = offset + rows.length;
+      return {
+        ...head,
+        rows,
+        rowNumbers: table.rowNumbers.slice(offset, end),
         offset,
         totalRows: table.rows.length,
-        truncated: offset + rows.length < table.rows.length,
+        truncated: end < table.rows.length,
+        ...(end < table.rows.length ? { nextOffset: end } : {}),
       };
     }),
   );
@@ -208,7 +244,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       ),
       annotations: READ,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const before = await book(roots, a['before'] as string);
       const after = await book(roots, a['after'] as string);
       const r = diff(before, after, { styles: a['styles'] === true });
@@ -229,6 +265,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
           sheet: SHEET,
           columns: {
             type: 'array',
+            maxItems: 256,
             items: { type: 'object', properties: { name: { type: 'string', minLength: 1 }, type: { enum: [...TYPES] }, optional: { type: 'boolean' } }, required: ['name'], additionalProperties: false },
             description: 'Column rules, matched to the header row by name. type defaults to "any".',
           },
@@ -238,7 +275,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       ),
       annotations: READ,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const workbook = await book(roots, a['path'] as string);
       const warnings = inspect(workbook).warnings;
       const rules = (a['columns'] as { name: string; type?: string; optional?: boolean }[] | undefined) ?? [];
@@ -268,7 +305,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
         }
       }
       const ok = problems.length === 0 && (a['strict'] !== true || warnings.length === 0);
-      return { ok, sheet: sheetName, rowsChecked, problems, warnings };
+      return { ok, sheet: sheetName, rowsChecked, problems: problems.slice(0, MAX_PROBLEMS), problemsTotal: problems.length, warnings };
     }),
   );
 
@@ -293,7 +330,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       ),
       annotations: WRITE,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const rows = (a['rows'] as unknown[]).map((r) =>
         Array.isArray(r) ? r.map(cellInput) : Object.fromEntries(Object.entries(r as Json).map(([k, v]) => [k, cellInput(v)])),
       );
@@ -339,7 +376,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       ),
       annotations: WRITE,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const path = a['path'] as string;
       const edits = (a['edits'] as { sheet: string; cell: string; value: unknown }[] | undefined) ?? [];
       const append = a['append'] as { sheet: string; rows: unknown[]; header?: number } | undefined;
@@ -387,7 +424,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       ),
       annotations: WRITE,
     },
-    handler(async (a) => {
+    handler(limits.maxResponseChars, async (a) => {
       const input = a['input'] as string;
       const output = a['output'] as string;
       const from = extension(input);

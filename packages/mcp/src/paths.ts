@@ -1,6 +1,6 @@
 // Path policy of the MCP server: every file read or written must lie inside one of the
 // directories given at start (--root), after symbolic links are resolved (docs/decisions.md D-703).
-import { lstat, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { XlvError } from 'xlvane';
 
@@ -58,28 +58,83 @@ function absolute(roots: Roots, path: string): string {
   return isAbsolute(path) ? path : resolve(roots.dirs[0]!, path);
 }
 
+/** Points in {@link readAllowedWith} where tests change the file system (races). */
+export interface ReadHooks {
+  readonly afterCheck?: () => Promise<void>;
+  readonly afterOpen?: () => Promise<void>;
+  readonly afterVerify?: () => Promise<void>;
+}
+
 /** Reads a file inside the roots, after checking its real path and size. */
-export async function readAllowed(roots: Roots, path: string): Promise<Uint8Array> {
-  let real: string;
+export function readAllowed(roots: Roots, path: string): Promise<Uint8Array> {
+  return readAllowedWith(roots, path, {});
+}
+
+/**
+ * {@link readAllowed} with hooks for tests. The file is opened first and checked afterwards: the
+ * path must still resolve inside a root to the same file (device and inode) as the one opened,
+ * so a file or directory swapped for a symbolic link between the check and the read is refused
+ * (D-I02). At most the size limit plus one byte is read, whatever the size was when checked.
+ */
+export async function readAllowedWith(roots: Roots, path: string, hooks: ReadHooks): Promise<Uint8Array> {
+  const target = absolute(roots, path);
+  const resolveInside = async (): Promise<string> => {
+    let real: string;
+    try {
+      real = await realpath(target);
+    } catch (error) {
+      throw new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, {
+        hint: errorCode(error) === 'ENOENT' ? 'The file does not exist. Use inspect_workbook on a file that exists, or check the name.' : 'Check that the path points to a readable file.',
+        details: { path, code: errorCode(error) },
+      });
+    }
+    if (!inside(roots, real)) throw notAllowed(roots, path, real === target ? '' : ' (after following symbolic links)');
+    return real;
+  };
+  await resolveInside();
+  await hooks.afterCheck?.();
+  let handle;
   try {
-    real = await realpath(absolute(roots, path));
+    handle = await open(target, 'r');
   } catch (error) {
-    if (error instanceof XlvError) throw error;
-    throw new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, {
-      hint: errorCode(error) === 'ENOENT' ? 'The file does not exist. Use inspect_workbook on a file that exists, or check the name.' : 'Check that the path points to a readable file.',
-      details: { path, code: errorCode(error) },
-    });
+    throw new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, { hint: 'Check that the path points to a readable file.', details: { path, code: errorCode(error) } });
   }
-  if (!inside(roots, real)) throw notAllowed(roots, path, real === absolute(roots, path) ? '' : ' (after following symbolic links)');
-  const info = await stat(real);
-  if (!info.isFile()) throw new XlvError('XLV_E_FILE_READ', `"${path}" is not a file.`, { hint: 'Pass the path of a file.', details: { path } });
-  if (info.size > roots.maxFileBytes) {
-    throw new XlvError('XLV_E_LIMIT_EXCEEDED', `"${path}" is ${String(info.size)} bytes, more than the server's limit of ${String(roots.maxFileBytes)}.`, {
-      hint: 'The limit is set when the server starts (--max-file-size).',
-      details: { path, limit: 'maxFileBytes', value: roots.maxFileBytes },
-    });
+  try {
+    await hooks.afterOpen?.();
+    const opened = await handle.stat();
+    if (!opened.isFile()) throw new XlvError('XLV_E_FILE_READ', `"${path}" is not a file.`, { hint: 'Pass the path of a file.', details: { path } });
+    const tooLarge = (size: number): XlvError =>
+      new XlvError('XLV_E_LIMIT_EXCEEDED', `"${path}" is ${String(size)} bytes or more, more than the server's limit of ${String(roots.maxFileBytes)}.`, {
+        hint: 'The limit is set when the server starts (--max-file-size).',
+        details: { path, limit: 'maxFileBytes', value: roots.maxFileBytes },
+      });
+    if (opened.size > roots.maxFileBytes) throw tooLarge(opened.size);
+    // The path must still lead, inside a root, to the file that was opened.
+    const now = await stat(await resolveInside());
+    if (now.dev !== opened.dev || now.ino !== opened.ino) {
+      throw new XlvError('XLV_E_FILE_READ', `"${path}" changed while it was being read.`, { hint: 'Read the file again when nothing else is writing to it.', details: { path } });
+    }
+    await hooks.afterVerify?.();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for (;;) {
+      const buffer = new Uint8Array(Math.min(1 << 20, roots.maxFileBytes + 1 - total));
+      if (buffer.length === 0) throw tooLarge(total);
+      const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+      if (bytesRead === 0) break;
+      chunks.push(buffer.subarray(0, bytesRead));
+      total += bytesRead;
+    }
+    const out = new Uint8Array(total);
+    let at = 0;
+    for (const c of chunks) {
+      out.set(c, at);
+      at += c.length;
+    }
+    return out;
+  } finally {
+    await handle.close();
   }
-  return readFile(real);
 }
 
 /** Result of a write. */

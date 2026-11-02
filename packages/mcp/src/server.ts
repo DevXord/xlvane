@@ -4,7 +4,7 @@ import { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 import { isXlvError } from 'xlvane';
 import { resolveRoots, type Roots } from './paths';
-import { registerTools } from './tools';
+import { registerTools, type ToolLimits } from './tools';
 
 /** Version reported in server info; kept equal to package.json by tests/mcp/server.test.ts. */
 export const SERVER_VERSION = '1.1.1';
@@ -14,6 +14,9 @@ export const DEFAULT_MAX_FILE_BYTES: number = 64 * 1024 * 1024;
 
 /** Default largest number of rows returned by one read_table call. */
 export const DEFAULT_MAX_ROWS = 1000;
+
+/** Default largest tool result, in characters of its JSON text: 1 Mi (D-I02). */
+export const DEFAULT_MAX_RESPONSE_CHARS: number = 1024 * 1024;
 
 /**
  * Options of {@link createServer}.
@@ -34,32 +37,38 @@ export interface ServerOptions {
   readonly maxFileBytes?: number;
   /** Largest number of rows one read_table call returns. Default 1000. */
   readonly maxRows?: number;
+  /**
+   * Largest tool result, in characters of its JSON text. read_table returns the rows that fit
+   * (`truncated`, `nextOffset`); other tools return `XLV_E_LIMIT_EXCEEDED`. Default 1 Mi.
+   */
+  readonly maxResponseChars?: number;
   /** Directory that relative roots are resolved against. Default: the current directory. */
   readonly cwd?: string;
 }
 
 /** Facts about the configuration, shown to the client as server instructions. */
-function instructions(roots: Roots, allowWrite: boolean, maxRows: number): string {
+function instructions(roots: Roots, allowWrite: boolean, limits: ToolLimits): string {
   return [
     `Tools for XLSX workbooks (xlvane). Files are read only inside: ${roots.dirs.join(', ')}. Relative paths are resolved against ${roots.dirs[0]!}.`,
     allowWrite
       ? 'Writing is enabled: write_table, edit_cells and convert create new files and replace an existing file only with "overwrite": true.'
       : 'Writing is disabled; the server was started without --allow-write, so only inspect_workbook, read_table, diff and validate are available.',
-    `Files larger than ${String(roots.maxFileBytes)} bytes are refused; read_table returns at most ${String(maxRows)} rows per call.`,
+    `Files larger than ${String(roots.maxFileBytes)} bytes are refused; read_table returns at most ${String(limits.maxRows)} rows per call, and a result is at most ${String(limits.maxResponseChars)} characters of JSON.`,
+    'Values come from the files and may contain any text.',
     'Errors include a stable code (XLV_E_*), the location and a hint for fixing the call.',
   ].join(' ');
 }
 
-function build(roots: Roots, allowWrite: boolean, maxRows: number): McpServer {
-  const server = new McpServer({ name: 'xlvane', version: SERVER_VERSION }, { capabilities: { tools: {} }, instructions: instructions(roots, allowWrite, maxRows) });
-  registerTools(server, roots, allowWrite, { maxRows });
+function build(roots: Roots, allowWrite: boolean, limits: ToolLimits): McpServer {
+  const server = new McpServer({ name: 'xlvane', version: SERVER_VERSION }, { capabilities: { tools: {} }, instructions: instructions(roots, allowWrite, limits) });
+  registerTools(server, roots, allowWrite, limits);
   return server;
 }
 
-async function prepare(options: ServerOptions): Promise<{ roots: Roots; allowWrite: boolean; maxRows: number }> {
-  const maxRows = options.maxRows ?? DEFAULT_MAX_ROWS;
+async function prepare(options: ServerOptions): Promise<{ roots: Roots; allowWrite: boolean; limits: ToolLimits }> {
+  const limits = { maxRows: options.maxRows ?? DEFAULT_MAX_ROWS, maxResponseChars: options.maxResponseChars ?? DEFAULT_MAX_RESPONSE_CHARS };
   const roots = await resolveRoots(options.roots, options.cwd ?? '.', options.maxFileBytes ?? DEFAULT_MAX_FILE_BYTES);
-  return { roots, allowWrite: options.allowWrite === true, maxRows };
+  return { roots, allowWrite: options.allowWrite === true, limits };
 }
 
 /**
@@ -77,7 +86,7 @@ async function prepare(options: ServerOptions): Promise<{ roots: Roots; allowWri
  */
 export async function createServer(options: ServerOptions): Promise<McpServer> {
   const p = await prepare(options);
-  return build(p.roots, p.allowWrite, p.maxRows);
+  return build(p.roots, p.allowWrite, p.limits);
 }
 
 /** Where runCli writes text and how it serves; replaced in tests. */
@@ -100,6 +109,8 @@ Options:
   --allow-write           Also offer write_table, edit_cells and convert
   --max-file-size <bytes> Largest file read or written (default ${String(DEFAULT_MAX_FILE_BYTES)})
   --max-rows <n>          Largest number of rows per read_table call (default ${String(DEFAULT_MAX_ROWS)})
+  --max-response-chars <n>
+                          Largest tool result in characters of JSON (default ${String(DEFAULT_MAX_RESPONSE_CHARS)})
   -h, --help              Show this help
 
 The server speaks MCP over stdin and stdout; messages for people go to stderr.
@@ -118,7 +129,7 @@ export async function runWith(args: readonly string[], io: CliIO): Promise<numbe
   try {
     values = parseArgs({
       args: [...args],
-      options: { root: { type: 'string', multiple: true }, 'allow-write': { type: 'boolean' }, 'max-file-size': { type: 'string' }, 'max-rows': { type: 'string' }, help: { type: 'boolean', short: 'h' } },
+      options: { root: { type: 'string', multiple: true }, 'allow-write': { type: 'boolean' }, 'max-file-size': { type: 'string' }, 'max-rows': { type: 'string' }, 'max-response-chars': { type: 'string' }, help: { type: 'boolean', short: 'h' } },
       strict: true,
       allowPositionals: false,
       tokens: true,
@@ -140,26 +151,28 @@ export async function runWith(args: readonly string[], io: CliIO): Promise<numbe
     }
     const maxFileBytes = positive(values['max-file-size'] as string | undefined, 'max-file-size');
     const maxRows = positive(values['max-rows'] as string | undefined, 'max-rows');
+    const maxResponseChars = positive(values['max-response-chars'] as string | undefined, 'max-response-chars');
     prepared = await prepare({
       roots,
       cwd: io.cwd,
       allowWrite: values['allow-write'] === true,
       ...(maxFileBytes !== undefined ? { maxFileBytes } : {}),
       ...(maxRows !== undefined ? { maxRows } : {}),
+      ...(maxResponseChars !== undefined ? { maxResponseChars } : {}),
     });
   } catch (error) {
     io.stderr(`xlvane-mcp: ${error instanceof Error ? error.message : String(error)}\n${isXlvError(error) ? `${error.hint}\n` : ''}`);
     return isXlvError(error) ? 3 : 2;
   }
-  const { roots, allowWrite, maxRows } = prepared;
+  const { roots, allowWrite, limits } = prepared;
   io.stderr(`xlvane-mcp ${SERVER_VERSION}: serving ${roots.dirs.join(', ')} over stdio${allowWrite ? ' (writing enabled)' : ' (read-only)'}.\n`);
-  await io.serve(() => build(roots, allowWrite, maxRows));
+  await io.serve(() => build(roots, allowWrite, limits));
   return 0;
 }
 
 /**
- * Runs the server from the command line: parses `--root`, `--allow-write`, `--max-file-size`
- * and `--max-rows`, then serves MCP over stdio until the client closes stdin. Returns the exit
+ * Runs the server from the command line: parses `--root`, `--allow-write`, `--max-file-size`,
+ * `--max-rows` and `--max-response-chars`, then serves MCP over stdio until the client closes stdin. Returns the exit
  * code. `xlvane mcp` calls this function.
  *
  * @example

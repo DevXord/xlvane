@@ -6,6 +6,9 @@
 declare module 'node:fs/promises' {
   export interface Stats {
     readonly size: number;
+    /** Device and inode numbers (https://nodejs.org/api/fs.html#statsdev, #statsino). */
+    readonly dev: number;
+    readonly ino: number;
     /** File type and permission bits (https://nodejs.org/api/fs.html#statsmode). */
     readonly mode: number;
     isFile(): boolean;
@@ -23,6 +26,10 @@ declare module 'node:fs/promises' {
   /** https://nodejs.org/api/fs.html#class-filehandle (F-NODE-15). */
   export interface FileHandle {
     write(data: Uint8Array, offset?: number): Promise<{ bytesWritten: number }>;
+    /** https://nodejs.org/api/fs.html#filehandlereadbuffer-offset-length-position */
+    read(buffer: Uint8Array, offset: number, length: number, position: number | null): Promise<{ bytesRead: number; buffer: Uint8Array }>;
+    /** https://nodejs.org/api/fs.html#filehandlestatoptions */
+    stat(): Promise<Stats>;
     close(): Promise<void>;
   }
   export function open(path: string | URL, flags?: string): Promise<FileHandle>;
