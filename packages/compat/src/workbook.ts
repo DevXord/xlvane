@@ -1,6 +1,6 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
-import { XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
+import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
 import { colorOut, formulaOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges } from './defined-names';
@@ -454,6 +454,22 @@ export class Workbook {
   _fill(read: XlvWorkbook, options: XlsxReadOptions = {}): void {
     const ignore = new Set(options.ignoreNodes ?? []);
     const use = (node: string): boolean => !ignore.has(node);
+    // Merged ranges, table ranges and <col> ranges make one object per position. They count
+    // against max(maxCells, 16 x cells read), the limit of the core's table and CSV output, so a
+    // few bytes such as <mergeCell ref="A1:XFD1048576"/> cannot exhaust memory (D-H01).
+    let cellsRead = 0;
+    for (const s of read.sheets) cellsRead += s.cellCount;
+    const budget = Math.max(DEFAULT_READ_LIMITS.maxCells, 16 * cellsRead);
+    let spent = 0;
+    const spend = (positions: number, what: string, sheet: string): void => {
+      spent += positions;
+      if (spent <= budget) return;
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what} of worksheet "${sheet}" would create more than ${String(budget)} cells or columns for ${String(cellsRead)} cells in the file.`, {
+        location: { sheet },
+        hint: 'The file declares ranges far larger than its data. Load it with ignoreNodes for that element (for example ignoreNodes: ["mergeCells"]), or read it with xlvane\'s readWorkbook, which does not create these objects.',
+        details: { limit: 'maxCells', value: budget },
+      });
+    };
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet' || (options.maxRows === undefined && options.maxCols === undefined) || !use('sheetData')) continue;
       const perRow = new Map<number, number>();
@@ -522,6 +538,7 @@ export class Workbook {
       ws.orderNo = position;
       for (const c of use('cols') ? s.columns : []) {
         const last = Math.min(c.max, 16_384);
+        spend(Math.max(0, last - c.min + 1), 'The column definitions', s.name);
         for (let n = c.min; n <= last; n++) {
           const column = ws.getColumn(n);
           if (c.width !== null) column.width = c.width;
@@ -589,7 +606,11 @@ export class Workbook {
       }
       // Notes are read for every cell, also one without a value; exceljs loses those (X4-14).
       for (const note of s.notes) ws.getCell(note.ref).note = noteOut(note);
-      for (const m of use('mergeCells') ? s.merges : []) if (m.includes(':')) ws.mergeCells(m);
+      for (const m of use('mergeCells') ? s.merges : []) {
+        if (!m.includes(':')) continue;
+        spend(areaOf(m), 'A merged range', s.name);
+        ws.mergeCells(m);
+      }
       // exceljs reads one view per sheetView, with every setting (sheet-view-xform.js; X4-11).
       if (use('sheetViews')) ws.views = [viewOut(s.view, s.freeze)];
       const tab = colorOut(s.tabColor ?? undefined);
@@ -603,7 +624,10 @@ export class Workbook {
       if (use('headerFooter')) ws.headerFooter = headerFooterOut(s.headerFooter) as HeaderFooter;
       if (use('rowBreaks')) ws.rowBreaks = rowBreaksOut(s.pageBreaks.rows);
       // Tables with their ref and rows (X4-21); pictures and the background (X4-22).
-      for (const def of use('tableParts') ? s.tables : []) ws.tables[def.name] = tableOut(ws, def);
+      for (const def of use('tableParts') ? s.tables : []) {
+        spend(areaOf(def.ref), 'A table', s.name);
+        ws.tables[def.name] = tableOut(ws, def);
+      }
       for (const img of use('drawing') ? s.images : []) {
         const id = img.image === null ? undefined : mediaIds.get(img.image);
         const media = id === undefined ? null : imageOut(ws, img, id);
@@ -638,4 +662,17 @@ function freeIds(wanted: readonly unknown[]): (number | undefined)[] {
     taken.add(next);
     return next;
   });
+}
+
+/** Cells in a range such as "A1:C3" (1 for a cell, 0 for anything else). */
+function areaOf(ref: string): number {
+  const m = /^([A-Z]{1,3})(\d{1,7})(?::([A-Z]{1,3})(\d{1,7}))?$/.exec(ref.replace(/\$/g, ''));
+  if (!m) return 0;
+  const col = (letters: string): number => {
+    let n = 0;
+    for (const ch of letters) n = n * 26 + ch.charCodeAt(0) - 64;
+    return n;
+  };
+  const [, c1 = 'A', r1 = '1', c2 = c1, r2 = r1] = m;
+  return (Math.abs(Number(r2) - Number(r1)) + 1) * (Math.abs(col(c2) - col(c1)) + 1);
 }

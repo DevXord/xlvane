@@ -1789,9 +1789,14 @@ export class Worksheet {
 
   mergeCells(...args: unknown[]): void {
     const range = parseRangeArgs(args);
-    for (const m of this._merges.values()) {
-      if (range.top <= m.bottom && m.top <= range.bottom && range.left <= m.right && m.left <= range.right) {
-        throw new Error('Cannot merge already merged cells');
+    // The cells of the range, not every earlier merge, are checked: the same result as exceljs's
+    // intersection test (lib/doc/worksheet.js L612-618) in time linear in the range, so that many
+    // merges in a file are not quadratic (D-H01).
+    for (let r = range.top; r <= range.bottom; r++) {
+      const row = this.findRow(r);
+      if (row === undefined) continue;
+      for (let c = range.left; c <= range.right; c++) {
+        if (row.findCell(c)?.isMerged) throw new Error('Cannot merge already merged cells');
       }
     }
     const master = this.getCell(range.top, range.left);
