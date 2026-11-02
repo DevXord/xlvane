@@ -228,6 +228,8 @@ class Parser {
   private tokenAt = -1;
   private tokenFrom = 0;
   private tokenQuote = 0;
+  /** Offset of the quote that opened the attribute value being searched. */
+  private tokenQuoteAt = 0;
   /**
    * Pieces held back while the unconsumed input is long (a long token or text run), joined to `s`
    * once they are at least as long as it. Appending every piece to `s` and searching it again
@@ -326,6 +328,7 @@ class Parser {
     if (this.tokenAt !== -1) {
       this.tokenAt -= drop;
       this.tokenFrom -= drop;
+      this.tokenQuoteAt -= drop;
     }
   }
 
@@ -408,7 +411,12 @@ class Parser {
         done = false;
       } else if (s.startsWith('<![CDATA[', at)) {
         done = s.indexOf(']]>', Math.max(at + 9, this.tokenFrom)) !== -1;
-        if (!done) this.tokenFrom = Math.max(at + 9, length - 2);
+        if (!done) {
+          this.tokenFrom = Math.max(at + 9, length - 2);
+          // Its text is already longer than the limit whatever follows: fail now, as cdata()
+          // would, instead of holding it (D-H01).
+          if (this.textBuffer.length + length - (at + 9) > this.options.limits.maxXmlTextLength + 2) this.limit('maxXmlTextLength', 'Text node is longer than the limit.', at);
+        }
       } else {
         done = true; // DOCTYPE or another declaration: an error that needs no more input
       }
@@ -432,6 +440,7 @@ class Parser {
           if (c === quote) quote = 0;
         } else if (c === QUOTE || c === APOS) {
           quote = c;
+          this.tokenQuoteAt = i;
         } else if (c === GT) {
           done = true;
           break;
@@ -439,6 +448,11 @@ class Parser {
       }
       this.tokenFrom = i;
       this.tokenQuote = quote;
+      // An unfinished attribute value already longer than the limit: fail now with the error of
+      // whole-text parsing instead of holding it (D-H01).
+      if (!done && quote !== 0 && i - (this.tokenQuoteAt + 1) > this.options.limits.maxXmlTextLength) {
+        this.limit('maxXmlTextLength', `Value of attribute "${this.attributeNameBefore(this.tokenQuoteAt)}" is longer than the limit.`, this.tokenQuoteAt + 1);
+      }
     }
     if (done) this.tokenAt = -1;
     return done;
@@ -458,7 +472,15 @@ class Parser {
     // Every "&" before the last ";" finds the same ";" as in whole-text parsing; the first "&"
     // after it must wait for its ";".
     const amp = s.indexOf('&', Math.max(this.pos, s.lastIndexOf(';') + 1));
-    if (amp !== -1) cut = amp;
+    if (amp !== -1) {
+      cut = amp;
+      // No reference is this long, so whatever follows, it is an error; fail now instead of
+      // holding the rest of the run (D-H01).
+      if (s.length - amp > this.options.limits.maxXmlNameLength + 12) {
+        if (s.charCodeAt(amp + 1) !== HASH) this.limit('maxXmlNameLength', 'Entity name is longer than the limit.', amp);
+        this.fail('"&" must start an entity or character reference ending with ";".', amp);
+      }
+    }
     while (cut > this.pos && s.charCodeAt(cut - 1) === 0x5d /* ] */ && cut > s.length - 2) cut--;
     if (cut <= this.pos) return;
     if (this.segmentStart === -1) {
@@ -885,6 +907,18 @@ class Parser {
     });
   }
 
+  /** The attribute name before `name = "` whose quote is at `quote` (for a message). */
+  private attributeNameBefore(quote: number): string {
+    const s = this.s;
+    let i = quote - 1;
+    while (i >= 0 && isWhitespace(s.charCodeAt(i))) i--;
+    if (s.charCodeAt(i) === EQ) i--;
+    while (i >= 0 && isWhitespace(s.charCodeAt(i))) i--;
+    const end = i + 1;
+    while (i >= 0 && end - i <= this.options.limits.maxXmlNameLength && !isWhitespace(s.charCodeAt(i)) && s.charCodeAt(i) !== 0x3c) i--;
+    return s.slice(i + 1, end);
+  }
+
   private limit(limit: keyof XmlLimits, message: string, offset: number): never {
     const details: XlvDetails = { limit, value: this.options.limits[limit] };
     throw new XlvError('XLV_E_LIMIT_EXCEEDED', message, {
@@ -1007,6 +1041,14 @@ export function createXmlByteStreamParser(handler: XmlHandler, options: XmlParse
       pendingLast = chunk.slice(-1);
     }
     const known = pendingLength >= 5 && (!pendingHead.startsWith('<?xml') || declarationEnd);
+    // A declaration longer than the limit fails as in whole-text parsing (D-H01).
+    if (!known && pendingLength - 2 > options.limits.maxXmlTextLength + 1) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', PI_TOO_LONG, {
+        location: { part, line: 1, column: 1 },
+        hint: `If you trust this file, raise the limit, for example { limits: { maxXmlTextLength: ${String(options.limits.maxXmlTextLength * 4)} } }.`,
+        details: { limit: 'maxXmlTextLength', value: options.limits.maxXmlTextLength },
+      });
+    }
     if (!known && !final) return;
     const all = pending.join('');
     pending = null;

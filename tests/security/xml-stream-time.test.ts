@@ -123,3 +123,60 @@ describe('comments and processing instructions longer than maxXmlTextLength', ()
     expect(written).toBeLessThan(4 * DEFAULT_READ_LIMITS.maxXmlTextLength);
   });
 });
+
+describe('unfinished tokens are not held without limit (independent review of the patch)', () => {
+  const limits = { ...DEFAULT_READ_LIMITS, maxXmlTextLength: 1 << 20 };
+  for (const [name, open] of [
+    ['CDATA section', '<r><![CDATA['],
+    ['attribute value', '<r a="'],
+    ['reference without ";"', '<r>&'],
+  ] as const) {
+    it(`a ${name} that never ends fails near the limit, holding little`, () => {
+      const p = createXmlStreamParser(handler, { ...options, limits });
+      p.write(open);
+      let error: unknown = null;
+      let written = 0;
+      try {
+        for (let i = 0; i < 1024; i++) {
+          p.write(piece);
+          written += piece.length;
+          expect(p.buffered).toBeLessThan(4 * limits.maxXmlTextLength);
+        }
+      } catch (e) {
+        error = e;
+      }
+      expect((error as { code?: string }).code).toMatch(/^XLV_E_(LIMIT_EXCEEDED|XML_MALFORMED)$/);
+      expect(written).toBeLessThan(4 * limits.maxXmlTextLength);
+    });
+  }
+
+  it('the same attribute value as one text gives the same error', () => {
+    const doc = `<r a="${'a'.repeat((1 << 20) + 1)}"/>`;
+    const whole = expectXlvError(() => parseXml(doc, handler, { ...options, limits }), 'XLV_E_LIMIT_EXCEEDED');
+    const streamed = expectXlvError(() => {
+      const p = createXmlStreamParser(handler, { ...options, limits });
+      for (let i = 0; i < doc.length; i += 65536) p.write(doc.slice(i, i + 65536));
+      p.end();
+    }, 'XLV_E_LIMIT_EXCEEDED');
+    expect(streamed.message).toBe(whole.message);
+    expect(streamed.location).toEqual(whole.location);
+  });
+
+  it('an XML declaration given as bytes that never ends fails near the limit', () => {
+    const p = createXmlByteStreamParser(handler, { ...options, limits });
+    const bytes = new TextEncoder().encode(piece);
+    p.write(new TextEncoder().encode('<?xml version="1.0"'));
+    let error: unknown = null;
+    let written = 0;
+    try {
+      for (let i = 0; i < 1024; i++) {
+        p.write(bytes);
+        written += bytes.length;
+      }
+    } catch (e) {
+      error = e;
+    }
+    expect((error as { code?: string }).code).toBe('XLV_E_LIMIT_EXCEEDED');
+    expect(written).toBeLessThan(4 * limits.maxXmlTextLength);
+  });
+});
