@@ -1,6 +1,7 @@
 {
   "name": "@xlvane/mcp",
-  "version": "1.2.0",
+  "version": "1.2.1",
+  "mcpName": "io.github.devxord/xlvane",
   "description": "MCP server for XLSX files: inspect, read, write, edit, convert, compare and validate workbooks with xlvane, limited to the directories given at start.",
   "keywords": [
     "xlsx",
@@ -44,7 +45,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.4.0",
-    "xlvane": "^1.2.0"
+    "xlvane": "^1.2.1"
   },
   "publishConfig": {
     "access": "public",

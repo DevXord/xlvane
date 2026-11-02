@@ -2,6 +2,10 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## 1.2.1: MCP Registry metadata (2026-11-02)
+
+- `mcpName` in `packages/mcp/package.json` and `packages/mcp/server.json` for the official MCP Registry (D-I06, F-MCP-03), with a policy test; the release check covers `server.json`; RELEASING.md describes publishing the entry with `mcp-publisher`. Version 1.2.1 for all three packages.
+
 ## Phase I: AI Friendly, MCP server (2026-11-02)
 
 - At the maintainer's decision, `@xlvane/mcp` and `xlvane mcp` are back from phase 7 (D-I01, reversing D-802); dependencies `@modelcontextprotocol/server` 2.4.0 (runtime) and `@modelcontextprotocol/client` 2.4.0 (development) approved; the agent benchmark stays skipped (D-801).

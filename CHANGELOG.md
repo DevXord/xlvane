@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.1
+
+### @xlvane/mcp
+
+- `package.json` has `mcpName` (`io.github.devxord/xlvane`), and `packages/mcp/server.json` describes the server for the official MCP Registry, so the server can be listed there. No change in behaviour.
+
+### xlvane, @xlvane/compat
+
+- No changes besides the version.
+
 ## 1.2.0
 
 ### @xlvane/mcp (new)
