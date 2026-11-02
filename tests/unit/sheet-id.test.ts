@@ -4,6 +4,7 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
 import { editCells } from '../../packages/xlvane/src/edit';
+import { inspect } from '../../packages/xlvane/src/inspect';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { openWorkbookStream } from '../../packages/xlvane/src/stream-read';
 import { writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
@@ -69,6 +70,14 @@ describe('reading', () => {
     expect(wb.sheets.map((s) => s.sheetId)).toEqual([null, null, null, 3, null]);
     const invalid = wb.warnings.filter((w) => w.code === 'XLV_W_INVALID_VALUE');
     expect(invalid.map((w) => w.location?.sheet)).toEqual(['A', 'B', 'C', 'E']);
+  });
+
+  it('is reported by inspect() (docs/inspect-json.md)', () => {
+    const report = inspect(buildXlsx({ sheets: [{ name: 'A', sheetId: '5' }, { name: 'B', sheetId: null }] }));
+    expect(report.sheets.map((s) => [s.name, s.sheetId])).toEqual([
+      ['A', 5],
+      ['B', null],
+    ]);
   });
 
   it('keeps the ids of a file in editCells', () => {

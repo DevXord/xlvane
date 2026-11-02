@@ -4,7 +4,7 @@
 
 ### xlvane
 
-- **Sheet ids:** `addSheet(name, { sheetId })` and the `sheetId` of a streamed sheet set the sheet's id in the file (1 to 65534, unique); other sheets get the lowest unused ids, so workbooks without given ids are written as before. Reading gives `sheet.sheetId` and `StreamSheetInfo.sheetId` (`null` with `XLV_W_INVALID_VALUE` for a missing, invalid or repeated id).
+- **Sheet ids:** `addSheet(name, { sheetId })` and the `sheetId` of a streamed sheet set the sheet's id in the file (1 to 65534, unique); other sheets get the lowest unused ids, so workbooks without given ids are written as before. Reading gives `sheet.sheetId` and `StreamSheetInfo.sheetId` (`null` with `XLV_W_INVALID_VALUE` for a missing, invalid or repeated id), and `inspect()` / `xlvane inspect --json` report it per sheet.
 - **Split windows:** `view({ split: { x, y, topLeftCell } })` writes the top-left cell of the bottom-right pane (`pane@topLeftCell`), and reading gives it as `view.split.topLeftCell`.
 - **`insertRows`/`deleteRows`** move the conditional formats and data validations of the [MS-XLSX] extension (extended data bars, the icon sets `3Stars`, `3Triangles`, `5Boxes`, `NoIcons`, rules written by Excel) instead of refusing the sheet, with the same results as LibreOffice. Sparklines, slicers and other extended content that refers to cells are still refused.
 - **Fixes:**

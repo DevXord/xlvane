@@ -6,13 +6,13 @@ One entry per plan phase (docs/PLAN.md), newest first.
 
 - **CLI** (D-F01): tables, cut cells and wrapped text count terminal columns as Node.js does (East Asian Wide/Fullwidth and emoji take two), from a table generated from EastAsianWidth-17.0.0.txt (F-UNICODE-01); `node:util` loaded with `createRequire`, so the CLI no longer makes Node.js warn about `NO_COLOR` with `FORCE_COLOR` (F-NODE-15; `npx` itself still does).
 - **Split windows** (D-F02): `view({ split: { x, y, topLeftCell } })` writes and reads `pane@topLeftCell`; meaning from LibreOffice's code and exceljs, observed in LibreOffice (W2-69); @xlvane/compat keeps a split view's `topLeftCell`.
-- **Sheet ids** (D-F03): `addSheet(name, { sheetId })` (1-65534, maintainer's decision), `sheet.sheetId`, `StreamSheetInfo.sheetId`; @xlvane/compat keeps `worksheet.id` as exceljs 4.4.0 does (compared with exceljs).
+- **Sheet ids** (D-F03): `addSheet(name, { sheetId })` (1-65534, maintainer's decision), `sheet.sheetId`, `StreamSheetInfo.sheetId`, `sheetId` in `inspect()` and `xlvane inspect --json` (maintainer's decision); @xlvane/compat keeps `worksheet.id` as exceljs 4.4.0 does (compared with exceljs).
 - **Row operations** (D-F04): `insertRows`/`deleteRows` move [MS-XLSX] conditional formats and data validations and `cfvo@val` thresholds, with the same results as LibreOffice 24.2.7.2 (R-18 … R-20); the POI corpus round trip compares conditional formats and data validations.
 - **Bugs found and fixed:** `cfvo@val` was never moved by row operations; `setAttr` corrupted values containing `$1`…`$9` (hyperlink locations such as `Main!$A$12` after `insertRows`); a sheet named `Main` made other sheets with extension formulas refuse row changes.
 - **Independent review** of the diff: quadratic time in the new extension code (12 s → 1.4 s, security test added), compat ids above 65534 from untrusted files (a sheet disappeared or access became slow), CLI header and colour widths, three x14 edge cases; all fixed with tests first.
 - **Release:** versions 1.1.0, CHANGELOG.md 1.1.0, stale `packages/mcp` entry removed from `package-lock.json`, phase F in docs/PLAN.md, SKILL.md and READMEs updated.
 - **Checks:** typecheck; `XLV_REQUIRE_LIBREOFFICE=1 npm test` 1586 passed, 48 skipped (with the exceljs cross-check); fuzz 47; `check:pkg` (library 211.9 of 300 kB, CLI 29.2 of 40 kB); `test:runtimes`; packed 1.1.0 tarballs in a fresh project (ESM, CJS, CLI, compat as `exceljs`, the new features).
-- **Not done (deferred):** CLI stdin, `@internal` members in the .d.ts, checking `activeTab` when it is set (documented as checked when written), `sheetId` in `inspect()` and the CLI JSON.
+- **Not done (deferred):** CLI stdin, `@internal` members in the .d.ts, checking `activeTab` when it is set (documented as checked when written).
 
 ## 1.0.0 published; 1.0.1 prepared (2026-11-02)
 

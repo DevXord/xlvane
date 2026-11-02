@@ -106,6 +106,8 @@ export interface InspectColumn {
 export interface InspectSheet {
   readonly name: string;
   readonly index: number;
+  /** The sheet's id in the file (`Sheet.sheetId`), or `null` when it is missing, invalid or repeated. */
+  readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
   /** Range declared in the file, or `null`. */
@@ -388,6 +390,7 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
   const base = {
     name: sheet.name,
     index: sheet.index,
+    sheetId: sheet.sheetId,
     kind: sheet.kind,
     state: sheet.state,
     dimension: sheet.dimension,
