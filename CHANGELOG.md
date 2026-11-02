@@ -11,7 +11,7 @@
   - `insertRows`/`deleteRows` now move conditional format thresholds that refer to cells (`{ type: 'formula', value: '$C$12' }`); before, they kept the old reference.
   - `insertRows`/`deleteRows` wrote a moved value containing `$` followed by a digit wrongly, for example a hyperlink location `Main!$A$12` became `Main!$A location=4`.
   - A sheet named like a word in the extension namespaces (for example `Main`) no longer makes `insertRows`/`deleteRows` refuse because of conditional formats on other sheets.
-- **Command line:** tables, cut cells and wrapped text count terminal columns, so CJK text and emoji stay aligned; Node.js no longer prints its own warning when both `NO_COLOR` and `FORCE_COLOR` are set.
+- **Command line:** tables, cut cells and wrapped text count terminal columns, so CJK text and emoji stay aligned; the `xlvane` command no longer makes Node.js print its own warning when both `NO_COLOR` and `FORCE_COLOR` are set (started through `npx`, npm itself may still print it).
 
 ### @xlvane/compat
 
