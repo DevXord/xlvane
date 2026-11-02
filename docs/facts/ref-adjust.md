@@ -111,6 +111,15 @@ Same observation. `SUM(B4 : B6)` → `SUM(B4 : #REF!)` and `SUM(B5 : B10)` → `
 ### R-17 - Deleting the last rows
 Same observation, rows 1048575–1048576 deleted: `SUM(B1048570:B1048576)` stays (R-10 also holds when the deleted rows include the last one), `SUM(B1048575:B1048576)` → `SUM(#REF!)`, `B1048575` → `#REF!`.
 
+### R-18 - Conditional format thresholds
+Observed 2026-11-02 in LibreOffice 24.2.7.2 (`tests/libreoffice/rows-x14.test.ts`, UNO `Rows.insertByIndex`/`removeByIndex`, then "Calc Office Open XML"). A classic `cfvo@val` that refers to a cell (`<cfvo type="formula" val="$C$12"/>` in a colour scale and a data bar) follows its row like a formula: inserting 2 rows at 5 gives `$C$14`, deleting rows 5-6 gives `$C$10`, deleting row 12 gives `#REF!`.
+
+### R-19 - `xm:f` of the [MS-XLSX] extension
+Same observation. `xm:f` in an `x14:cfvo` of an extended data bar and of a `3Stars` icon set (`$C$15`, `$C$12`, and `Main!$C$15` on another sheet) is adjusted in the same way (`$C$17`/`$C$14` after inserting, `$C$13`/`$C$10` after deleting, `#REF!` when the cell is deleted); numeric thresholds (`0`, `67`) are unchanged.
+
+### R-20 - `sqref` and `xm:sqref` of conditional formats
+Same observation. Classic `sqref` and extension `xm:sqref` follow R-07/R-08: `B2:B20` → `B2:B22` (insert 2 at 5) and `B2:B18` (delete rows 5-6); the list `E5:E10 G3:G6` → `E7:E12 G3:G8` and `E5:E8 G3:G4`; a format whose only range `H5:H6` is deleted is removed. LibreOffice writes new GUIDs, priorities and data bar lengths (SR-45). Extension data validations (`x14:dataValidation`) were not observed (xlvane does not write them); xlvane applies the same rules to their `xm:sqref` and `xm:f`.
+
 ### Not observed
-- Conditional-formatting and data-validation `sqref`, hyperlink `ref` and comments. xlvane cannot write the first two yet. xlvane applies the formula rules to these by analogy (`adjustRange`), which is not an observation.
+- Data-validation `sqref`, hyperlink `ref` and comments. xlvane applies the formula rules to these by analogy (`adjustRange`), which is not an observation.
 - Excel itself (see Sources).
