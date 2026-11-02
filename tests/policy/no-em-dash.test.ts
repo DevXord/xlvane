@@ -15,7 +15,7 @@ describe('em dash', () => {
       .stdout.split('\n')
       .filter((f) => TEXT.test(f) && !f.startsWith('tests/corpus/') && f !== 'package-lock.json');
     expect(files.length).toBeGreaterThan(100);
-    const found = files.filter((f) => readFileSync(join(ROOT, f), 'utf8').includes('—'));
+    const found = files.filter((f) => readFileSync(join(ROOT, f), 'utf8').includes(String.fromCharCode(0x2014)));
     expect(found).toEqual([]);
   });
 });
