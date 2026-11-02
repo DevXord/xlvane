@@ -4,7 +4,7 @@
 import { chmod, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { escapeControls, termWidth, terminalSafe, useColor } from '../../packages/xlvane/src/cli/output';
+import { escapeControls, Output, termWidth, terminalSafe, useColor } from '../../packages/xlvane/src/cli/output';
 import { buildXlsx, inline, row } from '../helpers/xlsx-builder';
 import { cli, withFixtures } from './helpers';
 
@@ -36,7 +36,12 @@ const withWarning = (): Uint8Array =>
 describe('terminal control characters', () => {
   it('are escaped as \\xHH, except tab and line feed', () => {
     expect(escapeControls('a\u001b[2Jb\u0007\u009b\u007f\tc\n')).toBe('a\\x1b[2Jb\\x07\\x9b\\x7f\tc\n');
-    expect(terminalSafe('\u001b[1mok\u001b[22m \u001b[2J', true)).toBe('\u001b[1mok\u001b[22m \\x1b[2J');
+    // Only the colour codes Output wrote survive; the same bytes from anywhere else are escaped (D-H01).
+    const out = new Output(true, 80);
+    expect(terminalSafe(`${out.bold('ok')} \u001b[2J`, true)).toBe('\u001b[1mok\u001b[22m \\x1b[2J');
+    expect(terminalSafe(`${out.bold('ok')} \u001b[1mx\u001b[22m`, true)).toBe('\u001b[1mok\u001b[22m \\x1b[1mx\\x1b[22m');
+    expect(terminalSafe(out.bold('a\u001b[32mb'), true)).toBe('\u001b[1ma\\x1b[32mb\u001b[22m');
+    expect(terminalSafe(out.bold('ok'), false)).toBe('ok');
     expect(terminalSafe('\u001b[1mok\u001b[22m', false)).toBe('\\x1b[1mok\\x1b[22m');
   });
 

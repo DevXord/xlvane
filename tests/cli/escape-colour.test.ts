@@ -1,7 +1,7 @@
 // With colours on, the final filter keeps the colour sequences the CLI writes itself, so text
 // from a file holding the same bytes (ESC [32m from _x001B_) passed through raw. Text from files
 // is now escaped where it is inserted (1.1.1 security review, D-H01).
-import { writeFile } from 'node:fs/promises';
+import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildXlsx } from '../helpers/xlsx-builder';
@@ -36,19 +36,37 @@ describe('text from files with colours on', () => {
     ['validate', 'h.xlsx'],
     ['convert', 'h.xlsx', 'out.csv'],
     ['convert', 'h.xlsx', 'out.csv', '--sheet', 'nope'],
+    ['validate', 'h.xlsx', '--columns', 'nope:string'],
+    ['read', 'h.xlsx', '--sheet', 'Two'],
+    ['read', 'e.xlsx'],
   ]) {
     it(`xlvane ${argv.join(' ')} escapes it`, async () => {
       await withFixtures(async (dir) => {
         await writeFile(join(dir, 'h.xlsx'), hostile(`cQ${E}Z`));
         await writeFile(join(dir, 'h2.xlsx'), hostile(`dQ${E}Z`));
+        await writeFile(join(dir, 'e.xlsx'), buildXlsx({ sheets: [{ name: `EQ${E}Z`, data: '' }] }));
         const r = await cli(argv, { cwd: dir, env, tty: true });
         const all = r.stdout + r.stderr;
         expect(all).not.toContain(raw);
         // validate and a successful convert print nothing from the file.
-        if (argv[0] !== 'validate' && !(argv[0] === 'convert' && argv.length === 3)) expect(all).toContain(escaped);
+        const silent = (argv[0] === 'validate' && argv.length === 2) || (argv[0] === 'convert' && argv.length === 3) || argv[3] === 'Two';
+        if (!silent) expect(all).toContain(escaped);
       });
     });
   }
+});
+
+describe('xlvane migrate with colours on', () => {
+  it('escapes versions from package.json and names of source files', async () => {
+    await withFixtures(async (dir) => {
+      await mkdir(join(dir, 'app', 'src'), { recursive: true });
+      await writeFile(join(dir, 'app', 'package.json'), '{"dependencies":{"exceljs":"Q\\u001b[32m4.4.0"},"engines":{"node":"Q\\u001b[32m22"}}');
+      await writeFile(join(dir, 'app', 'src', 'aQ\u001b[32mb.js'), "require('exceljs/lib/x');\n");
+      const r = await cli(['migrate', 'app'], { cwd: dir, env: { FORCE_COLOR: '1' }, tty: true });
+      expect(r.stdout + r.stderr).not.toContain(raw);
+      expect(r.stdout).toContain(escaped);
+    });
+  });
 });
 
 describe('--json', () => {

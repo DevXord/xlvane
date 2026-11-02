@@ -52,7 +52,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   const state: CommandContext['state'] = { lastFile: null };
   try {
     if (first === undefined || (first === '--json' && rest.length === 0)) {
-      io.stdout(welcome(out, io.version, COMMANDS));
+      stdout(welcome(out, io.version, COMMANDS));
       return EXIT.ok;
     }
     if (first === '--version' || first === '-v') {
@@ -62,7 +62,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     if (first === 'help' || first === '--help' || first === '-h') {
       const topic = rest.find((a) => !a.startsWith('-'));
       if (topic === undefined) {
-        io.stdout(welcome(out, io.version, COMMANDS));
+        stdout(welcome(out, io.version, COMMANDS));
         return EXIT.ok;
       }
       stdout(commandHelp(out, findCommand(topic)));
