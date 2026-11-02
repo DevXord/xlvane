@@ -50,3 +50,4 @@ npm configures a trusted publisher in the settings of an existing package, so th
 - `npm view xlvane dependencies` lists only `fflate`.
 - The package page on npmjs.com shows the provenance of the release.
 - `npm audit signatures` in a project that installs the packages verifies their signatures and attestations.
+- Rebuild the website in the repository `xlvane/xlvane.github.io` (D-G01): `node scripts/build.mjs --version X.Y.Z`, then `node scripts/check.mjs` and `node --test test/*.test.mjs`; commit `docs/` and push. The pages are generated from the packages just published on npm.

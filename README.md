@@ -2,7 +2,7 @@
 
 An MIT-licensed library for reading and writing XLSX files, designed for input from untrusted sources.
 
-**Status:** version 1.0.0. Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
+**Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/compat](https://www.npmjs.com/package/@xlvane/compat)). Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Packages
 

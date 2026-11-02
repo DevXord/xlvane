@@ -2,6 +2,11 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## 1.1.0 published; website (2026-11-02)
+
+- 1.1.0 published from GitHub Actions with provenance (run #5 of the Release workflow): tag `v1.1.0` at fdd772c, both packages `latest`, tarballs equal the packages built from the tag, smoke test from the registry passes, the new features work from the registry.
+- Website for `xlvane/xlvane.github.io` (D-G01, F-GH-PAGES-01): generator without dependencies, documentation of the published version, in-browser `inspect` demo; checked with its own tests, a link and CSP check, and Chromium screenshots (light, dark, phone width; no console errors, no requests to other origins). RELEASING.md gains the rebuild step; the root README no longer names a fixed version.
+
 ## Phase F: backlog 1.1 (2026-11-02)
 
 - **CLI** (D-F01): tables, cut cells and wrapped text count terminal columns as Node.js does (East Asian Wide/Fullwidth and emoji take two), from a table generated from EastAsianWidth-17.0.0.txt (F-UNICODE-01); `node:util` loaded with `createRequire`, so the CLI no longer makes Node.js warn about `NO_COLOR` with `FORCE_COLOR` (F-NODE-15; `npx` itself still does).
