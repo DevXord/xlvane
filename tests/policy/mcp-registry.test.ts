@@ -14,7 +14,8 @@ describe('MCP Registry metadata', () => {
 
   it('server.json names the package and its version, and package.json has the same mcpName', () => {
     expect(server['$schema']).toBe('https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json');
-    expect(server['name']).toBe('io.github.devxord/xlvane');
+    // The registry compares names with case: GitHub login grants io.github.DevXord/* (D-I07).
+    expect(server['name']).toBe('io.github.DevXord/xlvane');
     expect(pkg['mcpName']).toBe(server['name']);
     expect(server['version']).toBe(pkg['version']);
     expect(packages).toHaveLength(1);

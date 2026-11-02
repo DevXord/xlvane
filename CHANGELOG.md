@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.2.2
+
+### @xlvane/mcp
+
+- The name for the official MCP Registry is `io.github.DevXord/xlvane` (`mcpName` and `server.json`): the registry compares the namespace with case, and the lower-case name of 1.2.1 was refused. No change in behaviour.
+
+### All packages
+
+- The release workflow stages each package unless its version is already on npm, and goes on after a failed package, so a repeated run finishes the release. No change in the packages themselves.
+
 ## 1.2.1
 
 ### @xlvane/mcp

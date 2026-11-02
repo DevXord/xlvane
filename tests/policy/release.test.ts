@@ -62,8 +62,12 @@ describe('workflows', () => {
     const publish = release.slice(release.indexOf('\n  publish:'));
     expect(publish).toContain('id-token: write');
     expect(publish).toContain('needs: verify');
-    expect(publish).toContain('npm stage publish -w packages/xlvane');
-    expect(publish).toContain('npm stage publish -w packages/compat');
+    // The packages are staged by scripts/stage-publish.mjs (D-I07), which stages, never publishes.
+    expect(publish).toContain('node scripts/stage-publish.mjs "$GITHUB_REF_NAME"');
+    const script = readFileSync('scripts/stage-publish.mjs', 'utf8');
+    expect(script).toContain("['stage', 'publish', '-w', dir]");
+    expect(script).toContain("['packages/xlvane', 'packages/compat', 'packages/mcp']");
+    expect(script).not.toMatch(/'publish', '--|npm publish/);
     expect(publish).not.toMatch(/npm publish/);
     expect(release).toMatch(/tags: \['v\*'\]/);
   });
