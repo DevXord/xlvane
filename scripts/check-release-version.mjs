@@ -11,11 +11,15 @@ const read = (dir) => JSON.parse(readFileSync(`${root}/${dir}/package.json`, 'ut
 const xlvane = read('packages/xlvane');
 const exceljs = read('packages/compat');
 const mcp = read('packages/mcp');
+const serverJson = JSON.parse(readFileSync(`${root}/packages/mcp/server.json`, 'utf8'));
 const problems = [];
 if (!m) problems.push(`"${tag}" is not a release tag of the form vX.Y.Z.`);
 else {
   for (const p of [xlvane, exceljs, mcp]) if (p.version !== m[1]) problems.push(`${p.name} has version ${p.version}, the tag is ${tag}.`);
 }
+// packages/mcp/server.json is published to the MCP Registry with the same version (D-I06).
+if (serverJson.version !== mcp.version || serverJson.packages?.[0]?.version !== mcp.version) problems.push(`packages/mcp/server.json has version ${serverJson.version}, @xlvane/mcp has ${mcp.version}.`);
+if (serverJson.name !== mcp.mcpName) problems.push(`packages/mcp/server.json is named ${serverJson.name}, but @xlvane/mcp has mcpName ${mcp.mcpName}.`);
 for (const p of [exceljs, mcp]) if (p.dependencies?.xlvane !== `^${xlvane.version}`) problems.push(`${p.name} depends on xlvane "${p.dependencies?.xlvane}", expected "^${xlvane.version}".`);
 for (const p of [xlvane, exceljs, mcp]) {
   if (p.private) problems.push(`${p.name} is marked private.`);

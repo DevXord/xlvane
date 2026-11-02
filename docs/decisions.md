@@ -738,6 +738,13 @@ The property test comparing streamed and whole-text XML parsing (`tests/fuzz/xml
 - **Since the comment limit of 1.1.1 (D-H01)**, it made a valid file fail once more than the limit followed.
 - **Fix:** the search resumes at the `--`. Two regression tests were added to `tests/security/xml-stream-time.test.ts`.
 
+### D-I06 Listing in the official MCP Registry (2026-11-02)
+At the maintainer's decision the server is listed in the official MCP Registry as `io.github.devxord/xlvane`. The repository's owner and the provenance of the packages are `DevXord`; GitHub login grants the personal namespace (F-MCP-03).
+- `packages/mcp/package.json` gets `mcpName`, which the registry compares with the server name. Version 1.2.0 did not have it, so 1.2.1 is released for all three packages.
+- `packages/mcp/server.json` follows the schema of 2025-12-11 and declares the required, repeatable `--root` argument (`format: "filepath"`).
+- `tests/policy/mcp-registry.test.ts` checks the name, the versions and the schema limits. `scripts/check-release-version.mjs` checks that `server.json` has the release version.
+- The maintainer publishes the entry by hand with `mcp-publisher` after each release (RELEASING.md). No registry tool runs in the job that publishes to npm.
+
 ### D-I03 Releasing a new package (2026-11-02)
 npm sets up a trusted publisher only for a package that already exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from the maintainer's machine without provenance, as `xlvane` 1.0.0 was (D-R10), and its trusted publisher is configured afterwards. The release workflow stages `@xlvane/mcp` only when the package exists and the version is not on npm yet, and otherwise prints a notice, so the 1.2.0 release of the other two packages is not blocked. `scripts/check-release-version.mjs` checks all three versions and both dependencies on `xlvane`.
 
@@ -829,6 +836,25 @@ Deno 2.9.6 `deno run --help`: `--no-config`, `--no-lock`, `--no-npm`, `--no-remo
 
 ### F-MCP-02 MCP specification 2026-07-28
 From `docs/specification/2026-07-28/changelog.mdx` in github.com/modelcontextprotocol/modelcontextprotocol (main, read 2026-10-30): the protocol is stateless (no `initialize` handshake, protocol version and client capabilities in each request's `_meta`); servers MUST implement `server/discover`; protocol-level sessions are removed; Roots, Sampling and Logging are deprecated ("pass directories or files via tool parameters, resource URIs, or server configuration instead of Roots"); servers SHOULD return tools from `tools/list` in a deterministic order; `inputSchema` and `outputSchema` may use any JSON Schema 2020-12 keywords. Checked again on 2026-11-02: `docs/docs.json` of that repository (main) lists "Version 2026-07-28 (latest)".
+
+### F-MCP-03 Official MCP Registry
+From github.com/modelcontextprotocol/registry (main, read 2026-11-02):
+- `docs/modelcontextprotocol-io/quickstart.mdx`:
+  - the registry "only hosts metadata, not artifacts";
+  - for npm packages "this requires adding an `mcpName` property to `package.json`", and "The `name` property in `server.json` **must** match the `mcpName` property in `package.json`";
+  - `mcp-publisher init`, `login github`, `publish` and `validate`;
+  - the check is `curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=<name>"`.
+- `authentication.mdx`:
+  - with GitHub login the name must be `io.github.username/*` or `io.github.orgname/*`;
+  - an organization namespace needs an Owner;
+  - "`mcp-publisher login github` cannot currently publish to an organization namespace" (GitHub Actions OIDC or a token with `read:org` can).
+- `package-types.mdx`: npm packages use `"registryType": "npm"` and only the public npm registry.
+- The schema `https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json`:
+  - `name`, `description` and `version` are required;
+  - `description` and `title` are at most 100 characters;
+  - `name` matches `^[a-zA-Z0-9.-]+/[a-zA-Z0-9._-]+$`;
+  - a named argument has `name`, `isRequired`, `isRepeated` and `format` (`string`, `number`, `boolean` or `filepath`) and is written as `--flag={value}`.
+- The server's `--root=<dir>` form is accepted by `node:util` parseArgs (checked by running it on Node.js 22.23.4).
 
 ### F-SKILL-01 Agent Skills
 Specification (github.com/agentskills/agentskills `docs/specification.mdx`, main, read 2026-10-30): a skill is a directory with `SKILL.md`, YAML frontmatter then Markdown; `name` required, 1–64 characters, lowercase letters, digits and hyphens, not starting or ending with a hyphen, no consecutive hyphens, equal to the parent directory name; `description` required, 1–1024 characters; optional `license`, `compatibility` (at most 500 characters), `metadata`, `allowed-tools`. The `skills` CLI (vercel-labs/skills README and docs/creating-skills.md, npm 1.7.4): `npx skills add <repository | URL | local path>`, options `--skill`, `--agent`, `--yes`, `--copy`; discovers `skills/<name>/SKILL.md`; requires Node.js 22.20 or later; `DISABLE_TELEMETRY=1` or `DO_NOT_TRACK=1` turns off telemetry and security-audit requests. agentskills.io itself was not reachable (proxy refusal).
