@@ -470,6 +470,11 @@ export class Workbook {
         details: { limit: 'maxCells', value: budget },
       });
     };
+    // Rows looked up for their settings (height, visibility, outline) up to a sheet's dimension or
+    // last cell: no object per row, but a lookup each, so a dimension of a million rows on many
+    // sheets is limited too (D-H01): 64 Mi lookups or 16 per cell read, whichever is larger.
+    const rowBudget = Math.max(64 * 1024 * 1024, 16 * cellsRead);
+    let rowsLooked = 0;
     for (const s of read.sheets) {
       if (s.kind !== 'worksheet' || (options.maxRows === undefined && options.maxCols === undefined) || !use('sheetData')) continue;
       const perRow = new Map<number, number>();
@@ -594,6 +599,14 @@ export class Workbook {
       // sheet's dimension or its last cell are looked at (D-R01).
       const dim = /(\d+)$/.exec(s.dimension ?? '');
       lastRow = use('sheetData') ? Math.min(Math.max(lastRow, dim ? Number(dim[1]) : 0), 1_048_576) : 0;
+      rowsLooked += lastRow;
+      if (rowsLooked > rowBudget) {
+        throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The rows of worksheet "${s.name}" up to its dimension or last cell would bring the rows looked at for their settings past ${String(rowBudget)} for ${String(cellsRead)} cells in the file.`, {
+          location: { sheet: s.name },
+          hint: 'The sheets declare far more rows than they hold. Load the file with ignoreNodes: ["sheetData"] to skip cells and rows, or read it with xlvane\'s readWorkbook.',
+          details: { limit: 'maxCells', value: rowBudget },
+        });
+      }
       for (let r = 1; r <= lastRow; r++) {
         const info = s.rowInfo(r);
         if (!info) continue;

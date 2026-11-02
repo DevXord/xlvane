@@ -62,3 +62,47 @@ describe('compat xlsx.load', () => {
     expect((error as { code?: string }).code).toBe('XLV_E_LIMIT_EXCEEDED');
   });
 });
+
+describe('mergeCells keeps exceljs behaviour (independent review of the patch)', () => {
+  it('refuses a merge over a merged range whose cells were replaced by row.values, as exceljs 4.4.0 does', () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    ws.mergeCells('A1:B1');
+    ws.getRow(1).values = [1, 2];
+    expect(() => ws.mergeCells('A1:C1')).toThrow('Cannot merge already merged cells');
+    ws.unMergeCells('A1:B1');
+    expect(() => ws.mergeCells('A1:C1')).not.toThrow();
+  });
+
+  it('checks 20 000 merges in linear time', () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    const start = performance.now();
+    for (let r = 1; r <= 20000; r++) ws.mergeCells(r, 1, r, 2);
+    expect(performance.now() - start).toBeLessThan(3000);
+    expect(() => ws.mergeCells(20000, 2, 20001, 3)).toThrow('Cannot merge already merged cells');
+  });
+});
+
+describe('row settings up to the dimension (independent review of the patch)', () => {
+  it('300 sheets declaring a million rows each, with one cell, are refused quickly', async () => {
+    const sheets = Array.from({ length: 300 }, (_, i) => ({ name: `S${String(i + 1)}`, before: '<dimension ref="A1:A1048576"/>', data: '<row r="1"><c r="A1"><v>1</v></c></row>' }));
+    const bytes = buildXlsx({ sheets });
+    const start = performance.now();
+    let error: unknown = null;
+    try {
+      await new ExcelJS.Workbook().xlsx.load(bytes);
+    } catch (e) {
+      error = e;
+    }
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect((error as { code?: string } | null)?.code).toBe('XLV_E_LIMIT_EXCEEDED');
+  });
+
+  it('a few sheets declaring a million rows still load, with their row settings', async () => {
+    const sheets = Array.from({ length: 3 }, (_, i) => ({ name: `S${String(i + 1)}`, before: '<dimension ref="A1:A1048576"/>', data: '<row r="1"><c r="A1"><v>1</v></c></row><row r="900000" hidden="1"/>' }));
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buildXlsx({ sheets }));
+    expect(wb.getWorksheet('S3')?.getRow(900000).hidden).toBe(true);
+  });
+});

@@ -18,7 +18,7 @@ A security release: small, crafted files could make reading, converting or the c
 
 ### @xlvane/compat
 
-- `xlsx.load` limits the cells it creates for merged ranges, tables and column definitions (`XLV_E_LIMIT_EXCEEDED`); before, one merged range covering the whole sheet ran out of memory. Checking a new merge against earlier ones takes linear time.
+- `xlsx.load` limits the cells it creates for merged ranges, tables and column definitions (`XLV_E_LIMIT_EXCEEDED`); before, one merged range covering the whole sheet ran out of memory. Checking a new merge against earlier ones takes linear time. Many sheets declaring a million rows in their dimension are refused instead of being scanned row by row.
 - `workbook.csv` escapes the same additional formula-like starts as `toCSV`.
 
 ## 1.1.0

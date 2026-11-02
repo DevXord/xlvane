@@ -1014,6 +1014,27 @@ export function parseRangeArgs(args: readonly unknown[]): { top: number; left: n
   return { top: Math.min(s.row, e.row), left: Math.min(s.col, e.col), bottom: Math.max(s.row, e.row), right: Math.max(s.col, e.col) };
 }
 
+
+/** A merged range of a worksheet. */
+type MergeRange = { top: number; left: number; bottom: number; right: number };
+
+/** The merged ranges of a worksheet by master address, with a counter of changes (D-H01). */
+class MergeMap extends Map<string, MergeRange> {
+  version = 0;
+  override set(key: string, value: MergeRange): this {
+    this.version++;
+    return super.set(key, value);
+  }
+  override delete(key: string): boolean {
+    this.version++;
+    return super.delete(key);
+  }
+  override clear(): void {
+    this.version++;
+    super.clear();
+  }
+}
+
 /**
  * A worksheet, as exceljs `Worksheet` (lib/doc/worksheet.js).
  *
@@ -1058,7 +1079,10 @@ export class Worksheet {
   /** @internal */
   _columns: Column[] = [];
   /** @internal */
-  _merges: Map<string, { top: number; left: number; bottom: number; right: number }> = new Map();
+  _merges: MergeMap = new MergeMap();
+  /** The cells covered by `_merges` (row × 16 385 + column), valid while `_mergedVersion` equals `_merges.version`. */
+  private _mergedCells = new Set<number>();
+  private _mergedVersion = -1;
   private readonly _keys = new Map<string, Column>();
   private _name = '';
 
@@ -1789,14 +1813,14 @@ export class Worksheet {
 
   mergeCells(...args: unknown[]): void {
     const range = parseRangeArgs(args);
-    // The cells of the range, not every earlier merge, are checked: the same result as exceljs's
-    // intersection test (lib/doc/worksheet.js L612-618) in time linear in the range, so that many
-    // merges in a file are not quadratic (D-H01).
+    // The cells of the range are looked up in an index of the cells that `_merges` covers: the
+    // same result as exceljs's test against every earlier merge (lib/doc/worksheet.js
+    // L612-618), also after `row.values` replaced the cells, in time linear in the range, so
+    // that many merges in a file are not quadratic (D-H01).
+    const merged = this._mergedIndex();
     for (let r = range.top; r <= range.bottom; r++) {
-      const row = this.findRow(r);
-      if (row === undefined) continue;
       for (let c = range.left; c <= range.right; c++) {
-        if (row.findCell(c)?.isMerged) throw new Error('Cannot merge already merged cells');
+        if (merged.has(r * 16385 + c)) throw new Error('Cannot merge already merged cells');
       }
     }
     const master = this.getCell(range.top, range.left);
@@ -1810,6 +1834,19 @@ export class Worksheet {
     }
     master._mergeCount++;
     this._merges.set(`${columnLetter(range.left)}${String(range.top)}`, range);
+    // Keep the index in step instead of rebuilding it.
+    for (let r = range.top; r <= range.bottom; r++) for (let c = range.left; c <= range.right; c++) merged.add(r * 16385 + c);
+    this._mergedVersion = this._merges.version;
+  }
+
+  /** The index of merged cells, rebuilt from `_merges` after any other change to it. */
+  private _mergedIndex(): Set<number> {
+    if (this._mergedVersion !== this._merges.version) {
+      this._mergedCells = new Set();
+      for (const m of this._merges.values()) for (let r = m.top; r <= m.bottom; r++) for (let c = m.left; c <= m.right; c++) this._mergedCells.add(r * 16385 + c);
+      this._mergedVersion = this._merges.version;
+    }
+    return this._mergedCells;
   }
 
   unMergeCells(...args: unknown[]): void {
