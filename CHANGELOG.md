@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.1
+
+### xlvane
+
+- `xlvane migrate` no longer lists `addImage({ filename })` as not supported: @xlvane/compat reads the file when the workbook is written, as exceljs does. It still lists `ModelContainer` and deep imports of `exceljs/lib/...`.
+- README: package size measured for 1.0.0, benchmark link that works outside the repository, Agent Skill install command, Deno and bundler imports, links to the changelog, issues and security policy.
+- Published from GitHub Actions with npm provenance (trusted publishing); 1.0.0 was published without it.
+
+### @xlvane/compat
+
+- README: installing (npm alias or `xlvane migrate`), requirements and runtimes, TypeScript settings, the differences from exceljs most likely to matter, links.
+- docs/exceljs-compat.md lists `ModelContainer` as not supported (constructing it throws `XLV_E_NOT_SUPPORTED`, as in 1.0.0).
+
 ## 1.0.0
 
 First release of `xlvane` and `@xlvane/compat`.
