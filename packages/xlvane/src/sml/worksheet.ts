@@ -939,7 +939,10 @@ function parseSplit(attrs: ReadonlyMap<string, string>, warn: (message: string) 
   const x = position('xSplit');
   const y = position('ySplit');
   if (x === null || y === null || (x === 0 && y === 0)) return null;
-  return Object.freeze({ x, y });
+  // The first visible column of the right panes and row of the bottom panes (W2-69); a value that
+  // is not a cell reference is left out.
+  const topLeft = parseCellRef((attrs.get('topLeftCell') ?? '').trim());
+  return Object.freeze(topLeft === null ? { x, y } : { x, y, topLeftCell: formatCellRef(topLeft.row, topLeft.col) });
 }
 
 /**

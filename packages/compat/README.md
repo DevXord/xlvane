@@ -58,7 +58,7 @@ The full list, with the exceljs source of each behaviour, is in [docs/exceljs-co
 - **Not offered:** row and column operations on a streamed worksheet (`insertRow(s)`, `spliceRows`, `duplicateRow`, `spliceColumns`; exceljs's streaming worksheet does not have them either) throw an `XlvError` with code `XLV_E_NOT_SUPPORTED` and the name of the method. Deep imports of exceljs internals (`exceljs/lib/...`) do not resolve; `exceljs/dist/es5` and the `exceljs/dist/exceljs*.js` files do. Nothing is dropped silently.
 - **CSV:** text that starts with `=`, `+`, `-`, `@`, a tab, CR or LF is written with a leading `'`, so spreadsheet applications do not run it as a formula. `formulaInjection: "off"` writes it unchanged, as exceljs does.
 - **Sheet ids:** the file gets `sheetId` 1, 2, 3… in sheet order, and a loaded workbook numbers its sheets 1, 2, 3… in file order. After removing a sheet, `getWorksheet(id)` can give another sheet than with exceljs; look sheets up by name.
-- **Views:** only the first view of a worksheet is written; a split view is written without its `topLeftCell`.
+- **Views:** only the first view of a worksheet is written; a frozen view always gets the cell right of and below the panes as `topLeftCell`.
 - **Notes:** `protection.locked` and `lockText` read back as `'True'`/`'False'`, the values Excel writes.
 - **Module object:** it is frozen, so adding or replacing its properties (monkey-patching) has no effect.
 - **Streaming writer speed:** `stream.xlsx.WorkbookWriter` compresses in JavaScript (fflate) and took about twice as long as exceljs, which uses Node.js zlib (300 000 rows: 6.1 s against 2.8 s).

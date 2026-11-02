@@ -2,11 +2,10 @@
 // 2014-2019 Guyon Roche), changes: Mocha/Chai → Vitest with async/await; files go to a temporary
 // directory (`roundTrip`);
 // the frozen-panes and split-panes tests write one view per worksheet (only the first sheet view
-// is written) and expect `topLeftCell` of a split view and `activeCell` to be absent (not
-// written by xlvane);
+// is written);
 // the zip-compression tests write an own sheet (createTestBook is not ported);
 // 'multiple book views' inlines spec/utils/data/views.json and expects the split view back with
-// workbookViewId 0 and without topLeftCell/activeCell;
+// workbookViewId 0;
 // 'wrong data type' checks that `load({})` rejects, not the JSZip message; tests that need
 // unsupported features (createTestBook fixtures) are skipped or
 // expect XLV_E_NOT_SUPPORTED; the two CSV tests build the CSV part of createTestBook themselves
@@ -549,8 +548,9 @@ describe('Workbook', () => {
       expect(wb2.getWorksheet('cols').views).toEqual([{ ...defaults, state: 'frozen', xSplit: 1, ySplit: 0, topLeftCell: 'B1' }]);
     });
 
-    // Change for xlvane: each upstream view is the only view of its own worksheet; `topLeftCell`
-    // and `activeCell` of a split view are not written, so they read back as undefined/absent.
+    // Change for xlvane: each upstream view is the only view of its own worksheet. `topLeftCell` is
+    // written as pane@topLeftCell and read back, as in exceljs (sheet-view-xform.js L72-85,
+    // L118-124; D-F02).
     it('serialises split panes', async () => {
       const defaults = { workbookViewId: 0, showRuler: true, showGridLines: true, showRowColHeaders: true, zoomScale: 100, zoomScaleNormal: 100, rightToLeft: false };
       const wb = new ExcelJS.Workbook();
@@ -567,8 +567,8 @@ describe('Workbook', () => {
       const wb2 = await roundTrip(wb);
       const expected = [
         // The active cell comes back as in exceljs (sheet-view-xform.js L81-85, L167-169).
-        { ...defaults, state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: undefined, activeCell: 'D5', activePane: 'bottomRight' },
-        { ...defaults, state: 'split', xSplit: 0, ySplit: 1500, topLeftCell: undefined, activePane: 'bottomLeft' },
+        { ...defaults, state: 'split', xSplit: 2000, ySplit: 3000, topLeftCell: 'C4', activeCell: 'D5', activePane: 'bottomRight' },
+        { ...defaults, state: 'split', xSplit: 0, ySplit: 1500, topLeftCell: 'A10', activePane: 'bottomLeft' },
         { ...defaults, state: 'split', xSplit: 1500, ySplit: 0, topLeftCell: undefined, activePane: 'topRight' },
       ];
       expected.forEach((view, i) => {
@@ -593,10 +593,10 @@ describe('Workbook', () => {
       const wb2 = await roundTrip(wb);
       expect(wb2.views).toEqual(wb.views);
       expect(wb2.getWorksheet('one').views).toEqual([frozen]);
-      // xlvane writes every sheet view with workbookViewId 0 and no topLeftCell for a split view;
-      // the active cell is kept, as exceljs writes and reads it (sheet-view-xform.js L81-85,
-      // L167-169; docs/exceljs-compat.md).
-      expect(wb2.getWorksheet('two').views).toEqual([{ ...split, workbookViewId: 0, topLeftCell: undefined }]);
+      // xlvane writes every sheet view with workbookViewId 0; the split view's topLeftCell and
+      // active cell are kept, as exceljs writes and reads them (sheet-view-xform.js L72-85,
+      // L118-124, L167-169; docs/exceljs-compat.md).
+      expect(wb2.getWorksheet('two').views).toEqual([{ ...split, workbookViewId: 0 }]);
     });
   });
 });

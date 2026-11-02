@@ -241,13 +241,19 @@ export type SheetLayout = 'normal' | 'pageBreakPreview' | 'pageLayout';
  * ```ts
  * import type { SplitPanes } from 'xlvane';
  *
- * const split: SplitPanes = { x: 120, y: 60 };
- * console.log(split.x);
+ * const split: SplitPanes = { x: 120, y: 60, topLeftCell: 'H20' };
+ * console.log(split.x, split.topLeftCell);
  * ```
  */
 export interface SplitPanes {
   readonly x: number;
   readonly y: number;
+  /**
+   * The top-left visible cell of the bottom-right pane (`pane@topLeftCell`): its column is the
+   * first one shown right of the vertical bar, its row the first one shown below the horizontal
+   * bar. Absent when the file does not set it.
+   */
+  readonly topLeftCell?: string;
 }
 
 /**

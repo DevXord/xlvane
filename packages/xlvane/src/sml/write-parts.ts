@@ -501,13 +501,15 @@ export function sheetHead(
   xml += `<sheetViews><sheetView${selected ? ' tabSelected="1"' : ''}${viewAttributes(attrsView)} workbookViewId="0"`;
   const split = sheet.view?.split ?? null;
   if (split !== null && !sheet.freeze) {
-    // A split window: positions in 1/20 point, xSplit for the vertical bar; pane@topLeftCell is
-    // optional for state="split" ([MS-OI29500] §2.1.640 a, d; W2-51). sheetView@topLeftCell (the
-    // top-left pane) is written above; the active cell is the selection of the active pane.
+    // A split window: positions in 1/20 point, xSplit for the vertical bar; pane@topLeftCell (the
+    // bottom-right pane's top-left visible cell, W2-69) is optional for state="split"
+    // ([MS-OI29500] §2.1.640 a, d; W2-51). sheetView@topLeftCell (the top-left pane) is written
+    // above; the active cell is the selection of the active pane.
     const pane = split.x > 0 && split.y > 0 ? 'bottomRight' : split.y > 0 ? 'bottomLeft' : 'topRight';
     xml += '><pane';
     if (split.x > 0) xml += attr('xSplit', split.x * 20);
     if (split.y > 0) xml += attr('ySplit', split.y * 20);
+    if (split.topLeftCell !== undefined) xml += attr('topLeftCell', split.topLeftCell);
     xml += `${attr('activePane', pane)} state="split"/>`;
     const active = sheet.view?.activeCell;
     xml += active ? `<selection${attr('pane', pane)}${attr('activeCell', active)}${attr('sqref', active)}/></sheetView>` : '</sheetView>';

@@ -323,8 +323,10 @@ export interface SheetViewOptions {
   readonly layout?: SheetLayout;
   /**
    * Splits the window (without freezing) at `x` points from the left and `y` points from the
-   * top; a missing one is 0, but not both. `null` removes the split. A split replaces frozen
-   * panes, and {@link NewSheet.freeze} replaces a split.
+   * top; a missing one is 0, but not both. `topLeftCell` (optional) is the top-left visible cell
+   * of the bottom-right pane: the first column shown right of the vertical bar and the first row
+   * below the horizontal bar. `null` removes the split. A split replaces frozen panes, and
+   * {@link NewSheet.freeze} replaces a split.
    */
   readonly split?: Partial<SplitPanes> | null;
   /** The top-left visible cell (`sheetView@topLeftCell`), e.g. `"C10"`; `null` for the default. */
@@ -935,7 +937,7 @@ export class NewSheet {
         const split = o.get('split');
         if (split === null) next.split = null;
         else {
-          const p = readOptions(split, ['x', 'y'], 'view option "split"');
+          const p = readOptions(split, ['x', 'y', 'topLeftCell'], 'view option "split"');
           const at = (key: string): number => {
             const v = p.get(key) ?? 0;
             if (typeof v !== 'number' || !Number.isFinite(v) || v < 0 || v > MAX_SPLIT_POINTS) {
@@ -947,7 +949,13 @@ export class NewSheet {
           const y = at('y');
           // Office does not support a split pane at 0, 0 ([MS-OI29500] §2.1.640 e).
           if (x === 0 && y === 0) throw invalidOption('A split needs "x" or "y" greater than 0.', 'For example { split: { y: 50 } }, or { split: null } to remove it.');
-          next.split = { x, y };
+          const corner = p.get('topLeftCell');
+          if (corner === undefined || corner === null) next.split = { x, y };
+          else {
+            const cell = typeof corner === 'string' ? parseCellRef(corner.toUpperCase()) : null;
+            if (cell === null) throw invalidOption('The split option "topLeftCell" must be a cell reference such as "F20".', 'For example { split: { x: 100, y: 50, topLeftCell: "F20" } }: the first column shown right of the vertical bar and the first row below the horizontal bar.');
+            next.split = { x, y, topLeftCell: formatCellRef(cell.row, cell.col) };
+          }
           unfreeze = true;
         }
       }
