@@ -62,8 +62,9 @@ export interface WorksheetData {
   /**
    * Cells with a style but no value and no formula (D-E05), kept apart from `rows` so that
    * every reader of values sees the same cells as before. Stored compactly (D-E06): row number →
-   * flat list `[column, styleIndex, column, styleIndex, …]`; `styledCell` builds a Cell from one
-   * entry when it is asked for.
+   * flat list `[column, styleIndex, column, styleIndex, …]`, where style index -1 marks an entry
+   * replaced by a cell with a value (D-H01); `styledCell` builds a Cell from one entry when it is
+   * asked for.
    */
   readonly styleOnly: Map<number, number[]>;
   /** Builds the Cell of a style-only entry. */
@@ -193,7 +194,7 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
 /** The cells of one row's style-only list (`[col, styleIndex, …]`), in column order. */
 export function styledCellsOf(row: number, list: readonly number[], make: (row: number, col: number, styleIndex: number) => Cell): Cell[] {
   const pairs: [number, number][] = [];
-  for (let i = 0; i + 1 < list.length; i += 2) pairs.push([list[i]!, list[i + 1]!]);
+  for (let i = 0; i + 1 < list.length; i += 2) if (list[i + 1] !== -1) pairs.push([list[i]!, list[i + 1]!]);
   pairs.sort((a, b) => a[0] - b[0]);
   return pairs.map(([col, styleIndex]) => make(row, col, styleIndex));
 }
@@ -207,6 +208,10 @@ export function createWorksheetParser(
   // so that the usual ascending order needs no search.
   const styleOnly = new Map<number, number[]>();
   const styleOnlyMax = new Map<number, number>();
+  // Rows whose cells came out of order get an index column → position, built on first need, so a
+  // row written right to left is not searched once per cell (D-H01). A cell replaced by one with
+  // a value keeps its place with style index -1 (no splicing); styledCellsOf skips it.
+  const styleOnlyIndex = new Map<number, Map<number, number>>();
   const merges: string[] = [];
   const formats = ctx.formatCache;
   const path: string[] = [];
@@ -289,8 +294,14 @@ export function createWorksheetParser(
     if (max === undefined || col > max) return -1;
     const list = styleOnly.get(row);
     if (list === undefined) return -1;
-    for (let i = list.length - 2; i >= 0; i -= 2) if (list[i] === col) return i;
-    return -1;
+    if (list[list.length - 2] === col && list[list.length - 1] !== -1) return list.length - 2;
+    let index = styleOnlyIndex.get(row);
+    if (index === undefined) {
+      index = new Map();
+      for (let i = 0; i + 1 < list.length; i += 2) if (list[i + 1] !== -1) index.set(list[i] as number, i);
+      styleOnlyIndex.set(row, index);
+    }
+    return index.get(col) ?? -1;
   };
   const styledCell = (row: number, col: number, styleIndex: number): Cell => {
     const code = numberFormat(styleIndex).code;
@@ -466,6 +477,7 @@ export function createWorksheetParser(
           details: { limit: 'maxCells', value: ctx.limits.maxCells },
         });
       }
+      styleOnlyIndex.get(p.row)?.set(p.col, styled.length);
       styled.push(p.col, p.styleIndex);
       if (p.col > (styleOnlyMax.get(p.row) ?? 0)) styleOnlyMax.set(p.row, p.col);
       return;
@@ -473,7 +485,9 @@ export function createWorksheetParser(
     // A later definition with a value replaces a style-only one (the last definition is used).
     const at = styledIndex(p.row, p.col);
     if (at >= 0) {
-      styleOnly.get(p.row)?.splice(at, 2);
+      const list = styleOnly.get(p.row);
+      if (list !== undefined) list[at + 1] = -1;
+      styleOnlyIndex.get(p.row)?.delete(p.col);
       ctx.budget.remaining++;
       ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
     }
@@ -534,6 +548,7 @@ export function createWorksheetParser(
     for (const r of [...styleOnly.keys()].sort((a, b) => a - b)) styled.push(...styledCellsOf(r, styleOnly.get(r) ?? [], styledCell));
     styleOnly.clear();
     styleOnlyMax.clear();
+    styleOnlyIndex.clear();
     if (out.length > 0 || styled.length > 0) onRow(currentRow, out, info, styled);
   };
 
