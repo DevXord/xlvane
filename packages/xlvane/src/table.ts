@@ -3,7 +3,7 @@
 import { isoDate } from './util/iso-date';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import type { ReadLimits } from './limits';
+import { checkOutputPositions, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Sheet, Workbook } from './model';
 import { columnLetters, formatCellRef, MAX_COLUMNS, MAX_ROWS, parseRange, type CellRange } from './sml/cell-ref';
 import type { StandardSchemaV1 } from './standard-schema';
@@ -255,6 +255,7 @@ function pickTable(workbook: Workbook, o: Map<string, unknown>): { sheet: Sheet;
 
 function prepare(input: unknown, options: unknown): PreparedTable {
   const o = readOptions(options, READ_OPTIONS, 'readTable options');
+  const limits = resolveLimits(o.get('limits'));
   const workbook = openInput(input, o.get('limits'), o.get('onWarning'));
   const table = pickTable(workbook, o);
   const sheet = table?.sheet ?? pickSheet(workbook, o.get('sheet'));
@@ -338,6 +339,9 @@ function prepare(input: unknown, options: unknown): PreparedTable {
   const rowNumbers: number[] = [];
   const first = headerRow === null ? minRow : headerRow + 1;
   const numbers = skipEmpty ? [...byRow.keys()].filter((r) => r >= first && r <= maxRow).sort((a, b) => a - b) : rangeOf(first, maxRow);
+  let cellCount = 0;
+  for (const cells of byRow.values()) cellCount += cells.size;
+  checkOutputPositions(numbers.length * columns.length, cellCount, limits.maxCells, 'The table', sheet.name);
   for (const r of numbers) {
     const cells = byRow.get(r);
     if (skipEmpty && (cells === undefined || [...cells.values()].every((c) => c.value === null))) continue;

@@ -6,7 +6,7 @@ import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import { DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
+import { checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Conformance, DateSystem, SheetKind, SheetState, WorkbookFormat } from './model';
 import { openPackage } from './opc/package';
 import type { Note } from './notes';
@@ -456,13 +456,19 @@ export async function* readTableStream(
       headerRow = header;
     }
     const source = headerRow === null ? nonEmpty.flatMap((r) => r.cells) : (nonEmpty.find((r) => r.number === headerRow)?.cells ?? []);
-    const minCol = Math.min(...source.map((c) => c.col));
-    const maxCol = Math.max(...source.map((c) => c.col));
+    // A loop and a map, not Math.min(...cells) and find(): a row may hold 16 384 cells (D-H01).
+    let minCol = Infinity;
+    let maxCol = -Infinity;
+    for (const c of source) {
+      if (c.col < minCol) minCol = c.col;
+      if (c.col > maxCol) maxCol = c.col;
+    }
+    const headerCells = new Map(headerRow === null ? [] : source.map((c) => [c.col, c] as const));
     const out: TableColumn[] = [];
     const used = new Set<string>();
     for (let col = minCol; col <= maxCol; col++) {
       const letter = columnLetters(col);
-      const cell = headerRow === null ? undefined : source.find((c) => c.col === col);
+      const cell = headerCells.get(col);
       const text = cell === undefined || cell.value === null ? null : cell.value instanceof Date ? isoDate(cell.value) : String(cell.value);
       const base = text === null || text.trim() === '' ? letter : text.trim();
       let key = base;
@@ -473,8 +479,14 @@ export async function* readTableStream(
     return out;
   };
 
+  // Positions written (rows × columns) against the cells read (checkOutputPositions, D-H01).
+  let positions = 0;
+  let cellsRead = 0;
   const emit = async (r: StreamRow, cols: TableColumn[]): Promise<TableStreamItem<unknown> | null> => {
     if (headerRow !== null && r.number <= headerRow) return null;
+    cellsRead += r.cells.length;
+    positions += cols.length;
+    checkOutputPositions(positions, cellsRead, DEFAULT_READ_LIMITS.maxCells, 'The table', sheetName);
     const byCol = new Map(r.cells.map((c) => [c.col, c]));
     if (cols.every((c) => byCol.get(c.col)?.value == null)) return null;
     const row: Record<string, TableValue> = {};

@@ -140,3 +140,24 @@ function describe(value: unknown): string {
   if (typeof value === 'object' || typeof value === 'function') return `a value of type ${typeof value}`;
   return String(value);
 }
+
+/**
+ * How many positions (rows × columns) a table or CSV made from a sheet may have per cell read
+ * from it, beyond `maxCells`: a few cells far apart must not make the output a whole sheet
+ * (D-H01).
+ */
+export const OUTPUT_PER_CELL = 16;
+
+/**
+ * Checks the number of positions an output built from a sheet would have against
+ * max(`maxCells`, OUTPUT_PER_CELL × cells read). Throws `XLV_E_LIMIT_EXCEEDED` above it.
+ */
+export function checkOutputPositions(positions: number, cells: number, maxCells: number, what: string, sheet: string): void {
+  const budget = Math.max(maxCells, OUTPUT_PER_CELL * cells);
+  if (positions <= budget) return;
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what} of sheet "${sheet}" would have ${String(positions)} positions (rows × columns) for ${String(cells)} cells, more than the limit of ${String(budget)}.`, {
+    location: { sheet },
+    hint: `The cells are spread over a far larger area than they fill. Pass a smaller range (for example { range: "A1:H1000" } or --range), or raise limits.maxCells if the file is trusted.`,
+    details: { limit: 'maxCells', value: budget },
+  });
+}
