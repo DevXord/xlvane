@@ -162,6 +162,7 @@ A part exists but has the wrong structure: for example the workbook part's root 
 | `target-mode` | `TargetMode` is neither `Internal` nor `External` |
 | `internal-target` | an internal relationship target cannot be resolved to a part name |
 | `equivalent-part-names` | two ZIP entries map to equivalent part names (e.g. a raw UTF-8 name and its percent-encoded form) |
+
 **Fix:** check that the file is an Excel workbook (not a Word or PowerPoint document) and re-save it in a spreadsheet application.
 
 ### XLV_E_INVALID_CELL_REF
