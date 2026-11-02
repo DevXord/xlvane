@@ -89,3 +89,27 @@ describe('amplification attacks', () => {
   });
 });
 
+
+describe('hyperlinks covering many cells (1.1.1 security review, D-H01)', () => {
+  const sheetWith = (cells: number, links: string): Uint8Array => {
+    let data = '';
+    for (let r = 1; r <= cells; r++) data += `<row r="${String(r)}"><c r="A${String(r)}"><v>${String(r)}</v></c></row>`;
+    return buildXlsx({ sheets: [{ name: 'S', data, after: `<hyperlinks>${links}</hyperlinks>` }] });
+  };
+
+  it('stops walking once every cell has a link (many links over the whole sheet)', () => {
+    const links = '<hyperlink ref="A1:XFD1048576" location="S!A1"/>'.repeat(8000);
+    const { result, ms } = timed(() => readWorkbook(sheetWith(40_000, links)));
+    expect(ms).toBeLessThan(3000);
+    expect(result.getSheet('S').cell('A40000')?.hyperlink?.location).toBe('S!A1');
+    expect(result.getSheet('S').hyperlinks).toHaveLength(8000);
+  });
+
+  it('stops attaching links to cells after a budget when the ranges miss the cells, with a warning', () => {
+    const links = '<hyperlink ref="B1:B1048576" location="S!A1"/>'.repeat(8000) + '<hyperlink ref="A1" location="S!A2"/>';
+    const { result, ms } = timed(() => readWorkbook(sheetWith(40_000, links)));
+    expect(ms).toBeLessThan(3000);
+    expect(result.getSheet('S').hyperlinks).toHaveLength(8001);
+    expect(result.warnings.map((w) => w.code)).toContain('XLV_W_LIMIT_REACHED');
+  });
+});

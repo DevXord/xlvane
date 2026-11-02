@@ -1,7 +1,7 @@
 import { diff, type DiffCell } from '../../diff';
 import { flag, positiveInt } from '../args';
 import { readBook, withPath } from '../files';
-import { plural, type Output } from '../output';
+import { escapeControls as t, plural, type Output } from '../output';
 import type { CommandSpec } from '../types';
 
 /** Changes listed per sheet unless --limit is given (all of them are in --json). */
@@ -10,7 +10,7 @@ const DEFAULT_LIMIT = 50;
 function showCell(c: DiffCell | null): string {
   if (c === null) return '(empty)';
   const value = c.value === null ? '' : typeof c.value === 'string' ? JSON.stringify(c.value) : String(c.value);
-  return c.formula !== null ? `=${c.formula}${value !== '' ? ` (${value})` : ''}` : value === '' ? '(no value)' : value;
+  return c.formula !== null ? `=${t(c.formula)}${value !== '' ? ` (${value})` : ''}` : value === '' ? '(no value)' : value;
 }
 
 function kindLabel(out: Output, kind: 'added' | 'removed' | 'changed'): string {
@@ -52,17 +52,18 @@ export const diffCommand: CommandSpec = {
       result: r,
       exitCode: r.equal ? 0 : 1,
       render: (out) => {
-        if (r.equal) return `${out.green('No differences')} between ${a} and ${b}.`;
+        // Names and formulas from the files are escaped where they are inserted (D-H01).
+        if (r.equal) return `${out.green('No differences')} between ${t(a)} and ${t(b)}.`;
         const s = r.summary;
         const lines = [
-          `${out.bold(`${a} → ${b}`)}: ${plural(s.cellsChanged, 'cell')} changed, ${String(s.cellsAdded)} added, ${String(s.cellsRemoved)} removed` +
+          `${out.bold(`${t(a)} → ${t(b)}`)}: ${plural(s.cellsChanged, 'cell')} changed, ${String(s.cellsAdded)} added, ${String(s.cellsRemoved)} removed` +
             (s.sheetsAdded + s.sheetsRemoved > 0 ? `; sheets added: ${String(s.sheetsAdded)}, removed: ${String(s.sheetsRemoved)}` : ''),
         ];
-        for (const name of r.sheetsAdded) lines.push(`${out.green('added sheet')}   "${name}"`);
-        for (const name of r.sheetsRemoved) lines.push(`${out.red('removed sheet')} "${name}"`);
+        for (const name of r.sheetsAdded) lines.push(`${out.green('added sheet')}   "${t(name)}"`);
+        for (const name of r.sheetsRemoved) lines.push(`${out.red('removed sheet')} "${t(name)}"`);
         for (const sheet of r.sheets) {
           if (sheet.cells.length === 0 && !sheet.state) continue;
-          lines.push('', out.bold(`Sheet "${sheet.name}"`));
+          lines.push('', out.bold(`Sheet "${t(sheet.name)}"`));
           if (sheet.state) lines.push(`  ${out.yellow('changed')} visibility: ${sheet.state.before} → ${sheet.state.after}`);
           for (const c of sheet.cells.slice(0, limit)) {
             const style = c.kind === 'changed' && showCell(c.before) === showCell(c.after) ? ' (formatting)' : '';

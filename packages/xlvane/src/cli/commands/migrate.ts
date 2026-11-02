@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { lstat, readdir, readFile } from 'node:fs/promises';
 import { join, relative } from 'node:path';
 import { XlvError } from '../../errors';
 import { flag } from '../args';
@@ -48,12 +48,15 @@ async function sourceFiles(root: string): Promise<{ files: string[]; limited: bo
       }
       if (name === 'node_modules' || name.startsWith('.')) continue;
       const path = join(dir, name);
+      // lstat: symbolic links are not followed, so a link loop cannot make the walk exponential
+      // and a link cannot lead it outside the project (D-H01).
       let info;
       try {
-        info = await stat(path);
+        info = await lstat(path);
       } catch {
         continue;
       }
+      if (info.isSymbolicLink()) continue;
       if (info.isDirectory()) await walk(path);
       else if (info.isFile() && SOURCE.test(name) && info.size <= MAX_FILE_BYTES) files.push(path);
     }
@@ -73,6 +76,79 @@ export function scanSource(file: string, text: string): MigrateFinding[] {
     }
   });
   return findings;
+}
+
+/**
+ * Offsets `[start, end)` of the string value (with its quotes) at `path` in valid JSON text, the
+ * one JSON.parse reads when keys repeat, or `null`. Keys are compared after decoding their
+ * escapes. Values off the path are skipped without recursion.
+ */
+export function stringValueSpan(text: string, path: readonly string[]): [number, number] | null {
+  let i = 0;
+  const space = (): void => {
+    while (i < text.length && ' \t\r\n'.includes(text[i]!)) i++;
+  };
+  /** Skips a string starting at i (on its opening quote); returns its raw text. */
+  const string = (): string => {
+    const start = i++;
+    while (text[i] !== '"') i += text[i] === '\\' ? 2 : 1;
+    i++;
+    return text.slice(start, i);
+  };
+  /** Skips any value starting at i, iteratively. */
+  const skip = (): void => {
+    let depth = 0;
+    do {
+      const c = text[i]!;
+      if (c === '"') string();
+      else {
+        if (c === '{' || c === '[') depth++;
+        else if (c === '}' || c === ']') depth--;
+        i++;
+        if (depth === 0 && c !== '{' && c !== '[') {
+          // A literal or number: skip to the next delimiter.
+          while (i < text.length && !',]} \t\r\n'.includes(text[i]!)) i++;
+        }
+      }
+    } while (depth > 0 && i < text.length);
+  };
+  const value = (level: number): [number, number] | null => {
+    space();
+    if (level === path.length) {
+      if (text[i] !== '"') {
+        skip();
+        return null;
+      }
+      const start = i;
+      string();
+      return [start, i];
+    }
+    if (text[i] !== '{') {
+      skip();
+      return null;
+    }
+    i++;
+    let found: [number, number] | null = null;
+    space();
+    if (text[i] === '}') {
+      i++;
+      return null;
+    }
+    for (;;) {
+      space();
+      const key = JSON.parse(string()) as string;
+      space();
+      i++; // ':'
+      if (key === path[level]) found = value(level + 1);
+      else {
+        space();
+        skip();
+      }
+      space();
+      if (text[i++] === '}') return found;
+    }
+  };
+  return value(0);
 }
 
 function jsonError(path: string, cause?: unknown): XlvError {
@@ -115,12 +191,17 @@ async function run(ctx: CommandContext) {
 
   let write: WriteOutcome | null = null;
   if (changes.length > 0 && flag(ctx.args, 'force')) {
-    let updated = text;
-    for (const c of changes) {
-      // Replace the value in place so the file keeps its formatting and key order.
-      const escaped = c.from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      updated = updated.replace(new RegExp(`("exceljs"\\s*:\\s*)"${escaped}"`), `$1"${ALIAS}"`);
+    // The values are replaced in place, so the file keeps its formatting and key order; each is
+    // the one JSON.parse read, located by its section (not the first "exceljs" in the file, which
+    // could be in "overrides" or a string, D-H01).
+    const spans = changes.map((c) => stringValueSpan(text, [c.section, 'exceljs'])).filter((s): s is [number, number] => s !== null);
+    let updated = '';
+    let at = 0;
+    for (const [start, end] of spans.sort((a, b) => a[0] - b[0])) {
+      updated += `${text.slice(at, start)}"${ALIAS}"`;
+      at = end;
     }
+    updated += text.slice(at);
     write = await writeOutput(ctx, pkgPath, updated, { force: true, dryRun: flag(ctx.args, 'dry-run') });
   }
   const result = {

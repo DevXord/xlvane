@@ -40,10 +40,11 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   const err = new Output(useColor(io.env, io.stderrIsTTY), io.stderrIsTTY ? width : 100);
   // JSON is compact for scripts and agents; indented only when a person looks at a terminal.
   // Text for people never carries control characters from a file (cell text, sheet names, error
-  // messages): only the colour sequences of Output survive (D-R02). --json is not filtered.
+  // messages): only the colour sequences of Output survive (D-R02). --json carries the same data,
+  // with DEL, C1 and bidirectional characters written as \uXXXX escapes (D-H01).
   const stdout = (text: string): void => io.stdout(terminalSafe(text, out.color));
   const stderr = (text: string): void => io.stderr(terminalSafe(text, err.color));
-  const toJson = (value: unknown): string => `${io.stdoutIsTTY ? JSON.stringify(value, null, 2) : JSON.stringify(value)}\n`;
+  const toJson = (value: unknown): string => `${jsonSafe(io.stdoutIsTTY ? JSON.stringify(value, null, 2) : JSON.stringify(value))}\n`;
   const opts = optionArgs(argv);
   const json = opts.includes('--json');
   const [first, ...rest] = argv;
@@ -51,7 +52,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
   const state: CommandContext['state'] = { lastFile: null };
   try {
     if (first === undefined || (first === '--json' && rest.length === 0)) {
-      io.stdout(welcome(out, io.version, COMMANDS));
+      stdout(welcome(out, io.version, COMMANDS));
       return EXIT.ok;
     }
     if (first === '--version' || first === '-v') {
@@ -61,7 +62,7 @@ export async function run(argv: readonly string[], io: CliIO): Promise<number> {
     if (first === 'help' || first === '--help' || first === '-h') {
       const topic = rest.find((a) => !a.startsWith('-'));
       if (topic === undefined) {
-        io.stdout(welcome(out, io.version, COMMANDS));
+        stdout(welcome(out, io.version, COMMANDS));
         return EXIT.ok;
       }
       stdout(commandHelp(out, findCommand(topic)));
@@ -246,4 +247,14 @@ export function formatError(err: Output, error: XlvError, tryCommand: string | n
     err.dim(`Code:  ${error.code} · docs/errors.md#${anchor}${verbose ? ` (${error.docsUrl})` : ''}`),
     '',
   ].join('\n');
+}
+
+/**
+ * JSON text with DEL, the C1 controls (which include the 8-bit CSI U+009B), the bidirectional
+ * formatting characters and U+2028/U+2029 written as `\uXXXX` escapes. JSON.stringify already
+ * escapes C0 controls; these characters can occur only inside strings, so the escaped text is
+ * valid JSON with the same value, and a terminal showing it does not act on them (D-H01).
+ */
+function jsonSafe(json: string): string {
+  return json.replace(/[\u007f-\u009f\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069\u2028\u2029]/g, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }

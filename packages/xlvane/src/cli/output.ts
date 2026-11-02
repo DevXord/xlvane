@@ -40,8 +40,15 @@ export class Output {
     readonly width: number,
   ) {}
 
+  /**
+   * Colour codes are written with {@link STYLE_MARK} in place of ESC, and an ESC already in the
+   * text (from a file) is escaped, so that the final filter ({@link terminalSafe}) can tell the
+   * CLI's own colour codes from the same bytes in a sheet name or cell (D-H01).
+   */
   private style(format: string | readonly string[], text: string): string {
-    return this.color && text !== '' ? nodeUtil.styleText(format, text, { validateStream: false }) : text;
+    if (!this.color || text === '') return text;
+    const safe = text.includes('\u001b') ? text.split('\u001b').join('\\x1b') : text;
+    return nodeUtil.styleText(format, safe, { validateStream: false }).split('\u001b').join(STYLE_MARK);
   }
 
   bold(text: string): string {
@@ -105,7 +112,8 @@ function oneLine(text: string): string {
  * which includes the 8-bit CSI U+009B) written as `\x1b`, and bidirectional formatting characters
  * written as `\u202e`, so text from a file, such as a cell
  * holding `_x001B_]0;title_x0007_`, cannot move the cursor, change the window title or hide
- * output (docs/decisions.md D-R02). Used for all human-readable output; `--json` is unchanged.
+ * output (docs/decisions.md D-R02). Used for all human-readable output; `--json` writes the same
+ * characters as `\uXXXX` escapes instead (D-H01).
  */
 export function escapeControls(text: string): string {
   return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`).replace(BIDI, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
@@ -119,15 +127,39 @@ export function escapeControls(text: string): string {
  */
 const BIDI = /[\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
 
-/** The colour sequences `Output` writes (styleText: bold, dim, red, green, yellow, cyan and their resets). */
-const OWN_STYLES = /\u001b\[(?:1|2|22|31|32|33|36|39)m/y;
+/**
+ * Stands for ESC in the colour codes `Output` writes until {@link terminalSafe} turns it back:
+ * NUL and 16 random hexadecimal digits, new for each process, so text from a file cannot contain
+ * it by chance or design. Before 1.1.1 the filter kept every ESC sequence that looked like one of
+ * the CLI's colours, including ones from a sheet name (D-H01).
+ */
+const STYLE_MARK = `\u0000${Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('')}`;
+
+/** The colour sequences `Output` writes (styleText: bold, dim, red, green, yellow, cyan and their resets), after the mark. */
+const OWN_STYLE = /^\[(?:1|2|22|31|32|33|36|39)m/;
+
+const MARKED_STYLE = new RegExp(`${STYLE_MARK}\\[[0-9;]*m`, 'g');
 
 /**
  * Final filter for human-readable output: escapes every control character (see
- * {@link escapeControls}) except line feeds, tabs and, when `keepStyles` is true, the exact
- * colour sequences that `Output` itself writes. Applied to everything the CLI prints for people.
+ * {@link escapeControls}) except line feeds and tabs. When `keepStyles` is true, the colour codes
+ * that `Output` wrote (marked with {@link STYLE_MARK}) are turned into ESC sequences; any ESC in
+ * the text itself is escaped. Applied to everything the CLI prints for people.
  */
 export function terminalSafe(text: string, keepStyles: boolean): string {
+  if (!text.includes(STYLE_MARK)) return controlsSafe(text);
+  const parts = text.split(STYLE_MARK);
+  let result = controlsSafe(parts[0] ?? '');
+  for (const part of parts.slice(1)) {
+    const own = OWN_STYLE.exec(part)?.[0];
+    if (own === undefined) result += controlsSafe(part);
+    else result += (keepStyles ? `\u001b${own}` : '') + controlsSafe(part.slice(own.length));
+  }
+  return result;
+}
+
+/** Escapes the control characters of text (see {@link escapeControls}) except line feeds and tabs. */
+function controlsSafe(text: string): string {
   let result = '';
   let start = 0;
   for (let i = 0; i < text.length; i++) {
@@ -141,14 +173,6 @@ export function terminalSafe(text: string, keepStyles: boolean): string {
       (code >= 0x202a && code <= 0x202e) ||
       (code >= 0x2066 && code <= 0x2069);
     if (!control) continue;
-    if (keepStyles && code === 0x1b) {
-      OWN_STYLES.lastIndex = i;
-      const m = OWN_STYLES.exec(text);
-      if (m !== null) {
-        i += m[0].length - 1;
-        continue;
-      }
-    }
     result += text.slice(start, i) + escapeControls(text[i]!);
     start = i + 1;
   }
@@ -192,6 +216,7 @@ const segmenter = typeof Intl === 'object' && typeof Intl.Segmenter === 'functio
  */
 export function displayWidth(text: string): number {
   if (text.includes('\u001b')) text = text.replace(/\u001b\[[0-9;]*m/g, '');
+  if (text.includes(STYLE_MARK)) text = text.replace(MARKED_STYLE, '');
   let width = 0;
   for (let i = 0; i < text.length; i++) {
     const code = text.charCodeAt(i);

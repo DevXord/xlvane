@@ -6,10 +6,11 @@ import type { DefinedName } from './defined-names';
 import type { WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import { DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
+import { checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Conformance, DateSystem, SheetKind, SheetState, WorkbookFormat } from './model';
 import { openPackage } from './opc/package';
 import type { Note } from './notes';
+import { partKey } from './opc/part-name';
 import { analyzeWorkbook, readNotes, workbookPartsToLoad, type WorkbookInfo } from './read';
 import { classifyRelationship } from './sml/namespaces';
 import { columnLetters, formatCellRef } from './sml/cell-ref';
@@ -255,9 +256,9 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     const cached = noteCache.get(entry.part);
     if (cached !== undefined) return cached;
     // The Comments part and the VML parts with the note boxes (W2-69).
-    const parts = pkg.relationships(entry.part).filter((r) => !r.external && ['comments', 'vmlDrawing'].includes(classifyRelationship(r.type)?.name ?? '') && pkg.hasPart(r.target));
+    const parts = pkg.relationships(entry.part).filter((r) => !r.external && ['comments', 'vmlDrawing'].includes(classifyRelationship(r.type)?.name ?? '') && pkg.hasPart(r.target) && !entry.foreignParts.has(partKey(r.target)));
     if (parts.length > 0) await preloaded.load(parts.map((r) => zipName(r.target)));
-    const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings));
+    const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts));
     noteCache.set(entry.part, notes);
     return notes;
   }
@@ -288,7 +289,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
         dateSystem: info.dateSystem,
         conformance: info.conformance,
         // maxSharedStringChars counts per pass over a sheet, because rows(sheet) may be read again.
-        budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars },
+        budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars, formulaText: limits.maxSharedStringChars },
         formatCache,
       },
       (number, cells, rowInfo, styledCells) => ready.push({ number, cells: withNotes(cells), styledCells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
@@ -346,7 +347,9 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
 }
 
 /**
- * Options for {@link readTableStream}.
+ * Options for {@link readTableStream}. As with `readTable`, at most `max(limits.maxCells, 16 ×
+ * cells read)` row properties are produced (`limits.maxCells` defaults to 5 000 000 here,
+ * although it does not limit the cells streamed).
  *
  * @example
  * ```ts
@@ -432,6 +435,8 @@ export async function* readTableStream(
   }
   const limits = o.get('limits');
   const book = await openWorkbookStream(source, limits === undefined ? undefined : { limits: limits as Partial<ReadLimits> });
+  // maxCells does not limit streamed cells, but it sets the output budget, as for readTable (D-H01).
+  const outputCells = (limits as Partial<ReadLimits> | undefined)?.maxCells ?? DEFAULT_READ_LIMITS.maxCells;
   const sheetName = (o.get('sheet') as string | undefined) ?? (book.sheets.find((s) => s.kind === 'worksheet' && s.state === 'visible') ?? book.sheets[0])?.name;
   if (sheetName === undefined) return;
 
@@ -456,25 +461,41 @@ export async function* readTableStream(
       headerRow = header;
     }
     const source = headerRow === null ? nonEmpty.flatMap((r) => r.cells) : (nonEmpty.find((r) => r.number === headerRow)?.cells ?? []);
-    const minCol = Math.min(...source.map((c) => c.col));
-    const maxCol = Math.max(...source.map((c) => c.col));
+    // A loop and a map, not Math.min(...cells) and find(): a row may hold 16 384 cells (D-H01).
+    let minCol = Infinity;
+    let maxCol = -Infinity;
+    for (const c of source) {
+      if (c.col < minCol) minCol = c.col;
+      if (c.col > maxCol) maxCol = c.col;
+    }
+    const headerCells = new Map(headerRow === null ? [] : source.map((c) => [c.col, c] as const));
     const out: TableColumn[] = [];
     const used = new Set<string>();
+    // The next suffix to try per base name: repeated headers are numbered in linear time (D-H01).
+    const nextSuffix = new Map<string, number>();
     for (let col = minCol; col <= maxCol; col++) {
       const letter = columnLetters(col);
-      const cell = headerRow === null ? undefined : source.find((c) => c.col === col);
+      const cell = headerCells.get(col);
       const text = cell === undefined || cell.value === null ? null : cell.value instanceof Date ? isoDate(cell.value) : String(cell.value);
       const base = text === null || text.trim() === '' ? letter : text.trim();
       let key = base;
-      for (let n = 2; used.has(key); n++) key = `${base}_${String(n)}`;
+      let n = nextSuffix.get(base) ?? 2;
+      while (used.has(key)) key = `${base}_${String(n++)}`;
+      nextSuffix.set(base, n);
       used.add(key);
       out.push({ key, header: text === null || text.trim() === '' ? null : text, col, letter });
     }
     return out;
   };
 
+  // Positions written (rows × columns) against the cells read (checkOutputPositions, D-H01).
+  let positions = 0;
+  let cellsRead = 0;
   const emit = async (r: StreamRow, cols: TableColumn[]): Promise<TableStreamItem<unknown> | null> => {
     if (headerRow !== null && r.number <= headerRow) return null;
+    cellsRead += r.cells.length;
+    positions += cols.length;
+    checkOutputPositions(positions, cellsRead, outputCells, 'The table', sheetName);
     const byCol = new Map(r.cells.map((c) => [c.col, c]));
     if (cols.every((c) => byCol.get(c.col)?.value == null)) return null;
     const row: Record<string, TableValue> = {};

@@ -61,11 +61,13 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | [`XLV_W_MACROS_PRESENT`](#xlv_w_macros_present) | The workbook contains a VBA project or Excel 4.0 macro sheets. |
 | [`XLV_W_EXTERNAL_LINKS`](#xlv_w_external_links) | The workbook links to other workbooks. |
 | [`XLV_W_DUPLICATE_CELL`](#xlv_w_duplicate_cell) | A sheet defines the same cell more than once. |
+| [`XLV_W_LIMIT_REACHED`](#xlv_w_limit_reached) | Reading stopped computing something derived from the file because the work would be far out of proportion to its data. |
 | [`XLV_W_INVALID_VALUE`](#xlv_w_invalid_value) | A value does not match its declared type and is returned in a safe form, for example a numeric cell whose text is not a number (returned … |
 | [`XLV_W_UNUSUAL_HYPERLINK`](#xlv_w_unusual_hyperlink) | A sheet has hyperlinks whose external target uses a scheme other than `http`, `https` or `mailto`, for example `file:`, `javascript:` or … |
 | [`XLV_W_DRAWING_CONTENT_NOT_READ`](#xlv_w_drawing_content_not_read) | The drawing of a sheet holds objects other than pictures: charts, shapes, connectors, group shapes, content parts or alternate content. |
 | [`XLV_W_THREADED_COMMENTS`](#xlv_w_threaded_comments) | A sheet has threaded comments, the conversations of current Excel versions ([MS-XLSX] §2.3.7). |
 | [`XLV_W_SHEET_PART_MISSING`](#xlv_w_sheet_part_missing) | A sheet listed in the workbook has no part (the relationship or the part itself is missing). |
+| [`XLV_W_SHEET_PART_SHARED`](#xlv_w_sheet_part_shared) | Two or more sheets listed in the workbook lead to the same worksheet part, or relate to the same comments, VML or table part. |
 | [`XLV_W_PART_MISSING`](#xlv_w_part_missing) | The workbook points to a styles or shared strings part that does not exist. |
 | [`XLV_W_FORMULAS_NOT_RECALCULATED`](#xlv_w_formulas_not_recalculated) | Reported by `editCells` and `appendRows` when the workbook contains formulas. |
 | [`XLV_W_INVALID_CELL_REF`](#xlv_w_invalid_cell_ref) | A worksheet contains a row whose number is not a whole number from 1 to 1048576, a cell whose `r` reference is not a valid A1 reference … |
@@ -88,6 +90,12 @@ An argument of a method of `@xlvane/compat` is not valid, in a case where excelj
 
 ### XLV_E_LIMIT_EXCEEDED
 The file exceeds one of the resource limits (`ReadLimits`): input size, number of ZIP entries, decompressed size of one entry or of all entries, compression ratio, XML nesting depth, attribute count, name or text length, number of elements in a tree-parsed part, or number of cells. `details.limit` names the limit and `details.value` its current value. Sizes are measured on the bytes actually produced by decompression, so a file cannot avoid a limit by declaring false sizes.
+
+Some limits also bound work derived from a small file (1.1.1, D-H01):
+
+- `maxCells` (`details.limit` `maxCells`, `details.value` the budget): `toCSV`, `readTable`, `toJSON`, `readTableStream`, `xlvane read` and `xlvane convert` write at most `max(maxCells, 16 × cells read)` positions (rows × columns of the output), so a few cells far apart cannot make them produce a value for every position between; `@xlvane/compat`'s `xlsx.load` creates at most as many cells for merged ranges, tables and column definitions, and looks up at most 64 Mi rows (or 16 per cell read) for row settings up to the sheets' dimensions. Pass a smaller `range`, or raise `maxCells` for a trusted file.
+- `maxXmlTextLength`: also the length of an XML comment or processing instruction.
+- `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the length of each sharing cell's formula, as moved to that cell.
 
 `fromCSV` (and `xlvane convert`/`create` with CSV input) throws it for text with more fields than `maxCells` (default 5 000 000, `details.limit` `maxCells`), more than 16 384 fields on a line or more than 1 048 576 lines.
 
@@ -162,6 +170,7 @@ A part exists but has the wrong structure: for example the workbook part's root 
 | `target-mode` | `TargetMode` is neither `Internal` nor `External` |
 | `internal-target` | an internal relationship target cannot be resolved to a part name |
 | `equivalent-part-names` | two ZIP entries map to equivalent part names (e.g. a raw UTF-8 name and its percent-encoded form) |
+
 **Fix:** check that the file is an Excel workbook (not a Word or PowerPoint document) and re-save it in a spreadsheet application.
 
 ### XLV_E_INVALID_CELL_REF
@@ -289,6 +298,10 @@ Some merged ranges have values in cells other than the top-left one. Spreadsheet
 `editCells` or `appendRows` wrote a value into a cell of a merged range other than its top-left cell. The value is stored, but spreadsheet applications show only the top-left cell of a merged range, so the value is not visible. `cells` lists the cells written (up to ten); the message names the first one and its merged range.
 **Fix:** write the value into the top-left cell of the range (named in the message), or unmerge the range first.
 
+### XLV_W_LIMIT_REACHED
+Reading stopped computing something derived from the file because the work would be far out of proportion to its data, and the file is read without it. Today: hyperlinks whose ranges cover far more positions than the sheet has cells (more than 16 visits per cell plus 1 000 000); `sheet.hyperlinks` lists every link, but `cell.hyperlink` is not set for the cells of the remaining links (D-H01).
+**Fix:** nothing, if the file comes from an unknown source: this protects the reader. Look up a cell's link in `sheet.hyperlinks` by its range.
+
 ### XLV_W_VERY_HIDDEN_SHEET
 A sheet has the state `veryHidden`: spreadsheet applications offer no menu command to unhide it, so users usually do not know it exists.
 **Fix:** nothing, if the sheet is expected; `inspect` lists it with its state, and `workbook.sheets` includes it.
@@ -324,6 +337,10 @@ A sheet has threaded comments, the conversations of current Excel versions ([MS-
 ### XLV_W_SHEET_PART_MISSING
 A sheet listed in the workbook has no part (the relationship or the part itself is missing). The sheet is returned with `part: null` and no cells.
 **Fix:** re-save the file in the application that made it; the sheet's cells are not in the file.
+
+### XLV_W_SHEET_PART_SHARED
+Two or more sheets listed in the workbook lead to the same worksheet part, or relate to the same comments, VML or table part (part names compared without regard to case, as OPC requires). Spreadsheet applications write one such part per sheet; reading a shared part again for every sheet would decompress and parse it many times, outside the limit on decompressed bytes. The part is read for the first of these sheets only: for a worksheet part, the others are returned with `part: null` and no cells; for a comments, VML or table part, the others are read without its notes or table. A sheet that relates to one table part twice gets that table once. The location names the sheet and the part.
+**Fix:** re-save the file in the application that made it, and check whether the sheets returned without cells should hold data.
 
 ### XLV_W_PART_MISSING
 The workbook points to a styles or shared strings part that does not exist. Reading continues without it: without styles, date-formatted numbers are returned as numbers; without shared strings, shared-string cells are treated as empty.

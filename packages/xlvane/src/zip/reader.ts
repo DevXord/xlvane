@@ -102,13 +102,22 @@ interface Segment {
   readonly data: Uint8Array;
 }
 
+const segmentEnd = (segment: Segment): number => segment.start + segment.data.length;
+
 /**
  * Little-endian access to a file of `size` bytes, of which only some segments may be in memory
  * (all of it for `openZip`; the tail, the central directory and local headers for streaming
  * sources). Offsets are absolute.
  */
 export class Bytes {
+  /** Loaded segments in order of `start` (equal starts in order of addition). */
   private readonly segments: Segment[] = [];
+  /**
+   * For each index i, the segment with the largest end among segments[0..i]. A range is loaded
+   * exactly when that segment, for the last i whose start is at or before the range's start,
+   * reaches its end; so a lookup is one binary search (D-H01).
+   */
+  private readonly reach: Segment[] = [];
   private last: Segment | undefined;
 
   constructor(
@@ -124,8 +133,15 @@ export class Bytes {
 
   add(start: number, data: Uint8Array): void {
     const segment = { start, data };
-    this.segments.push(segment);
-    this.segments.sort((a, b) => a.start - b.start);
+    const at = this.upperBound(start);
+    this.segments.splice(at, 0, segment);
+    this.reach.splice(at, 0, segment);
+    // Segments are mostly added in increasing order, so this loop is usually short.
+    for (let i = at; i < this.segments.length; i++) {
+      const own = this.segments[i] as Segment;
+      const before = i === 0 ? undefined : (this.reach[i - 1] as Segment);
+      this.reach[i] = before !== undefined && segmentEnd(before) >= segmentEnd(own) ? before : own;
+    }
     this.last = segment;
   }
 
@@ -134,30 +150,27 @@ export class Bytes {
     return this.find(start, end) !== undefined;
   }
 
-  private find(start: number, end: number): Segment | undefined {
-    const last = this.last;
-    if (last && start >= last.start && end <= last.start + last.data.length) return last;
-    // Binary search for the last segment starting at or before `start`.
+  /** The number of segments whose start is at or before `start`. */
+  private upperBound(start: number): number {
     let lo = 0;
-    let hi = this.segments.length - 1;
-    let found: Segment | undefined;
-    while (lo <= hi) {
+    let hi = this.segments.length;
+    while (lo < hi) {
       const mid = (lo + hi) >> 1;
-      const seg = this.segments[mid] as Segment;
-      if (seg.start <= start) {
-        found = seg;
-        lo = mid + 1;
-      } else hi = mid - 1;
+      if ((this.segments[mid] as Segment).start <= start) lo = mid + 1;
+      else hi = mid;
     }
-    // Overlapping segments: walk back to one that covers the range.
-    for (let i = found === undefined ? -1 : this.segments.indexOf(found); i >= 0; i--) {
-      const seg = this.segments[i] as Segment;
-      if (end <= seg.start + seg.data.length && start >= seg.start) {
-        this.last = seg;
-        return seg;
-      }
-    }
-    return undefined;
+    return lo;
+  }
+
+  private find(start: number, stop: number): Segment | undefined {
+    const last = this.last;
+    if (last && start >= last.start && stop <= segmentEnd(last)) return last;
+    const i = this.upperBound(start) - 1;
+    if (i < 0) return undefined;
+    const seg = this.reach[i] as Segment;
+    if (stop > segmentEnd(seg)) return undefined;
+    this.last = seg;
+    return seg;
   }
 
   /** The bytes `[start, end)`; throws {@link NotLoaded} if they are not in memory. */

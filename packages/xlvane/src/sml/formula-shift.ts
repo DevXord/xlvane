@@ -63,7 +63,15 @@ export interface CompiledFormula {
   canShift(dRow: number, dCol: number): boolean;
   /** The formula moved by (dRow, dCol). Call only when {@link canShift} returned `true`. */
   render(dRow: number, dCol: number): string;
+  /** The length of `render(dRow, dCol)`, in time proportional to the number of references (D-H01). */
+  renderedLength(dRow: number, dCol: number): number;
 }
+
+/** Number of decimal digits of a positive whole number. */
+const digits = (n: number): number => (n < 10 ? 1 : n < 100 ? 2 : n < 1000 ? 3 : n < 10000 ? 4 : n < 100000 ? 5 : n < 1000000 ? 6 : 7);
+
+/** Number of letters of a column number from 1 to 16384 (A to XFD). */
+const letters = (c: number): number => (c <= 26 ? 1 : c <= 702 ? 2 : 3);
 
 /** Error constants (§18.17.3, fact E-33). */
 const ERROR_CONSTANTS = ['#NULL!', '#DIV/0!', '#VALUE!', '#REF!', '#NAME?', '#NUM!', '#N/A', '#GETTING_DATA'];
@@ -395,7 +403,19 @@ class Compiled implements CompiledFormula {
   private minCol = Infinity;
   private maxCol = -Infinity;
 
+  /** Length of the literal text and sheet prefixes, which do not change when moved. */
+  private readonly literalLength: number = 0;
+  /** The references, for {@link renderedLength}. */
+  private readonly refs: readonly (CellPart | ColumnsPart | RowsPart)[];
+
   constructor(private readonly parts: readonly Part[]) {
+    const refs: (CellPart | ColumnsPart | RowsPart)[] = [];
+    for (const p of parts) {
+      if (typeof p === 'string') this.literalLength += p.length;
+      else if (p.kind === 'prefix') this.literalLength += p.text.length;
+      else refs.push(p);
+    }
+    this.refs = refs;
     const row = (r: number, abs: boolean): void => {
       if (abs) return;
       if (r < this.minRow) this.minRow = r;
@@ -426,6 +446,18 @@ class Compiled implements CompiledFormula {
     if (this.minRow !== Infinity && (this.minRow + dRow < 1 || this.maxRow + dRow > MAX_ROWS)) return false;
     if (this.minCol !== Infinity && (this.minCol + dCol < 1 || this.maxCol + dCol > MAX_COLUMNS)) return false;
     return true;
+  }
+
+  renderedLength(dRow: number, dCol: number): number {
+    let length = this.literalLength;
+    const col = (c: number, abs: boolean): number => (abs ? 1 + letters(c) : letters(c + dCol));
+    const row = (r: number, abs: boolean): number => (abs ? 1 + digits(r) : digits(r + dRow));
+    for (const p of this.refs) {
+      if (p.kind === 'cell') length += col(p.col, p.colAbs) + row(p.row, p.rowAbs);
+      else if (p.kind === 'cols') length += col(p.c1, p.c1Abs) + 1 + col(p.c2, p.c2Abs);
+      else length += row(p.r1, p.r1Abs) + 1 + row(p.r2, p.r2Abs);
+    }
+    return length;
   }
 
   render(dRow: number, dCol: number): string {

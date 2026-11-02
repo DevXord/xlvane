@@ -2,6 +2,20 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase H: security release 1.1.1 (2026-11-02)
+
+- Two independent security reviews with proof-of-concept files (library and CLI; website and GitHub workflows) at the maintainer's request. No code execution, XSS, workflow injection, leaked secrets or prototype pollution; 14 denial-of-service findings by amplification in the library and CLI, all fixed test-first (D-H01): budgets for output positions, compat load, hyperlinks and shared-formula text; a part shared by sheets read once; linear streaming XML parsing, Blob ZIP loading, row changes and style-only cells; CLI escaping with colours and in `--json`; `migrate` without symbolic links and with an exact `--force` edit; more CSV formula-injection starts.
+- An independent review of the patch (a sub-agent given only the diff) confirmed 9 further problems, all fixed test-first: CLI colour codes are now marked with a random per-process token, so no ESC from a file passes the filter in any command; shared parts are compared case-insensitively and comments, VML and table parts are claimed per sheet; the shared-formula budget counts the moved text; repeated header names are numbered in linear time; `readTableStream` uses the caller's `maxCells`; compat `mergeCells` keeps exceljs behaviour after `row.values`, and compat row lookups up to the dimension have a budget; the streaming parsers fail early on unfinished CDATA, attribute values, references and declarations; a drawing inside `mc:AlternateContent` is found again by `insertRows`. Not changed, by design: the output budget of 16 positions per cell can refuse very sparse legitimate tables (a `range` reads them); line feeds and tabs from files are printed as they are.
+- Verification: `npm test` 1669 passed (48 skipped: LibreOffice tests, which CI runs), `npm run fuzz` with 100 000 runs 47/47, `npm run typecheck`, `npm run check:pkg` (xlvane 214 kB of 300 kB gzip), CI on Node.js 22/24/26 with LibreOffice and the runtimes job (Bun, Deno, Chromium, workerd) green; every audit proof of concept ends in seconds or with `XLV_E_LIMIT_EXCEEDED`; packed 1.1.1 tarballs work in a new project.
+- New warning codes `XLV_W_LIMIT_REACHED` and `XLV_W_SHEET_PART_SHARED`; `maxXmlTextLength` also limits comments and processing instructions; `maxSharedStringChars` also counts shared-formula text (separately).
+- Docs: SECURITY.md (amplification row, command line), errors.md, README limits, docs/facts/csv.md CSV-12, CHANGELOG 1.1.1.
+
+## 1.1.0 published; website (2026-11-02)
+
+- 1.1.0 published from GitHub Actions with provenance (run #5 of the Release workflow): tag `v1.1.0` at fdd772c, both packages `latest`, tarballs equal the packages built from the tag, smoke test from the registry passes, the new features work from the registry.
+- Website for `xlvane/xlvane.github.io` (D-G01, F-GH-PAGES-01): generator without dependencies, documentation of the published version, in-browser `inspect` demo; checked with its own tests, a link and CSP check, and Chromium screenshots (light, dark, phone width; no console errors, no requests to other origins). RELEASING.md gains the rebuild step; the root README no longer names a fixed version.
+- Community files: CONTRIBUTING.md, issue templates (bug report, feature request, a link to private vulnerability reporting), a pull request template; SECURITY.md no longer says that no version is released or that CSV formula-injection protection is planned, and names the supported versions (newest minor); links to the website in the READMEs.
+
 ## Phase F: backlog 1.1 (2026-11-02)
 
 - **CLI** (D-F01): tables, cut cells and wrapped text count terminal columns as Node.js does (East Asian Wide/Fullwidth and emoji take two), from a table generated from EastAsianWidth-17.0.0.txt (F-UNICODE-01); `node:util` loaded with `createRequire`, so the CLI no longer makes Node.js warn about `NO_COLOR` with `FORCE_COLOR` (F-NODE-15; `npx` itself still does).

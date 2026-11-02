@@ -1,0 +1,21 @@
+name: Feature request
+description: A task that xlvane does not support yet.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: task
+    attributes:
+      label: What do you want to do?
+      description: The task, for example "keep pivot tables when inserting rows", and why.
+    validations:
+      required: true
+  - type: textarea
+    id: today
+    attributes:
+      label: What happens today
+      description: The error code or the result you get now, if any.
+  - type: textarea
+    id: api
+    attributes:
+      label: API you have in mind (optional)
+      render: ts

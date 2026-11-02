@@ -169,6 +169,9 @@ export function parseXml(xml: string, handler: XmlHandler, options: XmlParseOpti
  * arrives, so events from earlier pieces may already have been delivered, and when a document
  * has several errors the one found first may differ (whole-text parsing checks every character
  * before anything else). Character data between two tags is still delivered in one `text` call.
+ * While a token longer than the pieces is unfinished, pieces are held and joined at doubling
+ * sizes, so events and errors after it may come a few pieces later, and at the latest from `end`
+ * (D-H01).
  */
 export interface XmlStreamParser {
   write(chunk: string): void;
@@ -192,6 +195,9 @@ export function createXmlStreamParser(handler: XmlHandler, options: XmlParseOpti
     },
   };
 }
+
+const COMMENT_TOO_LONG = 'Comment is longer than the limit.';
+const PI_TOO_LONG = 'Processing instruction is longer than the limit.';
 
 /** Consumed input is dropped once at least this many characters can go (amortises copying). */
 const COMPACT_THRESHOLD = 1 << 16;
@@ -222,6 +228,16 @@ class Parser {
   private tokenAt = -1;
   private tokenFrom = 0;
   private tokenQuote = 0;
+  /** Offset of the quote that opened the attribute value being searched. */
+  private tokenQuoteAt = 0;
+  /**
+   * Pieces held back while the unconsumed input is long (a long token or text run), joined to `s`
+   * once they are at least as long as it. Appending every piece to `s` and searching it again
+   * made a long token cost time quadratic in its length; joining at doubling sizes keeps the
+   * total work linear (D-H01).
+   */
+  private held: string[] = [];
+  private heldLength = 0;
 
   constructor(
     private readonly handler: XmlHandler,
@@ -231,7 +247,7 @@ class Parser {
   ) {}
 
   get buffered(): number {
-    return this.s.length - this.pos + this.textBuffer.length;
+    return this.s.length - this.pos + this.heldLength + this.textBuffer.length;
   }
 
   write(chunk: string): void {
@@ -253,13 +269,33 @@ class Parser {
       }
     }
     if (text.length === 0) return;
+    if (this.whole) {
+      this.append(text);
+      return;
+    }
+    // A piece that arrives while a long token is unfinished is held until the held pieces are
+    // as long as the unconsumed input, so the input is joined and searched at doubling sizes.
+    // Short tokens (the usual case) are joined with every piece, as before.
+    this.held.push(text);
+    this.heldLength += text.length;
+    if (this.heldLength < this.s.length - this.pos) return;
+    this.appendHeld();
+    this.pump(false);
+    this.compact();
+  }
+
+  private append(text: string): void {
     const from = this.s.length;
     this.s += text;
     this.checkCharacters(from);
-    if (!this.whole) {
-      this.pump(false);
-      this.compact();
-    }
+  }
+
+  private appendHeld(): void {
+    if (this.held.length === 0) return;
+    const text = this.held.length === 1 ? (this.held[0] ?? '') : this.held.join('');
+    this.held = [];
+    this.heldLength = 0;
+    this.append(text);
   }
 
   end(): void {
@@ -268,11 +304,8 @@ class Parser {
     const tail = this.pendingHigh + (this.pendingCR ? '\n' : '');
     this.pendingCR = false;
     this.pendingHigh = '';
-    if (tail.length > 0) {
-      const from = this.s.length;
-      this.s += tail;
-      this.checkCharacters(from);
-    }
+    this.appendHeld();
+    if (tail.length > 0) this.append(tail);
     this.ended = true;
     this.pump(true);
   }
@@ -295,6 +328,7 @@ class Parser {
     if (this.tokenAt !== -1) {
       this.tokenAt -= drop;
       this.tokenFrom -= drop;
+      this.tokenQuoteAt -= drop;
     }
   }
 
@@ -308,7 +342,10 @@ class Parser {
     if (!this.declarationChecked) {
       if (s.length - this.pos < 6 && !final) return;
       if (s.startsWith('<?xml', this.pos) && (s.length === 5 || isWhitespace(s.charCodeAt(5)) || s.charCodeAt(5) === QUESTION)) {
-        if (!final && s.indexOf('?>', this.pos + 2) === -1) return;
+        if (!final && s.indexOf('?>', this.pos + 2) === -1) {
+          if (s.length - this.pos - 2 > this.options.limits.maxXmlTextLength + 1) this.limit('maxXmlTextLength', PI_TOO_LONG, this.pos);
+          return;
+        }
         this.declarationChecked = true;
         this.skipProcessingInstruction(true);
       }
@@ -365,18 +402,30 @@ class Parser {
       if (length - at >= 4 && s.startsWith('<!--', at)) {
         const dashes = s.indexOf('--', Math.max(at + 4, this.tokenFrom));
         done = dashes !== -1 && dashes + 2 < length;
-        if (!done) this.tokenFrom = Math.max(at + 4, length - 1);
+        if (!done) {
+          this.tokenFrom = Math.max(at + 4, length - 1);
+          // Already longer than the limit whatever follows: fail now, as skipComment would.
+          if (length - (at + 4) > this.options.limits.maxXmlTextLength + 2) this.limit('maxXmlTextLength', COMMENT_TOO_LONG, at);
+        }
       } else if (length - at < 9) {
         done = false;
       } else if (s.startsWith('<![CDATA[', at)) {
         done = s.indexOf(']]>', Math.max(at + 9, this.tokenFrom)) !== -1;
-        if (!done) this.tokenFrom = Math.max(at + 9, length - 2);
+        if (!done) {
+          this.tokenFrom = Math.max(at + 9, length - 2);
+          // Its text is already longer than the limit whatever follows: fail now, as cdata()
+          // would, instead of holding it (D-H01).
+          if (this.textBuffer.length + length - (at + 9) > this.options.limits.maxXmlTextLength + 2) this.limit('maxXmlTextLength', 'Text node is longer than the limit.', at);
+        }
       } else {
         done = true; // DOCTYPE or another declaration: an error that needs no more input
       }
     } else if (next === QUESTION) {
       done = s.indexOf('?>', Math.max(at + 2, this.tokenFrom)) !== -1;
-      if (!done) this.tokenFrom = Math.max(at + 2, length - 1);
+      if (!done) {
+        this.tokenFrom = Math.max(at + 2, length - 1);
+        if (length - (at + 2) > this.options.limits.maxXmlTextLength + 1) this.limit('maxXmlTextLength', PI_TOO_LONG, at);
+      }
     } else if (next === SLASH) {
       done = s.indexOf('>', Math.max(at + 2, this.tokenFrom)) !== -1;
       if (!done) this.tokenFrom = length;
@@ -391,6 +440,7 @@ class Parser {
           if (c === quote) quote = 0;
         } else if (c === QUOTE || c === APOS) {
           quote = c;
+          this.tokenQuoteAt = i;
         } else if (c === GT) {
           done = true;
           break;
@@ -398,6 +448,11 @@ class Parser {
       }
       this.tokenFrom = i;
       this.tokenQuote = quote;
+      // An unfinished attribute value already longer than the limit: fail now with the error of
+      // whole-text parsing instead of holding it (D-H01).
+      if (!done && quote !== 0 && i - (this.tokenQuoteAt + 1) > this.options.limits.maxXmlTextLength) {
+        this.limit('maxXmlTextLength', `Value of attribute "${this.attributeNameBefore(this.tokenQuoteAt)}" is longer than the limit.`, this.tokenQuoteAt + 1);
+      }
     }
     if (done) this.tokenAt = -1;
     return done;
@@ -417,7 +472,15 @@ class Parser {
     // Every "&" before the last ";" finds the same ";" as in whole-text parsing; the first "&"
     // after it must wait for its ";".
     const amp = s.indexOf('&', Math.max(this.pos, s.lastIndexOf(';') + 1));
-    if (amp !== -1) cut = amp;
+    if (amp !== -1) {
+      cut = amp;
+      // No reference is this long, so whatever follows, it is an error; fail now instead of
+      // holding the rest of the run (D-H01).
+      if (s.length - amp > this.options.limits.maxXmlNameLength + 12) {
+        if (s.charCodeAt(amp + 1) !== HASH) this.limit('maxXmlNameLength', 'Entity name is longer than the limit.', amp);
+        this.fail('"&" must start an entity or character reference ending with ";".', amp);
+      }
+    }
     while (cut > this.pos && s.charCodeAt(cut - 1) === 0x5d /* ] */ && cut > s.length - 2) cut--;
     if (cut <= this.pos) return;
     if (this.segmentStart === -1) {
@@ -787,6 +850,8 @@ class Parser {
   private skipComment(): void {
     const start = this.pos;
     const end = this.s.indexOf('--', start + 4);
+    // Comments are limited like text (D-H01), so a streamed one cannot hold unbounded memory.
+    if ((end === -1 ? this.s.length : end) - (start + 4) > this.options.limits.maxXmlTextLength) this.limit('maxXmlTextLength', COMMENT_TOO_LONG, start);
     if (end === -1) this.fail('Comment is not terminated.', start);
     if (this.s.charCodeAt(end + 2) !== GT) this.fail('"--" is not allowed inside a comment.', end);
     this.pos = end + 3;
@@ -800,6 +865,7 @@ class Parser {
       this.fail('The XML declaration is allowed only at the very start of the document.', start);
     }
     const end = this.s.indexOf('?>', this.pos);
+    if ((end === -1 ? this.s.length : end) - (start + 2) > this.options.limits.maxXmlTextLength) this.limit('maxXmlTextLength', PI_TOO_LONG, start);
     if (end === -1) this.fail('Processing instruction is not terminated.', start);
     const c = this.s.charCodeAt(this.pos);
     if (this.pos !== end && !isWhitespace(c)) this.fail('Invalid processing instruction target.', start);
@@ -839,6 +905,18 @@ class Parser {
       location: this.location(offset),
       hint: 'The part is not well-formed XML. Re-save the file in a spreadsheet application; if it was generated by a program, report the problem to its authors.',
     });
+  }
+
+  /** The attribute name before `name = "` whose quote is at `quote` (for a message). */
+  private attributeNameBefore(quote: number): string {
+    const s = this.s;
+    let i = quote - 1;
+    while (i >= 0 && isWhitespace(s.charCodeAt(i))) i--;
+    if (s.charCodeAt(i) === EQ) i--;
+    while (i >= 0 && isWhitespace(s.charCodeAt(i))) i--;
+    const end = i + 1;
+    while (i >= 0 && end - i <= this.options.limits.maxXmlNameLength && !isWhitespace(s.charCodeAt(i)) && s.charCodeAt(i) !== 0x3c) i--;
+    return s.slice(i + 1, end);
   }
 
   private limit(limit: keyof XmlLimits, message: string, offset: number): never {
@@ -923,8 +1001,16 @@ export function createXmlByteStreamParser(handler: XmlHandler, options: XmlParse
   let decoder: TextDecoder | null = null;
   /** Bytes held until the encoding is known (at most the first two). */
   let head = new Uint8Array(0);
-  /** Decoded text held until the XML declaration can be checked. */
-  let pending: string | null = '';
+  /**
+   * Decoded pieces held until the XML declaration can be checked (null once it has been), with
+   * their length, their first five characters and whether "?>" has been seen. Each piece is
+   * searched once, so a long declaration costs linear time (D-H01).
+   */
+  let pending: string[] | null = [];
+  let pendingLength = 0;
+  let pendingHead = '';
+  let pendingLast = '';
+  let declarationEnd = false;
 
   const encodingError = (cause: unknown): XlvError =>
     new XlvError('XLV_E_XML_ENCODING', `The part is not valid ${(encoding ?? 'utf-8').toUpperCase()}.`, {
@@ -947,10 +1033,26 @@ export function createXmlByteStreamParser(handler: XmlHandler, options: XmlParse
       if (chunk.length > 0) text.write(chunk);
       return;
     }
-    pending += chunk;
-    const known = pending.length >= 5 && (!pending.startsWith('<?xml') || pending.indexOf('?>') !== -1);
+    if (chunk.length > 0) {
+      pending.push(chunk);
+      pendingLength += chunk.length;
+      if (pendingHead.length < 5) pendingHead += chunk.slice(0, 5 - pendingHead.length);
+      declarationEnd ||= (pendingLast + chunk).includes('?>');
+      pendingLast = chunk.slice(-1);
+    }
+    const known = pendingLength >= 5 && (!pendingHead.startsWith('<?xml') || declarationEnd);
+    // A declaration longer than the limit fails as in whole-text parsing (D-H01).
+    if (!known && pendingLength - 2 > options.limits.maxXmlTextLength + 1) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', PI_TOO_LONG, {
+        location: { part, line: 1, column: 1 },
+        hint: `If you trust this file, raise the limit, for example { limits: { maxXmlTextLength: ${String(options.limits.maxXmlTextLength * 4)} } }.`,
+        details: { limit: 'maxXmlTextLength', value: options.limits.maxXmlTextLength },
+      });
+    }
     if (!known && !final) return;
-    const declared = declaredEncoding(pending);
+    const all = pending.join('');
+    pending = null;
+    const declared = declaredEncoding(all);
     if (declared !== null) {
       const normalized = declared.toLowerCase();
       const ok = encoding === 'utf-8' ? normalized === 'utf-8' : normalized === 'utf-16' || normalized === encoding;
@@ -962,8 +1064,6 @@ export function createXmlByteStreamParser(handler: XmlHandler, options: XmlParse
         });
       }
     }
-    const all = pending;
-    pending = null;
     if (all.length > 0) text.write(all);
   };
 

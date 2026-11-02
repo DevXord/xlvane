@@ -36,6 +36,9 @@ RFC 4180 describes an optional header line with the same format as records. `fro
 ### CSV-10 - Characters that start a formula
 S-OWASP lists cells beginning with `=`, `+`, `-`, `@`, tab (0x09), carriage return (0x0D), line feed (0x0A), and full-width variants such as `＝`, `＋`, `－`, `＠` (Japanese locales), and recommends as sanitization: wrap the field in double quotes, prepend a single quote, and escape double quotes by doubling them; example `=1+2";=1+2` → `"'=1+2"";=1+2"`. Quote (anchor): "Prepend each cell field with a single quote".
 
+### CSV-12 - Further starts escaped as a precaution (implementation choice, D-H01)
+S-OWASP's list (CSV-10) does not name other control characters or the small forms of the signs. xlvane also escapes text that starts with any C0 control character (U+0000 to U+001F; NUL arrives from `_x0000_`, and `@xlvane/compat` removes NUL when writing, so "\0=cmd" would become "=cmd") and with U+FE66 SMALL EQUALS SIGN, U+FE62 SMALL PLUS SIGN, U+FE63 SMALL HYPHEN-MINUS and U+FE6B SMALL COMMERCIAL AT, whose compatibility decompositions are `=`, `+`, `-` and `@` (`<small> 003D` etc., Unicode 15.1.0 database via Python `unicodedata`; NFKC maps them to the ASCII signs in Node.js 22). Whether a spreadsheet application runs such fields as formulas was not tested; the escape costs only a leading `'` on such text.
+
 ### CSV-11 - Limits of the mitigation
 S-OWASP warns that Microsoft Excel may drop the quote when a CSV is saved and reopened, so the escape is not reliable after such a round trip, and mentions a tab-prefix variant observed to work in Excel. xlvane uses the single-quote form (CSV-10), documents the caveat and offers `formulaInjection: "off"`. Escaping applies only to text cells; numbers such as `-5` are written unchanged.
 

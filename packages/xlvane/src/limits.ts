@@ -36,7 +36,7 @@ export interface ReadLimits {
   readonly maxXmlAttributes: number;
   /** Maximum length of an XML element or attribute name. Default 1 024 characters. */
   readonly maxXmlNameLength: number;
-  /** Maximum length of one XML text node or attribute value. Default 8 Mi characters. */
+  /** Maximum length of one XML text node, attribute value, comment or processing instruction. Default 8 Mi characters. */
   readonly maxXmlTextLength: number;
   /** Maximum number of elements plus attributes in a part that is parsed into a tree (workbook, styles, relationships). Default 1 000 000. */
   readonly maxXmlTreeElements: number;
@@ -46,7 +46,8 @@ export interface ReadLimits {
    * Maximum total length, in UTF-16 code units, of the shared strings that cells refer to, each
    * reference counted again. Protects against a small file that points thousands of cells at
    * one huge shared string (a few MB that become many GB once values are copied, e.g. to CSV).
-   * Default 512 Mi.
+   * The same limit applies, counted separately, to shared formulas: the length of the formula of
+   * each cell that shares one, as moved to that cell. Default 512 Mi.
    */
   readonly maxSharedStringChars: number;
 }
@@ -139,4 +140,25 @@ function describe(value: unknown): string {
   if (typeof value === 'string') return JSON.stringify(value.length > 40 ? `${value.slice(0, 40)}…` : value);
   if (typeof value === 'object' || typeof value === 'function') return `a value of type ${typeof value}`;
   return String(value);
+}
+
+/**
+ * How many positions (rows × columns) a table or CSV made from a sheet may have per cell read
+ * from it, beyond `maxCells`: a few cells far apart must not make the output a whole sheet
+ * (D-H01).
+ */
+export const OUTPUT_PER_CELL = 16;
+
+/**
+ * Checks the number of positions an output built from a sheet would have against
+ * max(`maxCells`, OUTPUT_PER_CELL × cells read). Throws `XLV_E_LIMIT_EXCEEDED` above it.
+ */
+export function checkOutputPositions(positions: number, cells: number, maxCells: number, what: string, sheet: string): void {
+  const budget = Math.max(maxCells, OUTPUT_PER_CELL * cells);
+  if (positions <= budget) return;
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what} of sheet "${sheet}" would have ${String(positions)} positions (rows × columns) for ${String(cells)} cells, more than the limit of ${String(budget)}.`, {
+    location: { sheet },
+    hint: `The cells are spread over a far larger area than they fill. Pass a smaller range (for example { range: "A1:H1000" } or --range), or raise limits.maxCells if the file is trusted.`,
+    details: { limit: 'maxCells', value: budget },
+  });
 }

@@ -3,7 +3,7 @@
 import { isoDate } from './util/iso-date';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import type { ReadLimits } from './limits';
+import { checkOutputPositions, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Sheet, Workbook } from './model';
 import { columnLetters, formatCellRef, MAX_COLUMNS, MAX_ROWS, parseRange, type CellRange } from './sml/cell-ref';
 import type { StandardSchemaV1 } from './standard-schema';
@@ -255,6 +255,7 @@ function pickTable(workbook: Workbook, o: Map<string, unknown>): { sheet: Sheet;
 
 function prepare(input: unknown, options: unknown): PreparedTable {
   const o = readOptions(options, READ_OPTIONS, 'readTable options');
+  const limits = resolveLimits(o.get('limits'));
   const workbook = openInput(input, o.get('limits'), o.get('onWarning'));
   const table = pickTable(workbook, o);
   const sheet = table?.sheet ?? pickSheet(workbook, o.get('sheet'));
@@ -323,13 +324,17 @@ function prepare(input: unknown, options: unknown): PreparedTable {
 
   const columns: TableColumn[] = [];
   const used = new Set<string>();
+  // The next suffix to try per base name: repeated headers are numbered in linear time (D-H01).
+  const nextSuffix = new Map<string, number>();
   const headerCells = headerRow === null ? undefined : byRow.get(headerRow);
   for (let col = minCol; col <= maxCol; col++) {
     const letter = columnLetters(col);
     const header = headerRow === null ? null : headerText(headerCells?.get(col));
     const base = header === null || header.trim() === '' ? letter : header.trim();
     let key = base;
-    for (let n = 2; used.has(key); n++) key = `${base}_${String(n)}`;
+    let n = nextSuffix.get(base) ?? 2;
+    while (used.has(key)) key = `${base}_${String(n++)}`;
+    nextSuffix.set(base, n);
     used.add(key);
     columns.push({ key, header: header === null || header.trim() === '' ? null : header, col, letter });
   }
@@ -338,6 +343,9 @@ function prepare(input: unknown, options: unknown): PreparedTable {
   const rowNumbers: number[] = [];
   const first = headerRow === null ? minRow : headerRow + 1;
   const numbers = skipEmpty ? [...byRow.keys()].filter((r) => r >= first && r <= maxRow).sort((a, b) => a - b) : rangeOf(first, maxRow);
+  let cellCount = 0;
+  for (const cells of byRow.values()) cellCount += cells.size;
+  checkOutputPositions(numbers.length * columns.length, cellCount, limits.maxCells, 'The table', sheet.name);
   for (const r of numbers) {
     const cells = byRow.get(r);
     if (skipEmpty && (cells === undefined || [...cells.values()].every((c) => c.value === null))) continue;

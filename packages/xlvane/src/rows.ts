@@ -23,7 +23,7 @@ import { openPackage, type OpcPackage } from './opc/package';
 import { readWorkbook } from './read';
 import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { shiftFormula } from './sml/formula-shift';
-import { classifyRelationship } from './sml/namespaces';
+import { classifyRelationship, REL_NS, SML_NS } from './sml/namespaces';
 import { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adjust';
 import { X14_CF_URI, X14_DV_URI, X14_NS, XM_NS } from './sheet-rules';
 import { readOptions } from './util/options';
@@ -731,8 +731,29 @@ function eachVmlShape(text: string, change: (shape: string) => string): string {
   return out.join('');
 }
 
+/** The relationship ids of a worksheet's `drawing` and `legacyDrawing` elements. */
+interface DrawingIds {
+  readonly drawing: string | undefined;
+  readonly legacyDrawing: string | undefined;
+}
+
+/**
+ * Finds the first `drawing` and `legacyDrawing` elements of the worksheet (SpreadsheetML
+ * namespace, any depth, so also inside `mc:AlternateContent`) with the element scanner, so that
+ * comments are skipped and the time is linear in the part's size (D-H01); the id is the
+ * attribute `id` in the relationships namespace, whatever its prefix.
+ */
+function drawingIds(text: string, part: string, limits: ReadLimits): DrawingIds {
+  const { elements } = scan(text, part, limits, (local, depth, _parent, ns) => depth >= 2 && (local === 'drawing' || local === 'legacyDrawing') && (ns === SML_NS.transitional || ns === SML_NS.strict));
+  const idOf = (local: string): string | undefined => {
+    const e = elements.find((x) => x.local === local);
+    return e?.attrs.get(`{${REL_NS.transitional}}id`) ?? e?.attrs.get(`{${REL_NS.strict}}id`);
+  };
+  return { drawing: idOf('drawing'), legacyDrawing: idOf('legacyDrawing') };
+}
+
 /** Rewrites the notes of the changed sheet: the Comments part and the note shapes of its VML part. */
-function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, sheetText: string, sheet: Sheet, c: RowChange): void {
+function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, ids: DrawingIds, sheet: Sheet, c: RowChange): void {
   const rels = pkg.relationships(sheetPart);
   const comments = rels.find((r) => !r.external && classifyRelationship(r.type)?.name === 'comments');
   if (comments !== undefined) {
@@ -751,7 +772,7 @@ function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, s
     }
   }
   // The VML part of the notes is the one named by legacyDrawing (W2-48).
-  const id = /<(?:[A-Za-z_][\w.-]*:)?legacyDrawing\b[^>]*?\br:id\s*=\s*["']([^"']*)["']/.exec(sheetText)?.[1];
+  const id = ids.legacyDrawing;
   const vml = id === undefined ? undefined : rels.find((r) => r.id === id && !r.external);
   if (vml === undefined) return;
   const text = edit.text(vml.target);
@@ -790,8 +811,8 @@ function rewriteNotes(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, s
  * rows. Drawings with charts, shapes, groups or other objects are refused, and so is a deletion
  * that would cut a picture (a deleted row inside the rows it covers or under its anchor cell).
  */
-function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, sheetText: string, sheet: Sheet, c: RowChange): void {
-  const id = /<(?:[A-Za-z_][\w.-]*:)?drawing\b[^>]*?\br:id\s*=\s*["']([^"']*)["']/.exec(sheetText)?.[1];
+function rewriteDrawing(edit: PackageEditor, pkg: OpcPackage, sheetPart: string, ids: DrawingIds, sheet: Sheet, c: RowChange): void {
+  const id = ids.drawing;
   const rels = pkg.relationships(sheetPart);
   const rel = id === undefined ? undefined : rels.find((r) => r.id === id && !r.external && classifyRelationship(r.type)?.name === 'drawing');
   if (rel === undefined) return;
@@ -990,8 +1011,9 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
     if (out.text !== text) edit.write(s.part, out.text);
     rewriteTables(edit, pkg, s.part, s, c, target);
     if (target) {
-      rewriteNotes(edit, pkg, s.part, text, s, c);
-      rewriteDrawing(edit, pkg, s.part, text, s, c);
+      const ids = drawingIds(text, s.part, edit.limits);
+      rewriteNotes(edit, pkg, s.part, ids, s, c);
+      rewriteDrawing(edit, pkg, s.part, ids, s, c);
     }
   }
   rewriteNames(edit, workbookPart, c);

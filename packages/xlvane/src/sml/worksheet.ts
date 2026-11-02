@@ -32,10 +32,11 @@ export interface WorksheetContext {
   readonly dateSystem: DateSystem;
   readonly conformance: Conformance;
   /**
-   * Number of cells still allowed by `maxCells`, and shared-string characters still allowed by
-   * `maxSharedStringChars`; shared by all sheets of a workbook.
+   * Number of cells still allowed by `maxCells`, shared-string characters still allowed by
+   * `maxSharedStringChars`, and expanded shared-formula characters still allowed by the same
+   * limit, counted apart (D-H01); shared by all sheets of a workbook.
    */
-  readonly budget: { remaining: number; sharedText: number };
+  readonly budget: { remaining: number; sharedText: number; formulaText: number };
   /** Number formats already classified, by number format id; shared by all sheets. */
   readonly formatCache: Map<number, NumberFormat>;
 }
@@ -62,8 +63,9 @@ export interface WorksheetData {
   /**
    * Cells with a style but no value and no formula (D-E05), kept apart from `rows` so that
    * every reader of values sees the same cells as before. Stored compactly (D-E06): row number →
-   * flat list `[column, styleIndex, column, styleIndex, …]`; `styledCell` builds a Cell from one
-   * entry when it is asked for.
+   * flat list `[column, styleIndex, column, styleIndex, …]`, where style index -1 marks an entry
+   * replaced by a cell with a value (D-H01); `styledCell` builds a Cell from one entry when it is
+   * asked for.
    */
   readonly styleOnly: Map<number, number[]>;
   /** Builds the Cell of a style-only entry. */
@@ -193,7 +195,7 @@ export function parseWorksheet(xml: string, ctx: WorksheetContext): WorksheetDat
 /** The cells of one row's style-only list (`[col, styleIndex, …]`), in column order. */
 export function styledCellsOf(row: number, list: readonly number[], make: (row: number, col: number, styleIndex: number) => Cell): Cell[] {
   const pairs: [number, number][] = [];
-  for (let i = 0; i + 1 < list.length; i += 2) pairs.push([list[i]!, list[i + 1]!]);
+  for (let i = 0; i + 1 < list.length; i += 2) if (list[i + 1] !== -1) pairs.push([list[i]!, list[i + 1]!]);
   pairs.sort((a, b) => a[0] - b[0]);
   return pairs.map(([col, styleIndex]) => make(row, col, styleIndex));
 }
@@ -207,6 +209,10 @@ export function createWorksheetParser(
   // so that the usual ascending order needs no search.
   const styleOnly = new Map<number, number[]>();
   const styleOnlyMax = new Map<number, number>();
+  // Rows whose cells came out of order get an index column → position, built on first need, so a
+  // row written right to left is not searched once per cell (D-H01). A cell replaced by one with
+  // a value keeps its place with style index -1 (no splicing); styledCellsOf skips it.
+  const styleOnlyIndex = new Map<number, Map<number, number>>();
   const merges: string[] = [];
   const formats = ctx.formatCache;
   const path: string[] = [];
@@ -215,6 +221,9 @@ export function createWorksheetParser(
   let cellCount = 0;
   const masters = new Map<number, SharedMaster>();
   const dependents: SharedDependent[] = [];
+  // Compiled master formulas by si, kept for the whole sheet: streaming expands them row by row,
+  // and compiling a long master again for every row was costly (D-H01). A master never changes.
+  const compiled = new Map<number, CompiledFormula | null>();
   const columns: ColumnInfo[] = [];
   const rowInfo = new Map<number, RowInfo>();
   let freeze: FrozenPanes | null = null;
@@ -289,8 +298,14 @@ export function createWorksheetParser(
     if (max === undefined || col > max) return -1;
     const list = styleOnly.get(row);
     if (list === undefined) return -1;
-    for (let i = list.length - 2; i >= 0; i -= 2) if (list[i] === col) return i;
-    return -1;
+    if (list[list.length - 2] === col && list[list.length - 1] !== -1) return list.length - 2;
+    let index = styleOnlyIndex.get(row);
+    if (index === undefined) {
+      index = new Map();
+      for (let i = 0; i + 1 < list.length; i += 2) if (list[i + 1] !== -1) index.set(list[i] as number, i);
+      styleOnlyIndex.set(row, index);
+    }
+    return index.get(col) ?? -1;
   };
   const styledCell = (row: number, col: number, styleIndex: number): Cell => {
     const code = numberFormat(styleIndex).code;
@@ -466,6 +481,7 @@ export function createWorksheetParser(
           details: { limit: 'maxCells', value: ctx.limits.maxCells },
         });
       }
+      styleOnlyIndex.get(p.row)?.set(p.col, styled.length);
       styled.push(p.col, p.styleIndex);
       if (p.col > (styleOnlyMax.get(p.row) ?? 0)) styleOnlyMax.set(p.row, p.col);
       return;
@@ -473,7 +489,9 @@ export function createWorksheetParser(
     // A later definition with a value replaces a style-only one (the last definition is used).
     const at = styledIndex(p.row, p.col);
     if (at >= 0) {
-      styleOnly.get(p.row)?.splice(at, 2);
+      const list = styleOnly.get(p.row);
+      if (list !== undefined) list[at + 1] = -1;
+      styleOnlyIndex.get(p.row)?.delete(p.col);
       ctx.budget.remaining++;
       ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
     }
@@ -509,6 +527,17 @@ export function createWorksheetParser(
     });
   };
 
+  // Each cell that shares a formula gets text as long as the master's: a small file could
+  // share one huge formula with thousands of cells (D-H01).
+  const spendFormulaText = (chars: number, ref: string): void => {
+    ctx.budget.formulaText -= chars;
+    if (ctx.budget.formulaText >= 0) return;
+    throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The cells that share formulas would hold more formula text than the limit allows.', {
+      location: loc(ref),
+      hint: `Small files can share one huge formula with many cells; the limit counts the formula of each cell that shares it. If you trust this file, raise the limit, for example { limits: { maxSharedStringChars: ${String(ctx.limits.maxSharedStringChars * 4)} } }.`,
+      details: { limit: 'maxSharedStringChars', value: ctx.limits.maxSharedStringChars },
+    });
+  };
   const warnNotExpanded = (ref: string): void =>
     ctx.warnings.add(
       'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
@@ -522,7 +551,7 @@ export function createWorksheetParser(
     const info = rowInfo.get(currentRow);
     rowInfo.delete(currentRow);
     if (rows.size === 0 && styleOnly.size === 0) return;
-    expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    expandSharedFormulas(rows, masters, compiled, dependents, warnNotExpanded, spendFormulaText);
     dependents.length = 0;
     const out: Cell[] = [];
     for (const r of [...rows.keys()].sort((a, b) => a - b)) {
@@ -534,6 +563,7 @@ export function createWorksheetParser(
     for (const r of [...styleOnly.keys()].sort((a, b) => a - b)) styled.push(...styledCellsOf(r, styleOnly.get(r) ?? [], styledCell));
     styleOnly.clear();
     styleOnlyMax.clear();
+    styleOnlyIndex.clear();
     if (out.length > 0 || styled.length > 0) onRow(currentRow, out, info, styled);
   };
 
@@ -752,7 +782,7 @@ export function createWorksheetParser(
     };
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
-    else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    else expandSharedFormulas(rows, masters, compiled, dependents, warnNotExpanded, spendFormulaText);
     const activeCell = selections.get(activePane);
     if (activeCell !== undefined) view = Object.freeze({ ...view, activeCell });
     return { rows, styleOnly, styledCell, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
@@ -786,10 +816,11 @@ interface SharedDependent {
 function expandSharedFormulas(
   rows: Map<number, Map<number, Cell>>,
   masters: ReadonlyMap<number, SharedMaster>,
+  compiled: Map<number, CompiledFormula | null>,
   dependents: readonly SharedDependent[],
   warn: (ref: string) => void,
+  spend: (chars: number, ref: string) => void,
 ): void {
-  const compiled = new Map<number, CompiledFormula | null>();
   for (const d of dependents) {
     const rowCells = rows.get(d.row);
     const cell = rowCells?.get(d.col);
@@ -815,6 +846,8 @@ function expandSharedFormulas(
       warn(d.ref);
       continue;
     }
+    // The length of the moved text, which can exceed the master's (1:1 becomes 1048567:1048567).
+    spend(formula.renderedLength(dRow, dCol), d.ref);
     rowCells.set(d.col, { ...cell, formula: lazySharedFormula(formula, dRow, dCol, d.si) });
   }
 }

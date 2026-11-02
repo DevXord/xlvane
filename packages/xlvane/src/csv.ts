@@ -5,10 +5,10 @@
 import { isoDate } from './util/iso-date';
 import { XlvError, type XlvWarning } from './errors';
 import type { DateSystem, Workbook } from './model';
-import { formatCellRef, MAX_COLUMNS, MAX_ROWS, parseRange } from './sml/cell-ref';
+import { MAX_COLUMNS, MAX_ROWS, parseRange } from './sml/cell-ref';
 import { parseIsoDateTime } from './sml/dates';
 import { addTableSheet, pickSheet } from './table';
-import { DEFAULT_READ_LIMITS, type ReadLimits } from './limits';
+import { checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
 import { booleanOption, oneOfOption, openInput, readOptions } from './util/options';
 import { createWorkbook, writeWorkbook } from './write';
 
@@ -34,9 +34,10 @@ export interface ToCSVOptions {
   /** Start with a UTF-8 byte order mark, which helps Excel detect UTF-8. Default `false`. */
   readonly bom?: boolean;
   /**
-   * `"escape"` (default): text cells that start with `=`, `+`, `-`, `@`, tab, CR, LF or their
-   * full-width forms get a leading `'` and quotes, so spreadsheet applications show them as
-   * text instead of running them as formulas (OWASP CSV Injection). `"off"`: write them as is.
+   * `"escape"` (default): text cells that start with `=`, `+`, `-`, `@`, their full-width or small
+   * forms, or a control character (tab, CR, LF, NUL, …) get a leading `'` and quotes, so
+   * spreadsheet applications show them as text instead of running them as formulas (OWASP CSV
+   * Injection). `"off"`: write them as is.
    */
   readonly formulaInjection?: 'escape' | 'off';
   /** Read limits for byte input; see `ReadLimits`. */
@@ -45,8 +46,15 @@ export interface ToCSVOptions {
   readonly onWarning?: (warning: XlvWarning) => void;
 }
 
-/** First characters that make spreadsheet applications treat a CSV field as a formula (CSV-10). */
-const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '＝', '＋', '－', '＠']);
+/**
+ * First characters that make spreadsheet applications treat a CSV field as a formula (CSV-10),
+ * plus, as a precaution, the small forms of = + - @ (CSV-12, D-H01). Text starting with any other
+ * C0 control character is escaped too (see `injectionStart`).
+ */
+const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
+
+/** Whether text starting with `c` is escaped: one of INJECTION_START or a C0 control (NUL included). */
+const injectionStart = (c: string): boolean => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20;
 
 /**
  * Converts a sheet to CSV text. Fields that contain the delimiter, a quote, CR or LF are
@@ -76,6 +84,7 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
   const newline = oneOfOption('newline', o.get('newline'), ['\r\n', '\n'], '\r\n');
   const bom = booleanOption('bom', o.get('bom'), false);
   const injection = oneOfOption('formulaInjection', o.get('formulaInjection'), ['escape', 'off'], 'escape');
+  const limits = resolveLimits(o.get('limits'));
   const workbook = openInput(input, o.get('limits'), o.get('onWarning'));
   const sheet = pickSheet(workbook, o.get('sheet'));
 
@@ -101,6 +110,17 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
       if (cell.col > endCol) endCol = cell.col;
     }
   }
+  // Cells of the range by row, so that writing visits each position once without a lookup by reference.
+  const byRow = new Map<number, Map<number, unknown>>();
+  let cellCount = 0;
+  for (const cell of sheet.cells()) {
+    if (cell.row < startRow || cell.row > endRow || cell.col < startCol || cell.col > endCol) continue;
+    let r = byRow.get(cell.row);
+    if (r === undefined) byRow.set(cell.row, (r = new Map()));
+    r.set(cell.col, cell.value);
+    cellCount++;
+  }
+  if (endRow >= startRow && endCol >= startCol) checkOutputPositions((endRow - startRow + 1) * (endCol - startCol + 1), cellCount, limits.maxCells, 'The CSV text', sheet.name);
 
   const needsQuotes = (s: string): boolean => s.includes(delimiter) || s.includes('"') || s.includes('\r') || s.includes('\n');
   const field = (value: unknown): string => {
@@ -110,7 +130,7 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
     if (value instanceof Date) return isoDate(value);
     let s = String(value);
     let quote = needsQuotes(s);
-    if (injection === 'escape' && s.length > 0 && INJECTION_START.has(s[0] ?? '')) {
+    if (injection === 'escape' && s.length > 0 && injectionStart(s[0] ?? '')) {
       s = `'${s}`;
       quote = true;
     }
@@ -120,10 +140,10 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
   const lines: string[] = [];
   for (let r = startRow; r <= endRow; r++) {
     const fields: string[] = [];
+    const cells = byRow.get(r);
     for (let c = startCol; c <= endCol; c++) {
-      const cell = sheet.cell(formatCellRef(r, c));
       // Error cells hold their code as a string; it is written as is (never escaped: it starts with "#").
-      fields.push(field(cell?.value));
+      fields.push(field(cells?.get(c)));
     }
     lines.push(fields.join(delimiter));
   }
