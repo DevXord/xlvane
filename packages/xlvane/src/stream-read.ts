@@ -10,6 +10,7 @@ import { checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimi
 import type { Cell, Conformance, DateSystem, SheetKind, SheetState, WorkbookFormat } from './model';
 import { openPackage } from './opc/package';
 import type { Note } from './notes';
+import { partKey } from './opc/part-name';
 import { analyzeWorkbook, readNotes, workbookPartsToLoad, type WorkbookInfo } from './read';
 import { classifyRelationship } from './sml/namespaces';
 import { columnLetters, formatCellRef } from './sml/cell-ref';
@@ -255,9 +256,9 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
     const cached = noteCache.get(entry.part);
     if (cached !== undefined) return cached;
     // The Comments part and the VML parts with the note boxes (W2-69).
-    const parts = pkg.relationships(entry.part).filter((r) => !r.external && ['comments', 'vmlDrawing'].includes(classifyRelationship(r.type)?.name ?? '') && pkg.hasPart(r.target));
+    const parts = pkg.relationships(entry.part).filter((r) => !r.external && ['comments', 'vmlDrawing'].includes(classifyRelationship(r.type)?.name ?? '') && pkg.hasPart(r.target) && !entry.foreignParts.has(partKey(r.target)));
     if (parts.length > 0) await preloaded.load(parts.map((r) => zipName(r.target)));
-    const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings));
+    const notes = Object.freeze(readNotes(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts));
     noteCache.set(entry.part, notes);
     return notes;
   }

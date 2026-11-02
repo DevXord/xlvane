@@ -67,7 +67,7 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | [`XLV_W_DRAWING_CONTENT_NOT_READ`](#xlv_w_drawing_content_not_read) | The drawing of a sheet holds objects other than pictures: charts, shapes, connectors, group shapes, content parts or alternate content. |
 | [`XLV_W_THREADED_COMMENTS`](#xlv_w_threaded_comments) | A sheet has threaded comments, the conversations of current Excel versions ([MS-XLSX] §2.3.7). |
 | [`XLV_W_SHEET_PART_MISSING`](#xlv_w_sheet_part_missing) | A sheet listed in the workbook has no part (the relationship or the part itself is missing). |
-| [`XLV_W_SHEET_PART_SHARED`](#xlv_w_sheet_part_shared) | Two or more sheets listed in the workbook lead to the same part. |
+| [`XLV_W_SHEET_PART_SHARED`](#xlv_w_sheet_part_shared) | Two or more sheets listed in the workbook lead to the same worksheet part, or relate to the same comments, VML or table part. |
 | [`XLV_W_PART_MISSING`](#xlv_w_part_missing) | The workbook points to a styles or shared strings part that does not exist. |
 | [`XLV_W_FORMULAS_NOT_RECALCULATED`](#xlv_w_formulas_not_recalculated) | Reported by `editCells` and `appendRows` when the workbook contains formulas. |
 | [`XLV_W_INVALID_CELL_REF`](#xlv_w_invalid_cell_ref) | A worksheet contains a row whose number is not a whole number from 1 to 1048576, a cell whose `r` reference is not a valid A1 reference … |
@@ -339,7 +339,7 @@ A sheet listed in the workbook has no part (the relationship or the part itself 
 **Fix:** re-save the file in the application that made it; the sheet's cells are not in the file.
 
 ### XLV_W_SHEET_PART_SHARED
-Two or more sheets listed in the workbook lead to the same part. Spreadsheet applications write one part per sheet; reading a shared part again for every sheet would decompress and parse it many times, outside the limit on decompressed bytes. The part is read for the first of these sheets only; the others are returned with `part: null` and no cells. The location names the sheet and the part.
+Two or more sheets listed in the workbook lead to the same worksheet part, or relate to the same comments, VML or table part (part names compared without regard to case, as OPC requires). Spreadsheet applications write one such part per sheet; reading a shared part again for every sheet would decompress and parse it many times, outside the limit on decompressed bytes. The part is read for the first of these sheets only: for a worksheet part, the others are returned with `part: null` and no cells; for a comments, VML or table part, the others are read without its notes or table. A sheet that relates to one table part twice gets that table once. The location names the sheet and the part.
 **Fix:** re-save the file in the application that made it, and check whether the sheets returned without cells should hold data.
 
 ### XLV_W_PART_MISSING

@@ -11,6 +11,7 @@ import type { ConditionalFormat, DataValidation } from './sheet-rules';
 import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetProperties, SheetState, SheetView, Workbook, WorkbookFormat, WorkbookView } from './model';
 import type { Color } from './style';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
+import { partKey } from './opc/part-name';
 import { parseCellRef, parseRange } from './sml/cell-ref';
 import {
   classifyRelationship,
@@ -294,10 +295,10 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
       });
     }
     const links = data === null || entry.part === null ? [] : resolveHyperlinks(pkg, entry.part, entry.name, data, warnings);
-    const notes = data === null || entry.part === null ? [] : readNotes(pkg, entry.part, entry.name, limits, warnings);
+    const notes = data === null || entry.part === null ? [] : readNotes(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts);
     if (data !== null) attachNotes(data.rows, notes);
     const sheet = new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, entry.sheetId, links, notes, book.definedNames);
-    if (data !== null && entry.part !== null) sheet.tables = readTables(pkg, entry.part, entry.name, limits, warnings);
+    if (data !== null && entry.part !== null) sheet.tables = readTables(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts);
     if (data !== null && entry.part !== null) {
       const drawing = readSheetDrawing(pkg, entry.part, entry.name, { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null }, { limits, warnings }, media);
       sheet.images = drawing.images;
@@ -396,8 +397,9 @@ function resolveHyperlinks(pkg: OpcPackage, part: string, sheet: string, data: W
  * ([MS-XLSX] §2.3.7) are reported with `XLV_W_THREADED_COMMENTS`; their legacy placeholders are
  * ordinary notes.
  */
-export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: ReadLimits, warnings: WarningCollector): Note[] {
-  const rels = pkg.relationships(part);
+export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: ReadLimits, warnings: WarningCollector, foreign: ReadonlySet<string> = NO_PARTS): Note[] {
+  // Parts that belong to an earlier sheet are not read again (XLV_W_SHEET_PART_SHARED, D-H01).
+  const rels = pkg.relationships(part).filter((r) => r.external || !foreign.has(partKey(r.target)));
   if (rels.some((r) => r.type === THREADED_COMMENTS_REL)) {
     warnings.add('XLV_W_THREADED_COMMENTS', 'The sheet has threaded comments (conversations); xlvane reads only the notes stored with them, whose author is "tc={id}" and whose text may not include the replies.', { part, sheet });
   }
@@ -412,8 +414,13 @@ export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: 
   if (notes.length === 0) return notes;
   // The boxes that show the notes are VML shapes (Part 4 §19.4; W2-69). Header/footer VML parts
   // have the same relationship type but no Note shapes, so every VML part of the sheet is read.
+  const seen = new Set<string>();
   for (const vml of rels) {
     if (vml.external || classifyRelationship(vml.type)?.name !== 'vmlDrawing') continue;
+    // Each VML part once, however many relationships name it (D-H01).
+    const key = partKey(vml.target);
+    if (seen.has(key)) continue;
+    seen.add(key);
     const text = pkg.readXml(vml.target);
     if (text === undefined) continue;
     const boxes = parseNoteBoxes(text, { part: vml.target, sheet, limits, warnings });
@@ -431,10 +438,15 @@ export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: 
  * relationships (Part 1 §12.3.21, §18.3.1.94; TD-01), in relationship order. A missing or
  * invalid part gives a warning, never an error.
  */
-export function readTables(pkg: OpcPackage, part: string, sheet: string, limits: ReadLimits, warnings: WarningCollector): TableDefinition[] {
+export function readTables(pkg: OpcPackage, part: string, sheet: string, limits: ReadLimits, warnings: WarningCollector, foreign: ReadonlySet<string> = NO_PARTS): TableDefinition[] {
   const tables: TableDefinition[] = [];
+  const seen = new Set<string>();
   for (const rel of pkg.relationships(part)) {
     if (rel.external || classifyRelationship(rel.type)?.name !== 'table') continue;
+    // Each table part once, and not one that belongs to an earlier sheet (D-H01).
+    const key = partKey(rel.target);
+    if (seen.has(key) || foreign.has(key)) continue;
+    seen.add(key);
     if (tables.length >= MAX_TABLES_PER_SHEET) {
       warnings.add('XLV_W_INVALID_VALUE', `The sheet has more than ${String(MAX_TABLES_PER_SHEET)} tables; the rest are not read.`, { part, sheet });
       break;
@@ -471,7 +483,14 @@ export interface SheetEntry {
   readonly state: SheetState;
   /** Part name, or `null` when the part is missing or belongs to an earlier sheet (XLV_W_SHEET_PART_MISSING, XLV_W_SHEET_PART_SHARED). */
   readonly part: string | null;
+  /** Keys (`partKey`) of the comments, VML and table parts of this sheet that belong to an earlier sheet and are not read (D-H01). */
+  readonly foreignParts: ReadonlySet<string>;
 }
+
+const NO_PARTS: ReadonlySet<string> = new Set();
+
+/** Relationship types whose parts are read per sheet, besides the worksheet itself. */
+const SHEET_RELATED = new Set(['comments', 'vmlDrawing', 'table']);
 
 /** Everything about a workbook except the cells; shared by the batch and streaming readers. */
 export interface WorkbookInfo {
@@ -590,18 +609,30 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
         sheet: entry.name,
         part: workbookPart,
       });
-      return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null };
+      return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null, foreignParts: NO_PARTS };
     }
-    const owner = owners.get(rel.target);
+    const owner = owners.get(partKey(rel.target));
     if (owner !== undefined) {
       warnings.add('XLV_W_SHEET_PART_SHARED', `Sheet "${entry.name}" has the same part as sheet "${owner}"; the part is read for "${owner}" only, and "${entry.name}" is returned without cells.`, {
         sheet: entry.name,
         part: rel.target,
       });
-      return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null };
+      return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null, foreignParts: NO_PARTS };
     }
-    owners.set(rel.target, entry.name);
-    return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: rel.target };
+    owners.set(partKey(rel.target), entry.name);
+    // Comments, VML and table parts: each belongs to the first sheet that relates to it.
+    const foreign = new Set<string>();
+    for (const r of pkg.relationships(rel.target)) {
+      if (r.external || !SHEET_RELATED.has(classifyRelationship(r.type)?.name ?? '')) continue;
+      const key = partKey(r.target);
+      const first = owners.get(key);
+      if (first === undefined) owners.set(key, entry.name);
+      else if (first !== entry.name && !foreign.has(key)) {
+        foreign.add(key);
+        warnings.add('XLV_W_SHEET_PART_SHARED', `Sheet "${entry.name}" relates to the part ${r.target}, which belongs to sheet "${first}"; it is read for "${first}" only.`, { sheet: entry.name, part: r.target });
+      }
+    }
+    return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: rel.target, foreignParts: foreign };
   });
   const definedNames = info.definedNames.map((n): DefinedName => {
     let sheet: string | null = null;
