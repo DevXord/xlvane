@@ -35,7 +35,7 @@ describe('drawing elements of the changed sheet', () => {
       extraParts: { 'xl/worksheets/_rels/sheet1.xml.rels': rels([['rId1', 'drawing', '../drawings/drawing1.xml']]), 'xl/drawings/drawing1.xml': drawing },
     });
     const out = insertRows(bytes, { sheet: 'S', at: 1, count: 1 });
-    expect(readWorkbook(out.bytes).sheets[0]?.cell('A2').value).toBe(1);
+    expect(readWorkbook(out.bytes).sheets[0]?.cell('A2')?.value).toBe(1);
   });
 
   it('the real drawing element is still found, with any prefix bound to the relationships namespace', () => {

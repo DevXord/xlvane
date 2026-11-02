@@ -46,7 +46,8 @@ export interface ReadLimits {
    * Maximum total length, in UTF-16 code units, of the shared strings that cells refer to, each
    * reference counted again. Protects against a small file that points thousands of cells at
    * one huge shared string (a few MB that become many GB once values are copied, e.g. to CSV).
-   * Default 512 Mi.
+   * The same limit applies, counted separately, to shared formulas: the master formula's length
+   * once per cell that shares it. Default 512 Mi.
    */
   readonly maxSharedStringChars: number;
 }

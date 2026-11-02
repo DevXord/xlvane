@@ -288,7 +288,7 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
         dateSystem: info.dateSystem,
         conformance: info.conformance,
         // maxSharedStringChars counts per pass over a sheet, because rows(sheet) may be read again.
-        budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars },
+        budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars, formulaText: limits.maxSharedStringChars },
         formatCache,
       },
       (number, cells, rowInfo, styledCells) => ready.push({ number, cells: withNotes(cells), styledCells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),

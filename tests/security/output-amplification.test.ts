@@ -48,7 +48,7 @@ describe('output positions are limited', () => {
 
   it('readTable and toJSON refuse a header 16 384 columns wide over 1 000 rows of one cell', () => {
     const bytes = wide(1000);
-    for (const run of [() => readTable(bytes), () => toJSON(bytes)]) {
+    for (const run of [(): unknown => readTable(bytes), (): unknown => toJSON(bytes)]) {
       const { value, ms } = timed(run);
       expect(ms).toBeLessThan(3000);
       expect((value as { code?: string }).code).toBe('XLV_E_LIMIT_EXCEEDED');
@@ -64,7 +64,7 @@ describe('output positions are limited', () => {
     let error: unknown = null;
     let rows = 0;
     try {
-      for await (const _ of readTableStream(new Blob([bytes]))) rows++;
+      for await (const _ of readTableStream(new Blob([bytes as BlobPart]))) rows++;
     } catch (e) {
       error = e;
     }
@@ -83,7 +83,7 @@ describe('output positions are limited', () => {
     const bytes = buildXlsx({ sheets: [{ name: 'S', data }] });
     let error: unknown = null;
     try {
-      for await (const _ of readTableStream(new Blob([bytes]), { header: false })) break;
+      for await (const _ of readTableStream(new Blob([bytes as BlobPart]), { header: false })) break;
     } catch (e) {
       error = e;
     }

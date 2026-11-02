@@ -273,7 +273,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   const pkg = openPackage(zip, limits);
   const warnings = new WarningCollector();
   const book = analyzeWorkbook(pkg, limits, warnings);
-  const budget = { remaining: limits.maxCells, sharedText: limits.maxSharedStringChars };
+  const budget = { remaining: limits.maxCells, sharedText: limits.maxSharedStringChars, formulaText: limits.maxSharedStringChars };
   const formatCache = new Map<number, NumberFormat>();
   const media: MediaCache = new Map();
   const sheets = book.sheets.map((entry): Sheet => {

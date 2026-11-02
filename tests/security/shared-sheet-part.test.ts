@@ -24,7 +24,7 @@ describe('a worksheet part shared by several sheets', () => {
   it('readWorkbook reads it for the first sheet only', () => {
     const wb = readWorkbook(shared(3, row));
     expect(wb.sheets.map((s) => s.name)).toEqual(['S1', 'S2', 'S3']);
-    expect(wb.sheets[0]?.cell('A1').value).toBe(1);
+    expect(wb.sheets[0]?.cell('A1')?.value).toBe(1);
     expect(wb.sheets[1]?.cell('A1')).toBeUndefined();
     expect([...(wb.sheets[2]?.cells() ?? [])]).toHaveLength(0);
     const shared_ = wb.warnings.filter((w) => w.code === 'XLV_W_SHEET_PART_SHARED');

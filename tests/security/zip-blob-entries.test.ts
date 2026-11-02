@@ -13,7 +13,7 @@ describe('ZIP archives from a Blob', () => {
     for (let i = 0; i < 9990; i++) extraParts[`x/${String(i)}.bin`] = '';
     const bytes = buildXlsx({ sheets: [{ name: 'S', data: '' }], extraParts });
     const start = performance.now();
-    await openWorkbookStream(new Blob([bytes]));
+    await openWorkbookStream(new Blob([bytes as BlobPart]));
     expect(performance.now() - start).toBeLessThan(3000);
   }, 60_000);
 

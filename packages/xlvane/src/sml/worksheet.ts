@@ -32,10 +32,11 @@ export interface WorksheetContext {
   readonly dateSystem: DateSystem;
   readonly conformance: Conformance;
   /**
-   * Number of cells still allowed by `maxCells`, and shared-string characters still allowed by
-   * `maxSharedStringChars`; shared by all sheets of a workbook.
+   * Number of cells still allowed by `maxCells`, shared-string characters still allowed by
+   * `maxSharedStringChars`, and expanded shared-formula characters still allowed by the same
+   * limit, counted apart (D-H01); shared by all sheets of a workbook.
    */
-  readonly budget: { remaining: number; sharedText: number };
+  readonly budget: { remaining: number; sharedText: number; formulaText: number };
   /** Number formats already classified, by number format id; shared by all sheets. */
   readonly formatCache: Map<number, NumberFormat>;
 }
@@ -220,6 +221,9 @@ export function createWorksheetParser(
   let cellCount = 0;
   const masters = new Map<number, SharedMaster>();
   const dependents: SharedDependent[] = [];
+  // Compiled master formulas by si, kept for the whole sheet: streaming expands them row by row,
+  // and compiling a long master again for every row was costly (D-H01). A master never changes.
+  const compiled = new Map<number, CompiledFormula | null>();
   const columns: ColumnInfo[] = [];
   const rowInfo = new Map<number, RowInfo>();
   let freeze: FrozenPanes | null = null;
@@ -523,6 +527,17 @@ export function createWorksheetParser(
     });
   };
 
+  // Each cell that shares a formula gets text as long as the master's: a small file could
+  // share one huge formula with thousands of cells (D-H01).
+  const spendFormulaText = (chars: number, ref: string): void => {
+    ctx.budget.formulaText -= chars;
+    if (ctx.budget.formulaText >= 0) return;
+    throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The cells that share formulas would hold more formula text than the limit allows.', {
+      location: loc(ref),
+      hint: `Small files can share one huge formula with many cells; the limit counts the shared formula's length once per cell. If you trust this file, raise the limit, for example { limits: { maxSharedStringChars: ${String(ctx.limits.maxSharedStringChars * 4)} } }.`,
+      details: { limit: 'maxSharedStringChars', value: ctx.limits.maxSharedStringChars },
+    });
+  };
   const warnNotExpanded = (ref: string): void =>
     ctx.warnings.add(
       'XLV_W_SHARED_FORMULA_NOT_EXPANDED',
@@ -536,7 +551,7 @@ export function createWorksheetParser(
     const info = rowInfo.get(currentRow);
     rowInfo.delete(currentRow);
     if (rows.size === 0 && styleOnly.size === 0) return;
-    expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    expandSharedFormulas(rows, masters, compiled, dependents, warnNotExpanded, spendFormulaText);
     dependents.length = 0;
     const out: Cell[] = [];
     for (const r of [...rows.keys()].sort((a, b) => a - b)) {
@@ -767,7 +782,7 @@ export function createWorksheetParser(
     };
   const finish = (): WorksheetData => {
     if (onRow) flushRows();
-    else expandSharedFormulas(rows, masters, dependents, warnNotExpanded);
+    else expandSharedFormulas(rows, masters, compiled, dependents, warnNotExpanded, spendFormulaText);
     const activeCell = selections.get(activePane);
     if (activeCell !== undefined) view = Object.freeze({ ...view, activeCell });
     return { rows, styleOnly, styledCell, dimension, merges, cellCount, columns, rowInfo, freeze, autoFilter, hyperlinks, tabColor, view, properties, print: print.result(), ...rules.result(), drawingRelId, pictureRelId };
@@ -801,10 +816,11 @@ interface SharedDependent {
 function expandSharedFormulas(
   rows: Map<number, Map<number, Cell>>,
   masters: ReadonlyMap<number, SharedMaster>,
+  compiled: Map<number, CompiledFormula | null>,
   dependents: readonly SharedDependent[],
   warn: (ref: string) => void,
+  spend: (chars: number, ref: string) => void,
 ): void {
-  const compiled = new Map<number, CompiledFormula | null>();
   for (const d of dependents) {
     const rowCells = rows.get(d.row);
     const cell = rowCells?.get(d.col);
@@ -819,6 +835,7 @@ function expandSharedFormulas(
       warn(d.ref);
       continue;
     }
+    spend(master.text.length, d.ref);
     let formula = compiled.get(d.si);
     if (formula === undefined) {
       formula = compileFormula(master.text);
