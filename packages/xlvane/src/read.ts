@@ -339,29 +339,53 @@ function resolveHyperlinks(pkg: OpcPackage, part: string, sheet: string, data: W
     warnings.add('XLV_W_UNUSUAL_HYPERLINK', `The sheet has hyperlinks to targets other than web pages or e-mail addresses, for example "${unusual.slice(0, 80)}". xlvane does not open them.`, { part, sheet });
   }
   // Each cell gets the first link that covers it. Per link, the smaller of the range and the
-  // sheet's rows (and cells) is walked, so a single-cell link costs O(1).
+  // sheet's rows (and cells) is walked, so a single-cell link costs O(1). The walk stops when every
+  // cell has a link, and the positions visited are limited to 16 x the cells plus 1 000 000: many
+  // links whose ranges miss the cells cannot make reading quadratic (D-H01). sheet.hyperlinks
+  // always lists every link; only cell.hyperlink is left unset beyond the limit.
+  let total = 0;
+  for (const cells of data.rows.values()) total += cells.size;
+  let linked = 0;
+  let visits = 0;
+  const maxVisits = 16 * total + 1_000_000;
   for (const link of links) {
+    if (linked === total) break;
+    if (visits > maxVisits) {
+      warnings.add('XLV_W_LIMIT_REACHED', `The sheet's hyperlinks cover far more positions than it has cells; cell.hyperlink is not set for the cells of some links. sheet.hyperlinks lists every link.`, { part, sheet });
+      break;
+    }
     const range = parseRange(link.ref);
     if (range === null) continue;
     const rowSpan = range.end.row - range.start.row + 1;
     const colSpan = range.end.col - range.start.col + 1;
     const visit = (cells: Map<number, Cell>): void => {
       const mark = (c: number, cell: Cell): void => {
-        if (cell.hyperlink === undefined) cells.set(c, { ...cell, hyperlink: link });
+        if (cell.hyperlink === undefined) {
+          cells.set(c, { ...cell, hyperlink: link });
+          linked++;
+        }
       };
       if (colSpan <= cells.size) {
+        visits += colSpan;
         for (let c = range.start.col; c <= range.end.col; c++) {
           const cell = cells.get(c);
           if (cell) mark(c, cell);
         }
-      } else for (const [c, cell] of cells) if (c >= range.start.col && c <= range.end.col) mark(c, cell);
+      } else {
+        visits += cells.size;
+        for (const [c, cell] of cells) if (c >= range.start.col && c <= range.end.col) mark(c, cell);
+      }
     };
     if (rowSpan <= data.rows.size) {
+      visits += rowSpan;
       for (let r = range.start.row; r <= range.end.row; r++) {
         const cells = data.rows.get(r);
         if (cells) visit(cells);
       }
-    } else for (const [r, cells] of data.rows) if (r >= range.start.row && r <= range.end.row) visit(cells);
+    } else {
+      visits += data.rows.size;
+      for (const [r, cells] of data.rows) if (r >= range.start.row && r <= range.end.row) visit(cells);
+    }
   }
   return links;
 }

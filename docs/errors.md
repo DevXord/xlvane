@@ -61,6 +61,7 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | [`XLV_W_MACROS_PRESENT`](#xlv_w_macros_present) | The workbook contains a VBA project or Excel 4.0 macro sheets. |
 | [`XLV_W_EXTERNAL_LINKS`](#xlv_w_external_links) | The workbook links to other workbooks. |
 | [`XLV_W_DUPLICATE_CELL`](#xlv_w_duplicate_cell) | A sheet defines the same cell more than once. |
+| [`XLV_W_LIMIT_REACHED`](#xlv_w_limit_reached) | Reading stopped computing something derived from the file because the work would be far out of proportion to its data. |
 | [`XLV_W_INVALID_VALUE`](#xlv_w_invalid_value) | A value does not match its declared type and is returned in a safe form, for example a numeric cell whose text is not a number (returned … |
 | [`XLV_W_UNUSUAL_HYPERLINK`](#xlv_w_unusual_hyperlink) | A sheet has hyperlinks whose external target uses a scheme other than `http`, `https` or `mailto`, for example `file:`, `javascript:` or … |
 | [`XLV_W_DRAWING_CONTENT_NOT_READ`](#xlv_w_drawing_content_not_read) | The drawing of a sheet holds objects other than pictures: charts, shapes, connectors, group shapes, content parts or alternate content. |
@@ -289,6 +290,10 @@ Some merged ranges have values in cells other than the top-left one. Spreadsheet
 ### XLV_W_MERGED_CELL_WRITE
 `editCells` or `appendRows` wrote a value into a cell of a merged range other than its top-left cell. The value is stored, but spreadsheet applications show only the top-left cell of a merged range, so the value is not visible. `cells` lists the cells written (up to ten); the message names the first one and its merged range.
 **Fix:** write the value into the top-left cell of the range (named in the message), or unmerge the range first.
+
+### XLV_W_LIMIT_REACHED
+Reading stopped computing something derived from the file because the work would be far out of proportion to its data, and the file is read without it. Today: hyperlinks whose ranges cover far more positions than the sheet has cells (more than 16 visits per cell plus 1 000 000); `sheet.hyperlinks` lists every link, but `cell.hyperlink` is not set for the cells of the remaining links (D-H01).
+**Fix:** nothing, if the file comes from an unknown source: this protects the reader. Look up a cell's link in `sheet.hyperlinks` by its range.
 
 ### XLV_W_VERY_HIDDEN_SHEET
 A sheet has the state `veryHidden`: spreadsheet applications offer no menu command to unhide it, so users usually do not know it exists.
