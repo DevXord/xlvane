@@ -418,3 +418,11 @@ describe('building workbooks with many sheets, merges and names (C3, C4, C6)', (
     expect(() => wb.getSheet('S2').addTable({ name: 'name_5', ref: 'A1:B3', columns: [{ name: 'a' }, { name: 'b' }] })).toThrow('"Name_5" is already a defined name of the workbook.');
   }, 60_000);
 });
+
+describe('fromCSV output budget with the maxCells option (D-J01)', () => {
+  it("uses the caller's maxCells, as parsing does", () => {
+    const text = `${','.repeat(99)}\n${'1\n'.repeat(100)}`;
+    expect(() => fromCSV(text, { header: false })).not.toThrow();
+    expect(() => fromCSV(text, { header: false, maxCells: 1000 })).toThrow(expect.objectContaining({ code: 'XLV_E_LIMIT_EXCEEDED' }));
+  });
+});

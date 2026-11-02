@@ -459,6 +459,8 @@ export function fromCSV(input: string | Uint8Array, options?: FromCSVOptions): U
     ['preset', oneOfOption('preset', o.get('preset'), ['plain', 'report'], 'plain')],
   ]);
   if (columns) tableOptions.set('columns', columns);
+  // The output budget of addTableSheet uses the caller's maxCells, as parsing does (D-J01).
+  tableOptions.set('maxCells', maxCells);
   addTableSheet(workbook, rows, tableOptions);
   return writeWorkbook(workbook);
 }
