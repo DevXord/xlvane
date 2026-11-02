@@ -1,6 +1,6 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.devxord/xlvane",
+  "name": "io.github.DevXord/xlvane",
   "title": "xlvane: XLSX workbooks",
   "description": "XLSX tools: inspect, read, diff and validate workbooks; write, edit and convert with --allow-write.",
   "repository": {
@@ -9,12 +9,12 @@
     "subfolder": "packages/mcp"
   },
   "websiteUrl": "https://xlvane.github.io/guide/mcp.html",
-  "version": "1.2.1",
+  "version": "1.2.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "@xlvane/mcp",
-      "version": "1.2.1",
+      "version": "1.2.2",
       "transport": {
         "type": "stdio"
       },

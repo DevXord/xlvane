@@ -59,12 +59,12 @@ npm sets up a trusted publisher only for a package that exists (F-NPM-05), so `@
 1. Bump the version of all packages in one commit (`packages/xlvane/package.json`, `packages/compat/package.json` and `packages/mcp/package.json` with their `xlvane` dependency `^X.Y.Z`, `SERVER_VERSION` in `packages/mcp/src/server.ts`, and both `version` fields of `packages/mcp/server.json`), update CHANGELOG.md.
 2. Check the trusted publisher of each package: `npm trust list xlvane`, `npm trust list @xlvane/compat` and `npm trust list @xlvane/mcp` print `github`, `release.yml`, `DevXord/xlvane`, `npm-release` and `stage publish` (F-NPM-04). A configuration that was added more than 2 days ago and never used has expired: delete it and add it again (F-NPM-01).
 3. Tag `vX.Y.Z` and push the tag. `scripts/check-release-version.mjs` stops the release if the tag and the versions differ.
-4. When the `verify` job has passed, approve the `publish` job (Review deployments → `npm-release` → Approve and deploy).
+4. When the `verify` job has passed, approve the `publish` job (Review deployments → `npm-release` → Approve and deploy). `scripts/stage-publish.mjs` stages each package whose version is not on npm yet; if one fails (for example E401 when its trusted publisher is missing), the others are still staged and the job fails at the end. After fixing the cause, re-run the job: versions already published are skipped (a version that is staged but not approved yet is tried again, which npm refuses; approve or let it expire first).
 5. When the workflow has staged the packages: `npm stage list`, inspect, `npm stage approve <stage-id>` (2FA). Approve `xlvane` first: the other packages depend on its new version.
 
 ## MCP Registry (after each release, from 1.2.1)
 
-The official MCP Registry stores metadata only; it lists `@xlvane/mcp` as `io.github.devxord/xlvane` from `packages/mcp/server.json` and checks that `mcpName` in the published `package.json` matches (D-I06, F-MCP-03). When the new `@xlvane/mcp` version is on npm:
+The official MCP Registry stores metadata only; it lists `@xlvane/mcp` as `io.github.DevXord/xlvane` (with this case: the registry compares the namespace with case, D-I07) from `packages/mcp/server.json` and checks that `mcpName` in the published `package.json` matches (D-I06, F-MCP-03). When the new `@xlvane/mcp` version is on npm:
 
 1. Install `mcp-publisher` once, from the registry's releases page or with `brew install mcp-publisher`.
 2. Log in:
@@ -80,7 +80,7 @@ The official MCP Registry stores metadata only; it lists `@xlvane/mcp` as `io.gi
    ```
 4. Check:
    ```sh
-   curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.devxord/xlvane"
+   curl "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.DevXord/xlvane"
    ```
    It lists the new version.
 

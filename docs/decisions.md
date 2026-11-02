@@ -739,11 +739,21 @@ The property test comparing streamed and whole-text XML parsing (`tests/fuzz/xml
 - **Fix:** the search resumes at the `--`. Two regression tests were added to `tests/security/xml-stream-time.test.ts`.
 
 ### D-I06 Listing in the official MCP Registry (2026-11-02)
-At the maintainer's decision the server is listed in the official MCP Registry as `io.github.devxord/xlvane`. The repository's owner and the provenance of the packages are `DevXord`; GitHub login grants the personal namespace (F-MCP-03).
+At the maintainer's decision the server is listed in the official MCP Registry as `io.github.devxord/xlvane` (from 1.2.2 `io.github.DevXord/xlvane`, D-I07). The repository's owner and the provenance of the packages are `DevXord`; GitHub login grants the personal namespace (F-MCP-03).
 - `packages/mcp/package.json` gets `mcpName`, which the registry compares with the server name. Version 1.2.0 did not have it, so 1.2.1 is released for all three packages.
 - `packages/mcp/server.json` follows the schema of 2025-12-11 and declares the required, repeatable `--root` argument (`format: "filepath"`).
 - `tests/policy/mcp-registry.test.ts` checks the name, the versions and the schema limits. `scripts/check-release-version.mjs` checks that `server.json` has the release version.
 - The maintainer publishes the entry by hand with `mcp-publisher` after each release (RELEASING.md). No registry tool runs in the job that publishes to npm.
+
+### D-I07 The registry name with case; staging that can be repeated (2026-11-02)
+- **Name with case:** the first `mcp-publisher publish` (1.2.1) was refused with 403. The answer was "You have permission to publish: io.github.DevXord/*. Attempting to publish: io.github.devxord/xlvane", so the registry compares namespaces with case. The lower-case name of D-I06 came from the lower-case examples in the documentation and was not checked. From 1.2.2 `mcpName` and `server.json` use `io.github.DevXord/xlvane`; `mcpName` of a published version cannot change, so 1.2.1 cannot be listed.
+- **Staging that can be repeated:** in the 1.2.1 release the staging of `@xlvane/mcp` failed with E401 (no trusted publisher yet) after the other two packages had been staged, and running the workflow again would have stopped at the first package. At the maintainer's decision `scripts/stage-publish.mjs` now stages the packages:
+  - a version already on npm is skipped;
+  - a package not on npm yet gets a warning;
+  - a failure does not stop the others, and the job fails at the end;
+  - `npm view` errors are no longer printed.
+  
+  Tested with a recording stand-in for npm (`tests/policy/stage-publish.test.ts`).
 
 ### D-I03 Releasing a new package (2026-11-02)
 npm sets up a trusted publisher only for a package that already exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from the maintainer's machine without provenance, as `xlvane` 1.0.0 was (D-R10), and its trusted publisher is configured afterwards. The release workflow stages `@xlvane/mcp` only when the package exists and the version is not on npm yet, and otherwise prints a notice, so the 1.2.0 release of the other two packages is not blocked. `scripts/check-release-version.mjs` checks all three versions and both dependencies on `xlvane`.

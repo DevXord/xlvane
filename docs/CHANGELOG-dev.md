@@ -2,6 +2,11 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## 1.2.2: registry name with case, repeatable staging (2026-11-02)
+
+- The MCP Registry refused `io.github.devxord/xlvane` (403; granted `io.github.DevXord/*`): `mcpName` and `server.json` use `io.github.DevXord/xlvane` (D-I07).
+- `scripts/stage-publish.mjs` replaces the three staging steps of the release workflow: published versions are skipped, missing packages warned about, failures do not stop the other packages (D-I07, `tests/policy/stage-publish.test.ts`). Version 1.2.2 for all three packages.
+
 ## 1.2.1: MCP Registry metadata (2026-11-02)
 
 - `mcpName` in `packages/mcp/package.json` and `packages/mcp/server.json` for the official MCP Registry (D-I06, F-MCP-03), with a policy test; the release check covers `server.json`; RELEASING.md describes publishing the entry with `mcp-publisher`. Version 1.2.1 for all three packages.

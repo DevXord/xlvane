@@ -66,16 +66,7 @@ jobs:
       - run: npm ci --ignore-scripts
       - run: npm run build
       - run: node scripts/check-release-version.mjs "$GITHUB_REF_NAME"
-      - run: npm stage publish -w packages/xlvane
-      - run: npm stage publish -w packages/compat
-      # @xlvane/mcp: npm sets up a trusted publisher only for a package that exists, so its first
-      # version is published by the maintainer (docs/RELEASING.md, D-I03); this step then skips it.
-      # The tag was checked above to have the form vX.Y.Z.
-      - run: |
-          if npm view "@xlvane/mcp@${GITHUB_REF_NAME#v}" version | grep -q .; then
-            echo "@xlvane/mcp ${GITHUB_REF_NAME#v} is already on npm; not staged again."
-          elif ! npm view @xlvane/mcp name > /dev/null 2>&1; then
-            echo "::warning::@xlvane/mcp is not on npm yet: publish its first version from your machine (docs/RELEASING.md)."
-          else
-            npm stage publish -w packages/mcp
-          fi
+      # Each package is staged unless its version is already on npm; a package not on npm yet gets a
+      # warning (its first version is published by the maintainer, D-I03); a failure does not stop
+      # the others, so running the workflow again finishes what is missing (D-I07).
+      - run: node scripts/stage-publish.mjs "$GITHUB_REF_NAME"
