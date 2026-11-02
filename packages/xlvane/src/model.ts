@@ -431,7 +431,7 @@ export interface Sheet {
   readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
-  /** Part name of the sheet, for example `/xl/worksheets/sheet1.xml`; `null` if it is missing. */
+  /** Part name of the sheet, for example `/xl/worksheets/sheet1.xml`; `null` if it is missing or is the part of an earlier sheet (`XLV_W_SHEET_PART_SHARED`). */
   readonly part: string | null;
   /** The used range declared in the file (`dimension` element), or `null`. */
   readonly dimension: string | null;

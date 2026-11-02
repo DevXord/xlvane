@@ -469,7 +469,7 @@ export interface SheetEntry {
   readonly sheetId: number | null;
   readonly kind: SheetKind;
   readonly state: SheetState;
-  /** Part name, or `null` when the part is missing (reported as XLV_W_SHEET_PART_MISSING). */
+  /** Part name, or `null` when the part is missing or belongs to an earlier sheet (XLV_W_SHEET_PART_MISSING, XLV_W_SHEET_PART_SHARED). */
   readonly part: string | null;
 }
 
@@ -568,6 +568,9 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
   }
 
   const dateSystem = info.date1904 ? '1904' : '1900';
+  // A part read for several sheets would be decompressed and parsed once per sheet, outside the
+  // limit on decompressed bytes (D-H01): only the first sheet that leads to it keeps it.
+  const owners = new Map<string, string>();
   const sheets = info.sheets.map((entry, index): SheetEntry => {
     if (entry.state === 'veryHidden') {
       warnings.add('XLV_W_VERY_HIDDEN_SHEET', `Sheet "${entry.name}" is very hidden: spreadsheet applications do not offer a way to unhide it.`, {
@@ -589,6 +592,15 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
       });
       return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null };
     }
+    const owner = owners.get(rel.target);
+    if (owner !== undefined) {
+      warnings.add('XLV_W_SHEET_PART_SHARED', `Sheet "${entry.name}" has the same part as sheet "${owner}"; the part is read for "${owner}" only, and "${entry.name}" is returned without cells.`, {
+        sheet: entry.name,
+        part: rel.target,
+      });
+      return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null };
+    }
+    owners.set(rel.target, entry.name);
     return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: rel.target };
   });
   const definedNames = info.definedNames.map((n): DefinedName => {
