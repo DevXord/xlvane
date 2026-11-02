@@ -53,7 +53,7 @@ The error envelope is defined in [cli-json/common.schema.json](cli-json/common.s
 | Code | Meaning |
 |---|---|
 | 0 | Success. |
-| 1 | The command ran, and a check found something: `diff` found differences, or `validate` found problems. `mcp` also returns 1 when the server exits with an error. |
+| 1 | The command ran, and a check found something: `diff` found differences, or `validate` found problems. `mcp` returns the exit code of the server (0, or 2 and 3 as below). |
 | 2 | Usage error (`XLV_E_USAGE`): unknown command or option, missing or extra argument, invalid option value. |
 | 3 | Input or file error: the file cannot be read, is not a valid workbook, the sheet does not exist, the output exists without `--force`, and so on. |
 
@@ -69,4 +69,4 @@ The error envelope is defined in [cli-json/common.schema.json](cli-json/common.s
 | `diff` | [cli-json/diff.schema.json](cli-json/diff.schema.json) | The `diff()` result: `equal`, `sheetsAdded`, `sheetsRemoved`, `sheets` (cell changes with `before` and `after`), `summary`. Every change is included. |
 | `validate` | [cli-json/validate.schema.json](cli-json/validate.schema.json) | `file`, `ok`, `sheet`, `rowsChecked`, `problems` (`kind`, `column`, `cell`, `row`, `message`), `warnings`. |
 | `migrate` | [cli-json/migrate.schema.json](cli-json/migrate.schema.json) | `directory`, `packageJson`, `changes` (`section`, `from`, `to`), `alreadyMigrated`, `enginesNode`, `filesScanned`, `scanLimited`, `findings` (`file`, `line`, `column`, `api`, `status`), `written`. |
-| `mcp` | [cli-json/mcp.schema.json](cli-json/mcp.schema.json) | Only errors are printed as JSON; the server itself communicates over MCP. |
+| `mcp` | [cli-json/mcp.schema.json](cli-json/mcp.schema.json) | `--json` is refused with a usage error (exit code 2), printed as this document, because stdout carries the MCP protocol. |

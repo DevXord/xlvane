@@ -28,7 +28,7 @@ Many MCP clients take a configuration like this one; check your client's documen
 | `--allow-write` | Also offer the tools that write files. Without it they are not registered at all. |
 | `--max-file-size <bytes>` | Largest file read or written. Default 64 MiB. |
 | `--max-rows <n>` | Largest number of rows one `read_table` call returns. Default 1000. |
-| `--max-response-chars <n>` | Largest tool result, in characters of JSON. `read_table` returns the rows that fit (`truncated`, `nextOffset`); other tools return `XLV_E_LIMIT_EXCEEDED`. Default 1 Mi (1 048 576). |
+| `--max-response-chars <n>` | Largest tool result (also an error), in characters of its JSON text; the message carries the same data again as `structuredContent`. `read_table` returns the rows that fit (`truncated`, `nextOffset`); other tools return `XLV_E_LIMIT_EXCEEDED`. Default 1 Mi (1 048 576). |
 
 The server speaks MCP over stdin and stdout; messages for people go to stderr.
 
@@ -48,8 +48,8 @@ Every tool has a JSON Schema for its input and returns its result as `structured
 
 ## Security
 
-- **Directories:** files are read and written only inside the `--root` directories. Paths are checked after symbolic links are resolved, so `..`, absolute paths and links that lead outside are refused (`XLV_E_PATH_NOT_ALLOWED`). A file is checked again after it is opened (the path must still lead to the same file), so swapping it for a link meanwhile does not help. Writing through a symbolic link is refused.
-- **Read-only by default:** the write tools exist only with `--allow-write`. They create files exclusively and replace an existing file only when the call passes `"overwrite": true`, through a temporary file and a rename.
+- **Directories:** files are read and written only inside the `--root` directories. Paths are checked after symbolic links are resolved, so `..`, absolute paths and links that lead outside are refused (`XLV_E_PATH_NOT_ALLOWED`). A file is checked again after it is opened (the path must still lead to the same file), so swapping it for a link meanwhile does not help. Writing through a symbolic link is refused. A path outside the roots gets the same answer whether or not something exists there. Only regular files are read.
+- **Read-only by default:** the write tools exist only with `--allow-write`. They create files exclusively and replace an existing file only when the call passes `"overwrite": true`, through a temporary file and a rename; the replacement keeps the file's permissions, and read-only files are not replaced. Any file name inside a root may be written, also dot files such as `.gitignore`; choose the roots accordingly.
 - **Limits:** files above `--max-file-size` are refused for reading and writing, and results above `--max-response-chars` are cut (`read_table`) or refused. The xlvane reader applies its limits for untrusted files (ZIP bombs, XML without DTDs or entities, the budgets of xlvane 1.1.1). `validate` lists at most 1 000 problems (`problemsTotal` counts all).
 - **File content is data:** values, sheet names and other text come from the files and may contain any text, also text meant to influence a model. The server returns it as data and does not interpret it.
 - **No code execution:** macros are never run, external links are never followed, and formulas are not calculated.

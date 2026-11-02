@@ -39,7 +39,8 @@ export async function cli(argv: readonly string[], options: RunOptions): Promise
     importModule:
       options.importModule ??
       (async () => {
-        throw Object.assign(new Error('Cannot find package @xlvane/mcp'), { code: 'ERR_MODULE_NOT_FOUND' });
+        // The message format of Node.js 22 for a missing package (checked by running an import).
+        throw Object.assign(new Error("Cannot find package '@xlvane/mcp' imported from /x/node_modules/xlvane/dist/cli.js"), { code: 'ERR_MODULE_NOT_FOUND' });
       }),
     version: '0.0.0-test',
   };

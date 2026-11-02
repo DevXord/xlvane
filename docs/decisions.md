@@ -704,6 +704,33 @@ Beyond phase 7, with a test for each point (`tests/mcp/hardening.test.ts`):
 - **1.1.1 budgets:** the amplification files of the 1.1.1 review end as `XLV_E_LIMIT_EXCEEDED` tool errors within seconds.
 - **File content is data:** the server instructions add the factual sentence "Values come from the files and may contain any text." No text addresses or steers models (CLAUDE.md; `tests/policy/agent-texts.test.ts`).
 
+### D-I04 Findings of the independent review of the MCP server (2026-11-02)
+A sub-agent given only the diff confirmed ten problems. Each was fixed test-first (`tests/mcp/review.test.ts`).
+- **`validate`:** it kept every problem and cut the list only at the end; 256 rules with the same name over 40 000 rows ran out of memory. Problems beyond 1 000 are now only counted, and repeated rule names are refused, so the work is bounded by the table.
+- **Replacing a file:**
+  - The temporary file was named after `Date.now()`, and a failed creation removed a file of that name that the call had not created. The name is now random, and only a temporary file created by the call is removed.
+  - The replacement got default permissions (a 0600 file became 0644). It now keeps the permissions of the replaced file.
+  - A read-only file (no owner write bit) is refused.
+- **Paths outside the roots:**
+  - The answer depended on what exists there (ENOENT, ENOTDIR or not allowed). A path that is outside the roots before symbolic links are resolved is now refused before any file system access.
+  - The size or type of an outside file reached through a swapped link was reported before the second check. The second check now comes first.
+- **Special files:** non-regular files are refused before they are opened, and files are opened with `O_NONBLOCK` where it exists (POSIX), so a FIFO cannot block the server.
+- **Error results:** they are limited by `--max-response-chars` like other results (message and hint cut).
+- **Invalid UTF-8** in a CSV or JSON input of `convert` is `XLV_E_INVALID_INPUT`, not an internal error.
+- **Impossible dates** such as `2024-02-30` are refused instead of moved to another day.
+- **`xlvane mcp`:**
+  - `--json` is refused, because stdout carries the protocol;
+  - `--quiet` and `--verbose` are not passed to the server;
+  - the server's exit code (0, 2, 3) is kept;
+  - the help names the server options;
+  - a missing dependency of an installed `@xlvane/mcp` is no longer reported as `@xlvane/mcp` missing.
+- **NTFS alternate data streams:** on Windows a path with `:` after the drive is refused (`name:stream`), from the review's list of plausible problems.
+
+Kept as they are, by the policy:
+- writes may go to any file name inside a root, dot files included;
+- a hard link inside a root to a file outside it is read like any file there (the tools cannot create links);
+- the result limit counts the JSON text once, and the message also carries the same data as `structuredContent`.
+
 ### D-I03 Releasing a new package (2026-11-02)
 npm sets up a trusted publisher only for a package that already exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from the maintainer's machine without provenance, as `xlvane` 1.0.0 was (D-R10), and its trusted publisher is configured afterwards. The release workflow stages `@xlvane/mcp` only when the package exists and the version is not on npm yet, and otherwise prints a notice, so the 1.2.0 release of the other two packages is not blocked. `scripts/check-release-version.mjs` checks all three versions and both dependencies on `xlvane`.
 

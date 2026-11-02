@@ -3,10 +3,14 @@ xlvane mcp - Start the MCP server for AI agents
 Usage:
   xlvane mcp [server options]
 
-Starts the Model Context Protocol server from the separate package @xlvane/mcp, so that an AI agent
-can inspect, read, convert and compare spreadsheets through tools instead of code. The arguments
-after "mcp" are passed to the server. If @xlvane/mcp is not installed, the command prints how to
-install it.
+Starts the Model Context Protocol server from the separate package @xlvane/mcp over stdin and
+stdout, so that an AI agent can inspect, read, convert and compare spreadsheets through tools
+instead of code. The arguments after "mcp" are passed to the server: --root <dir> (required,
+repeatable) names a directory the tools may use, --allow-write adds the tools that write files, and
+--max-file-size <bytes>, --max-rows <n> and --max-response-chars <n> set its limits. --json is not
+available, because stdout carries the protocol. If @xlvane/mcp is not installed, the command prints
+how to install it. The exit code is the server's: 0 when the client closed the connection, 2 for
+wrong arguments, 3 for a directory that cannot be used.
 
 Global options:
       --json     Print one JSON document to stdout (node_modules/xlvane/docs/cli-json.md)
@@ -15,10 +19,10 @@ Global options:
   -h, --help     Show help for the command
 
 Examples:
-  xlvane mcp
-      Start the server, or show how to install it
-  xlvane help mcp
-      This help
+  xlvane mcp --root ./data
+      Serve the files in ./data, read-only
+  xlvane mcp --root ./data --allow-write
+      Also allow writing files there
 
 Exit codes: 0 success, 2 usage error, 3 input or file error.
 Related: xlvane inspect, xlvane read

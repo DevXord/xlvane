@@ -1,6 +1,8 @@
 // Path policy of the MCP server: every file read or written must lie inside one of the
-// directories given at start (--root), after symbolic links are resolved (docs/decisions.md D-703).
-import { lstat, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+// directories given at start (--root), after symbolic links are resolved (docs/decisions.md D-703,
+// D-I02, D-I04).
+import { constants } from 'node:fs';
+import { chmod, lstat, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { XlvError } from 'xlvane';
 
@@ -8,6 +10,8 @@ import { XlvError } from 'xlvane';
 export interface Roots {
   /** Real paths of the --root directories, in the order given. */
   readonly dirs: readonly string[];
+  /** The --root directories as given, made absolute and normalized (for the check before any file system access). */
+  readonly given: readonly string[];
   /** Largest file read or written, in bytes. */
   readonly maxFileBytes: number;
 }
@@ -25,10 +29,12 @@ export async function resolveRoots(dirs: readonly string[], cwd: string, maxFile
     });
   }
   const out: string[] = [];
+  const given: string[] = [];
   for (const dir of dirs) {
+    const full = resolve(cwd, dir);
     let real: string;
     try {
-      real = await realpath(isAbsolute(dir) ? dir : resolve(cwd, dir));
+      real = await realpath(full);
     } catch (error) {
       throw new XlvError('XLV_E_FILE_READ', `The directory "${dir}" does not exist (${errorCode(error)}).`, { hint: 'Pass an existing directory to --root.', details: { path: dir } });
     }
@@ -36,12 +42,17 @@ export async function resolveRoots(dirs: readonly string[], cwd: string, maxFile
       throw new XlvError('XLV_E_FILE_READ', `"${dir}" is not a directory.`, { hint: 'Pass a directory to --root, not a file.', details: { path: dir } });
     }
     out.push(real);
+    given.push(full);
   }
-  return { dirs: out, maxFileBytes };
+  return { dirs: out, given, maxFileBytes };
+}
+
+function within(dirs: readonly string[], path: string): boolean {
+  return dirs.some((root) => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep));
 }
 
 function inside(roots: Roots, real: string): boolean {
-  return roots.dirs.some((root) => real === root || real.startsWith(root.endsWith(sep) ? root : root + sep));
+  return within(roots.dirs, real);
 }
 
 function notAllowed(roots: Roots, path: string, why: string): XlvError {
@@ -51,11 +62,22 @@ function notAllowed(roots: Roots, path: string, why: string): XlvError {
   });
 }
 
+/**
+ * The absolute, normalized path of a tool argument. A path that is not inside a root even before
+ * symbolic links are resolved is refused here, before the file system is touched, so the answer
+ * for a path outside the roots does not depend on what exists there (D-I04).
+ */
 function absolute(roots: Roots, path: string): string {
   if (typeof path !== 'string' || path === '' || path.includes('\0')) {
-    throw new XlvError('XLV_E_INVALID_INPUT', 'The path must be a non-empty string.', { hint: 'Pass a file name such as "report.xlsx".', details: { path: String(path) } });
+    throw new XlvError('XLV_E_INVALID_INPUT', 'The path must be a non-empty string.', { hint: 'Pass a file name such as "report.xlsx".', details: { path: String(path).slice(0, 200) } });
   }
-  return isAbsolute(path) ? path : resolve(roots.dirs[0]!, path);
+  const full = isAbsolute(path) ? resolve(path) : resolve(roots.dirs[0]!, path);
+  if (!within(roots.dirs, full) && !within(roots.given, full)) throw notAllowed(roots, path, '');
+  // On Windows "name:stream" opens an NTFS alternate data stream of "name".
+  if (sep === '\\' && full.slice(2).includes(':')) {
+    throw new XlvError('XLV_E_INVALID_INPUT', `"${path}" contains ":" after the drive.`, { hint: 'Use a file name without ":".', details: { path } });
+  }
+  return full;
 }
 
 /** Points in {@link readAllowedWith} where tests change the file system (races). */
@@ -91,29 +113,33 @@ export async function readAllowedWith(roots: Roots, path: string, hooks: ReadHoo
     if (!inside(roots, real)) throw notAllowed(roots, path, real === target ? '' : ' (after following symbolic links)');
     return real;
   };
-  await resolveInside();
+  const notAFile = (): XlvError => new XlvError('XLV_E_FILE_READ', `"${path}" is not a file.`, { hint: 'Pass the path of a file.', details: { path } });
+  // Only regular files are opened: opening a FIFO or a device could block (D-I04).
+  if (!(await stat(await resolveInside())).isFile()) throw notAFile();
   await hooks.afterCheck?.();
   let handle;
   try {
-    handle = await open(target, 'r');
+    // O_NONBLOCK: a file swapped for a FIFO meanwhile does not block the open (POSIX; 0 where absent).
+    handle = await open(target, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0));
   } catch (error) {
     throw new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, { hint: 'Check that the path points to a readable file.', details: { path, code: errorCode(error) } });
   }
   try {
     await hooks.afterOpen?.();
     const opened = await handle.stat();
-    if (!opened.isFile()) throw new XlvError('XLV_E_FILE_READ', `"${path}" is not a file.`, { hint: 'Pass the path of a file.', details: { path } });
+    // First: the path must still lead, inside a root, to the file that was opened. Only then
+    // are its type and size reported, so nothing is said about a file outside the roots (D-I04).
+    const now = await stat(await resolveInside());
+    if (now.dev !== opened.dev || now.ino !== opened.ino) {
+      throw new XlvError('XLV_E_FILE_READ', `"${path}" changed while it was being read.`, { hint: 'Read the file again when nothing else is writing to it.', details: { path } });
+    }
+    if (!opened.isFile()) throw notAFile();
     const tooLarge = (size: number): XlvError =>
       new XlvError('XLV_E_LIMIT_EXCEEDED', `"${path}" is ${String(size)} bytes or more, more than the server's limit of ${String(roots.maxFileBytes)}.`, {
         hint: 'The limit is set when the server starts (--max-file-size).',
         details: { path, limit: 'maxFileBytes', value: roots.maxFileBytes },
       });
     if (opened.size > roots.maxFileBytes) throw tooLarge(opened.size);
-    // The path must still lead, inside a root, to the file that was opened.
-    const now = await stat(await resolveInside());
-    if (now.dev !== opened.dev || now.ino !== opened.ino) {
-      throw new XlvError('XLV_E_FILE_READ', `"${path}" changed while it was being read.`, { hint: 'Read the file again when nothing else is writing to it.', details: { path } });
-    }
     await hooks.afterVerify?.();
     const chunks: Uint8Array[] = [];
     let total = 0;
@@ -168,37 +194,48 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
       details: { path, limit: 'maxFileBytes', value: roots.maxFileBytes },
     });
   }
-  let exists = false;
+  let existing: { mode: number } | null = null;
   try {
     const info = await lstat(file);
-    exists = true;
     if (info.isSymbolicLink()) throw notAllowed(roots, path, ' (it is a symbolic link)');
     if (!info.isFile()) throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is not a file.`, { hint: 'Choose a file name that is not a directory.', details: { path, code: 'EISDIR' } });
+    existing = info;
   } catch (error) {
     if (error instanceof XlvError) throw error;
   }
+  const exists = existing !== null;
   if (exists && !overwrite) {
     throw new XlvError('XLV_E_FILE_EXISTS', `"${path}" already exists.`, { hint: 'Choose another path, or pass "overwrite": true to replace the file.', details: { path } });
   }
-  try {
-    if (exists) {
-      const temp = join(dir, `.${name}.xlvane-${String(Date.now())}.tmp`);
-      try {
-        await writeFile(temp, bytes, { flag: 'wx' });
-        await rename(temp, file);
-      } catch (error) {
-        await rm(temp, { force: true });
-        throw error;
-      }
-    } else {
+  // A file without write permission for its owner is not replaced (D-I04).
+  if (existing !== null && (existing.mode & 0o200) === 0) {
+    throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is read-only.`, { hint: 'Write to another path, or make the file writable first.', details: { path, code: 'EACCES' } });
+  }
+  if (existing === null) {
+    try {
       // 'wx' fails if anything, including a symbolic link, appeared at the path meanwhile.
       await writeFile(file, bytes, { flag: 'wx' });
+    } catch (error) {
+      if (errorCode(error) === 'EEXIST') {
+        throw new XlvError('XLV_E_FILE_EXISTS', `"${path}" already exists.`, { hint: 'Choose another path, or pass "overwrite": true to replace the file.', details: { path } });
+      }
+      throw new XlvError('XLV_E_FILE_WRITE', `Cannot write "${path}" (${errorCode(error)}).`, { hint: 'Check that the directory is writable.', details: { path, code: errorCode(error) } });
     }
+    return { path, bytes: bytes.length, replaced: false };
+  }
+  // Replace: a new temporary file with a random name ('wx'), given the permissions of the file it
+  // replaces, then renamed over it; a temporary file is removed only if this call created it (D-I04).
+  const random = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
+  const temp = join(dir, `.${name}.xlvane-${random}.tmp`);
+  let created = false;
+  try {
+    await writeFile(temp, bytes, { flag: 'wx' });
+    created = true;
+    await chmod(temp, existing.mode & 0o7777);
+    await rename(temp, file);
   } catch (error) {
-    if (errorCode(error) === 'EEXIST') {
-      throw new XlvError('XLV_E_FILE_EXISTS', `"${path}" already exists.`, { hint: 'Choose another path, or pass "overwrite": true to replace the file.', details: { path } });
-    }
+    if (created) await rm(temp, { force: true });
     throw new XlvError('XLV_E_FILE_WRITE', `Cannot write "${path}" (${errorCode(error)}).`, { hint: 'Check that the directory is writable.', details: { path, code: errorCode(error) } });
   }
-  return { path, bytes: bytes.length, replaced: exists };
+  return { path, bytes: bytes.length, replaced: true };
 }

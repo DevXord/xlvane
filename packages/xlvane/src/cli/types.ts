@@ -45,7 +45,7 @@ export interface CommandOutcome {
   readonly result: unknown;
   readonly render: (out: Output) => string;
   /** 0 success, 1 a check found something (diff, validate). */
-  readonly exitCode: 0 | 1;
+  readonly exitCode: 0 | 1 | 2 | 3;
 }
 
 /** What a command gets when it runs. */

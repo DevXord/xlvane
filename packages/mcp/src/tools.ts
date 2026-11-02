@@ -78,15 +78,26 @@ function ok(result: Json, maxChars: number): CallToolResult {
   return { content: [{ type: 'text', text }], structuredContent: result };
 }
 
-function fail(error: unknown): CallToolResult {
+function fail(error: unknown, maxChars: number = Number.POSITIVE_INFINITY): CallToolResult {
   const e = isXlvError(error)
     ? error
     : new XlvError('XLV_E_INTERNAL', `Unexpected error: ${error instanceof Error ? error.message : String(error)}`, {
         hint: 'This is a bug in xlvane; the call may succeed with other input.',
         details: { name: error instanceof Error ? error.name : typeof error },
       });
-  const result = { error: e.toJSON() };
-  return { content: [{ type: 'text', text: JSON.stringify(result) }], structuredContent: result, isError: true };
+  let result: Json = { error: e.toJSON() };
+  let text = JSON.stringify(result);
+  // An error can echo long arguments (a path); it is limited like any result (D-I04).
+  if (text.length > maxChars) {
+    const json = e.toJSON();
+    result = { error: { ...json, message: `${json.message.slice(0, Math.max(0, Math.floor(maxChars / 4)))}…`, hint: json.hint.slice(0, Math.max(0, Math.floor(maxChars / 4))), details: { cut: true } } };
+    text = JSON.stringify(result);
+    if (text.length > maxChars) {
+      result = { error: { name: json.name, code: json.code, message: 'The error message is longer than the result limit.', location: {}, hint: '', docsUrl: json.docsUrl, details: { cut: true } } };
+      text = JSON.stringify(result);
+    }
+  }
+  return { content: [{ type: 'text', text }], structuredContent: result, isError: true };
 }
 
 function handler(maxChars: number, run: (args: Args) => Promise<Json>): (args: unknown) => Promise<CallToolResult> {
@@ -94,7 +105,7 @@ function handler(maxChars: number, run: (args: Args) => Promise<Json>): (args: u
     try {
       return ok(await run((args ?? {}) as Args), maxChars);
     } catch (error) {
-      return fail(error);
+      return fail(error, maxChars);
     }
   };
 }
@@ -123,8 +134,14 @@ function isoValues(row: Record<string, unknown>): Record<string, unknown> {
 export function cellInput(value: unknown): CellInput {
   if (value !== null && typeof value === 'object' && 'date' in value) {
     const text = String((value as { date: unknown }).date).replace(' ', 'T');
+    const invalid = (): XlvError => new XlvError('XLV_E_INVALID_VALUE', `"${text.slice(0, 40)}" is not a valid date.`, { hint: 'Use ISO 8601, for example {"date": "2024-01-31"} or {"date": "2024-01-31T13:45:00"}.' });
+    const m = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?)?$/.exec(text);
+    if (m === null) throw invalid();
     const d = new Date(/T/.test(text) ? `${text}Z` : `${text}T00:00:00Z`);
-    if (Number.isNaN(d.getTime())) throw new XlvError('XLV_E_INVALID_VALUE', `"${text}" is not a valid date.`, { hint: 'Use ISO 8601, for example {"date": "2024-01-31"}.' });
+    // Date() moves impossible values (February 30, hour 25) to another day; they are refused (D-I04).
+    const parts = [d.getUTCFullYear(), d.getUTCMonth() + 1, d.getUTCDate(), d.getUTCHours(), d.getUTCMinutes(), d.getUTCSeconds()];
+    const wanted = [m[1], m[2], m[3], m[4] ?? '0', m[5] ?? '0', m[6] ?? '0'].map(Number);
+    if (Number.isNaN(d.getTime()) || parts.some((v, i) => v !== wanted[i])) throw invalid();
     return d;
   }
   return value as CellInput;
@@ -279,7 +296,20 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       const workbook = await book(roots, a['path'] as string);
       const warnings = inspect(workbook).warnings;
       const rules = (a['columns'] as { name: string; type?: string; optional?: boolean }[] | undefined) ?? [];
+      const names = new Set<string>();
+      for (const rule of rules) {
+        if (names.has(rule.name)) {
+          throw new XlvError('XLV_E_INVALID_INPUT', `Column "${rule.name.slice(0, 100)}" has more than one rule.`, { hint: 'Give each column one rule.', details: { column: rule.name.slice(0, 100) } });
+        }
+        names.add(rule.name);
+      }
+      // Problems beyond MAX_PROBLEMS are counted, not kept (D-I04).
       const problems: Json[] = [];
+      let problemsTotal = 0;
+      const problem = (p: () => Json): void => {
+        problemsTotal++;
+        if (problems.length < MAX_PROBLEMS) problems.push(p());
+      };
       let sheetName: string | null = null;
       let rowsChecked = 0;
       if (rules.length > 0) {
@@ -289,7 +319,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
         for (const rule of rules) {
           const column = table.columns.find((c) => c.header === rule.name);
           if (!column) {
-            problems.push({ kind: 'missing-column', column: rule.name, cell: null, row: table.headerRow, message: `Column "${rule.name}" is missing from the header row.` });
+            problem(() => ({ kind: 'missing-column', column: rule.name, cell: null, row: table.headerRow, message: `Column "${rule.name}" is missing from the header row.` }));
             continue;
           }
           table.rows.forEach((row, i) => {
@@ -297,15 +327,15 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
             const t = typeOf(row[column.key]);
             const want = rule.type ?? 'any';
             if (t === 'empty') {
-              if (rule.optional !== true) problems.push({ kind: 'empty', column: rule.name, cell, row: table.rowNumbers[i]!, message: `${cell} is empty; "${rule.name}" needs a value.` });
+              if (rule.optional !== true) problem(() => ({ kind: 'empty', column: rule.name, cell, row: table.rowNumbers[i]!, message: `${cell} is empty; "${rule.name}" needs a value.` }));
             } else if (want !== 'any' && t !== want) {
-              problems.push({ kind: 'type', column: rule.name, cell, row: table.rowNumbers[i]!, message: `${cell} is a ${t}; "${rule.name}" needs a ${want}.` });
+              problem(() => ({ kind: 'type', column: rule.name, cell, row: table.rowNumbers[i]!, message: `${cell} is a ${t}; "${rule.name}" needs a ${want}.` }));
             }
           });
         }
       }
-      const ok = problems.length === 0 && (a['strict'] !== true || warnings.length === 0);
-      return { ok, sheet: sheetName, rowsChecked, problems: problems.slice(0, MAX_PROBLEMS), problemsTotal: problems.length, warnings };
+      const ok = problemsTotal === 0 && (a['strict'] !== true || warnings.length === 0);
+      return { ok, sheet: sheetName, rowsChecked, problems, problemsTotal, warnings };
     }),
   );
 
@@ -437,7 +467,13 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
         const workbook = await book(roots, input);
         data = to === 'json' ? `${JSON.stringify(toJSON(workbook, sheet).rows, null, 2)}\n` : toCSV(workbook, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (to === 'tsv' ? '\t' : ',') });
       } else if (tables.includes(from) && to === 'xlsx') {
-        const text = new TextDecoder('utf-8', { fatal: true }).decode(await readAllowed(roots, input));
+        let text: string;
+        try {
+          text = new TextDecoder('utf-8', { fatal: true }).decode(await readAllowed(roots, input));
+        } catch (error) {
+          if (error instanceof XlvError) throw error;
+          throw new XlvError('XLV_E_INVALID_INPUT', `"${input}" is not valid UTF-8 text.`, { hint: 'Save the CSV or JSON file as UTF-8 and convert it again.', details: { path: input } });
+        }
         try {
           data = from === 'json' ? fromJSON(text, { ...sheet, preset: 'plain' }) : fromCSV(text, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (from === 'tsv' ? '\t' : ',') });
         } catch (error) {

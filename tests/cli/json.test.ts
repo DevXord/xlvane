@@ -70,7 +70,8 @@ describe('--json', () => {
         ['diff', ['diff', 'old.xlsx'], 2],
         ['validate', ['validate', 'data.json'], 3],
         ['migrate', ['migrate', 'nowhere'], 3],
-        ['mcp', ['mcp'], 3],
+        // --json is refused for mcp: stdout carries the protocol (D-I04).
+        ['mcp', ['mcp'], 2],
       ];
       for (const [command, argv, code] of cases) {
         const r = await json(argv, dir);

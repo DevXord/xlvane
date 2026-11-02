@@ -32,7 +32,8 @@ declare module 'node:fs/promises' {
     stat(): Promise<Stats>;
     close(): Promise<void>;
   }
-  export function open(path: string | URL, flags?: string): Promise<FileHandle>;
+  /** https://nodejs.org/api/fs.html#fspromisesopenpath-flags-mode (flags as a string or fs.constants bits). */
+  export function open(path: string | URL, flags?: string | number): Promise<FileHandle>;
   export function stat(path: string | URL): Promise<Stats>;
   export function readdir(path: string | URL): Promise<string[]>;
   export function mkdir(path: string | URL, options?: { recursive?: boolean }): Promise<string | undefined>;
@@ -48,6 +49,8 @@ declare module 'node:fs/promises' {
 }
 
 declare module 'node:fs' {
+  /** https://nodejs.org/api/fs.html#file-open-constants (O_NONBLOCK is not available on Windows). */
+  export const constants: { readonly O_RDONLY: number; readonly O_NONBLOCK?: number };
   /** Added in v19.8.0, stable in v22.17.0 (docs/decisions.md F-NODE-06). */
   export function openAsBlob(path: string | URL, options?: { type?: string }): Promise<Blob>;
   export function existsSync(path: string | URL): boolean;
