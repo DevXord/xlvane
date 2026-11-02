@@ -147,7 +147,8 @@ export async function openZipSource(source: Uint8Array | ArrayBuffer | Blob, lim
     b.add(dir.centralOffset, await src.read(dir.centralOffset, dir.centralLimit));
   }
   const entries: RawEntry[] = await withLoading(b, src, () => readCentralDirectory(b, dir.centralOffset, dir.centralLimit, dir.entryCount));
-  for (const entry of entries) {
+  // In file order, so the segments are added in increasing order (D-H01).
+  for (const entry of [...entries].sort((x, y) => x.headerOffset - y.headerOffset)) {
     const at = entry.headerOffset;
     if (at + LOCAL_SIZE > dir.centralOffset || b.has(at, at + LOCAL_SIZE)) continue;
     const fixed = await src.read(at, at + LOCAL_SIZE);
