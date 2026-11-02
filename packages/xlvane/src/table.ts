@@ -324,13 +324,17 @@ function prepare(input: unknown, options: unknown): PreparedTable {
 
   const columns: TableColumn[] = [];
   const used = new Set<string>();
+  // The next suffix to try per base name: repeated headers are numbered in linear time (D-H01).
+  const nextSuffix = new Map<string, number>();
   const headerCells = headerRow === null ? undefined : byRow.get(headerRow);
   for (let col = minCol; col <= maxCol; col++) {
     const letter = columnLetters(col);
     const header = headerRow === null ? null : headerText(headerCells?.get(col));
     const base = header === null || header.trim() === '' ? letter : header.trim();
     let key = base;
-    for (let n = 2; used.has(key); n++) key = `${base}_${String(n)}`;
+    let n = nextSuffix.get(base) ?? 2;
+    while (used.has(key)) key = `${base}_${String(n++)}`;
+    nextSuffix.set(base, n);
     used.add(key);
     columns.push({ key, header: header === null || header.trim() === '' ? null : header, col, letter });
   }

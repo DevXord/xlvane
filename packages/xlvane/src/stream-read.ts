@@ -347,7 +347,9 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
 }
 
 /**
- * Options for {@link readTableStream}.
+ * Options for {@link readTableStream}. As with `readTable`, at most `max(limits.maxCells, 16 ×
+ * cells read)` row properties are produced (`limits.maxCells` defaults to 5 000 000 here,
+ * although it does not limit the cells streamed).
  *
  * @example
  * ```ts
@@ -433,6 +435,8 @@ export async function* readTableStream(
   }
   const limits = o.get('limits');
   const book = await openWorkbookStream(source, limits === undefined ? undefined : { limits: limits as Partial<ReadLimits> });
+  // maxCells does not limit streamed cells, but it sets the output budget, as for readTable (D-H01).
+  const outputCells = (limits as Partial<ReadLimits> | undefined)?.maxCells ?? DEFAULT_READ_LIMITS.maxCells;
   const sheetName = (o.get('sheet') as string | undefined) ?? (book.sheets.find((s) => s.kind === 'worksheet' && s.state === 'visible') ?? book.sheets[0])?.name;
   if (sheetName === undefined) return;
 
@@ -467,13 +471,17 @@ export async function* readTableStream(
     const headerCells = new Map(headerRow === null ? [] : source.map((c) => [c.col, c] as const));
     const out: TableColumn[] = [];
     const used = new Set<string>();
+    // The next suffix to try per base name: repeated headers are numbered in linear time (D-H01).
+    const nextSuffix = new Map<string, number>();
     for (let col = minCol; col <= maxCol; col++) {
       const letter = columnLetters(col);
       const cell = headerCells.get(col);
       const text = cell === undefined || cell.value === null ? null : cell.value instanceof Date ? isoDate(cell.value) : String(cell.value);
       const base = text === null || text.trim() === '' ? letter : text.trim();
       let key = base;
-      for (let n = 2; used.has(key); n++) key = `${base}_${String(n)}`;
+      let n = nextSuffix.get(base) ?? 2;
+      while (used.has(key)) key = `${base}_${String(n++)}`;
+      nextSuffix.set(base, n);
       used.add(key);
       out.push({ key, header: text === null || text.trim() === '' ? null : text, col, letter });
     }
@@ -487,7 +495,7 @@ export async function* readTableStream(
     if (headerRow !== null && r.number <= headerRow) return null;
     cellsRead += r.cells.length;
     positions += cols.length;
-    checkOutputPositions(positions, cellsRead, DEFAULT_READ_LIMITS.maxCells, 'The table', sheetName);
+    checkOutputPositions(positions, cellsRead, outputCells, 'The table', sheetName);
     const byCol = new Map(r.cells.map((c) => [c.col, c]));
     if (cols.every((c) => byCol.get(c.col)?.value == null)) return null;
     const row: Record<string, TableValue> = {};

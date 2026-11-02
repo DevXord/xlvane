@@ -101,3 +101,44 @@ describe('output positions are limited', () => {
     });
   });
 });
+
+describe('readTableStream and the caller\'s maxCells (independent review of the patch)', () => {
+  it('uses limits.maxCells for the output budget, as the hint says', async () => {
+    let error: unknown = null;
+    try {
+      for await (const _ of readTableStream(new Blob([wide(100) as BlobPart]), { limits: { maxCells: 1000 } }));
+    } catch (e) {
+      error = e;
+    }
+    expect((error as { code?: string } | null)?.code).toBe('XLV_E_LIMIT_EXCEEDED');
+  });
+});
+
+describe('repeated header names (independent review of the patch)', () => {
+  // One row of 16 384 cells all holding "x", and one data row: naming the columns x, x_2, …
+  // searched from x_2 again for every column (quadratic; 9.9 s before).
+  const data = `<row r="1">${'<c t="inlineStr"><is><t>x</t></is></c>'.repeat(16384)}</row><row r="2"><c r="A2"><v>1</v></c></row>`;
+  const bytes = buildXlsx({ sheets: [{ name: 'S', data }] });
+
+  it('readTable names 16 384 columns called "x" in linear time, with the same names', () => {
+    const start = performance.now();
+    const table = readTable(bytes);
+    expect(performance.now() - start).toBeLessThan(2000);
+    const keys = Object.keys(table.rows[0] ?? {});
+    expect(keys.slice(0, 3)).toEqual(['x', 'x_2', 'x_3']);
+    expect(keys[16383]).toBe('x_16384');
+  });
+
+  it('readTableStream does too', async () => {
+    const start = performance.now();
+    let keys: string[] = [];
+    for await (const item of readTableStream(new Blob([bytes as BlobPart]))) keys = Object.keys(item.value ?? {});
+    expect(performance.now() - start).toBeLessThan(2000);
+    expect(keys[16383]).toBe('x_16384');
+  });
+
+  it('a header that is itself "x_2" keeps the earlier naming', () => {
+    const t = readTable(buildXlsx({ sheets: [{ name: 'S', data: '<row r="1"><c r="A1" t="inlineStr"><is><t>x</t></is></c><c r="B1" t="inlineStr"><is><t>x_2</t></is></c><c r="C1" t="inlineStr"><is><t>x</t></is></c><c r="D1" t="inlineStr"><is><t>x</t></is></c></row><row r="2"><c r="A2"><v>1</v></c></row>' }] }));
+    expect(Object.keys(t.rows[0] ?? {})).toEqual(['x', 'x_2', 'x_3', 'x_4']);
+  });
+});
