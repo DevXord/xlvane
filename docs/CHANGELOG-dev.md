@@ -6,6 +6,7 @@ One entry per plan phase (docs/PLAN.md), newest first.
 
 - 1.1.0 published from GitHub Actions with provenance (run #5 of the Release workflow): tag `v1.1.0` at fdd772c, both packages `latest`, tarballs equal the packages built from the tag, smoke test from the registry passes, the new features work from the registry.
 - Website for `xlvane/xlvane.github.io` (D-G01, F-GH-PAGES-01): generator without dependencies, documentation of the published version, in-browser `inspect` demo; checked with its own tests, a link and CSP check, and Chromium screenshots (light, dark, phone width; no console errors, no requests to other origins). RELEASING.md gains the rebuild step; the root README no longer names a fixed version.
+- Community files: CONTRIBUTING.md, issue templates (bug report, feature request, a link to private vulnerability reporting), a pull request template; SECURITY.md no longer says that no version is released or that CSV formula-injection protection is planned, and names the supported versions (newest minor); links to the website in the READMEs.
 
 ## Phase F: backlog 1.1 (2026-11-02)
 

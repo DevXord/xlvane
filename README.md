@@ -2,7 +2,7 @@
 
 An MIT-licensed library for reading and writing XLSX files, designed for input from untrusted sources.
 
-**Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/compat](https://www.npmjs.com/package/@xlvane/compat)). Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
+**Website:** [xlvane.github.io](https://xlvane.github.io) (guide, error codes, an in-browser demo). **Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/compat](https://www.npmjs.com/package/@xlvane/compat)). Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Packages
 
@@ -43,7 +43,7 @@ npm run typecheck   # TypeScript
 npm run check:pkg   # build, publint, attw and package policy checks
 ```
 
-Project rules are in [CLAUDE.md](CLAUDE.md), decisions and verified format facts in [docs/decisions.md](docs/decisions.md), and the security policy in [SECURITY.md](SECURITY.md).
+How to report problems and propose changes is in [CONTRIBUTING.md](CONTRIBUTING.md). Project rules are in [CLAUDE.md](CLAUDE.md), decisions and verified format facts in [docs/decisions.md](docs/decisions.md), and the security policy in [SECURITY.md](SECURITY.md).
 
 ## License
 

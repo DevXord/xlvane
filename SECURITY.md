@@ -10,7 +10,7 @@ A useful report contains the xlvane version (or commit), the runtime (Node.js, B
 
 ## Supported versions
 
-No version has been released yet. Once 1.0 is released, this section will list the versions that receive security fixes.
+Security fixes are released for the newest minor version of `xlvane` and `@xlvane/compat` (currently 1.1.x); please update to it. Releases are published from GitHub Actions with npm provenance (since 1.0.1), and the changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## What the library defends against
 
@@ -20,7 +20,8 @@ No version has been released yet. Once 1.0 is released, this section will list t
 | XML | Own parser. Document type declarations (DTDs) are rejected, which rules out external entities (XXE) and entity expansion ("billion laughs"). Only the five predefined entities and character references are recognised. Limits on nesting depth, name length, attribute count and text length. The parser is iterative, so deep nesting cannot overflow the call stack. |
 | Data | Values read from a file never become keys of plain objects. Lookups use `Map` or arrays, so names such as `__proto__`, `constructor` and `prototype` cannot change any object prototype. |
 | Regular expressions | Untrusted text is parsed by hand-written scanners instead of backtracking regular expressions; tests check worst-case inputs. |
-| CSV export | Formula-injection protection (planned for phase 3 of docs/PLAN.md). |
+| CSV export | `toCSV`, `xlvane convert` and `workbook.csv` of `@xlvane/compat` write text that starts with `=`, `+`, `-`, `@`, a tab, CR or LF (or the full-width `＝`, `＋`, `－`, `＠`) with a leading `'`, so spreadsheet applications show it as text instead of running it as a formula (OWASP CSV Injection; docs/facts/csv.md CSV-10). `formulaInjection: "off"` writes the text unchanged. |
+| Command line | Text from files is shown with control and bidirectional characters escaped, so a cell cannot move the cursor, change the window title or reorder the output. Files are never replaced without `--force`. |
 
 All limits can be changed by the caller; the defaults are documented in the package README.
 
