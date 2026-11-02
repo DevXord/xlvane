@@ -40,7 +40,7 @@ describe('texts read by agents', () => {
       await packageDocs(generated);
       const targets = [
         join(ROOT, 'README.md'),
-        ...['xlvane', 'compat'].map((p) => join(ROOT, 'packages', p, 'README.md')),
+        ...['xlvane', 'compat', 'mcp'].map((p) => join(ROOT, 'packages', p, 'README.md')),
         join(ROOT, 'skills/xlvane/SKILL.md'),
         join(ROOT, 'CHANGELOG.md'),
         join(ROOT, 'SECURITY.md'),
@@ -74,6 +74,6 @@ describe('texts read by agents', () => {
       'plain​text',
     ];
     for (const s of samples) expect(FORBIDDEN.some(([, re]) => re.test(s)), s).toBe(true);
-    expect(FORBIDDEN.some(([, re]) => re.test('For AI agents and scripts: add --json to any command (docs/cli-json.md)'))).toBe(false);
+    expect(FORBIDDEN.some(([, re]) => re.test('For AI agents: add --json to any command, or run `xlvane mcp`'))).toBe(false);
   });
 });

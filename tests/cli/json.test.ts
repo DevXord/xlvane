@@ -14,8 +14,8 @@ const DIR = join(ROOT, 'docs/cli-json');
 const schemas = new SchemaSet(DIR);
 
 /** Runs with --json and returns the parsed document; stdout must hold exactly one JSON value. */
-async function json(argv: readonly string[], dir: string): Promise<{ code: number; doc: Record<string, unknown>; stderr: string }> {
-  const r = await cli([...argv, '--json'], { cwd: dir, env: { FORCE_COLOR: '1' }, tty: true });
+async function json(argv: readonly string[], dir: string, importModule?: (s: string) => Promise<unknown>): Promise<{ code: number; doc: Record<string, unknown>; stderr: string }> {
+  const r = await cli([...argv, '--json'], { cwd: dir, env: { FORCE_COLOR: '1' }, tty: true, ...(importModule ? { importModule } : {}) });
   return { code: r.code, doc: JSON.parse(r.stdout) as Record<string, unknown>, stderr: r.stderr };
 }
 
@@ -70,6 +70,7 @@ describe('--json', () => {
         ['diff', ['diff', 'old.xlsx'], 2],
         ['validate', ['validate', 'data.json'], 3],
         ['migrate', ['migrate', 'nowhere'], 3],
+        ['mcp', ['mcp'], 3],
       ];
       for (const [command, argv, code] of cases) {
         const r = await json(argv, dir);
@@ -83,7 +84,7 @@ describe('--json', () => {
       expect(unknown.code).toBe(2);
       expect(unknown.doc['command']).toBeNull();
       expect(schemas.validate('common.schema.json', unknown.doc)).toEqual([]);
-      expect(schemas.validate('read.schema.json', unknown.doc)).toEqual([]);
+      expect(schemas.validate('mcp.schema.json', unknown.doc)).toEqual([]);
     });
   });
 
