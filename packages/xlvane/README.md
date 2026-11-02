@@ -6,7 +6,7 @@ Read, inspect and write XLSX files; input files are treated as untrusted. ESM on
 npm install xlvane
 ```
 
-The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access: after installing, they are in `node_modules/xlvane/`. Links below point to the same files on GitHub.
+The package also contains `docs/` (error codes, JSON schemas, exceljs compatibility), the Agent Skill `skills/xlvane/SKILL.md` and `llms-full.txt` (all of it in one file), for reading without network access: after installing, they are in `node_modules/xlvane/`. Links below point to the same files on GitHub. The skill can be installed into a project with the [`skills`](https://github.com/vercel-labs/skills) CLI, offline: `npx skills add ./node_modules/xlvane/skills --skill xlvane`.
 
 ## Quick start
 
@@ -30,12 +30,12 @@ From a shell: `npx xlvane inspect orders.xlsx`, then `npx xlvane read orders.xls
 - [Tasks in one call](#tasks-in-one-call): tables of rows, CSV, JSON, editing files, diff · [inserting and deleting rows](#inserting-and-deleting-rows)
 - [Large files: streaming](#large-files-streaming)
 - [Inspecting a workbook](#inspecting-a-workbook) · [Errors and warnings](#errors-and-warnings) · [Untrusted input and limits](#untrusted-input-and-limits)
-- [Limitations](#limitations) · [Package size](#package-size)
+- [Limitations](#limitations) · [Package size](#package-size) · [Links](#links)
 - exceljs users: [`@xlvane/compat`](https://www.npmjs.com/package/@xlvane/compat) and `xlvane migrate`
 
 ## Tested environments
 
-The core API (reading, writing, inspect, tables, CSV, editing, diff, streaming with Web Streams) and `@xlvane/compat` are tested in Node.js 22, 24 and 26, Bun, Deno, Chromium (Playwright) and the Cloudflare Workers runtime (workerd), with the same test bundle (`npm run test:runtimes`). Reading is tested on 340 files of the Apache POI test corpus (written by Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and others, and damaged files) and on files saved by LibreOffice; see `tests/corpus/`.
+The core API (reading, writing, inspect, tables, CSV, editing, diff, streaming with Web Streams) and `@xlvane/compat` are tested in Node.js 22, 24 and 26, Bun, Deno, Chromium (Playwright) and the Cloudflare Workers runtime (workerd), with the same test bundle (`npm run test:runtimes`). In Deno, import from `npm:xlvane`; in browsers and Workers, through a bundler such as Vite, esbuild or webpack. `xlvane/node` and the command line need Node.js. Reading is tested on 340 files of the Apache POI test corpus (written by Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and others, and damaged files) and on files saved by LibreOffice; see `tests/corpus/`.
 
 ## Command line in 5 minutes
 
@@ -335,7 +335,7 @@ const stream = writeWorkbookStream({ sheets: [{ name: 'Data', rows: rows() }] })
 
 ## Benchmark
 
-100 000 rows × 20 columns (numbers, texts, dates, booleans). Median of 5 runs, each in a fresh Node.js 22.22.0 process. Machine: Intel Xeon @ 2.10 GHz, 4 logical cores, 15.7 GiB RAM, Linux (a cloud VM). Measured on 2026-10-30. Peak RSS includes Node.js and the imported libraries; the baseline with all three libraries imported is 135 MiB. Method, raw data and caveats: [bench/perf/RESULTS.md](../../bench/perf/RESULTS.md). Reproduce with `npm run bench`.
+100 000 rows × 20 columns (numbers, texts, dates, booleans). Median of 5 runs, each in a fresh Node.js 22.22.0 process. Machine: Intel Xeon @ 2.10 GHz, 4 logical cores, 15.7 GiB RAM, Linux (a cloud VM). Measured on 2026-10-30. Peak RSS includes Node.js and the imported libraries; the baseline with all three libraries imported is 135 MiB. Method, raw data and caveats: [bench/perf/RESULTS.md](https://github.com/DevXord/xlvane/blob/main/bench/perf/RESULTS.md). Reproduce with `npm run bench`.
 
 | Write | Time, s | Peak RSS, MiB | | Read | Time, s | Peak RSS, MiB |
 |---|---|---|---|---|---|---|
@@ -392,7 +392,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 ## Package size
 
-**Size budget:** 300 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 208.6 kB on 2026-10-31). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 25.7 kB on 2026-10-31). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
+**Size budget:** 300 kB of gzip-compressed JavaScript for the library files in `dist/` (level 9, unminified as published; measured 209.1 kB for 1.0.0). **CLI size budget:** 40 kB for `dist/cli.js`, which is not loaded by `import 'xlvane'` (measured 27.3 kB for 1.0.0). `npm run check:pkg` fails when the budget is exceeded. The only dependency, fflate, adds about 22 kB gzip (its `esm/browser.js`, measured the same way).
 
 ## Limitations
 
@@ -400,5 +400,11 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 - Password-protected (encrypted) workbooks and legacy `.xls` files are rejected with `XLV_E_UNSUPPORTED_CONTAINER`. A sheet protection password is not encryption and is supported.
 - Charts, shapes, pivot tables, slicers and form controls are not modelled: reading skips them (with a warning for drawings), `editCells` keeps them unchanged, and row operations refuse sheets where they would have to move.
 - The command line reads files, not standard input.
+
+## Links
+
+- Changes in each version: [CHANGELOG.md](https://github.com/DevXord/xlvane/blob/main/CHANGELOG.md)
+- Bugs and questions: [GitHub issues](https://github.com/DevXord/xlvane/issues)
+- Reporting a vulnerability: [SECURITY.md](https://github.com/DevXord/xlvane/blob/main/SECURITY.md)
 
 License: MIT
