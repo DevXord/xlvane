@@ -2,6 +2,11 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Releases 1.2.3 and 1.3.0 (2026-11-03)
+
+- Both published with provenance and listed in the MCP Registry; website rebuilt for 1.3.0 with the guides for moving from exceljs and the xlsx CVEs.
+- Lessons in D-K05: a tag on an old commit, transparency-log conflicts (now tried again by `scripts/stage-publish.mjs`, with tests), `npm stage list` needs the package name, short `mcp-publisher` logins. RELEASING.md updated.
+
 ## Full review of 1.3.0 before tagging (2026-11-03)
 
 - At the maintainer's request: the full test chain, the earlier attack files against 1.0.0 to 1.2.2 and the build, and four independent reviews (core, compat against exceljs 4.4.0, MCP and CLI, releases and documentation). Release machinery and supply chain: no findings (17 tarballs reproducible, signatures and attestations verify).
