@@ -1,7 +1,7 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
-import { colorOut, formulaOut, hasFormulaText, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
+import { colorOut, formulaOut, hasFormulaText, noteOut, readBytes, readValueOut, richTextOut, styleOut, toNewWorkbook, viewOut, type ReadDates, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges, rangeCellCount } from './defined-names';
 import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageData } from './media';
@@ -547,6 +547,7 @@ export class Workbook {
     // few bytes such as <mergeCell ref="A1:XFD1048576"/> cannot exhaust memory (D-H01).
     let cellsRead = 0;
     for (const s of read.sheets) cellsRead += s.cellCount;
+    const dates: ReadDates = { date1904: read.dateSystem === '1904', strict: read.conformance === 'strict' };
     const budget = Math.max(DEFAULT_READ_LIMITS.maxCells, 16 * cellsRead);
     let spent = 0;
     // `sheet` is undefined for what belongs to the workbook (defined names).
@@ -697,7 +698,8 @@ export class Workbook {
       for (const cell of use('sheetData') ? s.cells() : []) {
         const target = ws.getCell(cell.row, cell.col);
         let value: CellValue;
-        const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
+        // Time-only dates and exceljs's date formats (F6, F7; cell-xform.js L449-459).
+        const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : (readValueOut(cell.value, cell.numFmt, dates) as CellValue);
         // hasFormulaText: a dependent's text is not built; formulaOut needs only its master (K2).
         if (cell.formula && hasFormulaText(cell.formula)) value = formulaOut(cell.formula, plain, cell.ref, masters);
         else value = cell.richText ? richTextOut(cell.richText) : plain;

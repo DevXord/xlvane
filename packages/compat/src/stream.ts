@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, hasFormulaText, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, hasFormulaText, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, readValueOut, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 
 /**
  * A cell value for the streaming writer. Rows are written as they are committed, before later
@@ -771,6 +771,7 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
   async *parse(input?: string | Uint8Array | ArrayBuffer | AsyncIterable<Uint8Array>, options?: WorkbookReaderOptions): AsyncGenerator<{ eventType: string; value: unknown }> {
     if (options) this.options = readerOptions(options as Record<string, unknown>);
     const book = await this.open(input ?? this.input);
+    const dates = { date1904: book.dateSystem === '1904', strict: book.conformance === 'strict' };
     if (this.options.entries === 'emit') this.emit('entry', { type: 'workbook' });
     if (this.options.worksheets === 'ignore') return;
     const host = new Workbook();
@@ -794,7 +795,10 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
         for await (const r of book.rows(name)) {
           const row = sheet.getRow(r.number);
           for (const cell of r.cells) {
-            const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
+            // Time-only dates (F6); a number whose format exceljs takes for a date (F7), except a
+            // formula's result, which exceljs's streaming reader leaves a number
+            // (worksheet-reader.js L290-301, L329-334).
+            const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : (readValueOut(cell.value, cell.numFmt, dates, !cell.formula) as CellValue);
             const target = row.getCell(cell.col);
             const f = cell.formula;
             const result = plain === null ? {} : { result: plain as number };

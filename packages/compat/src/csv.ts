@@ -1012,9 +1012,30 @@ function encode(text: string, encoding: string | undefined): Uint8Array {
   throw invalid('encoding', `The encoding "${encoding ?? ''}" is not supported.`, 'Use "utf8" (default), "utf16le" or "latin1".');
 }
 
-function decoderFor(encoding: string): TextDecoder {
+/** What `readText` needs of a decoder. */
+interface ChunkDecoder {
+  decode(input?: Uint8Array, options?: { stream?: boolean }): string;
+}
+
+/**
+ * Node.js's 'latin1' (alias 'binary'), which fast-csv's StringDecoder uses
+ * (`@fast-csv/parse/build/src/CsvParserStream.js` L20): each byte is the code point of the same
+ * value. The WHATWG label 'latin1' of `TextDecoder` is windows-1252 instead (bytes 80-9F become
+ * other characters, for example 80 the euro sign), so it is not used (F10).
+ */
+const latin1Decoder: ChunkDecoder = {
+  decode(input?: Uint8Array): string {
+    if (!input) return '';
+    let out = '';
+    for (let i = 0; i < input.length; i += 8192) out += String.fromCharCode(...input.subarray(i, i + 8192));
+    return out;
+  },
+};
+
+function decoderFor(encoding: string): ChunkDecoder {
   const e = encoding.toLowerCase();
-  const label = e === 'utf8' ? 'utf-8' : e === 'ucs2' || e === 'ucs-2' || e === 'utf16le' ? 'utf-16le' : e === 'binary' ? 'latin1' : e;
+  if (e === 'latin1' || e === 'binary') return latin1Decoder;
+  const label = e === 'utf8' ? 'utf-8' : e === 'ucs2' || e === 'ucs-2' || e === 'utf16le' ? 'utf-16le' : e;
   try {
     return new TextDecoder(label);
   } catch {
