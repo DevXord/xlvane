@@ -109,30 +109,35 @@ export function notSupported(feature: string): never {
 }
 
 /**
- * The shared-formula text moved per workbook (K4 S1): the master's text read plus the moved text
- * built, for each `cell.formula` of a `{ sharedFormula }` dependent that is not kept yet, may not
- * pass 32 Mi characters plus 256 for each move. A move costs time in proportion to the master's
- * length, and the load-time budget (`maxSharedStringChars`, 512 Mi) is spent once, so a 4 KB file
- * whose 1 000 000-character master is shared with 250 cells took about 47 s to read every
- * dependent's formula once. With the allowance per move, formulas of up to 128 characters never
- * reach the limit, however many cells share them.
+ * The shared-formula text moved per workbook (K4 S1, D-K04). A move costs time in proportion to the
+ * master's length, and the load-time budget is spent once, so a 4 KB file whose 1 000 000-character
+ * master is shared with 250 cells took about 47 s to read every dependent's formula once. Two
+ * budgets, counting the master's text read plus the moved text built for each `cell.formula` that
+ * is not kept yet:
+ * - every move: 512 Mi characters, the default `maxSharedStringChars` with which xlvane's
+ *   `readWorkbook` expands shared formulas, so a workbook the core reads is read here too;
+ * - moves of masters longer than 8192 characters, the longest formula Office writes ([MS-OI29500]
+ *   §2.1.1085 a): 32 Mi characters, so such a master stops after a few moves.
  */
-const SHARED_FORMULA_TEXT = 32 * 1024 * 1024;
-const SHARED_FORMULA_TEXT_PER_MOVE = 256;
-/** Characters moved and moves made, per workbook (a `Worksheet.workbook`). */
-const sharedFormulaSpent = new WeakMap<object, { chars: number; moves: number }>();
+const SHARED_FORMULA_TEXT = 512 * 1024 * 1024;
+const LONG_SHARED_FORMULA_TEXT = 32 * 1024 * 1024;
+const LONG_FORMULA = 8192;
+/** Characters moved in all and for long masters, per workbook (a `Worksheet.workbook`). */
+const sharedFormulaSpent = new WeakMap<object, { chars: number; long: number }>();
 
 /**
  * @internal Moves the text of a shared-formula master at `master` to `row`/`col` of `sheet` with
- * `shiftFormula`, counted against the workbook's shared-formula budget; `undefined` when the
- * formula cannot be moved. Throws `XLV_E_LIMIT_EXCEEDED` before a move that would pass it.
+ * `shiftFormula`, counted against the workbook's shared-formula budgets; `undefined` when the
+ * formula cannot be moved. Throws `XLV_E_LIMIT_EXCEEDED` before a move that would pass one.
  */
 export function moveSharedFormula(workbook: object, sheet: string, text: string, master: { row: number; col: number }, row: number, col: number): string | undefined {
   let spent = sharedFormulaSpent.get(workbook);
-  if (spent === undefined) sharedFormulaSpent.set(workbook, (spent = { chars: 0, moves: 0 }));
-  const limit = SHARED_FORMULA_TEXT + SHARED_FORMULA_TEXT_PER_MOVE * (spent.moves + 1);
+  if (spent === undefined) sharedFormulaSpent.set(workbook, (spent = { chars: 0, long: 0 }));
   // The moved text is about as long as the master's (longer when references gain digits).
-  if (spent.chars + 2 * text.length > limit) {
+  const cost = 2 * text.length;
+  const long = text.length > LONG_FORMULA;
+  const limit = long && spent.long + cost > LONG_SHARED_FORMULA_TEXT ? LONG_SHARED_FORMULA_TEXT : spent.chars + cost > SHARED_FORMULA_TEXT ? SHARED_FORMULA_TEXT : null;
+  if (limit !== null) {
     const cell = `${columnLetter(col)}${String(row)}`;
     throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Moving the shared formula of ${columnLetter(master.col)}${String(master.row)} (${String(text.length)} characters) to ${cell} of worksheet "${sheet}" would bring the shared-formula text moved in this workbook past ${String(limit)} characters.`, {
       location: { sheet, cell },
@@ -141,8 +146,9 @@ export function moveSharedFormula(workbook: object, sheet: string, text: string,
     });
   }
   const moved = shiftFormula(text, row - master.row, col - master.col);
-  spent.moves++;
-  spent.chars += text.length + (moved?.length ?? 0);
+  const used = text.length + (moved?.length ?? 0);
+  spent.chars += used;
+  if (long) spent.long += used;
   return moved ?? undefined;
 }
 

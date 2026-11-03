@@ -3,7 +3,7 @@ import { readTable } from '../../table';
 import { isoDate } from '../../util/iso-date';
 import { headerOption, str, usageError } from '../args';
 import { readBook } from '../files';
-import { plural, showValue } from '../output';
+import { escapeControls, plural, showValue } from '../output';
 import type { CommandContext, CommandSpec } from '../types';
 import { warningNote } from '../warnings';
 
@@ -84,7 +84,7 @@ export const readCommand: CommandSpec = {
       result,
       exitCode: 0,
       render: (out) => {
-        if (table.columns.length === 0) return `Sheet "${table.sheet}" has no data${table.range ? ` in ${table.range}` : ''}.`;
+        if (table.columns.length === 0) return `Sheet "${escapeControls(table.sheet)}" has no data${table.range ? ` in ${table.range}` : ''}.`;
         const numeric = table.columns.map((c) => (shown.length > 0 && shown.every((row) => row[c.key] === null || typeof row[c.key] === 'number') ? 'right' : 'left'));
         return out.table(
           table.columns.map((c) => c.header ?? c.key),

@@ -461,17 +461,19 @@ class Compiled implements CompiledFormula {
   }
 
   render(dRow: number, dCol: number): string {
-    let out = '';
+    // Pieces joined once: a string built with += is a chain of thousands of pieces in V8, which
+    // took about 240 KB for an 8192-character formula kept by @xlvane/compat (D-K04).
+    const out: string[] = [];
     const col = (c: number, abs: boolean): string => (abs ? '$' : '') + columnLetters(abs ? c : c + dCol);
     const row = (r: number, abs: boolean): string => (abs ? '$' : '') + String(abs ? r : r + dRow);
     for (const p of this.parts) {
-      if (typeof p === 'string') out += p;
-      else if (p.kind === 'prefix') out += p.text;
-      else if (p.kind === 'cell') out += col(p.col, p.colAbs) + row(p.row, p.rowAbs);
-      else if (p.kind === 'cols') out += `${col(p.c1, p.c1Abs)}:${col(p.c2, p.c2Abs)}`;
-      else out += `${row(p.r1, p.r1Abs)}:${row(p.r2, p.r2Abs)}`;
+      if (typeof p === 'string') out.push(p);
+      else if (p.kind === 'prefix') out.push(p.text);
+      else if (p.kind === 'cell') out.push(col(p.col, p.colAbs) + row(p.row, p.rowAbs));
+      else if (p.kind === 'cols') out.push(`${col(p.c1, p.c1Abs)}:${col(p.c2, p.c2Abs)}`);
+      else out.push(`${row(p.r1, p.r1Abs)}:${row(p.r2, p.r2Abs)}`);
     }
-    return out;
+    return out.join('');
   }
 }
 

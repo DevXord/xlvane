@@ -132,20 +132,18 @@ function checkWrites(count: number, writable: number, what: string, sheet?: stri
 }
 
 /**
- * Refuses an edit after which the edited sheets would hold more cells (with a value or only a
- * style) than `maxCells` (A2). Checked before anything per cell is built.
+ * Refuses an edit after which the workbook would hold more cells (with a value or only a style)
+ * than `maxCells` (A2), the limit `readWorkbook` applies to the whole workbook, so the result can be
+ * read again with the same limits (D-K04). Checked before anything per cell is built.
  */
-function checkCellCount(sheets: ReadonlyMap<Sheet, number>, maxCells: number): void {
+function checkCellCount(workbook: Workbook, added: ReadonlyMap<Sheet, number>, maxCells: number): void {
   let total = 0;
-  let largest: Sheet | null = null;
-  for (const [sheet, added] of sheets) {
-    total += sheet.cellCount + styledCellCount(sheet) + added;
-    if (largest === null || sheet.cellCount > largest.cellCount) largest = sheet;
-  }
-  if (total <= maxCells || largest === null) return;
-  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `After the edit, sheet${sheets.size === 1 ? '' : 's'} ${[...sheets.keys()].map((s) => `"${s.name}"`).join(', ')} would hold ${String(total)} cells, more than the limit of ${String(maxCells)}.`, {
-    location: { sheet: largest.name },
-    hint: `Cells that hold only a style count too. Write fewer new cells, or, if you trust this file and there is enough memory, raise the limit, for example { limits: { maxCells: ${String(Math.max(total, maxCells * 2))} } }.`,
+  for (const sheet of workbook.sheets) total += sheet.cellCount + styledCellCount(sheet) + (added.get(sheet) ?? 0);
+  if (total <= maxCells) return;
+  const edited = [...added.keys()];
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `After the edit, the workbook would hold ${String(total)} cells, more than the limit of ${String(maxCells)}.`, {
+    location: edited.length === 1 ? { sheet: edited[0]!.name } : {},
+    hint: `Cells of every sheet count, also cells that hold only a style. Write fewer new cells, or, if you trust this file and there is enough memory, raise the limit, for example { limits: { maxCells: ${String(Math.max(total, maxCells * 2))} } }.`,
     details: { limit: 'maxCells', value: maxCells },
   });
 }
@@ -1526,9 +1524,12 @@ export function editCells(input: Uint8Array | ArrayBuffer, edits: readonly CellE
   const { limits, writable } = editLimits(o.get('limits'));
   // The size of the edit is checked before anything per cell is built (A2).
   checkWrites(edits.length, writable, `${String(edits.length)} edits`);
+  // Each edit's own properties are read once (getters run here), so the cells counted are the
+  // cells planned (D-K04).
+  const copies = edits.map((e: unknown) => (typeof e === 'object' && e !== null && !Array.isArray(e) ? { ...e } : e)) as unknown as readonly CellEdit[];
   const workbook = readWorkbook(bytes, { limits });
-  checkCellCount(newCells(workbook, edits), limits.maxCells);
-  return applyEdits(bytes, workbook, planEdits(workbook, edits), limits);
+  checkCellCount(workbook, newCells(workbook, copies), limits.maxCells);
+  return applyEdits(bytes, workbook, planEdits(workbook, copies), limits);
 }
 
 /**
@@ -1582,7 +1583,7 @@ export function appendRows(
     }
   }
   checkWrites(values, writable, `Appending ${String(rows.length)} rows`, target.name);
-  checkCellCount(new Map([[target, values]]), limits.maxCells);
+  checkCellCount(workbook, new Map([[target, values]]), limits.maxCells);
   let lastRow = 0;
   let firstCol = Infinity;
   for (const cell of target.cells()) {

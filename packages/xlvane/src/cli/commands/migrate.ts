@@ -3,7 +3,7 @@ import { join, relative } from 'node:path';
 import { XlvError } from '../../errors';
 import { flag } from '../args';
 import { readText, resolvePath, writeOutput, wroteLine, type WriteOutcome } from '../files';
-import { commandLine, plural, type Output } from '../output';
+import { commandLine, escapeControls, plural, type Output } from '../output';
 import type { CommandContext, CommandSpec } from '../types';
 
 /** The dependency value that installs @xlvane/compat under the name exceljs (npm alias). */
@@ -240,14 +240,14 @@ async function run(ctx: CommandContext) {
       else if (alreadyMigrated) lines.push(`${pkgPath} already uses ${ALIAS} for "exceljs".`);
       else {
         lines.push(`${out.bold('Change in')} ${pkgPath}:`);
-        for (const c of changes) lines.push(`  ${c.section}: ${out.red(`- "exceljs": "${c.from}"`)}`, `  ${' '.repeat(c.section.length)}  ${out.green(`+ "exceljs": "${c.to}"`)}`);
+        for (const c of changes) lines.push(`  ${c.section}: ${out.red(`- "exceljs": "${escapeControls(c.from)}"`)}`, `  ${' '.repeat(c.section.length)}  ${out.green(`+ "exceljs": "${escapeControls(c.to)}"`)}`);
       }
       lines.push(
-        `Node.js: require('exceljs') of @xlvane/compat needs Node.js 22.12 or later (package.json engines.node: ${typeof engines === 'string' ? `"${engines}"` : 'not set'}).`,
+        `Node.js: require('exceljs') of @xlvane/compat needs Node.js 22.12 or later (package.json engines.node: ${typeof engines === 'string' ? `"${escapeControls(engines)}"` : 'not set'}).`,
       );
       lines.push('', `Scanned ${plural(files.length, 'source file')}${limited ? ` (stopped at ${String(MAX_FILES)})` : ''} for exceljs API that @xlvane/compat does not fully support:`);
       if (findings.length === 0) lines.push('  none found.');
-      for (const f of findings.slice(0, 200)) lines.push(`  ${f.status === 'partly' ? out.yellow('partly       ') : out.red('not supported')} ${f.file}:${String(f.line)}:${String(f.column)}  ${f.api}`);
+      for (const f of findings.slice(0, 200)) lines.push(`  ${f.status === 'partly' ? out.yellow('partly       ') : out.red('not supported')} ${escapeControls(f.file)}:${String(f.line)}:${String(f.column)}  ${escapeControls(f.api)}`);
       if (findings.length > 200) lines.push(out.dim(`  … ${String(findings.length - 200)} more; use --json for all`));
       lines.push('  Details: docs/exceljs-compat.md. Unsupported calls throw XLV_E_NOT_SUPPORTED at run time.');
       lines.push('');

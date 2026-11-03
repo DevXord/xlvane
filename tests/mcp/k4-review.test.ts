@@ -75,6 +75,17 @@ describe('a link that leaves the roots and comes back reveals nothing about what
     expect(code(await c.call('inspect_workbook', { path: 'a/up/missing.xlsx' }))).toBe('XLV_E_FILE_READ');
   });
 
+  it.skipIf(process.platform === 'win32')('a link whose text uses the path a root was given by still works (review of D-K04)', async () => {
+    // Like macOS, where /tmp is a link to /private/tmp.
+    await mkdir(join(base, 'private', 'tmp', 'r'), { recursive: true });
+    await symlink(join(base, 'private', 'tmp'), join(base, 'tmp'));
+    const given = join(base, 'tmp', 'r');
+    await writeFile(join(given, 'a.xlsx'), book());
+    await symlink(join(given, 'a.xlsx'), join(given, 'viaGiven.xlsx'));
+    c = await connect({ roots: [given] });
+    expect((await c.call('inspect_workbook', { path: 'viaGiven.xlsx' })).isError).toBe(false);
+  });
+
   it.skipIf(process.platform === 'win32')('a root given through a link still works', async () => {
     await writeFile(join(root, 'ok.xlsx'), book());
     await symlink(root, join(base, 'root-link'));

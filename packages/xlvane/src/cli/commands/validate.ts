@@ -3,7 +3,7 @@ import { readTable } from '../../table';
 import { suggest } from '../../util/suggest';
 import { flag, headerOption, str, usageError } from '../args';
 import { readBook } from '../files';
-import { plural } from '../output';
+import { escapeControls, plural } from '../output';
 import type { CommandSpec } from '../types';
 import { warningsBlock } from '../warnings';
 
@@ -133,7 +133,7 @@ export const validateCommand: CommandSpec = {
           lines.push('');
         }
         if (warnings.length > 0) lines.push(...warningsBlock(out, warnings), '');
-        const checked = sheetName !== null ? `, ${plural(rowsChecked, 'row')} of sheet "${sheetName}" checked against ${plural(rules.length, 'column rule')}` : '';
+        const checked = sheetName !== null ? `, ${plural(rowsChecked, 'row')} of sheet "${escapeControls(sheetName)}" checked against ${plural(rules.length, 'column rule')}` : '';
         if (ok && warnings.length > 0) lines.push(`${out.yellow(`OK with ${plural(warnings.length, 'warning')}`)}: ${file}${checked}. Use --strict to fail on warnings.`);
         else if (ok) lines.push(`${out.green('OK')}: ${file}${checked}.`);
         else lines.push(`${out.red('Failed')}: ${file}${checked}${strict && problems.length === 0 ? ' (warnings count with --strict)' : ''}.`);

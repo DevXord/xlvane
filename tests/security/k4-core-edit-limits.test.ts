@@ -125,3 +125,42 @@ describe('A2: the cells of an edit are counted before the edit is built', () => 
     ]);
   });
 });
+
+describe('review of D-K04: the result can be read again with the same maxCells', () => {
+  const twoSheets = async (): Promise<Uint8Array> => {
+    const { createWorkbook, writeWorkbook } = await import('../../packages/xlvane/src/write');
+    const wb = createWorkbook();
+    const a = wb.addSheet('A');
+    for (let r = 1; r <= 60; r++) a.set(`A${String(r)}`, r);
+    const b = wb.addSheet('B');
+    for (let r = 1; r <= 30; r++) b.set(`A${String(r)}`, r);
+    return writeWorkbook(wb);
+  };
+
+  it('editCells counts the cells of every sheet, not only the edited one', async () => {
+    const bytes = await twoSheets();
+    const edits: CellEdit[] = Array.from({ length: 20 }, (_, i) => ({ sheet: 'A', cell: `B${String(i + 1)}`, value: i }));
+    expectXlvError(() => editCells(bytes, edits, { limits: { maxCells: 100 } }), 'XLV_E_LIMIT_EXCEEDED');
+    const ok = editCells(bytes, edits.slice(0, 10), { limits: { maxCells: 100 } });
+    expect(readWorkbook(ok.bytes, { limits: { maxCells: 100 } }).sheets).toHaveLength(2);
+  });
+
+  it('appendRows counts the cells of every sheet', async () => {
+    const bytes = await twoSheets();
+    expectXlvError(() => appendRows(bytes, 'A', Array.from({ length: 20 }, (_, i) => [i]), { limits: { maxCells: 100 } }), 'XLV_E_LIMIT_EXCEEDED');
+  });
+
+  it('edits whose sheet and cell are getters are counted like plain ones', async () => {
+    const bytes = await twoSheets();
+    const edits = Array.from({ length: 50 }, (_, i) => ({
+      get sheet() {
+        return 'B';
+      },
+      get cell() {
+        return `C${String(i + 1)}`;
+      },
+      value: i,
+    }));
+    expectXlvError(() => editCells(bytes, edits as unknown as CellEdit[], { limits: { maxCells: 100 } }), 'XLV_E_LIMIT_EXCEEDED');
+  });
+});

@@ -214,6 +214,32 @@ describe('K4 S1: the shared-formula text moved in a workbook is limited', () => 
     expect(spy.calls).toBe(250);
   });
 
+  it('formulas no longer than Office writes are counted only against the 512 Mi budget: a 600-character master shared with 40 000 cells (review of D-K04)', async () => {
+    const master = Array.from({ length: 200 }, () => 'B1').join('+').slice(0, 599);
+    const sheet = await load(shared(master, 40_000));
+    spy.identity = true;
+    for (let r = 2; r <= 40_001; r++) void sheet.getCell(`A${String(r)}`).formula;
+    expect(spy.calls).toBe(40_000);
+    // Inserting a row reads every dependent's formula; it works too.
+    sheet.insertRow(1, ['x']);
+    expect(sheet.getCell('A40002').formula).toBeTypeOf('string');
+  }, 120_000);
+
+  it('formulas no longer than Office writes still stop at 512 Mi characters', async () => {
+    const master = Array.from({ length: 2731 }, () => 'B1').join('+').slice(0, 8192);
+    expect(master.length).toBe(8192);
+    // Built in code: a loaded file this size already stops at the load-time budget.
+    const sheet = new ExcelJS.Workbook().addWorksheet('S');
+    sheet.getCell('A1').value = { formula: master };
+    for (let r = 2; r <= 33_001; r++) sheet.getCell(`A${String(r)}`).value = { sharedFormula: 'A1' };
+    spy.identity = true;
+    const error = thrown(() => {
+      for (let r = 2; r <= 33_001; r++) void sheet.getCell(`A${String(r)}`).formula;
+    });
+    expect(error.details).toMatchObject({ limit: 'sharedFormulaText', value: 512 * 1024 * 1024 });
+    expect(spy.calls).toBe(Math.floor((512 * 1024 * 1024) / (2 * 8192)));
+  });
+
   it('the moved formulas are still written when the limit was not reached', async () => {
     const sheet = await load(shared('B1*2', 3));
     for (let r = 2; r <= 4; r++) void sheet.getCell(`A${String(r)}`).formula;

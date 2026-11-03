@@ -75,11 +75,14 @@ async function realInside(roots: Roots, path: string, target: string, onMissing:
   return real;
 }
 
-/** Whether `dir` is a root, inside one, or a parent directory of one. */
+/**
+ * Whether `dir` is a root, inside one, or a parent directory of one, as a real path or as given
+ * (a root given through a link, such as /tmp on macOS, is reached through its given path too).
+ */
 function onTheWay(roots: Roots, dir: string): boolean {
-  if (inside(roots, dir)) return true;
+  if (inside(roots, dir) || within(roots.given, dir)) return true;
   const prefix = dir.endsWith(sep) ? dir : dir + sep;
-  return roots.dirs.some((root) => root.startsWith(prefix));
+  return roots.dirs.some((root) => root.startsWith(prefix)) || roots.given.some((root) => root.startsWith(prefix));
 }
 
 /**

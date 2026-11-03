@@ -1,7 +1,7 @@
 // Command-line findings of the full review of 1.3.0 (docs/decisions.md D-K04). Each test failed
 // before its fix.
 import { spawnSync } from 'node:child_process';
-import { symlink, writeFile } from 'node:fs/promises';
+import { mkdir, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
@@ -50,6 +50,32 @@ describe('line feeds from a file do not start new lines of human-readable output
         ['read', 'a.xlsx'],
         ['validate', 'a.xlsx'],
         ['diff', 'a.xlsx', 'b.xlsx'],
+      ]) {
+        const r = await cli(argv, { cwd: dir });
+        expect(r.stdout + r.stderr, argv.join(' ')).toContain('FAKE');
+        expect(fake(r), argv.join(' ')).toEqual([]);
+      }
+    });
+  });
+
+  it('read of an empty sheet, validate, edit --append and migrate (review of D-K04)', async () => {
+    await withFixtures(async (dir) => {
+      const wb = createWorkbook();
+      wb.addSheet('Costs').set('A1', 'k').set('A2', 'a');
+      wb.addSheet('Empty');
+      const z = unzipSync(writeWorkbook(wb));
+      const text = strFromU8(z['xl/workbook.xml']!).replace('name="Costs"', 'name="Costs&#10;FAKE sheet"').replace('name="Empty"', 'name="Empty&#10;FAKE empty"');
+      z['xl/workbook.xml'] = strToU8(text);
+      await writeFile(join(dir, 'e.xlsx'), zipSync(z));
+      await writeFile(join(dir, 'rows.json'), '[["b"]]');
+      await mkdir(join(dir, 'app', 'src'), { recursive: true });
+      await writeFile(join(dir, 'app', 'package.json'), '{"dependencies":{"exceljs":"^4.0.0\\nFAKE version"},"engines":{"node":">=22\\nFAKE engines"}}');
+      await writeFile(join(dir, 'app', 'src', 'a\nFAKE file.js'), "require('exceljs/lib/x');\n");
+      for (const argv of [
+        ['read', 'e.xlsx', '--sheet', 'Empty\nFAKE empty'],
+        ['validate', 'e.xlsx', '--columns', 'k:string'],
+        ['edit', 'e.xlsx', '--append', 'rows.json', '-o', 'out.xlsx'],
+        ['migrate', 'app'],
       ]) {
         const r = await cli(argv, { cwd: dir });
         expect(r.stdout + r.stderr, argv.join(' ')).toContain('FAKE');
