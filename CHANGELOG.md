@@ -2,7 +2,7 @@
 
 The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
 
-## 1.3.0 (unreleased)
+## 1.3.0 (2026-11-03)
 
 Charts, and security fixes from a penetration test of the release candidate (docs/decisions.md D-K03). Please update all three packages.
 
@@ -19,7 +19,7 @@ Charts, and security fixes from a penetration test of the release candidate (doc
 
 - **Charts:** `sheet.addChart({ type, anchor, series, title, legend, stacked, axes })` writes column, bar, line, pie, scatter and area charts over ranges of the workbook (also in `writeWorkbookStream`, per sheet `charts`); `sheet.charts` reads the charts of a worksheet's drawing (types, stacking, title, legend, axes and series references; references are never evaluated). New error code `XLV_E_INVALID_CHART`. `XLV_W_DRAWING_CONTENT_NOT_READ` no longer counts charts. `inspect` (and `xlvane inspect`, MCP `inspect_workbook`) reports `chartCount` and `charts` (at most 10 charts per sheet, at most 10 chart types each, with `typesTruncated`, and titles cut to 100 characters). A chart that cannot be read (a part over a per-part XML limit, not a chart part, not UTF-8 or UTF-16, not well-formed) is skipped with a warning instead of failing the workbook; cached chart values do not count against `maxXmlTreeElements`, so workbooks with charts over hundreds of thousands of cells read as before. `writeWorkbook` writes chart caches of at most 4 000 000 cells per workbook. Chart references quote sheet names of letters followed by digits (such as `'Sheet1'!$A$1`).
 
-## 1.2.3 (unreleased)
+## 1.2.3 (2026-11-03)
 
 A security release: three ways around the CSV formula-injection escape, an information leak in the MCP server and denial of service by crafted files. Found by penetration tests of the published versions (docs/decisions.md D-J01). Please update all three packages.
 

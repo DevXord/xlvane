@@ -50,14 +50,14 @@ Every cell below is backed by a recorded source (registry document, README or so
 
 | | xlvane | ExcelJS | SheetJS Community Edition (npm `xlsx`) | excelize (Go) |
 |---|---|---|---|---|
-| Latest version (date) | 1.2.2 on npm (2026-11-02) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
+| Latest version (date) | 1.3.0 (2026-11-03) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
 | License | MIT | MIT | Apache-2.0 | BSD-3-Clause |
 | Runtime dependencies | 1 (`fflate`) | 9 | 7 | 9 direct module requirements in `go.mod` |
 | Read / write XLSX | Yes / yes (XLSM, XLTX and XLTM are read too) | Yes / yes | Yes / yes | Yes / yes (also XLAM, XLSM, XLTM, XLTX) |
 | Legacy `.xls` | No (rejected with an error) | Not documented | Read and write (BIFF2 to BIFF8) | Not listed |
 | Other formats | CSV, JSON | CSV | XLSB, ODS, Numbers, CSV, HTML and others | None listed |
 | Cell styles (fonts, fills, borders) when writing | Yes | Yes | Listed under SheetJS Pro in the README | Yes |
-| Charts | From 1.3.0 (unreleased): write and read. 1.2.2 skips them when reading and keeps them unchanged in `editCells` | No chart API | Listed under SheetJS Pro; chartsheets are read as their cached data | Write (`AddChart`, `AddChartSheet`) |
+| Charts | From 1.3.0: write and read column, bar, line, pie, scatter and area charts. Earlier versions skip them when reading and keep them unchanged in `editCells` | No chart API | Listed under SheetJS Pro; chartsheets are read as their cached data | Write (`AddChart`, `AddChartSheet`) |
 | Formula calculation | No | No | Not in the Community Edition (the README points to SheetJS Pro) | Partial (`CalcCellValue`, with documented gaps) |
 | Streaming | Read and write XLSX | Read and write XLSX | Write CSV, HTML and JSON (`XLSX.stream`); for reading, the README buffers the stream first | Read and write worksheets |
 

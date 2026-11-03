@@ -4,8 +4,11 @@ This file lists only work that is recorded as planned or deferred in [docs/PLAN.
 
 ## Next
 
-1. **Charts** (phase K, version 1.3.0): writing and reading charts in `xlvane` (docs/decisions.md D-K01). Not released yet; the published 1.2.2 does not model charts (it skips them when reading and keeps them unchanged in `editCells`).
-2. **`@xlvane/xlsx-compat`**: a package with a SheetJS-compatible API on top of xlvane, for projects that use the `xlsx` package from npm. It is the phase after charts (maintainer's decision of 2026-11-03). The package does not exist yet; until then, [docs/xlsx-cves.md](docs/xlsx-cves.md) shows the xlvane calls that correspond to the common SheetJS calls.
+1. **`@xlvane/xlsx-compat`**: a package with a SheetJS-compatible API on top of xlvane, for projects that use the `xlsx` package from npm. It is the phase after charts (maintainer's decision of 2026-11-03). The package does not exist yet; until then, [docs/xlsx-cves.md](docs/xlsx-cves.md) shows the xlvane calls that correspond to the common SheetJS calls.
+
+## Done
+
+- **Charts** (phase K, version 1.3.0): writing and reading column, bar, line, pie, scatter and area charts in `xlvane` (docs/decisions.md D-K01). Moving charts in `insertRows`/`deleteRows` is deferred (below).
 
 ## Deferred
 
