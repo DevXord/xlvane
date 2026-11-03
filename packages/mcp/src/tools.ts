@@ -195,7 +195,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
     {
       title: 'Inspect a workbook',
       description:
-        'Describes an XLSX file without changing it: sheets (including hidden ones), used ranges, detected header rows, column types with sample values, merged cells, example formulas, and warnings (macros, external links, damaged parts). Macros are never run and links are never followed. Use it before read_table to find the sheet and header row.',
+        'Describes an XLSX file without changing it: sheets (including hidden ones), used ranges, detected header rows, column types with sample values, merged cells, example formulas, pictures and charts (position, chart types, title, series count), and warnings (macros, external links, damaged parts). Macros are never run and links are never followed. Use it before read_table to find the sheet and header row.',
       inputSchema: object({ path: PATH, sheet: { ...SHEET, description: 'Describe only this sheet.' } }, ['path']),
       annotations: READ,
     },

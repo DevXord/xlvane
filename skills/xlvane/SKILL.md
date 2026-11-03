@@ -110,7 +110,20 @@ const out = createWorkbook();
 out.addSheet('Report').addImage(out.addImage(png), 'B2:D6', { description: 'Logo' });
 ```
 
-Charts and shapes are not read (`XLV_W_DRAWING_CONTENT_NOT_READ`); `editCells` keeps them unchanged.
+Charts (column, bar, line, pie, scatter, area), over sheet-qualified ranges of one row or column:
+
+```ts
+import { createWorkbook, readWorkbook } from 'xlvane';
+
+declare const bytes: Uint8Array;
+const charts = readWorkbook(bytes).getSheet('Report').charts; // types, title, legend, axes, series refs (never evaluated)
+
+const out = createWorkbook();
+const sales = out.addSheet('Sales').set('A1', 'Month').set('B1', 'Sales').set('A2', 'Jan').set('B2', 10).set('A3', 'Feb').set('B3', 20);
+sales.addChart({ type: 'column', anchor: 'D2:K16', title: 'Sales', series: [{ name: 'Sales!B1', categories: 'Sales!A2:A3', values: 'Sales!B2:B3' }] });
+```
+
+Options: `legend` (`'right'` default, `'bottom'`, `'top'`, `'left'`, `false`), `stacked` (`true` or `'percent'`; column, bar, line, area), `axes: { x: { title }, y: { title, min, max } }`, per series `color: 'RRGGBB'`. For scatter, `categories` are the x values. A pie has one series. Errors: `XLV_E_INVALID_CHART`. Charts on chart sheets are not read; shapes are not read (`XLV_W_DRAWING_CONTENT_NOT_READ`); `editCells` keeps drawings unchanged.
 
 Printing and protection:
 

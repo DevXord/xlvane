@@ -2,6 +2,7 @@ import type { DefinedName } from './defined-names';
 import { isAppPropertiesRel, isCorePropertiesRel, parseAppProperties, parseCoreProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvWarning } from './errors';
 import { isUnusualTarget, type Hyperlink } from './hyperlinks';
+import type { ChartCache, SheetChart } from './charts';
 import { readSheetDrawing, type MediaCache, type SheetImage, type WorkbookImage } from './images';
 import { DEFAULT_PAGE_SETUP, parsePrintArea, parsePrintTitles, type HeaderFooter, type PageSetup, type SheetProtection, type WorkbookProtection } from './printing';
 import { resolveLimits, type ReadLimits } from './limits';
@@ -62,6 +63,8 @@ class ReadSheet implements Sheet {
   /** Pictures of the sheet's drawing and its background image (TD-30 … TD-39). */
   images: readonly SheetImage[] = [];
   backgroundImage: WorkbookImage | null = null;
+  /** Charts of the sheet's drawing (D-K01). */
+  charts: readonly SheetChart[] = [];
   /** Tables of the sheet (TD-01). */
   tables: readonly TableDefinition[] = [];
 
@@ -277,6 +280,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   const budget = { remaining: limits.maxCells, sharedText: limits.maxSharedStringChars, formulaText: limits.maxSharedStringChars };
   const formatCache = new Map<number, NumberFormat>();
   const media: MediaCache = new Map();
+  const chartCache: ChartCache = new Map();
   const sheets = book.sheets.map((entry): Sheet => {
     let data: WorksheetData | null = null;
     if (entry.kind === 'worksheet' && entry.part !== null) {
@@ -300,8 +304,9 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     const sheet = new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, entry.sheetId, links, notes, book.definedNames);
     if (data !== null && entry.part !== null) sheet.tables = readTables(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts);
     if (data !== null && entry.part !== null) {
-      const drawing = readSheetDrawing(pkg, entry.part, entry.name, { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null }, { limits, warnings }, media);
+      const drawing = readSheetDrawing(pkg, entry.part, entry.name, { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null }, { limits, warnings }, media, chartCache);
       sheet.images = drawing.images;
+      sheet.charts = drawing.charts;
       sheet.backgroundImage = drawing.background;
     }
     return sheet;

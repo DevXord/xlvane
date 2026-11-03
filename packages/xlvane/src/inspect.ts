@@ -1,4 +1,5 @@
 import { isoDate } from './util/iso-date';
+import type { ChartKind, ChartText } from './charts';
 import { XlvError, type XlvWarning } from './errors';
 import type { ReadLimits } from './limits';
 import type { Cell, CellType, Conformance, DateSystem, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
@@ -152,6 +153,14 @@ export interface InspectSheet {
   readonly imageCount: number;
   /** Up to ten pictures: the cell of the top-left corner (or `null` for an absolute position) and the image format. */
   readonly images: readonly { readonly cell: string | null; readonly format: 'png' | 'jpeg' | 'gif' | null }[];
+  /** Number of charts of the sheet's drawing (`Sheet.charts`). */
+  readonly chartCount: number;
+  /**
+   * Up to ten charts: the cell of the top-left corner (or `null` for an absolute position), the
+   * chart group types (see `ChartKind`), the title (`{ text }`, `{ ref }` or `null`) and the
+   * number of series.
+   */
+  readonly charts: readonly { readonly cell: string | null; readonly types: readonly ChartKind[]; readonly title: ChartText | null; readonly seriesCount: number }[];
   /** `true` when the sheet is protected (`Sheet.protection.sheet`). */
   readonly protected: boolean;
   /** The print area (`Sheet.printArea`), or `null`. */
@@ -410,6 +419,8 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     notes: sheet.notes.slice(0, MAX_HYPERLINK_SAMPLES).map((n) => n.ref),
     imageCount: sheet.images.length,
     images: sheet.images.slice(0, MAX_HYPERLINK_SAMPLES).map((i) => ({ cell: i.anchor.type === 'absolute' ? null : i.anchor.from.cell, format: i.image?.format ?? null })),
+    chartCount: sheet.charts.length,
+    charts: sheet.charts.slice(0, MAX_HYPERLINK_SAMPLES).map((c) => ({ cell: c.anchor.type === 'absolute' ? null : c.anchor.from.cell, types: c.types, title: c.title, seriesCount: c.series.length })),
     protected: sheet.protection?.sheet === true,
     printArea: sheet.printArea === null ? null : sheet.printArea.slice(0, MAX_HYPERLINK_SAMPLES),
     pageBreakCount: sheet.pageBreaks.rows.length + sheet.pageBreaks.columns.length,

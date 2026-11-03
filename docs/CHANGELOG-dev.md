@@ -2,6 +2,12 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase K: charts (2026-11-03)
+
+- Charts written and read (D-K01, docs/facts/charts.md CH-01 … CH-37): `NewSheet.addChart` and `charts` of `writeWorkbookStream` for column, bar, line, pie, scatter and area charts (stacked and 100 % stacked where allowed, titles, legend position, axis titles, value-axis minimum and maximum, series colours from a default palette, caches from the cell values in the in-memory writer); `Sheet.charts` reads the charts of worksheet drawings (types per chart group, also combinations and unmodelled types, stacking, title, legend, axes, series references). New error code `XLV_E_INVALID_CHART`; `XLV_W_DRAWING_CONTENT_NOT_READ` no longer reports charts.
+- `inspect` reports `chartCount` and `charts`; the CLI inspect text has a "Charts:" line; JSON schema, docs/inspect-json.md, the MCP `inspect_workbook` description, the Agent Skill, the README, docs/errors.md and docs/exceljs-compat.md updated. `scripts/chart-samples.mjs` writes one sample file per type and variant.
+- Tests: tests/unit/charts.test.ts (exact XML of each type and of the frame, references, palette, caches, validation, round trips), tests/corpus/charts.test.ts (the chart files of the POI corpus), tests/security/charts.test.ts (limits, shared parts, damaged parts, prototypes), tests/libreoffice/charts.test.ts (re-save and PNG), two fuzz properties in tests/fuzz/write.test.ts. The POI snapshot loses `XLV_W_DRAWING_CONTENT_NOT_READ` for the 17 files whose drawings hold only charts and pictures; corpus inspect snapshots gain `chartCount` and `charts`.
+
 ## Phase J: security release 1.2.3 (2026-11-02)
 
 - Review at the maintainer's request: the full test chain on 1.2.2 (typecheck, 1734 tests, fuzzing with 100 000 runs, `check:pkg`, Bun/Deno/browser/workerd), the 1.1.1 proofs of concept against all published versions 1.0.0 to 1.2.2, registry signatures of all 17 versions, and four independent penetration tests (core, MCP and CLI, compat, supply chain and website).

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### xlvane
+
+- **Charts:** `sheet.addChart({ type, anchor, series, title, legend, stacked, axes })` writes column, bar, line, pie, scatter and area charts over ranges of the workbook (also in `writeWorkbookStream`, per sheet `charts`); `sheet.charts` reads the charts of a worksheet's drawing (types, stacking, title, legend, axes and series references; references are never evaluated). New error code `XLV_E_INVALID_CHART`. `XLV_W_DRAWING_CONTENT_NOT_READ` no longer counts charts. `inspect` (and `xlvane inspect`, MCP `inspect_workbook`) reports `chartCount` and `charts`.
+
 ## 1.2.3
 
 A security release: three ways around the CSV formula-injection escape, an information leak in the MCP server and denial of service by crafted files. Found by penetration tests of the published versions (docs/decisions.md D-J01). Please update all three packages.

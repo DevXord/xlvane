@@ -31,6 +31,7 @@ export type { DefinedName, DefinedNameOptions } from './defined-names';
 export type { Hyperlink, HyperlinkTarget } from './hyperlinks';
 export type { Note, NoteBox, NoteBoxInput, NoteInput, NoteMargins } from './notes';
 export type { TableColumnInput, TableDefinition, TableDefinitionColumn, TableInput, TableStyleOptions, TotalsRowFunction } from './tables';
+export type { ChartAxis, ChartAxisInput, ChartInput, ChartKind, ChartLegendPosition, ChartSeries, ChartSeriesInput, ChartText, ChartType, SheetChart } from './charts';
 export { imageFormat, type AnchorMarker, type ImageAnchor, type ImageAnchorInput, type ImageFormat, type ImageOptions, type ImagePositionInput, type SheetImage, type WorkbookImage } from './images';
 export type {
   CfValue,

@@ -8,6 +8,7 @@ import { scanSource } from '../../packages/xlvane/src/cli/commands/migrate';
 import { Output, useColor } from '../../packages/xlvane/src/cli/output';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { readTable } from '../../packages/xlvane/src/table';
+import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/write';
 import { cli, withFixtures } from './helpers';
 
 const ESC = '\u001b[';
@@ -268,6 +269,18 @@ describe('read and inspect', () => {
     await withFixtures(async (dir) => {
       const r = await cli(['inspect', 'report.xlsx'], { cwd: dir });
       await expect(r.stdout).toMatchFileSnapshot('__snapshots__/inspect-report.txt');
+    });
+  });
+
+  it('inspect lists charts with their cell, types and title (D-K01)', async () => {
+    await withFixtures(async (dir) => {
+      const wb = createWorkbook();
+      const sheet = wb.addSheet('Sales').set('A1', 'Month').set('B1', 'Sales').set('A2', 'Jan').set('B2', 10);
+      sheet.addChart({ type: 'column', anchor: 'D2:K16', title: 'Sales', series: [{ categories: 'Sales!A2', values: 'Sales!B2' }] });
+      sheet.addChart({ type: 'line', anchor: 'D20:K30', series: [{ values: 'Sales!B2' }] });
+      await writeFile(join(dir, 'charts.xlsx'), writeWorkbook(wb));
+      const r = await cli(['inspect', 'charts.xlsx'], { cwd: dir });
+      expect(r.stdout).toContain('  Charts: 2 charts (D2 column "Sales", D20 line)\n');
     });
   });
 });

@@ -168,6 +168,7 @@ A workbook loaded with `xlsx.load()` is written again by `xlsx.writeBuffer()` (`
 - Row heights above 409.5 points are read as 409.5; 409.5 itself, which Excel writes, is accepted.
 - A table whose style is a custom style of the file is written without a style name, because xlvane does not write the file's custom table styles; a style name set in code must still be one of the built-in names.
 - Totals-row formulas keep their cached results.
+- Charts are not kept. exceljs 4.4.0 has no chart API (`lib/` mentions charts only in a comment of `lib/xlsx/xform/book/workbook-xform.js` L174–178; docs/facts/charts.md CH-30) and drops the charts of a file it reads and writes again; `@xlvane/compat` does the same and offers no chart API. xlvane itself writes charts with `NewSheet.addChart` and reads them as `Sheet.charts`.
 - `activeTab` and `firstSheet` count chart sheets in the file; chart sheets are not loaded, so the indexes are mapped to the worksheet they fall on, or the worksheet before a chart sheet.
 - Row height, visibility and outline level are also read for rows without cells, up to the sheet's `dimension` or its last cell; rows after both are not looked at.
 
