@@ -793,7 +793,7 @@ function newCellXml(ref: string, value: StoredValue | null, xf: number, sst: Sha
 }
 
 /** A growable list of 32-bit integers, so that a sheet's cells cost a few numbers each (A2, D-K04). */
-class IntList {
+export class IntList {
   private data = new Int32Array(1024);
   length = 0;
 
@@ -980,7 +980,7 @@ function newCellStyle(scan: SheetScan, row: number, col: number): number {
 }
 
 /** Joins many small strings without keeping one string per piece until the end. */
-class TextBuilder {
+export class TextBuilder {
   private readonly pieces: string[] = [];
   private readonly joined: string[] = [];
 
