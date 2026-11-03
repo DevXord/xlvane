@@ -5,7 +5,7 @@ import { XlvError, type XlvWarning } from '../../errors';
 import { fromJSON, toJSON } from '../../table';
 import { flag, headerOption, str, usageError } from '../args';
 import { readBook, readText, writeOutput, wroteLine, type WriteOutcome } from '../files';
-import { commandLine, quoteArg } from '../output';
+import { commandLine, quoteArg, withOptions } from '../output';
 import type { CommandContext, CommandOutcome, CommandSpec } from '../types';
 import { warningNote } from '../warnings';
 
@@ -19,6 +19,24 @@ function formatOf(command: string, path: string, role: 'input' | 'output'): Form
   if (ext === '.json') return 'json';
   const allowed = role === 'input' ? '.xlsx, .xlsm, .csv, .tsv or .json' : '.xlsx, .csv, .tsv or .json';
   throw usageError(`Cannot tell the ${role} format of "${path}" from its extension.`, `Use a file name ending in ${allowed}.`, { command, [role]: path });
+}
+
+/**
+ * The rows as indented JSON text. Every row repeats the header names, so a small file can ask for
+ * more text than a JavaScript string can hold; that ends as a limit error, not an internal one
+ * (D-J01).
+ */
+function jsonText(rows: readonly unknown[]): string {
+  try {
+    return `${JSON.stringify(rows, null, 2)}\n`;
+  } catch (error) {
+    if (!(error instanceof RangeError)) throw error;
+    throw new XlvError('XLV_E_LIMIT_EXCEEDED', 'The JSON text would be longer than a JavaScript string can be.', {
+      hint: 'Convert part of the sheet with --range, or convert to CSV, which does not repeat the header in every row.',
+      details: { limit: 'maxSharedStringChars' },
+      cause: error,
+    });
+  }
 }
 
 /** The delimiter option: one character, or "tab". */
@@ -55,7 +73,7 @@ function delimiterNote(ctx: CommandContext, command: string, text: string, input
   const other = first.includes(';') ? ';' : first.includes('\t') ? 'tab' : null;
   if (other === null) return;
   const args = ctx.argv.filter((a) => a !== '--json');
-  ctx.note(`note: the first line of ${input} has no "," but has ${other === 'tab' ? 'tabs' : '";"'}; every line became one column. Try: ${commandLine([command, ...args, '--delimiter', other])}`);
+  ctx.note(`note: the first line of ${input} has no "," but has ${other === 'tab' ? 'tabs' : '";"'}; every line became one column. Try: ${commandLine(withOptions([command, ...args], '--delimiter', other))}`);
 }
 
 /** What to do with a JSON file that holds something other than an array of rows. */
@@ -159,7 +177,7 @@ export const convertCommand: CommandSpec = {
       const sheet = str(ctx.args, 'sheet');
       const range = str(ctx.args, 'range');
       const where = { ...(sheet !== undefined ? { sheet } : {}), ...(range !== undefined ? { range } : {}) };
-      if (to === 'json') data = `${JSON.stringify(toJSON(workbook, { ...where, header: headerOption(ctx.args, 'convert') }).rows, null, 2)}\n`;
+      if (to === 'json') data = jsonText(toJSON(workbook, { ...where, header: headerOption(ctx.args, 'convert') }).rows);
       else data = toCSV(workbook, { ...where, delimiter: delimiterOf(ctx, 'convert', to), bom: flag(ctx.args, 'bom') });
     } else {
       data = await tableToXlsx(ctx, 'convert', input, from, 'plain');

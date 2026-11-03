@@ -27,7 +27,7 @@ export const mcpCommand: CommandSpec = {
   name: 'mcp',
   summary: 'Start the MCP server for AI agents',
   description:
-    'Starts the Model Context Protocol server from the separate package @xlvane/mcp over stdin and stdout, so that an AI agent can inspect, read, convert and compare spreadsheets through tools instead of code. The arguments after "mcp" are passed to the server: --root <dir> (required, repeatable) names a directory the tools may use, --allow-write adds the tools that write files, and --max-file-size <bytes>, --max-rows <n> and --max-response-chars <n> set its limits. --json is not available, because stdout carries the protocol. If @xlvane/mcp is not installed, the command prints how to install it. The exit code is the server\'s: 0 when the client closed the connection, 2 for wrong arguments, 3 for a directory that cannot be used.',
+    'Starts the Model Context Protocol server from the separate package @xlvane/mcp over stdin and stdout, so that an AI agent can inspect, read, convert and compare spreadsheets through tools instead of code. The arguments after "mcp" are passed to the server: --root <dir> (required, repeatable) names a directory the tools may use, --allow-write adds the tools that write files, and --max-file-size <bytes>, --max-rows <n>, --max-response-chars <n> and --max-cells <n> set its limits. --json is not available, because stdout carries the protocol. If @xlvane/mcp is not installed, the command prints how to install it. The exit code is the server\'s: 0 when the client closed the connection, 2 for wrong arguments, 3 for a directory that cannot be used.',
   usage: '[server options]',
   positionals: { min: 0, max: Number.POSITIVE_INFINITY, names: [] },
   passThrough: true,

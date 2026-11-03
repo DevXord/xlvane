@@ -1,7 +1,7 @@
 // Streaming writer: rows are pulled from (async) iterables while the output stream is read, so
 // memory stays constant however many rows are written (docs/decisions.md D-403, D-404). Values
 // and styles are validated with the rules of the batch writer (write.ts).
-import { checkDefinedName, checkUniqueName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
+import { checkDefinedName, checkUniqueName, nameScopeKey, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
 import { APP_PROPERTIES_PART, appPropertiesXml, CORE_PROPERTIES_PART, corePropertiesXml, type WorkbookProperties } from './doc-properties';
 import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
@@ -294,12 +294,14 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   }
   // Names are checked now; the sheet of a local name once the sheets are known.
   const names: NormalizedDefinedName[] = [];
+  const nameKeys = new Map<string, NormalizedDefinedName>();
   rawNames.forEach((raw: unknown, i) => {
     const r = readOptions(raw, ['name', 'refersTo', 'sheet', 'hidden', 'comment'], `definedNames[${String(i)}]`);
     const { name, refersTo, ...rest } = Object.fromEntries(r) as Record<string, unknown>;
     const n = checkDefinedName(name, refersTo, rest, null);
-    checkUniqueName(n, names);
+    checkUniqueName(n, nameKeys);
     names.push(n);
+    nameKeys.set(nameScopeKey(n), n);
   });
   const addNames = (): void => {
     for (const n of names) book.defineName(n.name, n.refersTo, { ...(n.sheet === null ? {} : { sheet: n.sheet }), hidden: n.hidden, ...(n.comment === null ? {} : { comment: n.comment }) });
@@ -358,7 +360,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     for (const v of listOf('tables', '{ name: "Sales", ref: "A1:B10", columns: [{ name: "Region" }, { name: "Revenue" }] }')) {
       const t = normalizeTable(v, sheet.name, true);
       book.checkTable(t, sheet);
-      sheet.tableList.push(t);
+      sheet.pushTable(t);
     }
     const merges = s.get('merges');
     if (merges !== undefined) {

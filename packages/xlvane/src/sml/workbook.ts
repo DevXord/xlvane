@@ -3,6 +3,7 @@
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
 import type { Conformance, SheetState, WorkbookView } from '../model';
+import { clip } from '../util/clip';
 import type { WarningCollector } from '../util/warnings';
 import { childNamed, childrenNamed, parseXmlTree } from '../xml/tree';
 import { REL_NS, SML_NS } from './namespaces';
@@ -80,7 +81,7 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
   if (rawDate1904 !== undefined) {
     const parsed = parseXsdBoolean(rawDate1904);
     if (parsed === null) {
-      ctx.warnings.add('XLV_W_INVALID_VALUE', `workbookPr@date1904 has the invalid value "${rawDate1904}"; using the 1900 date system.`, {
+      ctx.warnings.add('XLV_W_INVALID_VALUE', `workbookPr@date1904 has the invalid value "${clip(rawDate1904)}"; using the 1900 date system.`, {
         part: ctx.part,
       });
     } else {
@@ -101,7 +102,7 @@ export function parseWorkbookPart(xml: string, ctx: WorkbookContext): WorkbookIn
     const rawState = el.attrs.get('state') ?? 'visible';
     let state = SHEET_STATES.find((s) => s === rawState);
     if (state === undefined) {
-      ctx.warnings.add('XLV_W_INVALID_VALUE', `Sheet "${name}" has the unknown state "${rawState}"; treating it as visible.`, {
+      ctx.warnings.add('XLV_W_INVALID_VALUE', `Sheet "${name}" has the unknown state "${clip(rawState)}"; treating it as visible.`, {
         part: ctx.part,
         sheet: name,
       });

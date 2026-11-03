@@ -3,7 +3,7 @@
 import { isoDate } from './util/iso-date';
 import { XlvError, type XlvWarning } from './errors';
 import { detectHeader } from './inspect';
-import { checkOutputPositions, resolveLimits, type ReadLimits } from './limits';
+import { checkKeyText, checkOutputPositions, DEFAULT_READ_LIMITS, resolveLimits, type ReadLimits } from './limits';
 import type { Cell, Sheet, Workbook } from './model';
 import { columnLetters, formatCellRef, MAX_COLUMNS, MAX_ROWS, parseRange, type CellRange } from './sml/cell-ref';
 import type { StandardSchemaV1 } from './standard-schema';
@@ -346,6 +346,7 @@ function prepare(input: unknown, options: unknown): PreparedTable {
   let cellCount = 0;
   for (const cells of byRow.values()) cellCount += cells.size;
   checkOutputPositions(numbers.length * columns.length, cellCount, limits.maxCells, 'The table', sheet.name);
+  checkKeyText(columns, numbers.length, limits.maxSharedStringChars, sheet.name);
   for (const r of numbers) {
     const cells = byRow.get(r);
     if (skipEmpty && (cells === undefined || [...cells.values()].every((c) => c.value === null))) continue;
@@ -386,13 +387,13 @@ function isThenable(value: unknown): value is PromiseLike<unknown> {
 }
 
 /** Converts a schema issue to a {@link TableIssue}, mapping the first path key to a column. */
-function toIssue(issue: StandardSchemaV1.Issue, row: number, columns: readonly TableColumn[]): TableIssue {
+function toIssue(issue: StandardSchemaV1.Issue, row: number, columns: ReadonlyMap<string, TableColumn>): TableIssue {
   const path = (issue.path ?? []).map((segment) => {
     const key = typeof segment === 'object' && segment !== null ? segment.key : segment;
     return typeof key === 'number' ? key : String(key);
   });
   const first = path[0];
-  const column = typeof first === 'string' ? columns.find((c) => c.key === first) : undefined;
+  const column = typeof first === 'string' ? columns.get(first) : undefined;
   return {
     row,
     cell: column === undefined ? null : formatCellRef(row, column.col),
@@ -409,10 +410,13 @@ function collect(
   const rows: unknown[] = [];
   const rowNumbers: number[] = [];
   const issues: TableIssue[] = [];
+  // Column keys are unique; a map instead of a search per issue (D-H01).
+  const byKey = new Map<string, TableColumn>();
+  for (const c of prepared.columns) if (!byKey.has(c.key)) byKey.set(c.key, c);
   results.forEach((result, i) => {
     const row = prepared.rowNumbers[i] ?? 0;
     if (result.issues) {
-      for (const issue of result.issues) issues.push(toIssue(issue, row, prepared.columns));
+      for (const issue of result.issues) issues.push(toIssue(issue, row, byKey));
     } else {
       rows.push(result.value);
       rowNumbers.push(row);
@@ -606,9 +610,15 @@ export interface WriteTableOptions {
   readonly preset?: 'report' | 'plain';
   /** Date system of the new workbook. Default `"1900"`. */
   readonly dateSystem?: DateSystem;
+  /**
+   * Bounds the sheet: at most `max(maxCells, 16 × cells written)` positions (rows × columns), so
+   * a few values spread over many rows and columns are refused with `XLV_E_LIMIT_EXCEEDED`.
+   * Default 5 000 000, the `maxCells` read limit; raise it for a large sparse table.
+   */
+  readonly maxCells?: number;
 }
 
-const WRITE_OPTIONS = ['columns', 'sheet', 'preset', 'dateSystem'];
+const WRITE_OPTIONS = ['columns', 'sheet', 'preset', 'dateSystem', 'maxCells'];
 /** Header style of the `report` preset (D-304). */
 const REPORT_HEADER: CellStyle = { font: { bold: true }, fill: { color: 'D9E1F2' }, border: { bottom: { style: 'thin' } } };
 const MIN_WIDTH = 8;
@@ -709,11 +719,27 @@ export function addTableSheet(workbook: NewWorkbook, rows: unknown, options: Map
   columns.forEach((column, c) => {
     if (hasHeader && column.header !== '') sheet.set(formatCellRef(1, c + 1), column.header, preset === 'report' ? REPORT_HEADER : undefined);
   });
+  // The work per row follows the row's own values, not the number of columns: one wide first
+  // row must not make every later row cost 16 384 steps (D-H01). Columns with a number format
+  // get a cell in every row, so they are visited in every row.
+  const formatted: number[] = [];
+  columns.forEach((column, c) => {
+    if (column.numFmt !== undefined) formatted.push(c);
+  });
+  const columnsOfKey = new Map<string, number[]>();
+  if (!arrays) {
+    columns.forEach((column, c) => {
+      const list = columnsOfKey.get(column.key);
+      if (list === undefined) columnsOfKey.set(column.key, [c]);
+      else list.push(c);
+    });
+  }
+  let cells = hasHeader ? columns.filter((c) => c.header !== '').length : 0;
+  const hasOwn = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key);
   rows.forEach((row: unknown, i) => {
     const r = i + 1 + offset;
-    columns.forEach((column, c) => {
-      const record = row as Record<string, unknown>;
-      const raw = arrays ? (row as unknown[])[c] : Object.prototype.hasOwnProperty.call(record, column.key) ? record[column.key] : undefined;
+    const put = (c: number, raw: unknown): void => {
+      const column = columns[c]!;
       const value = raw === undefined ? null : raw;
       if (!(value === null || typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean' || value instanceof Date)) {
         throw tableError(
@@ -725,8 +751,39 @@ export function addTableSheet(workbook: NewWorkbook, rows: unknown, options: Map
       if (value === null && column.numFmt === undefined) return;
       sheet.set(formatCellRef(r, c + 1), value, column.numFmt === undefined ? undefined : { numFmt: column.numFmt });
       widths[c] = Math.max(widths[c] ?? 0, displayLength(value));
-    });
+      cells++;
+    };
+    if (arrays) {
+      const values = row as unknown[];
+      const n = Math.min(values.length, columns.length);
+      for (let c = 0; c < n; c++) put(c, values[c]);
+      for (const c of formatted) if (c >= n) put(c, undefined);
+      return;
+    }
+    const record = row as Record<string, unknown>;
+    const own = Object.getOwnPropertyNames(record);
+    if (own.length >= columns.length) {
+      for (let c = 0; c < columns.length; c++) put(c, hasOwn(record, columns[c]!.key) ? record[columns[c]!.key] : undefined);
+      return;
+    }
+    // The columns this row has a value for, and the formatted ones, in column order.
+    const visit: number[] = [];
+    for (const key of own) for (const c of columnsOfKey.get(key) ?? []) visit.push(c);
+    for (const c of formatted) if (!hasOwn(record, columns[c]!.key)) visit.push(c);
+    visit.sort((x, y) => x - y);
+    for (const c of visit) put(c, hasOwn(record, columns[c]!.key) ? record[columns[c]!.key] : undefined);
   });
+  // A few values spread over many rows and columns make a sheet far larger than the data
+  // (D-H01): the positions (rows × columns) are bounded by the cells written.
+  const maxCells = options.get('maxCells');
+  checkOutputPositions(
+    (rows.length + offset) * columns.length,
+    cells,
+    typeof maxCells === 'number' ? maxCells : DEFAULT_READ_LIMITS.maxCells,
+    'The table',
+    sheet.name,
+    'The rows are spread over far more columns than they fill, for example after one row with many keys or a long first CSV line. Write fewer columns (the "columns" option), split the data over several tables, or raise the "maxCells" option for a trusted sparse table.',
+  );
   columns.forEach((column, c) => {
     if (column.width !== undefined) sheet.column(c + 1, { width: column.width });
     else if (preset === 'report') sheet.column(c + 1, { width: Math.min(MAX_FITTED_WIDTH, Math.max(MIN_WIDTH, (widths[c] ?? 0) + 2)) });
@@ -759,6 +816,10 @@ export function addTableSheet(workbook: NewWorkbook, rows: unknown, options: Map
  */
 export function writeTable(rows: readonly object[] | readonly (readonly unknown[])[], options?: WriteTableOptions): Uint8Array {
   const o = readOptions(options, WRITE_OPTIONS, 'writeTable options');
+  const maxCells = o.get('maxCells');
+  if (maxCells !== undefined && (typeof maxCells !== 'number' || !(maxCells > 0))) {
+    throw new XlvError('XLV_E_INVALID_OPTION', 'The option "maxCells" must be a positive number.', { hint: 'For example { maxCells: 20_000_000 }, or Infinity.', details: { option: 'maxCells' } });
+  }
   const dateSystem = o.get('dateSystem');
   const workbook = createWorkbook(dateSystem === undefined ? undefined : { dateSystem: dateSystem as DateSystem });
   addTableSheet(workbook, rows, o);

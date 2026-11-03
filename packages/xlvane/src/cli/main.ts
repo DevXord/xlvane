@@ -6,7 +6,7 @@ import { checkPositionals, parseCommandArgs, usageError } from './args';
 import { COMMANDS } from './commands/index';
 import { withPath } from './files';
 import { commandHelp, welcome } from './help';
-import { commandLine, escapeControls, Output, termWidth, terminalSafe, useColor, wrap } from './output';
+import { commandLine, escapeControls, Output, termWidth, terminalSafe, useColor, withOptions, wrap } from './output';
 import type { CliIO, CommandContext, CommandSpec } from './types';
 
 /** Version of the `--json` envelope (docs/cli-json.md). */
@@ -194,7 +194,7 @@ function suggestCommand(error: XlvError, first: string | undefined, rest: readon
     }
   }
   if (spec === undefined) return null;
-  if (error.code === 'XLV_E_FILE_EXISTS') return commandLine([spec.name, ...rest, '--force']);
+  if (error.code === 'XLV_E_FILE_EXISTS') return commandLine(withOptions([spec.name, ...rest], '--force'));
   if (error.code === 'XLV_E_SHEET_NOT_FOUND' && Array.isArray(d['available']) && typeof error.location.sheet === 'string') {
     const close = suggest(error.location.sheet, d['available'] as readonly string[], 1);
     // The wrong name is fixed where it was typed (--sheet or the "Sheet!" of --set); a command that

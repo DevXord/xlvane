@@ -301,6 +301,14 @@ export function readSheetDrawing(
     return { images: [], background };
   }
   const drawingRels = pkg.relationships(drawing.target);
+  // Ids are unique in a Relationships part, so a map finds what find() over the list found,
+  // without a pass over every relationship for each picture (D-H01).
+  const drawingRelsById = new Map<string, Relationship>();
+  for (const rel of drawingRels) if (!drawingRelsById.has(rel.id)) drawingRelsById.set(rel.id, rel);
+  const relOfType = (id: string | undefined, name: string): Relationship | undefined => {
+    const rel = id === undefined ? undefined : drawingRelsById.get(id);
+    return rel !== undefined && classifyRelationship(rel.type)?.name === name ? rel : undefined;
+  };
   const images: SheetImage[] = [];
   let other = 0;
   const marker = (el: XmlElement | undefined): AnchorMarker | null => {
@@ -355,9 +363,9 @@ export function readSheetDrawing(
     const nv = childNamed(childNamed(pic, xdr, 'nvPicPr') ?? pic, xdr, 'cNvPr');
     const blip = childNamed(childNamed(pic, xdr, 'blipFill') ?? pic, a, 'blip');
     const embed = blip?.attrs.get(`{${r}}embed`);
-    const imageRel = embed === undefined ? undefined : drawingRels.find((x) => x.id === embed && classifyRelationship(x.type)?.name === 'image');
+    const imageRel = relOfType(embed, 'image');
     const linkId = nv === undefined ? undefined : childNamed(nv, a, 'hlinkClick')?.attrs.get(`{${r}}id`);
-    const linkRel = linkId === undefined ? undefined : drawingRels.find((x) => x.id === linkId && classifyRelationship(x.type)?.name === 'hyperlink');
+    const linkRel = relOfType(linkId, 'hyperlink');
     images.push(
       Object.freeze({
         name: nv?.attrs.get('name') ?? '',

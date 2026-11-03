@@ -238,6 +238,18 @@ export function createWorksheetParser(
   let drawingRelId: string | null = null;
   let pictureRelId: string | null = null;
   const print = createPrintCollector((message) => ctx.warnings.add('XLV_W_INVALID_VALUE', message, loc()));
+  // Streaming: the cells held until the current </row>. A cell's r may name any row, so without
+  // a bound one row element could hold every cell of the sheet, and streaming does not apply
+  // maxCells (D-H01). A valid row element holds at most MAX_COLUMNS cells.
+  let buffered = 0;
+  const bufferCell = (ref: string): void => {
+    if (!onRow || ++buffered <= MAX_COLUMNS) return;
+    throw new XlvError('XLV_E_LIMIT_EXCEEDED', `One row element of the sheet holds more than ${String(MAX_COLUMNS)} cells, more than a row can have.`, {
+      location: loc(ref),
+      hint: `A row has at most ${String(MAX_COLUMNS)} cells; the cells of this row element name other rows, which the streaming reader would have to hold in memory. The file is damaged or was made to exhaust memory. Re-save it in a spreadsheet application, or read it with readWorkbook, which bounds all cells with limits.maxCells.`,
+      details: { limit: 'maxCells', value: MAX_COLUMNS },
+    });
+  };
   const rules = createRuleCollector({
     ns: () => ns ?? SML_NS.transitional,
     maxElements: ctx.limits.maxXmlTreeElements,
@@ -461,6 +473,7 @@ export function createWorksheetParser(
         valued.delete(p.col);
         cellCount--;
         ctx.budget.remaining++;
+        buffered--;
         ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
       }
       let styled = styleOnly.get(p.row);
@@ -481,6 +494,7 @@ export function createWorksheetParser(
           details: { limit: 'maxCells', value: ctx.limits.maxCells },
         });
       }
+      bufferCell(p.ref);
       styleOnlyIndex.get(p.row)?.set(p.col, styled.length);
       styled.push(p.col, p.styleIndex);
       if (p.col > (styleOnlyMax.get(p.row) ?? 0)) styleOnlyMax.set(p.row, p.col);
@@ -493,6 +507,7 @@ export function createWorksheetParser(
       if (list !== undefined) list[at + 1] = -1;
       styleOnlyIndex.get(p.row)?.delete(p.col);
       ctx.budget.remaining++;
+      buffered--;
       ctx.warnings.add('XLV_W_DUPLICATE_CELL', 'The sheet defines the same cell more than once; the last definition is used.', loc(p.ref));
     }
 
@@ -512,6 +527,7 @@ export function createWorksheetParser(
         });
       }
       cellCount++;
+      bufferCell(p.ref);
     }
     rowCells.set(p.col, {
       ref: p.ref,
@@ -547,6 +563,7 @@ export function createWorksheetParser(
   /** Streaming: expands the pending shared formulas and hands the buffered cells on. */
   const flushRows = (): void => {
     if (!onRow) return;
+    buffered = 0;
     // Row heights are handed on with the row instead of being collected (constant memory).
     const info = rowInfo.get(currentRow);
     rowInfo.delete(currentRow);

@@ -258,6 +258,15 @@ export function quoteArg(arg: string): string {
   return `'${arg.replace(/'/g, `'\\''`)}'`;
 }
 
+/**
+ * `args` with `options` added before the first "--", after which every argument is positional
+ * (or at the end when there is none).
+ */
+export function withOptions(args: readonly string[], ...options: string[]): string[] {
+  const at = args.indexOf('--');
+  return at === -1 ? [...args, ...options] : [...args.slice(0, at), ...options, ...args.slice(at)];
+}
+
 /** A command line as text. */
 export function commandLine(args: readonly string[]): string {
   return ['xlvane', ...args].map(quoteArg).join(' ');

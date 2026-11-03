@@ -758,6 +758,65 @@ At the maintainer's decision the server is listed in the official MCP Registry a
 ### D-I03 Releasing a new package (2026-11-02)
 npm sets up a trusted publisher only for a package that already exists (F-NPM-05), so `@xlvane/mcp` 1.2.0 is published from the maintainer's machine without provenance, as `xlvane` 1.0.0 was (D-R10), and its trusted publisher is configured afterwards. The release workflow stages `@xlvane/mcp` only when the package exists and the version is not on npm yet, and otherwise prints a notice, so the 1.2.0 release of the other two packages is not blocked. `scripts/check-release-version.mjs` checks all three versions and both dependencies on `xlvane`.
 
+## Decisions: phase J (security release 1.2.3)
+
+### D-J01 Findings of the 1.2.2 penetration tests (2026-11-02)
+At the maintainer's request (2026-11-02) the published versions 1.0.0 to 1.2.2 were tested again: the full test chain on 1.2.2, the 1.1.1 proofs of concept against every published version (all 13 work on 1.0.0 to 1.1.0 and are handled from 1.1.1), and four independent penetration tests (core library, MCP server and CLI, `@xlvane/compat`, supply chain and website). They found no code execution, XSS, XML injection, prototype pollution or escape from the MCP roots. They found three ways around the CSV formula-injection escape, an information leak in the MCP server and further denial of service. Each finding below was reproduced, then fixed test-first (`tests/security/csv-injection-bypass.test.ts`, `compat-csv-read.test.ts`, `j-core-*.test.ts`, `j-compat-*.test.ts`, `tests/mcp/review.test.ts` "1.2.3", `tests/cli/review-1.2.3.test.ts`, `tests/policy/stage-publish.test.ts`). Times are from the development container (Node.js 22.23.4), before and after on the same input.
+
+CSV formula injection (docs/facts/csv.md CSV-13; all three work on every version from 1.0.0 to 1.2.2):
+- **Delimiter:** `toCSV` (and `xlvane convert --delimiter`, MCP `convert`) accepted `=`, `+`, `-` or `@` as the delimiter, so a line whose first field is empty started with a formula. While formulas are escaped such delimiters (and their full-width and small forms) are refused with `XLV_E_INVALID_OPTION`; `@xlvane/compat` refuses a delimiter that starts with one.
+- **latin1:** `@xlvane/compat` `csv.writeFile` with `encoding: "latin1"` kept the low byte of each character after the fields were checked, so U+013D became `=` and U+010A a line feed (a new row). Characters above U+00FF are written as `?` before the check; options with such characters are refused. A deliberate difference from exceljs, whose output (through Node.js) keeps the low byte.
+- **Quoting options:** in `@xlvane/compat`, an `escape` other than the quote, and without the default quote a field starting with `"`, let a standard reader split a value into fields that start with a formula. Refused while formulas are escaped. The independent review of the patch found more such options, now refused too: a quote other than `"` (a standard reader does not take it as quoting, so a line break in a value starts a new line), a row delimiter other than LF, CRLF or CR (for example `"\n="`), and a delimiter holding a formula sign or a control character anywhere (only a lone tab is allowed).
+- Also in `@xlvane/compat` `csv.read`: the input is limited to `maxInputBytes` while it arrives (an endless stream was collected without limit), and the dayjs word expression of the date tokens `MMM`, `MMMM`, `A`, `a`, `Do` gets a lookbehind (`(?<!\d)`) that keeps its matches (a randomised test compares them) but no longer retries every position of a run of digits (50 000 digits: 2.8 s before; 200 000 digits: 1 ms after).
+
+MCP server and command line:
+- **Symbolic link inside a root (information leak):** a path through a link to an outside directory answered `XLV_E_PATH_NOT_ALLOWED` for an existing file, `ENOENT` for a missing one and `ENOTDIR` under a file, so a client could map which files exist anywhere (every version of `@xlvane/mcp`). A path that does not resolve is now checked through its nearest existing ancestor, following a symbolic link there by its text even when its target is missing (found by the independent review: a dangling link to an outside file answered ENOENT until the file existed); outside the roots the answer is always `XLV_E_PATH_NOT_ALLOWED`. The same for the directory of a write.
+- **Memory and time per call:** new option `--max-cells` (default 5 000 000, the core default) for every workbook a tool reads, edits or creates from CSV or JSON (`diff` of two 4.9 million-cell files took about 50 s and 2 GB). `convert` to JSON builds the text row by row and stops at `--max-file-size`; a 38 KB file with a 4 000 000-character header made 400 million characters of JSON before (and `XLV_E_INTERNAL` "Invalid string length" with 200 rows). `xlvane convert` reports a text too long for a string as `XLV_E_LIMIT_EXCEEDED`.
+- **stderr:** `xlvane-mcp` wrote arguments, `--root` values and directory names with escape sequences to the terminal; control, C1 and bidirectional characters are now written as `\uXXXX`.
+- **Replacing a file (CLI `--force`):** the temporary name came from `Date.now()` and a failed exclusive create removed a file of that name that the run had not created (fixed in MCP by D-I04, not in the CLI). The name is random and only a file the run created is removed. In both the CLI and MCP the temporary file is created with mode 0600 and then given the replaced file's permission bits without setuid, setgid and sticky bits, through the open file handle, so a file swapped in for it meanwhile is not changed (F-NODE-16).
+- **`migrate`:** a `package.json` that is a symbolic link was read, and `--force` replaced the link with a copy of the outside file. It is refused (`XLV_E_FILE_READ`).
+- **"Try:" commands** put options after `--`, where they are positional arguments; they now go before `--`.
+
+Denial of service, core library (all linear or bounded now):
+- Notes: VML parts × notes (`readNotes`; 100 000 notes and 8 000 VML parts: 16.0 s, now 1.7 s, most of it parsing).
+- Pictures: a relationship lookup per picture (`find`; 10 000 pictures, 50 000 relationships: 55.3 s, now 0.58 s).
+- Header detection: rows of years against the next row (`detectHeader`; `readTable` 5.5 s and `inspect` 15.8 s, now 0.33 s and 0.31 s).
+- `fromJSON`, `writeTable`, `fromCSV`: every column of every row was visited, so one very wide first row and many short rows took rows × 16 384 steps (6.4 s, 3.5 s, 3.7 s). The work follows each row, and the output has the budget of D-H01, `max(maxCells, 16 × cells written)` positions (`fromCSV` with its `maxCells` option). Behaviour change: very sparse tables beyond 5 000 000 positions are refused; the new option `maxCells` of `writeTable` and `fromJSON` raises the bound (the independent review showed that 300 000 rows over 20 columns with one value each had no way out).
+- Schema issues mapped to columns by search (`readTable`/`readTableStream` with a per-key schema over 16 384 columns: 9.7 s and 8.7 s, now 0.8 s and 0.9 s).
+- Streaming: one `<row>` element could hold millions of cells until it ended (4 million cells, 8.8 MB: fatal heap out of memory, not an `XlvError`); at most 16 384 cells per row element, then `XLV_E_LIMIT_EXCEEDED`. Every `*.rels` entry of the ZIP was decompressed when the stream opened (six unreferenced 250 MiB entries: 9.5 s and 1.9 GB); relationships are loaded in stages, only for the parts the reader opens. Part names with percent-encoded characters were not found (plain `Error`); entries are mapped as `openPackage` maps them, and a missing entry is `XLV_E_INTERNAL` or `XLV_E_PART_MISSING`.
+- Header names repeated in every row object: the sum of key lengths times rows counts against `maxSharedStringChars` in `readTable` and `toJSON`. `readTableStream` yields one row at a time, so there only the names of one row count (the first version counted every row streamed and refused ordinary large files, found by the independent review).
+- Text echoed from files in messages (declared XML encoding, `date1904`, sheet state; up to 5 MB per message) is cut to 200 characters (`util/clip.ts`).
+- `editCells`: new rows placed by search and `shift()` (100 000 rows, 20 000 edits: 11.0 s, now 1.55 s).
+- `diff`: a change object was built for every changed cell and style keys computed twice per cell (1 million equal styled cells: 10.6 s, now 0.57 s).
+- Writing: `addSheet` (16 000 sheets: 5.0 s, now 0.07 s), `merge` and table overlap checks (60 000 merges: 8.6 s, now 0.07 s; an index of ranges by size class, `util/range-index.ts`, with the same errors), `defineName` (40 000 names: 7.7 s, now 0.06 s).
+
+Denial of service, `@xlvane/compat`:
+- A defined name over the whole sheet (1.6 KB file) ran the process out of memory on load. Defined-name cells count against the D-H01 load budget; ranges with rows beyond the sheet are dropped on load (as exceljs drops other invalid ranges) and refused by `definedNames.add` with `XLV_E_INVALID_CELL_REF`.
+- Data validations were expanded up to 100 000 cells per sheet (400 sheets: out of memory); the budget is now per workbook.
+- Many sheets (16 000 sheets, 72 KB: load 14.1 s, `WorkbookReader` 12.6 s, `addWorksheet` × 16 000 17.0 s; now 1.1 s, 0.74 s, 77 ms): names, ids and `orderNo` are kept in maps. `Worksheet.orderNo` is an accessor.
+- Shared formulas against array formulas on write (60 000 rows: 25.9 s, now 3.2 s, mostly the core writer), images compared byte by byte (400 images of 64 KiB: 52.9 s, now 1.0 s).
+- `xlsx.read` and `stream.xlsx.WorkbookReader` collected a stream before any limit (600 MiB pulled); they stop after `maxInputBytes`.
+- On load, bad sheet names and overlapping merges threw plain `Error`s (no `XLV_E_*` code); they are `XLV_E_INVALID_SHEET_NAME`, `XLV_E_DUPLICATE_SHEET_NAME` and `XLV_E_OVERLAPPING_MERGE` with exceljs's message. The public `addWorksheet` and `mergeCells` keep exceljs's plain errors.
+
+Release and website:
+- `scripts/stage-publish.mjs` took any failure of `npm view` for a package that does not exist, so a registry outage gave a green job with nothing staged and advice to publish by hand. Only E404 counts as missing now (F-NPM-06).
+- Website (xlvane.github.io): `--accept` also took in a newer fflate within xlvane's range without saying so; it covers only the xlvane packages and the changelog, and a dependency needs `--accept-dependency fflate@X.Y.Z`. The changelog of the tag gets a sha512 in `vendor.lock.json`.
+- SECURITY.md named only 1.1.x and two packages and said all releases had provenance; `@xlvane/mcp` 1.2.1, like 1.2.0, was published from the maintainer's machine after the E401 of the release workflow (D-I07). `@xlvane/mcp@0.0.0-stage` was deprecated by the maintainer.
+
+Known and not changed:
+- A data validation of type whole with only `formula1` and the default `between` loads in `@xlvane/compat` and then fails on write (correctness, not security).
+- `fromJSON` drops a `__proto__` key without a warning.
+- Whether spreadsheet applications run a CSV field that starts with white space before `=` was not checked.
+- `@xlvane/compat` `addImage({ filename })` reads any path, as exceljs does (an API for application code).
+- The race of a write against a local process that changes a root (D-I02).
+- The official MCP SDK closes the connection after a message larger than 10 MiB (F-MCP-04); the README says so.
+- `@xlvane/compat` `stream.xlsx.WorkbookReader` given a Node.js or Web stream now stops at 256 MiB, like `xlsx.read`: the stream was collected in memory before as well, without a limit. A file path is read without collecting it.
+- The streaming reader still loads the relationships of every internal target of the workbook relationships (bounded by the streaming `maxTotalBytes`), and the range index is not a strict worst-case bound for contrived mixes of thin and wide ranges; every tested case is linear.
+
+An independent review of the patch (a sub-agent given only the diff) confirmed seven problems in the first version, all fixed test-first and described above: more compat CSV options, `readTableStream` counting every row, no `maxCells` for `writeTable`/`fromJSON`, dangling links in MCP, `--max-cells` missing for `edit_cells` and `convert` from CSV, and a `fromCSV` TSDoc that claimed a delimiter check `fromCSV` does not make; from its plausible list, permissions are now set through the file handle.
+
+Version 1.2.3 for all three packages. No new dependency, error code or `ReadLimits` key; new MCP option `--max-cells`, new option `maxCells` of `writeTable` and `fromJSON`.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -811,6 +870,9 @@ Node.js doc/api/fs.md (v22.x, read 2026-10-31): `fsPromises.chmod(path, mode)` (
 ### F-NODE-15 Importing node:util prints the colour warning
 With both `NO_COLOR` (or `NODE_DISABLE_COLORS`) and `FORCE_COLOR=1` set, `node dist/cli.js --version` printed "Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set." although no colour function ran. `--trace-warnings` (Node.js 22.23.4, 2026-11-02) showed that the ESM `import … from 'node:util'` evaluates all exports of `util`, which loads `internal/util/colors` and `getColorDepth` and so `warnOnDeactivatedColors`. `createRequire(import.meta.url)('node:util')` followed by `parseArgs` and `styleText(…, { validateStream: false })` printed no warning; neither did ESM imports of `node:fs`, `node:path`, `node:url` or `node:zlib`. `module.createRequire(filename)`: https://github.com/nodejs/node/blob/v22.x/doc/api/module.md (added v12.2.0).
 
+### F-NODE-16 fsPromises.writeFile with a mode
+`fsPromises.writeFile(file, data, { flag: 'wx', mode: 0o600 })` and `fsPromises.open(file, 'wx', 0o600)` create the file with mode 0600 (with umask 022); `filehandle.writeFile(data)` and `filehandle.chmod(mode)` write and change the opened file. Checked by running them on Node.js 22.23.4 (2026-11-02): `stat().mode` printed `100600`, and `100640` after `filehandle.chmod(0o640)`.
+
 ### F-UNICODE-01 Display width in a terminal
 `EastAsianWidth-17.0.0.txt` (Unicode 17.0.0, dated 2025-07-24; sha256 ea7ce50f3444a050333448dffef1cadd9325af55cbb764b4a2280faf52170a33), read 2026-11-02 from github.com/unicode-org/unicodetools `unicodetools/data/ucd/17.0.0/EastAsianWidth.txt`, because www.unicode.org could not be reached from the development environment (proxy refusal). Its header: values `A`, `F`, `H`, `N`, `Na`, `W`; code points not listed are `N`; unassigned code points in U+3400..U+4DBF, U+4E00..U+9FFF, U+F900..U+FAFF and in planes 2 and 3 (U+20000..U+2FFFD, U+30000..U+3FFFD) default to `W`. The emoji modifiers U+1F3FB..U+1F3FF are `W`. Node.js 22.23.4 reports Unicode 17.0 (`process.versions.unicode`, ICU 78.3). Node.js counts terminal columns in `src/node_i18n.cc` `GetColumnWidth` (tag v22.23.4): `F` and `W` give 2; `A` (unless ambiguous-as-full-width is asked for) and `N` give 2 when the code point has `Emoji_Presentation`; otherwise 0 for general categories Cc, Cf, Me, Mn (except U+00AD) and for `Emoji_Modifier`, else 1; `GetStringWidth` counts each code point of an emoji sequence by default (`expand_emoji_sequence`), and `lib/internal/util/inspect.js` `getStringWidth` uses it for Node.js's own output. JavaScript regular expressions support `\p{Emoji_Presentation}`, `\p{Emoji_Modifier}` and the general categories, but not `\p{East_Asian_Width=…}` (checked in Node.js 22.23.4), so the W and F ranges are generated into `packages/xlvane/src/cli/east-asian-width.ts` by `scripts/gen-east-asian-width.mjs`.
 
@@ -831,6 +893,9 @@ github.com/npm/cli (tag v11.21.1) `lib/commands/trust/list.js`: `npm trust list 
 
 ### F-NPM-05 A trusted publisher needs an existing package
 github.com/npm/cli (branch `latest`) `docs/lib/content/commands/npm-trust.md`, Prerequisites: "**Package must exist**: The package you're configuring must already exist on the npm registry." npm/documentation `trusted-publishers.mdx` (main, read 2026-11-02) configures it in the settings of the package ("Navigate to your package settings on npmjs.com"). docs.npmjs.com could not be reached from the development environment.
+
+### F-NPM-06 npm view of a missing package or version
+`npm view xlvane@9.9.9 version` and `npm view @xlvane/definitely-missing-pkg name` exit with 1 and print `npm error code E404` on stderr, with npm 10.9.9 and with npm 11.21.1 (the version of the release workflow), checked 2026-11-02. Other failures (an outage, a rate limit) print another code, so `scripts/stage-publish.mjs` takes only E404 for "not on npm" (D-J01).
 
 ### F-GH-PAGES-01 GitHub Pages for an organization site
 github.com/github/docs (main, read 2026-11-02), `content/pages/getting-started-with-github-pages/what-is-github-pages.md`: user and organization sites "Must be stored in a repository named `<owner>.github.io`"; `configuring-a-publishing-source-for-your-github-pages-site.md`: "Deploy from a branch" with a branch and a folder (`/(root)` or `/docs`), and external tools that commit built files typically add a `.nojekyll` file so that no Jekyll build runs; `using-custom-workflows-with-github-pages.md`: a custom workflow uses `actions/upload-pages-artifact` and `actions/deploy-pages` with `pages: write` and `id-token: write` (not used by D-G01).
@@ -871,3 +936,6 @@ Specification (github.com/agentskills/agentskills `docs/specification.mdx`, main
 
 ### F-TOOL-11 Vitest execArgv
 Vitest 5 option `test.execArgv`: "Pass additional arguments to `node` process when spawning the worker" (default `[]`). Source: `node_modules/vitest/dist/chunks/plugin.d.C8mmycim.d.ts` (Vitest 5.0.5), checked 2026-10-30.
+
+### F-MCP-04 Size of one stdio message
+The stdio transports of the MCP TypeScript SDK 2.4.0 buffer at most `STDIO_DEFAULT_MAX_BUFFER_SIZE = 10 * 1024 * 1024` bytes of one message (the constant in the built `@modelcontextprotocol/client` 2.4.0 files under node_modules, checked 2026-11-02); the 1.2.2 penetration test saw the server close the connection and exit with code 0 after a larger message.

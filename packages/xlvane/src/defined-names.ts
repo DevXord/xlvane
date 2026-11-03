@@ -70,10 +70,11 @@ function invalidName(name: string, message: string, hint: string): XlvError {
 }
 
 /**
- * Checks a defined name given by a caller. `sheets` lists the workbook's sheet names, or is
- * `null` when the sheets are not known yet (the sheet is then checked later by the caller).
+ * Checks a defined name given by a caller. `sheets` holds the workbook's sheet names in sheet
+ * order, or is `null` when the sheets are not known yet (the sheet is then checked later by the
+ * caller).
  */
-export function checkDefinedName(name: unknown, refersTo: unknown, options: unknown, sheets: readonly string[] | null): NormalizedDefinedName {
+export function checkDefinedName(name: unknown, refersTo: unknown, options: unknown, sheets: ReadonlySet<string> | null): NormalizedDefinedName {
   if (typeof name !== 'string') throw invalidName(String(name), 'A defined name must be a string.', 'For example workbook.defineName("Rates", "Sheet1!$A$1:$A$10").');
   const example = 'Use letters, digits, "_", "." and "\\", starting with a letter, "_" or "\\", for example "Sales_2026".';
   if (name.length < 1 || name.length > MAX_NAME_LENGTH) {
@@ -133,23 +134,31 @@ export function checkDefinedName(name: unknown, refersTo: unknown, options: unkn
 }
 
 /** Throws `XLV_E_SHEET_NOT_FOUND` if the sheet of a local name does not exist. */
-export function checkNameSheet(name: string, sheet: string, sheets: readonly string[]): void {
-  if (sheets.includes(sheet)) return;
+export function checkNameSheet(name: string, sheet: string, sheets: ReadonlySet<string>): void {
+  if (sheets.has(sheet)) return;
   throw new XlvError('XLV_E_SHEET_NOT_FOUND', `The defined name "${name}" belongs to the sheet "${sheet.slice(0, 100)}", which the workbook does not have.`, {
     location: { sheet: sheet.slice(0, 100) },
-    hint: `Add the sheet first, or use one of: ${sheets.length > 0 ? sheets.map((s) => `"${s}"`).join(', ') : '(no sheets yet)'}.`,
+    hint: `Add the sheet first, or use one of: ${sheets.size > 0 ? [...sheets].map((s) => `"${s}"`).join(', ') : '(no sheets yet)'}.`,
     details: { name, available: [...sheets] },
   });
 }
 
 /**
- * Throws `XLV_E_INVALID_DEFINED_NAME` if `added` has the same name and scope as one of
- * `existing`. Names are not case-sensitive (P1 §18.17.2.5) and are unique per sheet for local
- * names and among workbook-level names otherwise ([MS-OI29500] §2.1.568 n).
+ * The key of a defined name in its scope: names are not case-sensitive (P1 §18.17.2.5) and are
+ * unique per sheet for local names and among workbook-level names otherwise ([MS-OI29500]
+ * §2.1.568 n). A name has no NUL character, so the last one separates the scope from the name.
  */
-export function checkUniqueName(added: NormalizedDefinedName, existing: readonly NormalizedDefinedName[]): void {
-  const key = added.name.toLowerCase();
-  const clash = existing.find((n) => n.sheet === added.sheet && n.name.toLowerCase() === key);
+export function nameScopeKey(n: NormalizedDefinedName): string {
+  return `${n.sheet === null ? 'w' : `s${n.sheet}`}\u0000${n.name.toLowerCase()}`;
+}
+
+/**
+ * Throws `XLV_E_INVALID_DEFINED_NAME` if `added` has the same name and scope as one of
+ * `existing`, which maps {@link nameScopeKey} to the first name with that key (D-H01: a map,
+ * not a search of every name for each one added).
+ */
+export function checkUniqueName(added: NormalizedDefinedName, existing: ReadonlyMap<string, NormalizedDefinedName>): void {
+  const clash = existing.get(nameScopeKey(added));
   if (clash === undefined) return;
   throw invalidName(
     added.name,

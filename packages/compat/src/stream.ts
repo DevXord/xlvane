@@ -38,7 +38,7 @@ import { Dimensions } from './range';
 import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import type { Image } from './compat-types';
-import { Workbook } from './workbook';
+import { collectInput, Workbook } from './workbook';
 
 /**
  * An unbounded async queue: producers push synchronously, the stream pulls. Items are taken by
@@ -446,7 +446,7 @@ export class WorkbookWriter {
   /** Adds a worksheet. Sheets are written in the order their first rows are committed. */
   addWorksheet(name?: string, options?: WorksheetOptions): WorksheetWriter {
     const sheet = new WorksheetWriter(this, this.nextId++, name, options);
-    this._book._sheets[sheet.id] = sheet;
+    this._book._putSheet(sheet);
     this.open.push(sheet);
     return sheet;
   }
@@ -731,8 +731,7 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
       return openWorkbookStreamFile(input);
     }
     if (input instanceof Uint8Array || input instanceof ArrayBuffer) return openWorkbookStream(input);
-    const chunks: Uint8Array[] = [];
-    for await (const c of input) chunks.push(c);
+    const { chunks } = await collectInput(input, 'stream.xlsx.WorkbookReader');
     return openWorkbookStream(new Blob(chunks as BlobPart[]));
   }
 
@@ -749,7 +748,8 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
       if (info.kind !== 'worksheet') continue;
       id++;
       if (this.options.entries === 'emit') this.emit('entry', { type: 'worksheet', id: String(id) });
-      const sheet = host.addWorksheet(info.name, { state: info.state });
+      // A name exceljs refuses gives an XlvError, as in xlsx.load.
+      const sheet = host._addReadWorksheet(host.nextId, info.name, { state: info.state });
       const name = info.name;
       const rows = async function* (): AsyncGenerator<Row> {
         for await (const r of book.rows(name)) {

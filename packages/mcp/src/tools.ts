@@ -31,6 +31,8 @@ export interface ToolLimits {
   readonly maxRows: number;
   /** Largest result, in characters of its JSON text (D-I02). */
   readonly maxResponseChars: number;
+  /** The `maxCells` read limit of every workbook read (D-J01). */
+  readonly maxCells: number;
 }
 
 /** Problems `validate` lists; `problemsTotal` counts all of them (D-I02). */
@@ -110,13 +112,37 @@ function handler(maxChars: number, run: (args: Args) => Promise<Json>): (args: u
   };
 }
 
-async function book(roots: Roots, path: string): Promise<Workbook> {
+async function book(roots: Roots, limits: ToolLimits, path: string): Promise<Workbook> {
   const bytes = await readAllowed(roots, path);
   try {
-    return readWorkbook(bytes);
+    return readWorkbook(bytes, { limits: { maxCells: limits.maxCells } });
   } catch (error) {
     throw withPath(error, path);
   }
+}
+
+/**
+ * `JSON.stringify(rows, null, 2)` plus a line feed, built row by row: every row repeats the header
+ * names, so a small file can make a text far larger than the file limit, or than a string can be.
+ * The text stops as soon as it is longer than `maxChars` characters, before encoding (D-J01).
+ */
+function jsonText(rows: readonly unknown[], maxChars: number, path: string): string {
+  if (rows.length === 0) return '[]\n';
+  const parts = ['['];
+  let length = 1;
+  for (let i = 0; i < rows.length; i++) {
+    const part = `${i === 0 ? '' : ','}\n  ${JSON.stringify(rows[i], null, 2).replace(/\n/g, '\n  ')}`;
+    length += part.length;
+    if (length > maxChars) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The JSON text would be longer than the server's limit of ${String(maxChars)} bytes.`, {
+        hint: 'Convert fewer rows or columns (sheet with a smaller table), or raise --max-file-size.',
+        details: { path, limit: 'maxFileBytes', value: maxChars },
+      });
+    }
+    parts.push(part);
+  }
+  parts.push('\n]\n');
+  return parts.join('');
 }
 
 function withPath(error: unknown, path: string): unknown {
@@ -174,7 +200,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       annotations: READ,
     },
     handler(limits.maxResponseChars, async (a) => {
-      const workbook = await book(roots, a['path'] as string);
+      const workbook = await book(roots, limits, a['path'] as string);
       const report = inspect(workbook);
       if (typeof a['sheet'] !== 'string') return report as unknown as Json;
       const sheet = workbook.getSheet(a['sheet']);
@@ -201,7 +227,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       annotations: READ,
     },
     handler(limits.maxResponseChars, async (a) => {
-      const workbook = await book(roots, a['path'] as string);
+      const workbook = await book(roots, limits, a['path'] as string);
       const table = readTable(workbook, {
         ...(typeof a['sheet'] === 'string' ? { sheet: a['sheet'] } : {}),
         ...(typeof a['range'] === 'string' ? { range: a['range'] } : {}),
@@ -262,8 +288,8 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       annotations: READ,
     },
     handler(limits.maxResponseChars, async (a) => {
-      const before = await book(roots, a['before'] as string);
-      const after = await book(roots, a['after'] as string);
+      const before = await book(roots, limits, a['before'] as string);
+      const after = await book(roots, limits, a['after'] as string);
       const r = diff(before, after, { styles: a['styles'] === true });
       const max = (a['maxChanges'] as number | undefined) ?? 200;
       return { ...r, sheets: r.sheets.map((s) => ({ ...s, cells: s.cells.slice(0, max), listed: Math.min(max, s.cells.length), total: s.cells.length })) };
@@ -293,7 +319,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       annotations: READ,
     },
     handler(limits.maxResponseChars, async (a) => {
-      const workbook = await book(roots, a['path'] as string);
+      const workbook = await book(roots, limits, a['path'] as string);
       const warnings = inspect(workbook).warnings;
       const rules = (a['columns'] as { name: string; type?: string; optional?: boolean }[] | undefined) ?? [];
       const names = new Set<string>();
@@ -417,13 +443,17 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       const warnings: XlvWarning[] = [];
       try {
         if (edits.length > 0) {
-          const r = editCells(bytes, edits.map((e): CellEdit => ({ sheet: e.sheet, cell: e.cell.toUpperCase(), value: cellInput(e.value) })));
+          const r = editCells(
+            bytes,
+            edits.map((e): CellEdit => ({ sheet: e.sheet, cell: e.cell.toUpperCase(), value: cellInput(e.value) })),
+            { limits: { maxCells: limits.maxCells } },
+          );
           bytes = r.bytes;
           warnings.push(...r.warnings);
         }
         if (append) {
           const rows = append.rows.map((r) => (Array.isArray(r) ? r.map(cellInput) : Object.fromEntries(Object.entries(r as Json).map(([k, v]) => [k, cellInput(v)]))));
-          const r = appendRows(bytes, append.sheet, rows as never, append.header !== undefined ? { header: append.header } : undefined);
+          const r = appendRows(bytes, append.sheet, rows as never, { limits: { maxCells: limits.maxCells }, ...(append.header !== undefined ? { header: append.header } : {}) });
           bytes = r.bytes;
           warnings.push(...r.warnings);
         }
@@ -464,8 +494,8 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       const sheet = typeof a['sheet'] === 'string' ? { sheet: a['sheet'] } : {};
       let data: Uint8Array | string;
       if (books.includes(from) && tables.includes(to)) {
-        const workbook = await book(roots, input);
-        data = to === 'json' ? `${JSON.stringify(toJSON(workbook, sheet).rows, null, 2)}\n` : toCSV(workbook, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (to === 'tsv' ? '\t' : ',') });
+        const workbook = await book(roots, limits, input);
+        data = to === 'json' ? jsonText(toJSON(workbook, sheet).rows, roots.maxFileBytes, output) : toCSV(workbook, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (to === 'tsv' ? '\t' : ',') });
       } else if (tables.includes(from) && to === 'xlsx') {
         let text: string;
         try {
@@ -475,7 +505,10 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
           throw new XlvError('XLV_E_INVALID_INPUT', `"${input}" is not valid UTF-8 text.`, { hint: 'Save the CSV or JSON file as UTF-8 and convert it again.', details: { path: input } });
         }
         try {
-          data = from === 'json' ? fromJSON(text, { ...sheet, preset: 'plain' }) : fromCSV(text, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (from === 'tsv' ? '\t' : ',') });
+          data =
+            from === 'json'
+              ? fromJSON(text, { ...sheet, preset: 'plain', maxCells: limits.maxCells })
+              : fromCSV(text, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (from === 'tsv' ? '\t' : ','), maxCells: limits.maxCells });
         } catch (error) {
           throw withPath(error, input);
         }

@@ -3,7 +3,7 @@
 // Options and output follow exceljs and fast-csv 4.3; xlvane escapes formula-like text by default
 // (OWASP CSV Injection, docs/facts/csv.md CSV-10) and fixes a few exceljs bugs, listed in
 // docs/exceljs-compat.md.
-import { XlvError } from 'xlvane';
+import { DEFAULT_READ_LIMITS, XlvError } from 'xlvane';
 import type { Worksheet } from './model';
 import type { CellValue } from './types';
 import type { Workbook } from './workbook';
@@ -79,6 +79,8 @@ const SPECIAL_VALUES: ReadonlyMap<string, unknown> = new Map<string, unknown>(Ob
 const DEFAULT_DATE_FORMATS = ['YYYY-MM-DD[T]HH:mm:ssZ', 'YYYY-MM-DD[T]HH:mm:ss', 'MM-DD-YYYY', 'YYYY-MM-DD'];
 // docs/facts/csv.md CSV-10 (OWASP CSV Injection).
 // The xlvane core's set (CSV-10, CSV-12); text starting with another C0 control is escaped too.
+/** Signs that start a formula: refused as the first character of the delimiter while formulas are escaped (D-J01). */
+const FORMULA_SIGNS = new Set(['=', '+', '-', '@', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
 const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
 
 function invalid(name: string, message: string, hint: string): XlvError {
@@ -185,7 +187,10 @@ export function formatDate(date: Date, format: string | undefined, utc: boolean)
 // expression of each token. Characters that are no token are not in the list at all, as
 // `String.match` with these tokens drops them (X4-23, D-E06).
 const PARSE_TOKENS = /(\[[^[]*\])|([-_:/.,()\s]+)|(A|a|Q|YYYY|YY?|ww?|MM?M?M?|Do|DD?|hh?|HH?|mm?|ss?|S{1,3}|z|ZZ?)/g;
-const WORD = /\d*[^-_:/,()\s\d]+/;
+// The leftmost match of dayjs's /\d*[^-_:/,()\s\d]+/ never starts right after a digit (the match
+// one position earlier would be found first), so the lookbehind gives the same matches without
+// trying every position of a long run of digits again (quadratic before; D-J01).
+const WORD = /(?<!\d)\d*[^-_:/,()\s\d]+/;
 const ONE_OR_TWO = /\d\d?/;
 const PARSE_EXPRESSIONS: Record<string, RegExp> = {
   A: WORD,
@@ -594,16 +599,56 @@ function defaultWriteMap(dateFormat: string | undefined, dateUTC: boolean) {
  *
  * @internal
  */
-export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOptions): string {
+export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOptions, latin1 = false): string {
   const f = formatterOptions(options.formatterOptions);
   const injection = options.formulaInjection ?? 'escape';
   if (injection !== 'escape' && injection !== 'off') throw invalid('formulaInjection', 'The option "formulaInjection" must be "escape" or "off".', 'Use "escape" (default) or "off".');
+  if (latin1) {
+    // latin1 keeps only the low byte of each character, so U+013D would become "=" and U+010A a
+    // line feed after the fields were checked and quoted (D-J01).
+    for (const [name, value] of [['delimiter', f.delimiter], ['rowDelimiter', f.rowDelimiter], ['quote', f.quote], ['escape', f.escapedQuote]] as const) {
+      if (/[^\u0000-\u00ff]/.test(value)) throw invalid(name, `The option "${name}" has a character that latin1 cannot write.`, 'Use characters up to U+00FF with encoding "latin1", or write UTF-8.');
+    }
+  }
+  if (injection === 'escape') {
+    // Ways around the escape that a standard (RFC 4180) reader would split differently (D-J01):
+    // formula signs or controls in the delimiter (a line with an empty first field starts with
+    // it), a row delimiter other than a line break, and a quote other than '"', which such a
+    // reader does not take as quoting, so line breaks and delimiters in a value split it.
+    const off = 'or pass formulaInjection: "off" for a trusted consumer.';
+    if (f.delimiter !== '\t' && [...f.delimiter].some((c) => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20)) {
+      throw invalid('delimiter', `The delimiter ${JSON.stringify(f.delimiter)} holds a formula sign or a control character, so a line could start with a formula.`, `Use "," (default), ";", "|" or "\\t", ${off}`);
+    }
+    if (!['\n', '\r\n', '\r'].includes(f.rowDelimiter)) {
+      throw invalid('rowDelimiter', `The row delimiter ${JSON.stringify(f.rowDelimiter)} is not a line break, so a standard CSV reader would not split rows where it is written.`, `Use "\\n" (default), "\\r\\n" or "\\r", ${off}`);
+    }
+    if (f.quote !== '' && f.quote !== '"') {
+      throw invalid('quote', `The quote ${JSON.stringify(f.quote)} is not '"', so a standard CSV reader would split a value that holds a line break or the delimiter.`, `Leave formatterOptions.quote at its default ("), or use quote: false, ${off}`);
+    }
+    if (f.quote !== '' && f.escapedQuote !== `${f.quote}${f.quote}`) {
+      throw invalid('escape', 'An escape character other than the quote lets a standard CSV reader end a quoted field early, so a value could start a new field with a formula.', 'Leave formatterOptions.escape unset (the quote is doubled), or pass formulaInjection: "off" for a trusted consumer.');
+    }
+  }
+  /** The text latin1 will write: characters above U+00FF as "?". */
+  const narrow = (out: unknown): unknown => (latin1 && typeof out === 'string' ? out.replace(/[^\u0000-\u00ff]/g, '?') : out);
+  /** A formatted field, refused if a standard reader would take its leading quote as quoting. */
+  const field = (out: unknown, index: number, force: boolean): string => {
+    const text = formatField(out, index, f, force);
+    if (injection === 'escape' && f.quote !== '"' && text.startsWith('"')) {
+      throw new XlvError('XLV_E_INVALID_OPTION', `Field ${String(index + 1)} starts with a double quote, which a standard CSV reader takes as quoting when formatterOptions.quote is not '"'.`, {
+        hint: 'Leave formatterOptions.quote at its default ("), or pass formulaInjection: "off" for a trusted consumer.',
+        details: { option: 'quote', field: index + 1 },
+      });
+    }
+    return text;
+  };
   const map = options.map ?? defaultWriteMap(options.dateFormat, options.dateUTC === true);
   const includeEmptyRows = options.includeEmptyRows === undefined || options.includeEmptyRows;
   const lines: string[] = [];
   // NUL characters are removed from fields (formatField), so the check looks past them: "\0=cmd"
   // is written as "=cmd" and must be escaped too (D-R01).
-  const escape = (out: unknown): [unknown, boolean] => {
+  const escape = (raw: unknown): [unknown, boolean] => {
+    const out = narrow(raw);
     if (injection !== 'escape' || typeof out !== 'string') return [out, false];
     const first = out.replace(/\0/g, '')[0];
     return first !== undefined && (INJECTION_START.has(first) || first.charCodeAt(0) < 0x20) ? [`'${out}`, f.quote !== ''] : [out, false];
@@ -613,7 +658,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
       f.headers
         .map((h, i) => {
           const [out, force] = escape(h);
-          return formatField(out, i, f, force);
+          return field(out, i, force);
         })
         .join(f.delimiter),
     );
@@ -635,7 +680,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
           continue;
         }
         const [out, force] = escape(map(values[i], i));
-        fields.push(formatField(out, i, f, force));
+        fields.push(field(out, i, force));
       }
       lines.push(fields.join(f.delimiter));
       lastRow = rowNumber;
@@ -682,11 +727,28 @@ function decoderFor(encoding: string): TextDecoder {
 async function readText(stream: unknown, encoding: string): Promise<string> {
   const decoder = decoderFor(encoding);
   let text = '';
+  let size = 0;
+  // The input is collected before parsing, so it is limited while it arrives (D-J01).
+  const count = (n: number): void => {
+    size += n;
+    if (size > DEFAULT_READ_LIMITS.maxInputBytes) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The CSV input is larger than ${String(DEFAULT_READ_LIMITS.maxInputBytes)} bytes.`, {
+        hint: 'Split the CSV file, or read it with the core fromCSV in parts.',
+        details: { limit: 'maxInputBytes', value: DEFAULT_READ_LIMITS.maxInputBytes },
+      });
+    }
+  };
   const add = (chunk: unknown): void => {
-    if (typeof chunk === 'string') text += chunk;
-    else if (chunk instanceof Uint8Array) text += decoder.decode(chunk, { stream: true });
-    else if (chunk instanceof ArrayBuffer) text += decoder.decode(new Uint8Array(chunk), { stream: true });
-    else throw new XlvError('XLV_E_INVALID_INPUT', 'workbook.csv.read() got a stream chunk that is neither text nor bytes.', { hint: 'Pass a stream of strings, Buffers or Uint8Arrays.' });
+    if (typeof chunk === 'string') {
+      count(chunk.length);
+      text += chunk;
+    } else if (chunk instanceof Uint8Array) {
+      count(chunk.length);
+      text += decoder.decode(chunk, { stream: true });
+    } else if (chunk instanceof ArrayBuffer) {
+      count(chunk.byteLength);
+      text += decoder.decode(new Uint8Array(chunk), { stream: true });
+    } else throw new XlvError('XLV_E_INVALID_INPUT', 'workbook.csv.read() got a stream chunk that is neither text nor bytes.', { hint: 'Pass a stream of strings, Buffers or Uint8Arrays.' });
   };
   const s = stream as { [Symbol.asyncIterator]?: unknown; [Symbol.iterator]?: unknown; getReader?: () => { read(): Promise<{ done: boolean; value?: unknown }>; releaseLock(): void } };
   if (typeof stream === 'string') add(stream);
@@ -832,7 +894,8 @@ export class CsvIO {
 
   /** Writes a worksheet to a CSV file (Node.js, Bun, Deno), replacing it. */
   async writeFile(path: string, options: CsvWriteOptions = {}): Promise<void> {
-    const bytes = encode(this.text(options), options.encoding);
+    const e = (options.encoding ?? '').toLowerCase();
+    const bytes = encode(this.text(options, e === 'latin1' || e === 'binary'), options.encoding);
     const fs = await nodeFs('writeFile');
     try {
       await fs.writeFile(path, bytes);
@@ -854,7 +917,7 @@ export class CsvIO {
     );
   }
 
-  private text(options: CsvWriteOptions): string {
+  private text(options: CsvWriteOptions, latin1 = false): string {
     const key = options.sheetName || options.sheetId;
     const sheet = this.workbook.getWorksheet(key);
     if (key !== undefined && !sheet) {
@@ -865,6 +928,6 @@ export class CsvIO {
         details: { available: this.workbook.worksheets.map((w) => w.name) },
       });
     }
-    return worksheetCsv(sheet, options);
+    return worksheetCsv(sheet, options, latin1);
   }
 }

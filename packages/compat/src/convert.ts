@@ -341,25 +341,68 @@ export function sharedFormulaRanges(ws: Worksheet): Map<string, string> {
     const m = decodeAddress(master);
     return m.row === b.top && m.col === b.left;
   });
-  const overlaps = (a: Box, b: Box): boolean => a.top <= b.bottom && b.top <= a.bottom && a.left <= b.right && b.left <= a.right;
-  const bad = new Set<string>();
-  const sorted = [...groups].sort((x, y) => x[1].top - y[1].top);
-  for (let i = 0; i < sorted.length; i++) {
-    const [mi, bi] = sorted[i]!;
-    for (let j = i + 1; j < sorted.length && sorted[j]![1].top <= bi.bottom; j++) {
-      const [mj, bj] = sorted[j]!;
-      if (overlaps(bi, bj)) {
-        bad.add(mi);
-        bad.add(mj);
-      }
-    }
-    if (arrays.some((a) => overlaps(a, bi))) bad.add(mi);
-  }
+  // A group overlapping another group (it overlaps itself, hence the 1) or an array formula is
+  // left out. The overlaps are counted, not tested pair by pair, so that many groups and array
+  // formulas take O(n log n) time (security review J, C5).
+  const boxes = groups.map(([, b]) => b);
+  const withGroups = overlapCounts(boxes, boxes);
+  const withArrays = overlapCounts(boxes, arrays);
   const out = new Map<string, string>();
-  for (const [master, b] of groups) {
-    if (!bad.has(master)) out.set(master, `${columnLetter(b.left)}${String(b.top)}:${columnLetter(b.right)}${String(b.bottom)}`);
-  }
+  groups.forEach(([master, b], i) => {
+    if (withGroups[i] === 1 && withArrays[i] === 0) out.set(master, `${columnLetter(b.left)}${String(b.top)}:${columnLetter(b.right)}${String(b.bottom)}`);
+  });
   return out;
+}
+
+type Rect = { readonly top: number; readonly left: number; readonly bottom: number; readonly right: number };
+
+/**
+ * For each box of `queries`, the number of boxes of `set` that share at least one cell with it.
+ * Two boxes share cells when their rows and their columns overlap. Among the boxes with
+ * `top <= q.bottom`, those with `bottom < q.top` are exactly the ones whose rows miss q's rows,
+ * so the count is (boxes with top <= q.bottom whose columns meet q's) - (boxes with
+ * bottom < q.top whose columns meet q's). Each term is found by a sweep over rows with two
+ * Fenwick trees of columns: the columns of a box meet [a, b] unless it ends before a or starts
+ * after b. Time O((queries + set) log(columns)).
+ */
+function overlapCounts(queries: readonly Rect[], set: readonly Rect[]): number[] {
+  const counts = new Array<number>(queries.length).fill(0);
+  if (queries.length === 0 || set.length === 0) return counts;
+  let width = 1;
+  for (const b of set) width = Math.max(width, b.right + 1);
+  for (const q of queries) width = Math.max(width, q.right + 1);
+  // Boxes of `set` added so far, in Fenwick trees indexed by left and by right column.
+  const sweep = (key: (b: Rect) => number, at: (q: Rect) => number, sign: number): void => {
+    const lefts = new Array<number>(width + 1).fill(0);
+    const rights = new Array<number>(width + 1).fill(0);
+    const add = (tree: number[], i: number): void => {
+      for (let k = Math.max(1, i); k <= width; k += k & -k) tree[k]! += 1;
+    };
+    const below = (tree: number[], i: number): number => {
+      let n = 0;
+      for (let k = Math.min(i, width); k > 0; k -= k & -k) n += tree[k]!;
+      return n;
+    };
+    const boxes = [...set].sort((x, y) => key(x) - key(y));
+    const order = queries.map((_, i) => i).sort((x, y) => at(queries[x]!) - at(queries[y]!));
+    let added = 0;
+    for (const i of order) {
+      const q = queries[i]!;
+      const t = at(q);
+      while (added < boxes.length && key(boxes[added]!) <= t) {
+        const b = boxes[added++]!;
+        add(lefts, b.left);
+        add(rights, b.right);
+      }
+      // Added boxes whose columns meet [q.left, q.right]: all but those ending before q.left
+      // and those starting after q.right.
+      const meet = added - below(rights, q.left - 1) - (added - below(lefts, q.right));
+      counts[i]! += sign * meet;
+    }
+  };
+  sweep((b) => b.top, (q) => q.bottom, 1);
+  sweep((b) => b.bottom, (q) => q.top - 1, -1);
+  return counts;
 }
 
 /** Converts a cell value for the writer; a `{ text, hyperlink }` value gives its text (the link is {@link linkIn}). */
@@ -590,6 +633,19 @@ function at<T>(sheet: string, cell: string | undefined, run: () => T): T {
   }
 }
 
+/** The 32-bit FNV-1a hash of bytes. */
+function fnv1a(bytes: Uint8Array): number {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < bytes.length; i++) h = Math.imul(h ^ bytes[i]!, 0x01000193);
+  return h >>> 0;
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+}
+
 /** Builds an xlvane workbook from the exceljs model (D-503). */
 export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, meta: WorkbookMeta = {}): NewWorkbook {
   const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}) });
@@ -599,6 +655,9 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   }
   const coreImages = new Map<number, number>();
   const coreBytes: Uint8Array[] = [];
+  // Core images by length and FNV-1a hash of their bytes: only images with the same key are
+  // compared byte by byte, so many different images take linear time (security review J, C7).
+  const coreByHash = new Map<string, number[]>();
   const imageId = (id: number): number => {
     let core = coreImages.get(id);
     if (core === undefined) {
@@ -609,10 +668,14 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       // Identical images under different ids become one core image, so a drawing has one
       // relationship per image file (exceljs writes one per use, X4-22).
       const bytes = imageBytes(image);
-      const same = coreBytes.findIndex((b) => b.length === bytes.length && b.every((x, i) => x === bytes[i]));
-      if (same === -1) {
+      const key = `${String(bytes.length)}:${String(fnv1a(bytes))}`;
+      const candidates = coreByHash.get(key) ?? [];
+      const same = candidates.find((c) => sameBytes(coreBytes[c]!, bytes));
+      if (same === undefined) {
         core = book.addImage(bytes);
         coreBytes[core] = bytes;
+        candidates.push(core);
+        coreByHash.set(key, candidates);
       } else core = same;
       coreImages.set(id, core);
     }

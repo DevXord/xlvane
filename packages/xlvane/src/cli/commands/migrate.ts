@@ -155,9 +155,25 @@ function jsonError(path: string, cause?: unknown): XlvError {
   return new XlvError('XLV_E_JSON_INVALID', `"${path}" is not a valid package.json.`, { hint: 'Fix the JSON syntax of package.json and run the command again.', details: { path }, cause });
 }
 
+async function isLink(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink();
+  } catch {
+    return false;
+  }
+}
+
 async function run(ctx: CommandContext) {
   const dir = ctx.args.positionals[0] ?? '.';
   const pkgPath = join(dir, 'package.json');
+  // A package.json that is a symbolic link is neither read nor replaced: migrate follows no links
+  // (D-H01), and --force would replace the link with a copy of the file it points to (D-J01).
+  if (await isLink(resolvePath(ctx, pkgPath))) {
+    throw new XlvError('XLV_E_FILE_READ', `"${pkgPath}" is a symbolic link; migrate does not follow links.`, {
+      hint: 'Run migrate in the directory that holds the real package.json.',
+      details: { path: pkgPath, code: 'ELOOP' },
+    });
+  }
   const text = await readText(ctx, pkgPath);
   let pkg: unknown;
   try {
@@ -236,7 +252,7 @@ async function run(ctx: CommandContext) {
       lines.push('  Details: docs/exceljs-compat.md. Unsupported calls throw XLV_E_NOT_SUPPORTED at run time.');
       lines.push('');
       if (write) lines.push(wroteLine(write));
-      else if (changes.length > 0) lines.push(`Nothing was written. Run "${commandLine(['migrate', ...(dir === '.' ? [] : [dir]), '--force'])}" to change package.json.`);
+      else if (changes.length > 0) lines.push(`Nothing was written. Run "${commandLine(dir.startsWith('-') ? ['migrate', '--force', '--', dir] : ['migrate', ...(dir === '.' ? [] : [dir]), '--force'])}" to change package.json.`);
       return lines.join('\n');
     },
   };

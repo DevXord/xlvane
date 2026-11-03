@@ -14,6 +14,7 @@
 // and namespaces follow Namespaces in XML 1.0.
 import { XlvError, type XlvDetails } from '../errors';
 import type { ReadLimits } from '../limits';
+import { clip } from '../util/clip';
 
 /** The limits the XML parser enforces. */
 export type XmlLimits = Pick<ReadLimits, 'maxXmlDepth' | 'maxXmlAttributes' | 'maxXmlNameLength' | 'maxXmlTextLength'>;
@@ -955,10 +956,10 @@ export function decodeXml(bytes: Uint8Array, part: string): string {
     const normalized = declared.toLowerCase();
     const ok = encoding === 'utf-8' ? normalized === 'utf-8' : normalized === 'utf-16' || normalized === encoding;
     if (!ok) {
-      throw new XlvError('XLV_E_XML_ENCODING', `The part declares encoding "${declared}", which is not supported.`, {
+      throw new XlvError('XLV_E_XML_ENCODING', `The part declares encoding "${clip(declared)}", which is not supported.`, {
         location: { part },
         hint: 'Office Open XML parts must be encoded in UTF-8 or UTF-16. Re-save the file in a spreadsheet application.',
-        details: { encoding: declared },
+        details: { encoding: clip(declared) },
       });
     }
   }

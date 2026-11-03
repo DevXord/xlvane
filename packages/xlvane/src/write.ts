@@ -1,6 +1,6 @@
 // Building new workbooks in memory and writing them as XLSX (docs/decisions.md D-201 … D-210).
 // Runtime-neutral: the result is a Uint8Array; `xlvane/node` adds `writeWorkbookFile`.
-import { checkDefinedName, checkUniqueName, type DefinedName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
+import { checkDefinedName, checkUniqueName, nameScopeKey, type DefinedName, type DefinedNameOptions, type NormalizedDefinedName } from './defined-names';
 import { normalizeProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvLocation } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
@@ -32,6 +32,7 @@ import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
 import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type NormalizedColor, type NormalizedStyle } from './style';
 import { normalizeTable, rangesOverlap, totalsFormula, type NormalizedTable, type TableInput } from './tables';
+import { RangeIndex } from './util/range-index';
 import { sheetNotFound } from './util/sheet-not-found';
 import { suggest } from './util/suggest';
 import { firstLoneSurrogate } from './xml/writer';
@@ -567,9 +568,14 @@ export class NewSheet {
   private readonly priorities = new Set<number>();
   /** @internal Protection, page setup, headers and footers, page breaks, print area and titles. */
   print: SheetPrintData = EMPTY_PRINT_DATA;
-  /** @internal Tables in the order they were added (TD-01). */
+  /** @internal Tables in the order they were added (TD-01); add them with {@link NewSheet.pushTable}. */
   readonly tableList: NormalizedTable[] = [];
   private count = 0;
+  // Indexes of mergeList and tableList for overlap checks, brought up to date on use (D-H01).
+  private readonly mergeIndex = new RangeIndex();
+  private mergesIndexed = 0;
+  private readonly tableIndex = new RangeIndex();
+  private tablesIndexed = 0;
 
   /** @internal Use {@link NewWorkbook.addSheet}. */
   constructor(
@@ -824,7 +830,8 @@ export class NewSheet {
   merge(range: string): this {
     const r = this.range(range);
     if (r.start.row === r.end.row && r.start.col === r.end.col) throw invalidRef(range, this.name, 'range of two or more cells', '"A1:C1"');
-    for (const m of this.mergeList) {
+    // The indexes find whether there is an overlap; the loops below name the first one, as before.
+    if (this.overlapsMerge(r)) for (const m of this.mergeList) {
       if (r.start.row <= m.end.row && m.start.row <= r.end.row && r.start.col <= m.end.col && m.start.col <= r.end.col) {
         const other = `${formatCellRef(m.start.row, m.start.col)}:${formatCellRef(m.end.row, m.end.col)}`;
         throw new XlvError('XLV_E_OVERLAPPING_MERGE', `The range ${range} overlaps the merged range ${other}.`, {
@@ -834,13 +841,31 @@ export class NewSheet {
         });
       }
     }
-    for (const t of this.tableList) {
+    if (this.overlapsTable(r)) for (const t of this.tableList) {
       if (r.start.row <= t.range.end.row && t.range.start.row <= r.end.row && r.start.col <= t.range.end.col && t.range.start.col <= r.end.col) {
         throw new XlvError('XLV_E_INVALID_TABLE', `The range ${range} overlaps table "${t.name}".`, { location: { sheet: this.name }, hint: 'Tables cannot contain merged cells; merge cells outside the table.', details: { name: t.name } });
       }
     }
     this.mergeList.push(r);
     return this;
+  }
+
+  /** @internal Whether `range` shares a cell with a merged range of the sheet. */
+  overlapsMerge(range: CellRange): boolean {
+    while (this.mergesIndexed < this.mergeList.length) this.mergeIndex.add(this.mergeList[this.mergesIndexed++]!);
+    return this.mergeIndex.overlaps(range);
+  }
+
+  /** @internal Whether `range` shares a cell with a table of the sheet. */
+  overlapsTable(range: CellRange): boolean {
+    while (this.tablesIndexed < this.tableList.length) this.tableIndex.add(this.tableList[this.tablesIndexed++]!.range);
+    return this.tableIndex.overlaps(range);
+  }
+
+  /** @internal Adds a table checked by {@link NewWorkbook.checkTable} to the sheet. */
+  pushTable(t: NormalizedTable): void {
+    this.tableList.push(t);
+    this.book.tableAdded(t);
   }
 
   /**
@@ -1272,7 +1297,7 @@ export class NewSheet {
         } else if (c.totalsRowLabel !== null) this.set(ref, c.totalsRowLabel);
       });
     }
-    this.tableList.push(t);
+    this.pushTable(t);
     return this;
   }
 
@@ -1654,6 +1679,20 @@ export class NewWorkbook {
   readonly properties: WorkbookProperties;
   private readonly list: NewSheet[] = [];
   private readonly names: NormalizedDefinedName[] = [];
+  // Lookups kept with list, names and the tables of the sheets (D-H01): adding n sheets, names
+  // or tables must not search all of them each time.
+  /** Sheets by lower-case name. */
+  private readonly sheetsByName = new Map<string, NewSheet>();
+  /** Sheet names as given, in sheet order. */
+  private readonly sheetNames = new Set<string>();
+  /** Sheets by the sheetId given to addSheet. */
+  private readonly sheetsById = new Map<number, NewSheet>();
+  /** Defined names by nameScopeKey. */
+  private readonly namesByScope = new Map<string, NormalizedDefinedName>();
+  /** Lower-case defined names, of any scope. */
+  private readonly lowerNames = new Set<string>();
+  /** Lower-case names and display names of the tables of all sheets. */
+  private readonly tableNames = new Set<string>();
   private readonly styleIds = new Map<string, number>();
   private readonly styleList: NormalizedStyle[] = [{}];
   /** @internal `workbookProtection`, set by {@link NewWorkbook.protect}. */
@@ -1779,7 +1818,7 @@ export class NewWorkbook {
     }
     const checked = checkSheetName(name);
     const lower = checked.toLowerCase();
-    const existing = this.list.find((s) => s.name.toLowerCase() === lower);
+    const existing = this.sheetsByName.get(lower);
     if (existing) {
       throw new XlvError('XLV_E_DUPLICATE_SHEET_NAME', `The workbook already has a sheet named "${existing.name}".`, {
         hint: 'Sheet names must be unique, ignoring upper and lower case. Choose another name.',
@@ -1792,12 +1831,15 @@ export class NewWorkbook {
       if (typeof id !== 'number' || !Number.isInteger(id) || id < 1 || id > MAX_SHEET_ID) {
         throw invalidOption(`The sheet option "sheetId" must be a whole number from 1 to ${String(MAX_SHEET_ID)}.`, 'For example { sheetId: 3 }, or leave it out to take the lowest unused id.', { name: checked });
       }
-      const owner = this.list.find((s) => s.sheetId === id);
+      const owner = this.sheetsById.get(id);
       if (owner) throw invalidOption(`Sheet "${owner.name}" already has the sheetId ${String(id)}.`, 'Sheet ids must be unique in the workbook. Give another id, or leave it out to take the lowest unused id.', { name: checked, existing: owner.name });
       sheetId = id;
     }
     const sheet = new NewSheet(checked, state, this, sheetId);
     this.list.push(sheet);
+    this.sheetsByName.set(lower, sheet);
+    this.sheetNames.add(checked);
+    if (sheetId !== null) this.sheetsById.set(sheetId, sheet);
     return sheet;
   }
 
@@ -1837,14 +1879,21 @@ export class NewWorkbook {
    * ```
    */
   defineName(name: string, refersTo: string, options?: DefinedNameOptions): this {
-    const n = checkDefinedName(name, refersTo, options, this.list.map((s) => s.name));
-    checkUniqueName(n, this.names);
-    const table = this.list.flatMap((s) => s.tableList).find((t) => t.name.toLowerCase() === n.name.toLowerCase() || t.displayName.toLowerCase() === n.name.toLowerCase());
-    if (table !== undefined) {
+    const n = checkDefinedName(name, refersTo, options, this.sheetNames);
+    checkUniqueName(n, this.namesByScope);
+    if (this.tableNames.has(n.name.toLowerCase())) {
       throw new XlvError('XLV_E_INVALID_DEFINED_NAME', `"${n.name}" is already the name of a table.`, { hint: 'Table names and defined names share one list in a workbook (ECMA-376 Part 1 §18.5.1.2); choose another name.', details: { name: n.name } });
     }
     this.names.push(n);
+    this.namesByScope.set(nameScopeKey(n), n);
+    this.lowerNames.add(n.name.toLowerCase());
     return this;
+  }
+
+  /** @internal Records the names of a table added to a sheet ({@link NewSheet.pushTable}). */
+  tableAdded(t: NormalizedTable): void {
+    this.tableNames.add(t.name.toLowerCase());
+    this.tableNames.add(t.displayName.toLowerCase());
   }
 
   /**
@@ -1854,18 +1903,20 @@ export class NewWorkbook {
   checkTable(t: NormalizedTable, sheet: NewSheet): void {
     const where = { sheet: sheet.name };
     const names = new Set([t.name.toLowerCase(), t.displayName.toLowerCase()]);
-    for (const other of this.list.flatMap((s) => s.tableList)) {
+    // The sets find whether there is a clash; the loops below name the first one, as before.
+    const clashes = (known: ReadonlySet<string>): boolean => [...names].some((name) => known.has(name));
+    if (clashes(this.tableNames)) for (const other of this.list.flatMap((s) => s.tableList)) {
       if (names.has(other.name.toLowerCase()) || names.has(other.displayName.toLowerCase())) {
         throw new XlvError('XLV_E_INVALID_TABLE', `The workbook already has a table named "${other.displayName}".`, { location: where, hint: 'Table names are unique in a workbook, ignoring case; choose another name, for example "Sales_2".', details: { name: t.name } });
       }
     }
-    for (const n of this.names) {
+    if (clashes(this.lowerNames)) for (const n of this.names) {
       if (names.has(n.name.toLowerCase())) {
         throw new XlvError('XLV_E_INVALID_TABLE', `"${n.name}" is already a defined name of the workbook.`, { location: where, hint: 'Table names and defined names share one list in a workbook (ECMA-376 Part 1 §18.5.1.2); choose another table name.', details: { name: t.name } });
       }
     }
     const ref = (r: CellRange): string => `${formatCellRef(r.start.row, r.start.col)}:${formatCellRef(r.end.row, r.end.col)}`;
-    for (const other of sheet.tableList) {
+    if (sheet.overlapsTable(t.range)) for (const other of sheet.tableList) {
       if (rangesOverlap(t.range, other.range)) {
         throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps table "${other.name}" (${ref(other.range)}).`, { location: where, hint: 'Tables must not share cells ([MS-OI29500] §2.1.680 h); move one of them.', details: { name: t.name } });
       }
@@ -1873,7 +1924,7 @@ export class NewWorkbook {
     if (sheet.filter !== null && rangesOverlap(t.range, sheet.filter)) {
       throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps the sheet filter ${ref(sheet.filter)}.`, { location: where, hint: 'A table has its own filter, and the sheet filter must not share cells with a table ([MS-OI29500] §2.1.680 h); remove the sheet filter (autoFilter(null)) or move the table.', details: { name: t.name } });
     }
-    for (const m of sheet.mergeList) {
+    if (sheet.overlapsMerge(t.range)) for (const m of sheet.mergeList) {
       if (rangesOverlap(t.range, m)) {
         throw new XlvError('XLV_E_INVALID_TABLE', `Table "${t.name}" (${ref(t.range)}) overlaps the merged range ${ref(m)}.`, { location: where, hint: 'Tables cannot contain merged cells; unmerge the range or move the table.', details: { name: t.name } });
       }

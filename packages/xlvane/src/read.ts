@@ -415,6 +415,14 @@ export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: 
   // The boxes that show the notes are VML shapes (Part 4 §19.4; W2-69). Header/footer VML parts
   // have the same relationship type but no Note shapes, so every VML part of the sheet is read.
   const seen = new Set<string>();
+  // The notes of each cell, so that each box is looked up once instead of every note once per
+  // VML part (D-H01). Refs can repeat; each note keeps the first box found for its cell.
+  const byRef = new Map<string, number[]>();
+  notes.forEach((note, i) => {
+    const list = byRef.get(note.ref);
+    if (list === undefined) byRef.set(note.ref, [i]);
+    else list.push(i);
+  });
   for (const vml of rels) {
     if (vml.external || classifyRelationship(vml.type)?.name !== 'vmlDrawing') continue;
     // Each VML part once, however many relationships name it (D-H01).
@@ -425,9 +433,8 @@ export function readNotes(pkg: OpcPackage, part: string, sheet: string, limits: 
     if (text === undefined) continue;
     const boxes = parseNoteBoxes(text, { part: vml.target, sheet, limits, warnings });
     if (boxes.size === 0) continue;
-    for (let i = 0; i < notes.length; i++) {
-      const box = boxes.get(notes[i]!.ref);
-      if (box !== undefined && notes[i]!.box === undefined) notes[i] = Object.freeze({ ...notes[i]!, box });
+    for (const [ref, box] of boxes) {
+      for (const i of byRef.get(ref) ?? []) if (notes[i]!.box === undefined) notes[i] = Object.freeze({ ...notes[i]!, box });
     }
   }
   return notes;

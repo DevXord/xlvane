@@ -95,9 +95,13 @@ Some limits also bound work derived from a small file (1.1.1, D-H01):
 
 - `maxCells` (`details.limit` `maxCells`, `details.value` the budget): `toCSV`, `readTable`, `toJSON`, `readTableStream`, `xlvane read` and `xlvane convert` write at most `max(maxCells, 16 × cells read)` positions (rows × columns of the output), so a few cells far apart cannot make them produce a value for every position between; `@xlvane/compat`'s `xlsx.load` creates at most as many cells for merged ranges, tables and column definitions, and looks up at most 64 Mi rows (or 16 per cell read) for row settings up to the sheets' dimensions. Pass a smaller `range`, or raise `maxCells` for a trusted file.
 - `maxXmlTextLength`: also the length of an XML comment or processing instruction.
-- `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the length of each sharing cell's formula, as moved to that cell.
+- `maxSharedStringChars`: also the text of shared formulas, counted apart from shared strings: the length of each sharing cell's formula, as moved to that cell. From 1.2.3 (D-J01) also the header names that `readTable`, `toJSON` and `readTableStream` repeat in every row object: the sum of the key lengths times the number of rows (a long header over many rows would otherwise make JSON text far larger than the file); `readTableStream` counts one row at a time.
 
-The MCP server (`@xlvane/mcp`) returns it as a tool error for a file larger than `--max-file-size` (`details.limit` `maxFileBytes`) and for a result longer than `--max-response-chars` (`details.limit` `maxResponseChars`; `read_table` instead returns the rows that fit).
+From 1.2.3 (D-J01):
+
+- `maxCells`: `fromCSV`, `fromJSON` and `writeTable` write at most `max(maxCells, 16 × cells written)` positions (rows × columns), so one very wide row followed by many short ones cannot make them visit every position; each takes a `maxCells` option (default 5 000 000). While streaming, one `<row>` element may hold at most 16 384 cells (`details.value` 16384), the most a row can have, because its cells are held until the element ends. `@xlvane/compat` `xlsx.load` also counts the cells of defined names against its budget, and its `xlsx.read`, `csv.read` and `stream.xlsx.WorkbookReader` stop collecting a stream after `maxInputBytes` (256 MiB; `details.limit` `maxInputBytes`).
+
+The MCP server (`@xlvane/mcp`) returns it as a tool error for a file larger than `--max-file-size` (`details.limit` `maxFileBytes`; `convert` to JSON stops building the text at that size), for a workbook with more cells than `--max-cells` (`details.limit` `maxCells`) and for a result longer than `--max-response-chars` (`details.limit` `maxResponseChars`; `read_table` instead returns the rows that fit). `xlvane convert` to JSON returns it when the text would be longer than a JavaScript string can be.
 
 `fromCSV` (and `xlvane convert`/`create` with CSV input) throws it for text with more fields than `maxCells` (default 5 000 000, `details.limit` `maxCells`), more than 16 384 fields on a line or more than 1 048 576 lines.
 

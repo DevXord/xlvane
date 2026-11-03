@@ -8,6 +8,7 @@
 import { XlvError, type XlvDetails } from '../errors';
 import type { ReadLimits } from '../limits';
 import { CONTENT_TYPES_NS, PACKAGE_REL_NS } from '../sml/namespaces';
+import { clip } from '../util/clip';
 import { decodeXml } from '../xml/parser';
 import { parseXmlTree, type XmlElement } from '../xml/tree';
 import type { ZipEntry, ZipReader } from '../zip/reader';
@@ -56,17 +57,11 @@ const CONTENT_TYPES_LOCATION = '/[Content_Types].xml';
 /** Media type of Relationships parts (Part 2 §6.5.2.1, F-OPC-07). */
 const RELATIONSHIPS_CONTENT_TYPE = 'application/vnd.openxmlformats-package.relationships+xml';
 const PACKAGE_RELATIONSHIPS = '/_rels/.rels';
-const MAX_SHOWN = 200;
 
 const INVALID_HINT =
   'The package structure is damaged or was written by a program that does not follow ECMA-376 Part 2. Re-save the file in a spreadsheet application; if a program generated it, report the problem to its authors.';
 
 const EMPTY: readonly Relationship[] = Object.freeze([]);
-
-/** Shortens a value from the file for messages and details. */
-function clip(value: string): string {
-  return value.length > MAX_SHOWN ? `${value.slice(0, MAX_SHOWN)}…` : value;
-}
 
 function invalid(part: string, message: string, reason: string, extra: XlvDetails = {}): XlvError {
   return new XlvError('XLV_E_PART_INVALID', message, {

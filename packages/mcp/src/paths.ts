@@ -2,7 +2,7 @@
 // directories given at start (--root), after symbolic links are resolved (docs/decisions.md D-703,
 // D-I02, D-I04).
 import { constants } from 'node:fs';
-import { chmod, lstat, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, open, readlink, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
 import { XlvError } from 'xlvane';
 
@@ -55,6 +55,64 @@ function inside(roots: Roots, real: string): boolean {
   return within(roots.dirs, real);
 }
 
+/**
+ * The real path of `target`. When it cannot be resolved (it does not exist, or a file stands where
+ * a directory should), the nearest ancestor that exists is resolved instead: if that leads outside
+ * the roots, the path is refused as outside, so the answer does not depend on what exists behind a
+ * symbolic link inside a root (D-J01). Otherwise `onMissing` gives the error for the missing path.
+ */
+async function realInside(roots: Roots, path: string, target: string, onMissing: (error: unknown) => XlvError): Promise<string> {
+  let real: string;
+  try {
+    real = await realpath(target);
+  } catch (error) {
+    if (await leadsOutside(roots, target, 0)) throw notAllowed(roots, path, '');
+    throw onMissing(error);
+  }
+  if (!inside(roots, real)) throw notAllowed(roots, path, '');
+  return real;
+}
+
+/**
+ * Whether a path that does not resolve would lead outside the roots: its nearest existing
+ * ancestor is found with `lstat`; a symbolic link there (also one whose target is missing) is
+ * followed by its text, anything else by its real path, and the rest of the path is added.
+ */
+async function leadsOutside(roots: Roots, path: string, depth: number): Promise<boolean> {
+  // A chain of links longer than the system follows is refused like a path outside.
+  if (depth > 40) return true;
+  let ancestor = path;
+  const rest: string[] = [];
+  for (;;) {
+    let info;
+    try {
+      info = await lstat(ancestor);
+    } catch {
+      const parent = dirname(ancestor);
+      if (parent === ancestor) return false;
+      rest.unshift(basename(ancestor));
+      ancestor = parent;
+      continue;
+    }
+    if (info.isSymbolicLink()) {
+      let text: string;
+      try {
+        text = await readlink(ancestor);
+      } catch {
+        return true;
+      }
+      return leadsOutside(roots, join(resolve(dirname(ancestor), text), ...rest), depth + 1);
+    }
+    let real: string;
+    try {
+      real = await realpath(ancestor);
+    } catch {
+      return true;
+    }
+    return !inside(roots, join(real, ...rest));
+  }
+}
+
 function notAllowed(roots: Roots, path: string, why: string): XlvError {
   return new XlvError('XLV_E_PATH_NOT_ALLOWED', `"${path}" is outside the directories this server may use${why}.`, {
     hint: `Use a path inside ${roots.dirs.map((d) => `"${d}"`).join(' or ')}. Relative paths are resolved against the first one.`,
@@ -100,19 +158,17 @@ export function readAllowed(roots: Roots, path: string): Promise<Uint8Array> {
  */
 export async function readAllowedWith(roots: Roots, path: string, hooks: ReadHooks): Promise<Uint8Array> {
   const target = absolute(roots, path);
-  const resolveInside = async (): Promise<string> => {
-    let real: string;
-    try {
-      real = await realpath(target);
-    } catch (error) {
-      throw new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, {
-        hint: errorCode(error) === 'ENOENT' ? 'The file does not exist. Use inspect_workbook on a file that exists, or check the name.' : 'Check that the path points to a readable file.',
-        details: { path, code: errorCode(error) },
-      });
-    }
-    if (!inside(roots, real)) throw notAllowed(roots, path, real === target ? '' : ' (after following symbolic links)');
-    return real;
-  };
+  const resolveInside = (): Promise<string> =>
+    realInside(
+      roots,
+      path,
+      target,
+      (error) =>
+        new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, {
+          hint: errorCode(error) === 'ENOENT' ? 'The file does not exist. Use inspect_workbook on a file that exists, or check the name.' : 'Check that the path points to a readable file.',
+          details: { path, code: errorCode(error) },
+        }),
+    );
   const notAFile = (): XlvError => new XlvError('XLV_E_FILE_READ', `"${path}" is not a file.`, { hint: 'Pass the path of a file.', details: { path } });
   // Only regular files are opened: opening a FIFO or a device could block (D-I04).
   if (!(await stat(await resolveInside())).isFile()) throw notAFile();
@@ -179,13 +235,13 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
   const target = absolute(roots, path);
   const name = basename(target);
   if (name === '' || name === '.' || name === '..') throw new XlvError('XLV_E_INVALID_INPUT', `"${path}" is not a file name.`, { hint: 'Pass a path that ends in a file name.', details: { path } });
-  let dir: string;
-  try {
-    dir = await realpath(dirname(target));
-  } catch (error) {
-    throw new XlvError('XLV_E_FILE_WRITE', `The directory of "${path}" does not exist (${errorCode(error)}).`, { hint: 'Write into an existing directory inside the allowed roots.', details: { path, code: errorCode(error) } });
-  }
-  if (!inside(roots, dir)) throw notAllowed(roots, path, dir === dirname(target) ? '' : ' (after following symbolic links)');
+  const dir = await realInside(
+    roots,
+    path,
+    dirname(target),
+    (error) =>
+      new XlvError('XLV_E_FILE_WRITE', `The directory of "${path}" does not exist (${errorCode(error)}).`, { hint: 'Write into an existing directory inside the allowed roots.', details: { path, code: errorCode(error) } }),
+  );
   const file = join(dir, name);
   const bytes = typeof data === 'string' ? new TextEncoder().encode(data) : data;
   if (bytes.length > roots.maxFileBytes) {
@@ -229,9 +285,17 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
   const temp = join(dir, `.${name}.xlvane-${random}.tmp`);
   let created = false;
   try {
-    await writeFile(temp, bytes, { flag: 'wx' });
+    // Readable by the owner only until it has the permissions of the file it replaces; setuid,
+    // setgid and sticky bits are not carried over (D-J01).
+    const handle = await open(temp, 'wx', 0o600);
     created = true;
-    await chmod(temp, existing.mode & 0o7777);
+    try {
+      await handle.writeFile(bytes);
+      // Through the open handle, so a file swapped in for the temporary one is not changed (D-J01).
+      await handle.chmod(existing.mode & 0o777);
+    } finally {
+      await handle.close();
+    }
     await rename(temp, file);
   } catch (error) {
     if (created) await rm(temp, { force: true });

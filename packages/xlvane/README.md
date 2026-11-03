@@ -330,7 +330,7 @@ const stream = writeWorkbookStream({ sheets: [{ name: 'Data', rows: rows() }] })
 - Memory stays constant: the test suite reads and writes 50 000 and 400 000 rows and checks that the retained heap does not grow. It measured under 1 MB in both cases.
 - Streamed text is stored in the cells (inline strings) by default. Pass `sharedStrings: true` for a shared string table, which is smaller when values repeat but kept in memory until the end.
 - Rows come in file order. A shared formula whose master cell comes later in the file cannot be translated while streaming.
-- `maxCells` does not apply when streaming; single parts may decompress to 4 GiB (`STREAM_LIMIT_DEFAULTS`). All other limits apply.
+- `maxCells` does not apply when streaming, except that one `<row>` element may hold at most 16 384 cells; single parts may decompress to 4 GiB (`STREAM_LIMIT_DEFAULTS`). All other limits apply.
 - `readTableStream` differs from `readTable` in what it can see in advance: it detects the header row among the first rows it reads and fixes the columns there (the columns of the header row, or of the first rows without one), so a column that first appears further down is not part of the objects. `readTable` takes the columns of the whole sheet. For files that fit in memory, `readTable` gives the complete table.
 
 ## Benchmark
@@ -387,8 +387,8 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 | `maxXmlNameLength` | 1 024 | huge element or attribute names |
 | `maxXmlTextLength` | 8 Mi characters | huge text nodes, attribute values, comments or processing instructions |
 | `maxXmlTreeElements` | 1 000 000 | huge workbook, styles or relationship parts (elements plus attributes) |
-| `maxCells` | 5 000 000 | workbooks too large to hold in memory (measured: about 180 bytes per numeric cell, Node.js 26); also bounds the output of `toCSV`, `readTable`, `toJSON` and `readTableStream` to `max(maxCells, 16 × cells read)` positions |
-| `maxSharedStringChars` | 512 Mi characters | many cells pointing at one huge shared string (a few MB that become many GB when values are copied); counted separately, the same for cells sharing one huge formula |
+| `maxCells` | 5 000 000 | workbooks too large to hold in memory (measured: about 180 bytes per numeric cell, Node.js 26); also bounds the output of `toCSV`, `readTable`, `toJSON` and `readTableStream` to `max(maxCells, 16 × cells read)` positions, and of `fromCSV`, `fromJSON` and `writeTable` to `max(maxCells, 16 × cells written)` |
+| `maxSharedStringChars` | 512 Mi characters | many cells pointing at one huge shared string (a few MB that become many GB when values are copied); counted separately, the same for cells sharing one huge formula and for header names repeated in every row object of `readTable` and `toJSON` |
 
 ## Package size
 

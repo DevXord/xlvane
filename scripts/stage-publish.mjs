@@ -4,7 +4,8 @@
 // For each package: a version already on npm is skipped, so running the workflow again after a
 // failure finishes only what is missing; a package that does not exist on npm yet gets a warning,
 // because npm sets up a trusted publisher only for an existing package (F-NPM-05, D-I03); a failed
-// package does not stop the others, and the script fails at the end.
+// package does not stop the others, and the script fails at the end. Only E404 from `npm view`
+// counts as "not on npm"; any other error fails the package (D-J01).
 // XLV_STAGE_NPM (tests only): a script run with Node.js instead of npm.
 import { spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
@@ -19,6 +20,12 @@ const npm = (args, inherit = false) =>
     : spawnSync('npm', args, { cwd: root, encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe' });
 
 const failed = [];
+const notFound = (r) => /\bE404\b/.test(`${r.stdout ?? ''}${r.stderr ?? ''}`);
+const registryError = (name, r) => {
+  const code = /\bE\d{3}\b|\bE[A-Z]+\b/.exec(`${r.stdout ?? ''}${r.stderr ?? ''}`)?.[0] ?? `exit ${String(r.status)}`;
+  console.log(`::error::${name}: the npm registry could not be asked (${code}); the other packages were still tried.`);
+  failed.push(name);
+};
 for (const dir of PACKAGES) {
   const { name } = JSON.parse(readFileSync(`${root}/${dir}/package.json`, 'utf8'));
   const published = npm(['view', `${name}@${version}`, 'version']);
@@ -26,8 +33,16 @@ for (const dir of PACKAGES) {
     console.log(`${name} ${version} is already on npm; not staged again.`);
     continue;
   }
-  if (npm(['view', name, 'name']).status !== 0) {
-    console.log(`::warning::${name} is not on npm yet: publish its first version from your machine (docs/RELEASING.md).`);
+  // Only E404 means "not there": any other failure (an outage, a rate limit) must not be taken
+  // for a missing package, or the job would pass with nothing staged (D-J01).
+  if (published.status !== 0 && !notFound(published)) {
+    registryError(name, published);
+    continue;
+  }
+  const exists = npm(['view', name, 'name']);
+  if (exists.status !== 0) {
+    if (notFound(exists)) console.log(`::warning::${name} is not on npm yet: publish its first version from your machine (docs/RELEASING.md).`);
+    else registryError(name, exists);
     continue;
   }
   if (npm(['stage', 'publish', '-w', dir], true).status !== 0) {

@@ -8,7 +8,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-async function run(state: Record<string, 'published' | 'exists' | 'missing' | 'fails'>): Promise<{ status: number | null; calls: string[]; stdout: string }> {
+async function run(state: Record<string, 'published' | 'exists' | 'missing' | 'fails' | 'down'>): Promise<{ status: number | null; calls: string[]; stdout: string }> {
   const dir = await mkdtemp(join(tmpdir(), 'xlvane-stage-'));
   try {
     const log = join(dir, 'calls.txt');
@@ -22,7 +22,8 @@ const state = ${JSON.stringify(state)};
 if (args[0] === 'view') {
   const [name, version] = args[1].startsWith('@') ? ['@' + args[1].slice(1).split('@')[0], args[1].slice(1).split('@')[1]] : args[1].split('@');
   const s = state[name];
-  if (s === 'missing') process.exit(1);
+  if (s === 'missing') { console.error('npm error code E404'); process.exit(1); }
+  if (s === 'down') { console.error('npm error code E503'); process.exit(1); }
   if (version !== undefined) { if (s === 'published') console.log(version); process.exit(0); }
   console.log(name);
   process.exit(0);
@@ -64,6 +65,14 @@ describe('stage-publish', () => {
     expect(r.status).toBe(0);
     expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat']);
     expect(r.stdout).toContain('::warning::@xlvane/mcp is not on npm yet');
+  });
+
+  it('a registry error is not taken for a missing package: the package fails, the others are staged (D-J01)', async () => {
+    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'down', '@xlvane/mcp': 'exists' });
+    expect(r.status).toBe(1);
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/mcp']);
+    expect(r.stdout).toContain('::error::@xlvane/compat');
+    expect(r.stdout).not.toContain('::warning::');
   });
 
   it('a failed package does not stop the others, and the run fails at the end', async () => {
