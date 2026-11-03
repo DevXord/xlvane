@@ -913,6 +913,12 @@ After the fixes and the independent review of the patch (its six findings fixed 
 
 Version 1.3.0. No new dependency or error code.
 
+### D-K05 Release of 1.2.3 and 1.3.0 (2026-11-03)
+- 1.2.3 was published before 1.3.0 (F-NPM-07); both are on npm with provenance from `release.yml` at their tags (b346230 and d999e19), and both are in the MCP Registry.
+- The first v1.3.0 tag pointed at eda9ba9, the merge before the fixes of D-K04, because the local `main` was not updated before tagging; its run staged the three packages. The tag was deleted and set again on d999e19, and the stage of the first run was gone before the second run's packages were approved. RELEASING.md now says to update `main` and check the commit before tagging, and how to reject a staged version.
+- `@xlvane/compat` 1.3.0 failed twice with `TLOG_CREATE_ENTRY_ERROR` (409 "an equivalent entry already exists in the transparency log", after about 40 s) and was staged by the third run of the job. npm 11.21.1 signs provenance with a 5 s timeout and two retries (`sigstore/dist/config.js` L25-26) and does not fetch an existing entry on conflict (`fetchOnConflict: false`, L105; `@sigstore/sign/dist/witness/tlog/client.js` L34-56), so a slow first request that succeeds makes the retry fail. `scripts/stage-publish.mjs` now tries such a package again, up to three times 30 s apart; nothing is staged before the signature, so a new try cannot stage twice.
+- `npm stage list` without a package name answered "No staged packages found." for the versions staged by the workflow; with the name they were listed. The `mcp-publisher` login expired within about 40 minutes.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
