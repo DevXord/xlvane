@@ -132,6 +132,26 @@ describe.skipIf(!available && !required)('LibreOffice and charts', () => {
     }
   });
 
+  it('writes again a chart that LibreOffice re-saved with an unquoted cell-like sheet name (D-K01)', { timeout: 400_000 }, async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'xlvane-lo-chart-s1-'));
+    try {
+      const wb = createWorkbook();
+      wb.addSheet('S1').set('A1', 'n').set('A2', 1).set('A3', 2).addChart({ type: 'column', anchor: 'C2:H12', series: [{ name: "'S1'!A1", values: "'S1'!A2:A3" }] });
+      const file = join(dir, 's1.xlsx');
+      await writeFile(file, writeWorkbook(wb));
+      convert(dir, 'xlsx:Calc MS Excel 2007 XML', [file]);
+      const [chart] = readWorkbook(await readFile(join(dir, 'out', 's1.xlsx'))).getSheet('S1').charts;
+      const values = chart!.series[0]!.values!;
+      const name = chart!.series[0]!.name;
+      expect(values.replace(/'/g, '')).toBe('S1!$A$2:$A$3');
+      const again = createWorkbook();
+      again.addSheet('S1').set('A1', 'n').set('A2', 1).set('A3', 2).addChart({ type: 'column', anchor: 'C2:H12', series: [{ ...(name !== null && 'ref' in name ? { name: name.ref } : {}), values }] });
+      expect(readWorkbook(writeWorkbook(again)).getSheet('S1').charts[0]?.series[0]?.values).toBe("'S1'!$A$2:$A$3");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
   it('draws every chart type: the PNG of each has coloured pixels, the sheet without a chart none', { timeout: 400_000 }, async () => {
     const dir = await mkdtemp(join(tmpdir(), 'xlvane-lo-chart-png-'));
     try {

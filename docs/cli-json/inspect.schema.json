@@ -384,6 +384,9 @@
                             "type": "string"
                           }
                         },
+                        "typesTruncated": {
+                          "type": "boolean"
+                        },
                         "title": {
                           "anyOf": [
                             {
@@ -423,6 +426,7 @@
                       "required": [
                         "cell",
                         "types",
+                        "typesTruncated",
                         "title",
                         "seriesCount"
                       ],

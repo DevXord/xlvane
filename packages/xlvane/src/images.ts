@@ -460,10 +460,11 @@ export function checkImage(bytes: unknown): { bytes: Uint8Array; format: Written
 }
 
 /** Validates the options of `NewSheet.addImage` (the anchor is resolved when the sheet is written). */
-export function normalizeImage(image: number, count: number, anchor: unknown, options: unknown): StoredImage {
+export function normalizeImage(image: number, count: number, input: unknown, options: unknown): StoredImage {
   if (typeof image !== 'number' || !Number.isInteger(image) || image < 0 || image >= count) {
     throw invalid(`Image ${String(image).slice(0, 20)} was not added to this workbook.`, 'Pass the number that workbook.addImage(bytes) returned.', { image: String(image).slice(0, 20) });
   }
+  const anchor = copyAnchor(input);
   checkAnchor(anchor);
   let name: string | null = null;
   let description: string | null = null;
@@ -503,6 +504,19 @@ function position(p: unknown, what: string, kind: AnchorKind = 'picture'): { col
     }
   }
   throw invalid(`The picture ${what} is not a valid position.`, 'Use a cell such as "B2", or { col, row } with 0-based numbers (col below 16384, row below 1048576).', { option: what }, kind);
+}
+
+/**
+ * A copy of a position as given, taken when the picture or chart is added, so that later changes
+ * to the caller's objects do not change it (and cannot bypass {@link checkAnchor}). Objects are
+ * copied two levels deep (the anchor and its `from`, `to` and `size`); unknown keys are kept, so
+ * that `checkAnchor` refuses them as before.
+ */
+export function copyAnchor(anchor: unknown): unknown {
+  const copy = (value: unknown): unknown =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.freeze(Object.fromEntries(Object.keys(value).map((k) => [k, (value as Record<string, unknown>)[k]]))) : value;
+  if (typeof anchor !== 'object' || anchor === null || Array.isArray(anchor)) return anchor;
+  return Object.freeze(Object.fromEntries(Object.keys(anchor).map((k) => [k, copy((anchor as Record<string, unknown>)[k])])));
 }
 
 /** Checks the position of a picture (`XLV_E_INVALID_OPTION`) or a chart (`XLV_E_INVALID_CHART`). */

@@ -6,7 +6,7 @@ import { XlvError, type XlvLocation } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
 import { normalizeChart, type ChartInput, type NormalizedChart } from './charts';
-import { checkAnchor, checkImage, metricsOf, normalizeImage, resolveAnchor, resolveImage, type ImageAnchorInput, type ImageOptions, type WrittenImageFormat, type StoredImage } from './images';
+import { checkAnchor, checkImage, copyAnchor, metricsOf, normalizeImage, resolveAnchor, resolveImage, type ImageAnchorInput, type ImageOptions, type WrittenImageFormat, type StoredImage } from './images';
 import { MAX_AUTHOR_LENGTH, type NoteBox, type NoteInput } from './notes';
 import { MAX_DATA_VALIDATIONS, normalizeConditionalFormat, normalizeDataValidation, type ConditionalFormatRuleInput, type DataValidation, type DataValidationRule, type StoredConditionalFormat } from './sheet-rules';
 import {
@@ -1310,7 +1310,8 @@ export class NewSheet {
    * two corners `{ from, to }` (with `editAs`), or a corner and a size in pixels
    * (`{ from, size }`), see `ImageAnchorInput`. Fractional positions and pixel sizes use the
    * sheet's column widths and row heights at the time the workbook is written, at 96 pixels per
-   * inch (TD-33).
+   * inch (TD-33). The anchor is copied, so changing its object afterwards does not move the
+   * picture.
    *
    * @example
    * ```ts
@@ -1333,8 +1334,10 @@ export class NewSheet {
    * Each series gets an explicit colour from the default palette unless it has `color`, and the
    * file holds the current cell values of the ranges as caches, as Excel writes them
    * (docs/facts/charts.md CH-19, CH-21). The sheets named in the ranges must exist when the
-   * workbook is written. Charts are drawn above the sheet's pictures. Throws
-   * `XLV_E_INVALID_CHART`.
+   * workbook is written. Charts are drawn above the sheet's pictures. The caches of all charts
+   * of a workbook cover at most 4 000 000 cells (a limit of xlvane, checked when the workbook is
+   * written). The chart options and the anchor are copied, so changing the objects afterwards
+   * does not change the chart. Throws `XLV_E_INVALID_CHART`.
    *
    * @example
    * ```ts
@@ -1348,13 +1351,15 @@ export class NewSheet {
    */
   addChart(chart: ChartInput): this {
     const normalized = normalizeChart(chart, this.name);
+    // A copy, so that later changes to the caller's anchor object do not change the chart.
+    const anchor = copyAnchor((chart as { anchor?: unknown }).anchor);
     try {
-      checkAnchor((chart as { anchor?: unknown }).anchor, 'chart');
+      checkAnchor(anchor, 'chart');
     } catch (error) {
       if (error instanceof XlvError) throw new XlvError(error.code, error.message, { location: { sheet: this.name }, hint: error.hint, details: error.details });
       throw error;
     }
-    this.chartList.push({ anchor: chart.anchor, chart: normalized });
+    this.chartList.push({ anchor: anchor as ImageAnchorInput, chart: normalized });
     return this;
   }
 

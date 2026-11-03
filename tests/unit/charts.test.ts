@@ -426,12 +426,136 @@ describe('reading charts', () => {
     expect(sheet.chartCount).toBe(12);
     expect(sheet.charts).toHaveLength(10);
     expect(sheet.charts.slice(0, 2)).toEqual([
-      { cell: 'E2', types: ['column'], title: { text: 'Sales' }, seriesCount: 1 },
-      { cell: 'E22', types: ['line'], title: null, seriesCount: 1 },
+      { cell: 'E2', types: ['column'], typesTruncated: false, title: { text: 'Sales' }, seriesCount: 1 },
+      { cell: 'E22', types: ['line'], typesTruncated: false, title: null, seriesCount: 1 },
     ]);
     const edited = editCells(bytes, [{ sheet: 'Data', cell: 'A2', value: 'January' }]).bytes;
     expect(parts(edited)['xl/charts/chart1.xml']).toBe(parts(bytes)['xl/charts/chart1.xml']);
     expect(readWorkbook(edited).getSheet('Data').charts).toHaveLength(12);
     expectXlvError(() => insertRows(bytes, { sheet: 'Data', at: 2, count: 1 }), 'XLV_E_NOT_SUPPORTED');
+  });
+});
+
+describe('large charts (D-K01)', () => {
+  it('reads and edits a workbook with a 200 000-point scatter chart written by xlvane', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('D');
+    const n = 200_000;
+    for (let i = 1; i <= n; i++) s.set(`A${String(i)}`, i).set(`B${String(i)}`, i * 2);
+    s.addChart({ type: 'scatter', anchor: 'D2:K20', series: [{ categories: `D!A1:A${String(n)}`, values: `D!B1:B${String(n)}` }] });
+    const bytes = writeWorkbook(wb);
+    const back = readWorkbook(bytes);
+    expect(back.warnings).toEqual([]);
+    expect(back.getSheet('D').cell(`B${String(n)}`)?.value).toBe(n * 2);
+    expect(back.getSheet('D').charts[0]?.series).toEqual([{ type: 'scatter', name: null, categories: `D!$A$1:$A$${String(n)}`, values: `D!$B$1:$B$${String(n)}` }]);
+    const edited = editCells(bytes, [{ sheet: 'D', cell: 'C1', value: 1 }]);
+    expect(readWorkbook(edited.bytes).getSheet('D').charts).toHaveLength(1);
+    expect(inspect(back).sheets[0]?.chartCount).toBe(1);
+  }, 120_000);
+
+  it('refuses to write caches of more than 4 000 000 cells in one workbook', () => {
+    const wb = createWorkbook();
+    const s = wb.addSheet('D').set('A1', 1);
+    const full = { type: 'line', anchor: 'D2:K20', series: [{ categories: 'D!A1:A1048576', values: 'D!B1:B1048576' }] } as const;
+    s.addChart(full).addChart(full);
+    const error = expectXlvError(() => writeWorkbook(wb), 'XLV_E_INVALID_CHART', { option: 'series', limit: 4_000_000 });
+    expect(error.message).toContain('4194304');
+    expect(error.hint).toContain('writeWorkbookStream');
+    // At the limit the workbook is written; the streaming writer writes no caches and has no limit.
+    const ok = createWorkbook();
+    ok.addSheet('D').set('A1', 1).addChart({ type: 'line', anchor: 'D2:K20', series: [{ values: 'D!A1:A1000000' }, { values: 'D!B1:B1000000' }, { values: 'D!C1:C1000000' }, { values: 'D!D1:D1000000' }] });
+    expect(() => writeWorkbook(ok)).not.toThrow();
+  }, 120_000);
+});
+
+describe('chart input checks (review of phase K)', () => {
+  const sheet = (): NewSheet => dataSheet(createWorkbook().addSheet('Data'));
+  const ok = { type: 'column', anchor: 'E2:L18', series: [SALES] };
+
+  it('refuses holes and non-object entries in series', () => {
+    // eslint-disable-next-line no-sparse-arrays
+    for (const series of [new Array(3), [SALES, , SALES], [SALES, null], [SALES, 'Data!B2:B4']]) {
+      const error = expectXlvError(() => sheet().addChart({ ...ok, series } as never), 'XLV_E_INVALID_CHART', { option: 'series' });
+      expect(error.location.sheet).toBe('Data');
+    }
+  });
+
+  it('refuses legend: null and stacked: null', () => {
+    expectXlvError(() => sheet().addChart({ ...ok, legend: null } as never), 'XLV_E_INVALID_CHART', { option: 'legend' });
+    expectXlvError(() => sheet().addChart({ ...ok, stacked: null } as never), 'XLV_E_INVALID_CHART', { option: 'stacked' });
+    expect(() => sheet().addChart({ ...ok, legend: undefined, stacked: undefined } as never)).not.toThrow();
+  });
+
+  it('copies the anchor, so changing the caller objects later does not change the chart', () => {
+    const wb = createWorkbook();
+    const from = { col: 1, row: 1 };
+    const anchor = { from, to: 'D5' } as { from: unknown; to: unknown };
+    const size = { width: 100, height: 50 };
+    dataSheet(wb.addSheet('Data')).addChart({ ...ok, anchor } as ChartInput).addChart({ ...ok, anchor: { from: 'E2', size } } as ChartInput);
+    from.col = 7;
+    anchor.from = { col: -5, row: Number.NaN };
+    anchor.to = 'A1';
+    size.width = -1;
+    const charts = readWorkbook(writeWorkbook(wb)).getSheet('Data').charts;
+    expect(charts.map((c) => (c.anchor.type === 'absolute' ? null : c.anchor.from.cell))).toEqual(['B2', 'E2']);
+    expect(charts[0]!.anchor).toMatchObject({ type: 'twoCell', to: { cell: 'D5' } });
+    expect(charts[1]!.anchor).toMatchObject({ size: { width: 952500, height: 476250 } });
+  });
+
+  it('quotes sheet names of letters followed by digits, which can look like cells (CH-18, F2-11)', () => {
+    const wb = createWorkbook();
+    const names = ['XFE1', 'AAAA1', 'Sheet1', 'R2D2', 'Data_1'];
+    for (const name of names) dataSheet(wb.addSheet(name));
+    wb.addSheet('Charts').addChart({ type: 'line', anchor: 'A1:H10', series: names.map((n) => ({ values: `'${n}'!B2:B4` })) });
+    const xml = parts(writeWorkbook(wb))['xl/charts/chart1.xml']!;
+    expect([...xml.matchAll(/<c:f>([^<]*)<\/c:f>/g)].map((m) => m[1])).toEqual(["'XFE1'!$B$2:$B$4", "'AAAA1'!$B$2:$B$4", "'Sheet1'!$B$2:$B$4", 'R2D2!$B$2:$B$4', 'Data_1!$B$2:$B$4']);
+  });
+
+  it('accepts an unquoted cell-like sheet prefix that is exactly the name of a sheet, as LibreOffice writes it back', () => {
+    const wb = createWorkbook();
+    dataSheet(wb.addSheet('S1'));
+    dataSheet(wb.addSheet('R1C1'));
+    wb.addSheet('Charts').addChart({ type: 'column', anchor: 'A1:H10', series: [{ name: 'S1!$B$1', categories: 'S1!$A$2:$A$4', values: 'S1!$B$2:$B$4' }, { values: 'R1C1!B2:B4' }] });
+    const back = readWorkbook(writeWorkbook(wb)).getSheet('Charts').charts[0]!;
+    expect(back.series.map((s) => [s.name, s.categories, s.values])).toEqual([
+      [{ ref: "'S1'!$B$1" }, "'S1'!$A$2:$A$4", "'S1'!$B$2:$B$4"],
+      [null, null, "'R1C1'!$B$2:$B$4"],
+    ]);
+  });
+
+  it('says why an unquoted cell-like sheet prefix is refused', () => {
+    const wb = createWorkbook();
+    dataSheet(wb.addSheet('Data'));
+    wb.addSheet('Charts').addChart({ type: 'column', anchor: 'A1:H10', series: [{ values: 'S1!$B$2:$B$4' }] });
+    const error = expectXlvError(() => writeWorkbook(wb), 'XLV_E_INVALID_CHART');
+    expect(error.message).toContain('without quotes');
+    expect(error.message).toContain('"S1"');
+    expect(error.hint).toContain("'S1'!$B$2:$B$4");
+    // A sheet whose name differs in case is not the exact name.
+    const lower = createWorkbook();
+    dataSheet(lower.addSheet('s1'));
+    lower.addSheet('Charts').addChart({ type: 'column', anchor: 'A1:H10', series: [{ values: 'S1!$B$2:$B$4' }] });
+    expect(expectXlvError(() => writeWorkbook(lower), 'XLV_E_INVALID_CHART').message).toContain('without quotes');
+  });
+});
+
+describe('inspect bounds chart samples (review of phase K)', () => {
+  it('lists at most ten chart types with typesTruncated and cuts titles to 100 characters', () => {
+    const long = 'T'.repeat(150);
+    const groups = Array.from({ length: 20 }, (_, i) => `<c:lineChart><c:grouping val="standard"/><c:axId val="${String(i)}"/></c:lineChart>`).join('');
+    const wb = createWorkbook();
+    dataSheet(wb.addSheet('Data')).addChart({ type: 'column', anchor: 'E2:L18', title: 'Short', series: [SALES] }).addChart({ type: 'column', anchor: 'E20:L38', series: [SALES] });
+    const bytes = patch(writeWorkbook(wb), (name, text) => {
+      if (name === 'xl/charts/chart1.xml') return text.replace('<c:layout/>', `<c:layout/>${groups}`);
+      if (name === 'xl/charts/chart2.xml') return text.replace('<c:autoTitleDeleted val="1"/>', `<c:title><c:tx><c:strRef><c:f>${long}</c:f></c:strRef></c:tx></c:title><c:autoTitleDeleted val="0"/>`);
+      return text;
+    });
+    const charts = inspect(bytes).sheets[0]!.charts;
+    expect(charts[0]!.types).toHaveLength(10);
+    expect(charts[0]!.typesTruncated).toBe(true);
+    expect(charts[0]!.title).toEqual({ text: 'Short' });
+    expect(charts[1]).toEqual({ cell: 'E20', types: ['column'], typesTruncated: false, title: { ref: `${'T'.repeat(100)}…` }, seriesCount: 1 });
+    const titled = patch(writeWorkbook(wb), (name, text) => (name === 'xl/charts/chart1.xml' ? text.replace('<a:t>Short</a:t>', `<a:t>${long}</a:t>`) : text));
+    expect(inspect(titled).sheets[0]!.charts[0]!.title).toEqual({ text: `${'T'.repeat(100)}…` });
   });
 });

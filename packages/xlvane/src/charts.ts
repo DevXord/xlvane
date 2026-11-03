@@ -13,6 +13,8 @@ import { formatCellRef } from './sml/cell-ref';
 import { tokenize, type CellPart, type PrefixPart } from './sml/formula-shift';
 import { decodeXstring } from './sml/xstring';
 import type { WarningCollector } from './util/warnings';
+import { clip } from './util/clip';
+import { decodeXml } from './xml/parser';
 import { childNamed, childrenNamed, parseXmlTree, type XmlElement } from './xml/tree';
 import { encodeXstring, escapeText, firstLoneSurrogate } from './xml/writer';
 
@@ -89,9 +91,13 @@ export interface ChartAxisInput {
  * `stacked` (column, bar, line and area only) stacks the series, or with `'percent'` stacks them
  * to 100 %. `legend` defaults to `'right'`; `false` leaves the legend out. `axes.x` is the
  * category axis (the x values of a scatter chart; drawn vertically for `bar`), `axes.y` the
- * value axis; pie charts have no axes. A chart has 1 to 255 series (a limit of xlvane), a pie
- * chart exactly one with at most 1 000 values; titles and literal series names are 1 to 255
- * characters without control characters.
+ * value axis; pie charts have no axes. Options left out (`undefined`) take their defaults;
+ * `null` is refused. A chart has 1 to 255 series (a limit of xlvane), each an object (no holes
+ * in the array), a pie chart exactly one with at most 1 000 values; titles and literal series
+ * names are 1 to 255 characters without control characters. `writeWorkbook` writes the cached
+ * values of at most 4 000 000 cells for all charts of a workbook together (a limit of xlvane).
+ * The anchor is copied when the chart is added. A sheet name that reads as a cell reference is
+ * given in quotes (`'S1'!B2:B5`); without quotes it must be exactly the name of a sheet.
  *
  * @example
  * ```ts
@@ -227,6 +233,13 @@ export const MAX_CHART_SERIES = 255;
 const MAX_CHART_TEXT = 255;
 /** Most values of a pie series: each slice gets a `dPt` with its colour (CH-21). */
 const MAX_PIE_POINTS = 1000;
+/**
+ * Most cells the caches of all charts of one workbook written by `writeWorkbook` cover (a limit
+ * of xlvane). A cached point takes about 42 bytes of XML (a 200 000-point scatter chart is a
+ * 16.8 MB part), so the chart parts stay below about 170 MB, within the reader's default
+ * `maxEntryBytes`. The streaming writer writes no caches (CH-20) and has no such limit.
+ */
+export const MAX_CHART_CACHE_CELLS = 4_000_000;
 /** Longest reference text accepted, far above any sheet name (31) plus two cells. */
 const MAX_REF_LENGTH = 512;
 
@@ -244,6 +257,11 @@ export const CHART_PALETTE: readonly string[] = ['5B9BD5', 'ED7D31', 'A5A5A5', '
 export interface ChartRef {
   readonly sheet: string;
   readonly range: CellRange;
+  /**
+   * `true` when the sheet name was given without quotes although it reads as a cell or R1C1
+   * reference (such as `S1!$A$1`); it must then be exactly the name of a sheet of the workbook.
+   */
+  readonly unquoted?: boolean;
 }
 
 /** A validated series. */
@@ -289,11 +307,23 @@ function keysOf(value: unknown, allowed: readonly string[], what: string, exampl
 
 /**
  * Parses a sheet-qualified reference such as `'Sales'!B2:B13` or `Sales!$B$1` (an optional
- * leading `=` is ignored) with the formula tokenizer (F2-11); `null` if the text is not one.
+ * leading `=` is ignored) with the formula tokenizer (F2-11); `null` if the text is not one. An
+ * unquoted sheet name of ASCII letters, digits and `_` that the tokenizer reads as a cell or R1C1
+ * reference, such as `S1!$A$1` as LibreOffice writes it back, gives a reference marked
+ * `unquoted`, which `resolveChartSheets` accepts only for a sheet of exactly that name.
  */
 export function parseChartRef(text: string): ChartRef | null {
   if (text.length > MAX_REF_LENGTH) return null;
-  const parts = tokenize(text.startsWith('=') ? text.slice(1) : text);
+  const body = text.startsWith('=') ? text.slice(1) : text;
+  const ref = refOfTokens(tokenize(body));
+  if (ref !== null) return ref;
+  const bare = /^([A-Za-z_][A-Za-z0-9_]*)!/.exec(body);
+  if (bare === null) return null;
+  const quoted = refOfTokens(tokenize(`'${bare[1]!}'${body.slice(bare[1]!.length)}`));
+  return quoted === null ? null : { ...quoted, unquoted: true };
+}
+
+function refOfTokens(parts: ReturnType<typeof tokenize>): ChartRef | null {
   if (parts === null || (parts.length !== 2 && parts.length !== 4)) return null;
   const [prefix, a, colon, b] = parts as [PrefixPart, CellPart, string | undefined, CellPart | undefined];
   if (typeof prefix !== 'object' || prefix.kind !== 'prefix' || prefix.external || prefix.sheets.length !== 1) return null;
@@ -328,6 +358,27 @@ function cellCount(r: ChartRef): number {
   return (r.range.end.row - r.range.start.row + 1) * (r.range.end.col - r.range.start.col + 1);
 }
 
+function normalizeSeries(raw: unknown, t: ChartType, sheet: string): NormalizedSeries {
+  const s = keysOf(raw, ['values', 'categories', 'name', 'color'], 'series', '{ values: "Sales!B2:B13" }', sheet);
+  const values = checkRange(s['values'], 'values', sheet);
+  const categories = s['categories'] === undefined ? null : checkRange(s['categories'], 'categories', sheet);
+  let name: NormalizedSeries['name'] = null;
+  if (s['name'] !== undefined) {
+    const ref = typeof s['name'] === 'string' ? parseChartRef(s['name'].trim()) : null;
+    if (ref !== null && cellCount(ref) !== 1) throw chartError('A series name reference must be one cell.', 'For example name: "Sales!B1", or a literal name such as name: "Sales".', sheet, 'name');
+    name = ref === null ? { text: checkText(s['name'], 'name', MAX_CHART_TEXT, sheet) } : { ref };
+  }
+  let color: string | null = null;
+  if (s['color'] !== undefined) {
+    if (t === 'pie') throw chartError('The slices of a pie chart take their colours from the palette; a pie series has no color.', 'Leave color out of the pie series.', sheet, 'color');
+    const c = s['color'];
+    if (typeof c !== 'string' || !/^#?[0-9A-Fa-f]{6}$/.test(c)) throw chartError('A series color must be six hex digits RRGGBB.', 'For example color: "2E75B6".', sheet, 'color');
+    color = c.replace('#', '').toUpperCase();
+  }
+  if (t === 'pie' && cellCount(values) > MAX_PIE_POINTS) throw chartError(`A pie chart has at most ${String(MAX_PIE_POINTS)} values.`, 'Use fewer cells, or a column chart for many values.', sheet, 'values');
+  return { name, values, categories, color };
+}
+
 /**
  * Validates the options of `NewSheet.addChart` except the anchor (checked by the caller) and
  * the sheets of the references (checked when the workbook is written). Throws
@@ -343,30 +394,17 @@ export function normalizeChart(input: unknown, sheet: string): NormalizedChart {
     throw chartError(`A chart needs 1 to ${String(MAX_CHART_SERIES)} series.`, 'For example series: [{ name: "Sales!B1", categories: "Sales!A2:A13", values: "Sales!B2:B13" }].', sheet, 'series');
   }
   if (t === 'pie' && list.length !== 1) throw chartError('A pie chart has exactly one series.', 'Give one series, or use a column or bar chart to compare several.', sheet, 'series');
-  const series = list.map((raw: unknown): NormalizedSeries => {
-    const s = keysOf(raw, ['values', 'categories', 'name', 'color'], 'series', '{ values: "Sales!B2:B13" }', sheet);
-    const values = checkRange(s['values'], 'values', sheet);
-    const categories = s['categories'] === undefined ? null : checkRange(s['categories'], 'categories', sheet);
-    let name: NormalizedSeries['name'] = null;
-    if (s['name'] !== undefined) {
-      const ref = typeof s['name'] === 'string' ? parseChartRef(s['name'].trim()) : null;
-      if (ref !== null && cellCount(ref) !== 1) throw chartError('A series name reference must be one cell.', 'For example name: "Sales!B1", or a literal name such as name: "Sales".', sheet, 'name');
-      name = ref === null ? { text: checkText(s['name'], 'name', MAX_CHART_TEXT, sheet) } : { ref };
-    }
-    let color: string | null = null;
-    if (s['color'] !== undefined) {
-      if (t === 'pie') throw chartError('The slices of a pie chart take their colours from the palette; a pie series has no color.', 'Leave color out of the pie series.', sheet, 'color');
-      const c = s['color'];
-      if (typeof c !== 'string' || !/^#?[0-9A-Fa-f]{6}$/.test(c)) throw chartError('A series color must be six hex digits RRGGBB.', 'For example color: "2E75B6".', sheet, 'color');
-      color = c.replace('#', '').toUpperCase();
-    }
-    if (t === 'pie' && cellCount(values) > MAX_PIE_POINTS) throw chartError(`A pie chart has at most ${String(MAX_PIE_POINTS)} values.`, 'Use fewer cells, or a column chart for many values.', sheet, 'values');
-    return { name, values, categories, color };
-  });
+  const series: NormalizedSeries[] = [];
+  for (let i = 0; i < list.length; i++) {
+    // A hole would be skipped by map() and leave a chart with fewer series than given.
+    if (!Object.hasOwn(list, i)) throw chartError(`Series ${String(i + 1)} of the chart is missing (the series array has a hole).`, 'Give an object such as { values: "Sales!B2:B13" } for every series.', sheet, 'series');
+    series.push(normalizeSeries(list[i], t, sheet));
+  }
   const title = o['title'] === undefined ? null : checkText(o['title'], 'title', MAX_CHART_TEXT, sheet);
-  const legend = o['legend'] ?? 'right';
+  // Only the documented values or undefined: null is not "use the default".
+  const legend = o['legend'] === undefined ? 'right' : o['legend'];
   if (legend !== false && (typeof legend !== 'string' || !LEGENDS.has(legend))) throw chartError('The chart legend must be "right", "bottom", "top", "left" or false.', 'For example legend: "bottom", or legend: false for no legend.', sheet, 'legend');
-  const stacked = o['stacked'] ?? false;
+  const stacked = o['stacked'] === undefined ? false : o['stacked'];
   if (stacked !== false && stacked !== true && stacked !== 'percent') throw chartError('stacked must be true, false or "percent".', 'For example stacked: true.', sheet, 'stacked');
   if (stacked !== false && (t === 'pie' || t === 'scatter')) throw chartError(`A ${t} chart cannot be stacked.`, 'Use stacked with column, bar, line or area charts.', sheet, 'stacked');
   let xTitle: string | null = null;
@@ -407,11 +445,21 @@ export function normalizeChart(input: unknown, sheet: string): NormalizedChart {
 
 /**
  * Replaces the sheet of every reference by the workbook's sheet of that name (names compare
- * without regard to case). Throws `XLV_E_INVALID_CHART` for a sheet the workbook does not have.
+ * without regard to case; an `unquoted` reference must name a sheet exactly). Throws
+ * `XLV_E_INVALID_CHART` for a sheet the workbook does not have.
  */
 export function resolveChartSheets(chart: NormalizedChart, sheets: readonly string[], sheet: string): NormalizedChart {
   const byKey = new Map(sheets.map((s) => [s.toLowerCase(), s] as const));
   const fix = (r: ChartRef): ChartRef => {
+    if (r.unquoted === true) {
+      if (sheets.includes(r.sheet)) return { sheet: r.sheet, range: r.range };
+      const quoted = chartRefText({ sheet: r.sheet, range: r.range });
+      throw new XlvError(
+        'XLV_E_INVALID_CHART',
+        `A chart on sheet "${sheet}" refers to sheet "${r.sheet.slice(0, 100)}" without quotes. Such a name reads as a cell or R1C1 reference, so it is accepted only as exactly the name of a sheet of the workbook, and the workbook has no sheet "${r.sheet.slice(0, 100)}".`,
+        { location: { sheet }, hint: `Quote the sheet name, for example "${quoted}", or use the exact name of one of the sheets: ${sheets.slice(0, 10).map((s) => `"${s}"`).join(', ')}${sheets.length > 10 ? ', …' : ''}.`, details: { option: 'series', sheet: r.sheet.slice(0, 100) } },
+      );
+    }
     const name = byKey.get(r.sheet.toLowerCase());
     if (name === undefined) {
       throw new XlvError('XLV_E_INVALID_CHART', `A chart on sheet "${sheet}" refers to sheet "${r.sheet.slice(0, 100)}", which the workbook does not have.`, {
@@ -431,6 +479,24 @@ export function resolveChartSheets(chart: NormalizedChart, sheets: readonly stri
 // ---------------------------------------------------------------------------------------------
 // Writing
 
+/**
+ * Checks the cells the caches of `charts` (all charts of a workbook, in order) would cover against
+ * {@link MAX_CHART_CACHE_CELLS} before any chart part is built. Throws `XLV_E_INVALID_CHART`.
+ */
+export function checkChartCacheCells(charts: readonly { readonly chart: NormalizedChart; readonly sheet: string }[]): void {
+  let total = 0;
+  for (const { chart, sheet } of charts) {
+    for (const s of chart.series) total += cellCount(s.values) + (s.categories === null ? 0 : cellCount(s.categories)) + (s.name !== null && 'ref' in s.name ? 1 : 0);
+    if (total > MAX_CHART_CACHE_CELLS) {
+      throw new XlvError('XLV_E_INVALID_CHART', `The charts of the workbook would hold cached values of ${String(total)} cells (counted up to a chart on sheet "${sheet}"), more than the limit of ${String(MAX_CHART_CACHE_CELLS)} cells.`, {
+        location: { sheet },
+        hint: 'Refer charts to fewer cells, or write the workbook with writeWorkbookStream, which writes charts without cached values.',
+        details: { option: 'series', limit: MAX_CHART_CACHE_CELLS, value: total },
+      });
+    }
+  }
+}
+
 /** A cell value for the caches (CH-19): a number with its number format, or text. */
 export type ChartCacheValue = { readonly n: number; readonly format: string } | { readonly s: string };
 
@@ -439,11 +505,13 @@ export type ChartCells = (sheet: string, row: number, col: number) => ChartCache
 
 /**
  * Quotes a sheet name for a reference (F2-11): unquoted only for ASCII letters, digits and `_`
- * starting with a letter or `_`, not `TRUE` or `FALSE`, and not read as a cell or R1C1 reference
- * by the formula tokenizer, as Excel writes `Sheet1!$A$1` (CH-18); quoted otherwise.
+ * starting with a letter or `_`, not `TRUE` or `FALSE`, not letters followed by digits (such as
+ * `XFE1` or `Sheet1`, which can read as a cell even beyond the grid) and not read as a cell or
+ * R1C1 reference by the formula tokenizer, the form Excel writes for names such as `Data`
+ * (CH-18); quoted otherwise, which is valid for every name (F2-11).
  */
 export function chartSheetPrefix(name: string): string {
-  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !/^(true|false)$/i.test(name)) {
+  if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(name) && !/^(true|false)$/i.test(name) && !/^[A-Za-z]+[0-9]+$/.test(name)) {
     const parts = tokenize(`${name}!A1`);
     const prefix = parts?.[0];
     if (parts?.length === 2 && typeof prefix === 'object' && prefix.kind === 'prefix' && prefix.sheets[0] === name) return `${name}!`;
@@ -734,32 +802,64 @@ function chartOf(root: XmlElement): ParsedChart | null {
 }
 
 /**
- * Reads the chart part `target` once per workbook (`cache`). A part that is not well-formed XML
- * or has no `chartSpace` with a plot area gives `XLV_W_INVALID_VALUE` and `null`; the limits of
- * `ctx.limits` apply as to every part.
+ * Elements of a chart part that are never read: the cached and literal values of data sources
+ * (CH-18, CH-19) and extensions. They are parsed under the XML limits but not built, so a chart
+ * over many cells reads in time and memory linear in the part and within `maxXmlTreeElements`.
+ */
+const NOT_READ: ReadonlySet<string> = new Set(['numCache', 'strCache', 'multiLvlStrCache', 'numLit', 'strLit', 'extLst']);
+const skipNotRead = (ns: string, local: string): boolean => ns === CHART_NS && NOT_READ.has(local);
+
+/**
+ * Reads the chart part `target` once per workbook (`cache`). A chart is optional content, so a
+ * part that cannot be read is skipped with a warning and `null`, and the workbook is read:
+ * - `XLV_W_PART_MISSING`: the part does not exist;
+ * - `XLV_W_INVALID_VALUE`: the part's content type is not the chart content type (CH-01), its
+ *   bytes are not valid UTF-8 or UTF-16 or declare another encoding, it is not well-formed XML,
+ *   or it has no `chartSpace` with a chart and a plot area;
+ * - `XLV_W_LIMIT_REACHED`: the part's XML is over a limit of `ctx.limits` that applies to one
+ *   part (`maxXmlTreeElements`, `maxXmlDepth`, `maxXmlAttributes`, `maxXmlNameLength`,
+ *   `maxXmlTextLength`). Cached and literal values are parsed under these limits but do not count
+ *   against `maxXmlTreeElements`.
+ *
+ * Errors of the package still throw as for every part: ZIP damage (`XLV_E_ZIP_CORRUPT`), the
+ * budgets of the whole file (`maxEntryBytes`, `maxTotalBytes`, `maxCompressionRatio`, as
+ * `XLV_E_LIMIT_EXCEEDED`), and a DTD or entity declaration (`XLV_E_XML_DTD_FORBIDDEN`,
+ * `XLV_E_XML_ENTITY_FORBIDDEN`).
  */
 export function readChartPart(pkg: OpcPackage, target: string, sheet: string, ctx: { readonly limits: ReadLimits; readonly warnings: WarningCollector }, cache: ChartCache): ParsedChart | null {
   const key = partKey(target);
   const cached = cache.get(key);
   if (cached !== undefined || cache.has(key)) return cached ?? null;
   cache.set(key, null);
-  const xml = pkg.readXml(target);
-  if (xml === undefined) {
-    ctx.warnings.add('XLV_W_PART_MISSING', 'A chart of the sheet refers to a chart part that does not exist; the chart is skipped.', { part: target, sheet });
+  const where = { part: target, sheet };
+  if (!pkg.hasPart(target)) {
+    ctx.warnings.add('XLV_W_PART_MISSING', 'A chart of the sheet refers to a chart part that does not exist; the chart is skipped.', where);
     return null;
   }
+  const type = pkg.contentType(target);
+  if (type !== CHART_CONTENT_TYPE) {
+    ctx.warnings.add('XLV_W_INVALID_VALUE', `A chart of the sheet refers to a part of content type "${clip(type ?? '(none)')}", not a chart part; the chart is skipped.`, where);
+    return null;
+  }
+  // ZIP damage and the budgets of the whole file throw here, as for every part.
+  const bytes = pkg.readBytes(target)!;
   let root: XmlElement;
   try {
-    root = parseXmlTree(xml, { part: target, limits: ctx.limits });
+    root = parseXmlTree(decodeXml(bytes, target), { part: target, limits: ctx.limits, skip: skipNotRead });
   } catch (error) {
-    if (error instanceof XlvError && error.code === 'XLV_E_XML_MALFORMED') {
-      ctx.warnings.add('XLV_W_INVALID_VALUE', 'A chart part is not well-formed XML; the chart is skipped.', { part: target, sheet });
+    if (error instanceof XlvError && (error.code === 'XLV_E_XML_MALFORMED' || error.code === 'XLV_E_XML_ENCODING')) {
+      ctx.warnings.add('XLV_W_INVALID_VALUE', `A chart part is not ${error.code === 'XLV_E_XML_ENCODING' ? 'encoded in UTF-8 or UTF-16' : 'well-formed XML'}; the chart is skipped.`, where);
+      return null;
+    }
+    if (error instanceof XlvError && error.code === 'XLV_E_LIMIT_EXCEEDED') {
+      const limit = typeof error.details['limit'] === 'string' ? error.details['limit'] : 'a read limit';
+      ctx.warnings.add('XLV_W_LIMIT_REACHED', `A chart part is over the limit ${limit}; the chart is skipped. If you trust this file, raise limits.${limit} to read it.`, where);
       return null;
     }
     throw error;
   }
   const parsed = root.ns === CHART_NS && root.local === 'chartSpace' ? chartOf(root) : null;
-  if (parsed === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `A chart part has no chart (root <${root.local.slice(0, 40)}>, or no chart with a plot area); the chart is skipped.`, { part: target, sheet });
+  if (parsed === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `A chart part has no chart (root <${root.local.slice(0, 40)}>, or no chart with a plot area); the chart is skipped.`, where);
   cache.set(key, parsed);
   return parsed;
 }

@@ -58,7 +58,7 @@
 | `imageCount` | number | pictures of the sheet's drawing (`Sheet.images`); charts and shapes are not counted |
 | `images` | array | up to 10 pictures: `cell` of the top-left corner (`null` for an absolute position) and `format` (`png`, `jpeg`, `gif`, or `null` for other formats) |
 | `chartCount` | number | charts of the sheet's drawing (`Sheet.charts`); charts on chart sheets are not counted |
-| `charts` | array | up to 10 charts: `cell` of the top-left corner (`null` for an absolute position), `types` (the chart groups in order: `column`, `bar`, `line`, `pie`, `scatter`, `area`, or `other:` and the element name, e.g. `other:radarChart`), `title` (`{ "text" }`, `{ "ref" }` with the reference as stored, or `null`) and `seriesCount` |
+| `charts` | array | up to 10 charts: `cell` of the top-left corner (`null` for an absolute position), `types` (the first 10 chart groups in order: `column`, `bar`, `line`, `pie`, `scatter`, `area`, or `other:` and the element name, e.g. `other:radarChart`), `typesTruncated` (`true` when the chart has more than 10 chart groups), `title` (`{ "text" }`, `{ "ref" }` with the reference as stored, either cut to 100 characters followed by `…`, or `null`) and `seriesCount` |
 | `notes` | string[] | up to ten cells that have a note |
 | `protected` | boolean | the sheet is protected (`Sheet.protection.sheet`) |
 | `printArea` | string[] \| null | the print area (`Sheet.printArea`), at most ten ranges |

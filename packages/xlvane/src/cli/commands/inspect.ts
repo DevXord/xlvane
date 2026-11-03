@@ -109,7 +109,7 @@ function renderReport(out: Output, file: string, r: InspectReport, verbose: bool
     }
     if (s.imageCount > 0) lines.push(`  Images: ${plural(s.imageCount, 'picture')} (${s.images.slice(0, 5).map((i) => `${i.cell ?? 'absolute'} ${i.format ?? 'other'}`).join(', ')}${s.imageCount > 5 ? ', …' : ''})`);
     if (s.chartCount > 0) {
-      const shown = s.charts.slice(0, 5).map((c) => `${c.cell ?? 'absolute'} ${t(c.types.join('+') || 'empty')}${c.title === null ? '' : 'text' in c.title ? ` "${t(c.title.text)}"` : ` =${t(c.title.ref)}`}`);
+      const shown = s.charts.slice(0, 5).map((c) => `${c.cell ?? 'absolute'} ${t(c.types.join('+') || 'empty')}${c.typesTruncated ? '+…' : ''}${c.title === null ? '' : 'text' in c.title ? ` "${t(c.title.text)}"` : ` =${t(c.title.ref)}`}`);
       lines.push(`  Charts: ${plural(s.chartCount, 'chart')} (${shown.join(', ')}${s.chartCount > 5 ? ', …' : ''})`);
     }
     if (s.noteCount > 0) lines.push(`  Notes: ${plural(s.noteCount, 'note')} (${s.notes.slice(0, 5).join(', ')}${s.noteCount > 5 ? ', …' : ''})`);

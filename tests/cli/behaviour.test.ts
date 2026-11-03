@@ -283,4 +283,18 @@ describe('read and inspect', () => {
       expect(r.stdout).toContain('  Charts: 2 charts (D2 column "Sales", D20 line)\n');
     });
   });
+
+  it('inspect shows at most ten chart types and a title cut to 100 characters', async () => {
+    await withFixtures(async (dir) => {
+      const wb = createWorkbook();
+      wb.addSheet('Sales').set('A1', 1).addChart({ type: 'column', anchor: 'D2:K16', title: 'T'.repeat(200), series: [{ values: 'Sales!A1' }] });
+      const { strFromU8, strToU8, unzipSync, zipSync } = await import('fflate');
+      const files = unzipSync(writeWorkbook(wb));
+      const groups = Array.from({ length: 30 }, (_, i) => `<c:lineChart><c:grouping val="standard"/><c:axId val="${String(i)}"/></c:lineChart>`).join('');
+      files['xl/charts/chart1.xml'] = strToU8(strFromU8(files['xl/charts/chart1.xml']!).replace('<c:layout/>', `<c:layout/>${groups}`));
+      await writeFile(join(dir, 'many.xlsx'), zipSync(files));
+      const r = await cli(['inspect', 'many.xlsx'], { cwd: dir });
+      expect(r.stdout).toContain(`  Charts: 1 chart (D2 ${Array.from({ length: 10 }, () => 'line').join('+')}+… "${'T'.repeat(100)}…")\n`);
+    });
+  });
 });
