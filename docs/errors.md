@@ -51,6 +51,8 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | [`XLV_E_NOT_SUPPORTED`](#xlv_e_not_supported) | `@xlvane/compat` was asked for an exceljs feature it does not implement, for example a rich-text or hyperlink value, images, tables, … |
 | [`XLV_E_USAGE`](#xlv_e_usage) | The `xlvane` command line was used incorrectly: an unknown command or option, a missing or extra argument, an option without its value, … |
 | [`XLV_E_INTERNAL`](#xlv_e_internal) | The `xlvane` command line caught an error that is not an `XlvError`. |
+| [`XLV_E_NOT_INSTALLED`](#xlv_e_not_installed) | `xlvane mcp` needs the separate package `@xlvane/mcp`, which could not be loaded. |
+| [`XLV_E_PATH_NOT_ALLOWED`](#xlv_e_path_not_allowed) | The MCP server was asked to read or write a path outside the directories it was started with (`--root`), or to write through a symbolic link. |
 
 | Warning | What it means |
 | --- | --- |
@@ -72,6 +74,7 @@ Each code links to its section, which says what to do. The CLI prints the code a
 | [`XLV_W_PART_MISSING`](#xlv_w_part_missing) | The workbook points to a styles or shared strings part that does not exist. |
 | [`XLV_W_FORMULAS_NOT_RECALCULATED`](#xlv_w_formulas_not_recalculated) | Reported by `editCells` and `appendRows` when the workbook contains formulas. |
 | [`XLV_W_INVALID_CELL_REF`](#xlv_w_invalid_cell_ref) | A worksheet contains a row whose number is not a whole number from 1 to 1048576, a cell whose `r` reference is not a valid A1 reference … |
+| [`XLV_W_MERGED_CELL_WRITE`](#xlv_w_merged_cell_write) | `editCells` or `appendRows` wrote a value into a cell of a merged range other than its top-left cell, where it is not shown. |
 
 ## Errors
 
@@ -294,7 +297,7 @@ The `xlvane` command line caught an error that is not an `XlvError`. This is a b
 **Fix:** report it with the command and, if possible, the input file (see SECURITY.md for files that must stay private).
 
 ### XLV_E_PATH_NOT_ALLOWED
-The MCP server (`@xlvane/mcp`) was asked to read or write a path outside the directories it was started with (`--root`), including paths that leave them through `..` or a symbolic link, or to write through a symbolic link. Nothing was read or written. `details.path` is the path as given and `details.roots` lists the allowed directories.
+The MCP server (`@xlvane/mcp`) was asked to read or write a path outside the directories it was started with (`--root`), including paths that leave them through `..` or a symbolic link (also a link that leaves them and comes back), or to write through a symbolic link. Nothing was read or written. `details.path` is the path as given and `details.roots` lists the allowed directories.
 **Fix:** use a path inside one of the listed directories, or restart the server with another `--root`.
 
 ## Warnings

@@ -123,7 +123,8 @@ async function book(roots: Roots, limits: ToolLimits, path: string): Promise<Wor
 
 /**
  * Refuses rows that hold more cells than `--max-cells` (values other than null, plus one header
- * cell per key), so the write tools cannot create a workbook the read tools refuse (D-K03).
+ * cell per key), so the write tools cannot create a workbook the read tools refuse (D-K03). For
+ * `edit_cells` it checks the request; the library then counts the cells of the result (D-K04).
  */
 function checkCells(rows: readonly unknown[], maxCells: number, path: string): void {
   let cells = 0;
@@ -363,6 +364,8 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       };
       let sheetName: string | null = null;
       let rowsChecked = 0;
+      // A sheet that does not exist is an error also when no column is checked (D-K04).
+      if (typeof a['sheet'] === 'string') workbook.getSheet(a['sheet']);
       if (rules.length > 0) {
         const table = readTable(workbook, typeof a['sheet'] === 'string' ? { sheet: a['sheet'] } : {});
         sheetName = table.sheet;
@@ -465,6 +468,10 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       if (edits.length === 0 && append === undefined) {
         throw new XlvError('XLV_E_INVALID_INPUT', 'Nothing to do: pass edits, append or both.', { hint: 'For example {"path": "report.xlsx", "edits": [{"sheet": "Sales", "cell": "B2", "value": 1250}], "output": "updated.xlsx"}.' });
       }
+      // The request alone may not hold more cells than --max-cells; editCells and appendRows then
+      // count the cells of the result (D-K04).
+      if (edits.length > limits.maxCells) checkCells([edits.map(() => 0)], limits.maxCells, path);
+      if (append) checkCells(append.rows, limits.maxCells, path);
       let bytes = await readAllowed(roots, path);
       const warnings: XlvWarning[] = [];
       try {

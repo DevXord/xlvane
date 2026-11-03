@@ -81,6 +81,9 @@ export const validateCommand: CommandSpec = {
     const problems: ValidationProblem[] = [];
     let sheetName: string | null = null;
     let rowsChecked = 0;
+    // A sheet that does not exist is an error also when no column is checked (D-K04).
+    const named = str(ctx.args, 'sheet');
+    if (named !== undefined) workbook.getSheet(named);
     if (rules.length > 0) {
       const sheet = str(ctx.args, 'sheet');
       const table = readTable(workbook, { ...(sheet !== undefined ? { sheet } : {}), header });

@@ -966,6 +966,9 @@ github.com/npm/cli (branch `latest`) `docs/lib/content/commands/npm-trust.md`, P
 ### F-NPM-06 npm view of a missing package or version
 `npm view xlvane@9.9.9 version` and `npm view @xlvane/definitely-missing-pkg name` exit with 1 and print `npm error code E404` on stderr, with npm 10.9.9 and with npm 11.21.1 (the version of the release workflow), checked 2026-11-02. Other failures (an outage, a rate limit) print another code, so `scripts/stage-publish.mjs` takes only E404 for "not on npm" (D-J01).
 
+### F-NPM-07 Publishing a version lower than the highest one
+npm 11.21.1 `lib/commands/publish.js` L176-188 (read 2026-11-03; `lib/commands/stage/publish.js` L3 `class StagePublish extends Publish`, so `npm stage publish` runs the same check): without `--force`, a version lower than the highest published version with the default dist-tag stops with "Cannot implicitly apply the \"latest\" tag because previously published version X is higher than the new version Y. You must specify a tag using --tag." So a patch release of an older line must be published before the next minor release, or with an explicit tag (D-K04).
+
 ### F-GH-PAGES-01 GitHub Pages for an organization site
 github.com/github/docs (main, read 2026-11-02), `content/pages/getting-started-with-github-pages/what-is-github-pages.md`: user and organization sites "Must be stored in a repository named `<owner>.github.io`"; `configuring-a-publishing-source-for-your-github-pages-site.md`: "Deploy from a branch" with a branch and a folder (`/(root)` or `/docs`), and external tools that commit built files typically add a `.nojekyll` file so that no Jekyll build runs; `using-custom-workflows-with-github-pages.md`: a custom workflow uses `actions/upload-pages-artifact` and `actions/deploy-pages` with `pages: write` and `id-token: write` (not used by D-G01).
 

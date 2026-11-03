@@ -17,7 +17,7 @@ export async function checkFile(path: string | URL, limits: { readonly maxInputB
     if (!info.isFile()) {
       throw new XlvError('XLV_E_FILE_READ', `"${shown}" is not a file.`, {
         location: {},
-        hint: 'Pass the path of an .xlsx file, not a directory.',
+        hint: info.isDirectory() ? 'Pass the path of an .xlsx file, not a directory.' : 'Pass the path of an .xlsx file, not a pipe, device or other special file.',
         details: { path: shown },
       });
     }

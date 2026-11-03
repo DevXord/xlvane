@@ -109,14 +109,15 @@ function oneLine(text: string): string {
 
 /**
  * Control characters that a terminal would act on (C0 except tab and line feed, DEL, and C1,
- * which includes the 8-bit CSI U+009B) written as `\x1b`, and bidirectional formatting characters
- * written as `\u202e`, so text from a file, such as a cell
+ * which includes the 8-bit CSI U+009B) written as `\x1b`, bidirectional formatting characters
+ * written as `\u202e`, and line feeds written as `⏎` (so a name from a file cannot add lines of its
+ * own to the output, D-K04), so text from a file, such as a cell
  * holding `_x001B_]0;title_x0007_`, cannot move the cursor, change the window title or hide
  * output (docs/decisions.md D-R02). Used for all human-readable output; `--json` writes the same
  * characters as `\uXXXX` escapes instead (D-H01).
  */
 export function escapeControls(text: string): string {
-  return text.replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`).replace(BIDI, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  return text.replace(/\n/g, '⏎').replace(/[\u0000-\u0008\u000b-\u001f\u007f-\u009f]/g, (c) => `\\x${c.charCodeAt(0).toString(16).padStart(2, '0')}`).replace(BIDI, (c) => `\\u${c.charCodeAt(0).toString(16).padStart(4, '0')}`);
 }
 
 /**
