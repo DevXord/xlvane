@@ -11,8 +11,8 @@ import { resolveLimits, type ReadLimits } from './limits';
 import type { Cell, RichTextRun, Sheet, Workbook } from './model';
 import { openPackage, relationshipsPartName, type OpcPackage } from './opc/package';
 import { partKey, zipNameToPartName } from './opc/part-name';
-import { readWorkbook, toBytes } from './read';
-import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
+import { readWorkbook, styledCellCount, toBytes } from './read';
+import { formatCellRef, formatRange, MAX_COLUMNS, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { classifyRelationship, relationshipTypes, SML_NS } from './sml/namespaces';
 import { isDateFormat } from './sml/numfmt';
 import { parseSharedStrings } from './sml/shared-strings';
@@ -21,6 +21,7 @@ import { attr, borderXml, DEFAULT_FONT, fillXml, fontXml, formatNumber, reusable
 import { checkStyleCount, mergeStyles, normalizeStyle, READING_ORDERS, stableKey, type CellStyle, type NormalizedStyle, type StyleCountLimit } from './style';
 import { pickSheet, readTable } from './table';
 import { readOptions } from './util/options';
+import { RangeIndex } from './util/range-index';
 import { suggest } from './util/suggest';
 import { WarningCollector } from './util/warnings';
 import { decodeXml, normalizeLineEnds, parseXml, type XmlSpan } from './xml/parser';
@@ -62,7 +63,12 @@ export interface CellEdit {
  * ```
  */
 export interface EditOptions {
-  /** Read limits for the input file; see `ReadLimits`. */
+  /**
+   * Read limits for the input file; see `ReadLimits`. For `editCells` and `appendRows`,
+   * `maxCells` also bounds the edit: the cells of the edited sheets plus the new cells must not
+   * exceed it, and one call writes at most 1 000 000 cells unless `maxCells` is given, in which
+   * case it writes at most `maxCells` (`XLV_E_LIMIT_EXCEEDED`, `details.limit` `"maxCells"`).
+   */
   readonly limits?: Partial<ReadLimits>;
 }
 
@@ -100,6 +106,75 @@ export interface EditResult {
   readonly warnings: XlvWarning[];
 }
 
+/**
+ * How many cells one call of {@link editCells} or {@link appendRows} writes at most when the
+ * caller gives no `limits.maxCells` (A2). While the file is rebuilt each cell written costs about
+ * 0.5 KB of memory, so the 5 000 000 of `DEFAULT_READ_LIMITS.maxCells` would need about 2.5 GB,
+ * more than the default heap of Node.js (about 2 GB on a 64-bit machine with 16 GB of memory).
+ */
+export const EDIT_MAX_CELLS = 1_000_000;
+
+/** The read limits of an edit, and how many cells it may write. */
+function editLimits(input: unknown): { limits: ReadLimits; writable: number } {
+  const limits = resolveLimits(input);
+  const own = typeof input === 'object' && input !== null && Object.hasOwn(input, 'maxCells');
+  return { limits, writable: own ? limits.maxCells : Math.min(limits.maxCells, EDIT_MAX_CELLS) };
+}
+
+/** Refuses an edit that would write more cells than one call may (A2). */
+function checkWrites(count: number, writable: number, what: string, sheet?: string): void {
+  if (count <= writable) return;
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `${what} would write ${String(count)} cells, more than the limit of ${String(writable)} cells per call.`, {
+    location: sheet === undefined ? {} : { sheet },
+    hint: `Each cell written takes about 0.5 KB of memory while the file is rebuilt. Split the cells into several calls of at most ${String(writable)}, or pass { limits: { maxCells: ${String(count)} } } if there is enough memory.`,
+    details: { limit: 'maxCells', value: writable },
+  });
+}
+
+/**
+ * Refuses an edit after which the edited sheets would hold more cells (with a value or only a
+ * style) than `maxCells` (A2). Checked before anything per cell is built.
+ */
+function checkCellCount(sheets: ReadonlyMap<Sheet, number>, maxCells: number): void {
+  let total = 0;
+  let largest: Sheet | null = null;
+  for (const [sheet, added] of sheets) {
+    total += sheet.cellCount + styledCellCount(sheet) + added;
+    if (largest === null || sheet.cellCount > largest.cellCount) largest = sheet;
+  }
+  if (total <= maxCells || largest === null) return;
+  throw new XlvError('XLV_E_LIMIT_EXCEEDED', `After the edit, sheet${sheets.size === 1 ? '' : 's'} ${[...sheets.keys()].map((s) => `"${s.name}"`).join(', ')} would hold ${String(total)} cells, more than the limit of ${String(maxCells)}.`, {
+    location: { sheet: largest.name },
+    hint: `Cells that hold only a style count too. Write fewer new cells, or, if you trust this file and there is enough memory, raise the limit, for example { limits: { maxCells: ${String(Math.max(total, maxCells * 2))} } }.`,
+    details: { limit: 'maxCells', value: maxCells },
+  });
+}
+
+/** Data properties of an edit, read without running getters (planEdits validates edits). */
+function dataProperty(o: object, key: string): unknown {
+  return Object.getOwnPropertyDescriptor(o, key)?.value;
+}
+
+/** Number of cells per sheet that edits write where the sheet has no cell with a value. */
+function newCells(workbook: Workbook, edits: readonly unknown[]): Map<Sheet, number> {
+  const byName = new Map(workbook.sheets.map((sheet) => [sheet.name, sheet]));
+  const seen = new Map<Sheet, Set<number>>();
+  for (const raw of edits) {
+    if (typeof raw !== 'object' || raw === null) continue;
+    const name = dataProperty(raw, 'sheet');
+    const ref = dataProperty(raw, 'cell');
+    const sheet = typeof name === 'string' ? byName.get(name) : undefined;
+    const address = typeof ref === 'string' ? parseCellRef(ref) : null;
+    if (sheet === undefined || address === null) continue;
+    let cells = seen.get(sheet);
+    if (cells === undefined) {
+      cells = new Set();
+      seen.set(sheet, cells);
+    }
+    if (sheet.cell(formatCellRef(address.row, address.col)) === undefined) cells.add(address.row * (MAX_COLUMNS + 1) + address.col);
+  }
+  return new Map([...seen].map(([sheet, cells]) => [sheet, cells.size]));
+}
 
 // ---------------------------------------------------------------------------------------------
 // Small text helpers
@@ -261,12 +336,23 @@ export class PackageEditor {
     if (cached !== undefined) return cached;
     const entry = this.entryOf(partName);
     if (entry === undefined) return undefined;
-    return normalizeLineEnds(decodeXml(this.bytesOf(entry), partName));
+    return normalizeLineEnds(decodeXml(this.changed.get(entry.name) ?? this.bytesOf(entry), partName));
   }
 
-  write(partName: string, text: string): void {
-    this.texts.set(partKey(partName), text);
-    const data = this.encoder.encode(asUtf8(text));
+  /**
+   * Writes a part. Text given in pieces is encoded piece by piece and not kept as text, so a sheet
+   * of millions of cells is never one more string of its whole size (A2); reading the part again
+   * decodes the written bytes.
+   */
+  write(partName: string, text: string | readonly string[]): void {
+    let data: Uint8Array;
+    if (typeof text === 'string') {
+      this.texts.set(partKey(partName), text);
+      data = this.encoder.encode(asUtf8(text));
+    } else {
+      this.texts.delete(partKey(partName));
+      data = this.encodePieces(text);
+    }
     const entry = this.entryOf(partName);
     if (entry) {
       this.changed.set(entry.name, data);
@@ -276,6 +362,31 @@ export class PackageEditor {
     const existing = this.added.find((a) => a.name === name);
     if (existing) existing.data = data;
     else this.added.push({ name, data });
+  }
+
+  private encodePieces(pieces: readonly string[]): Uint8Array {
+    let size = 0;
+    for (const piece of pieces) size += piece.length;
+    // At most 3 bytes per UTF-16 code unit; usually far less, so start smaller and grow.
+    let out = new Uint8Array(Math.max(1024, size + (size >> 2)));
+    let used = 0;
+    pieces.forEach((piece, i) => {
+      const text = i === 0 ? asUtf8(piece) : piece;
+      for (let from = 0; from < text.length; ) {
+        if (out.length - used < 3 * Math.min(text.length - from, 65_536)) {
+          const bigger = new Uint8Array(Math.max(out.length * 2, used + 3 * 65_536));
+          bigger.set(out.subarray(0, used));
+          out = bigger;
+        }
+        // Whole pieces of at most 64 Ki code units, cut before a low surrogate so a pair stays together.
+        let to = Math.min(text.length, from + 65_536);
+        if (to < text.length && (text.charCodeAt(to) & 0xfc00) === 0xdc00) to--;
+        const { written } = this.encoder.encodeInto(text.slice(from, to), out.subarray(used));
+        used += written;
+        from = to;
+      }
+    });
+    return out.slice(0, used);
   }
 
   remove(partName: string): void {
@@ -681,17 +792,180 @@ function newCellXml(ref: string, value: StoredValue | null, xf: number, sst: Sha
   return `<c r="${ref}"${s}${r.t === '' ? '' : attr('t', r.t)}><v>${r.v}</v></c>`;
 }
 
-interface RowInfo {
-  number: number;
-  hasR: boolean;
-  element: Element;
-  cells: { col: number; hasR: boolean; element: Element }[];
+/** A growable list of 32-bit integers, so that a sheet's cells cost a few numbers each (A2, D-K04). */
+class IntList {
+  private data = new Int32Array(1024);
+  length = 0;
+
+  push(value: number): void {
+    if (this.length === this.data.length) {
+      const bigger = new Int32Array(this.data.length * 2);
+      bigger.set(this.data);
+      this.data = bigger;
+    }
+    this.data[this.length++] = value;
+  }
+
+  get(index: number): number {
+    return this.data[index]!;
+  }
+
+  set(index: number, value: number): void {
+    this.data[index] = value;
+  }
 }
 
-/** Inserts `r="…"` after the qualified name of a start tag given as source text. */
-function insertRef(tag: string, qname: string, ref: string): string {
-  const at = 1 + qname.length;
-  return `${tag.slice(0, at)} r="${ref}"${tag.slice(at)}`;
+/** Integers stored per row of {@link SheetScan.rows}. */
+const ROW_FIELDS = 8;
+/** Integers stored per cell of {@link SheetScan.cells}. */
+const CELL_FIELDS = 5;
+
+/**
+ * The structure of a worksheet part that editing needs, kept as numbers: per row (ROW_FIELDS
+ * integers) its number, the offsets of its start tag, of its end tag, its flags (bit 0: has `r`,
+ * bit 1: empty-element tag, from bit 2: length of its qualified name), its first cell and its
+ * number of cells; per cell (CELL_FIELDS integers) its column, the offsets of its start tag and
+ * of its end, and its flags (bit 0: has `r`, from bit 1: length of its qualified name). Objects
+ * per cell made editing a sheet of millions of cells run out of memory (A2).
+ */
+interface SheetScan {
+  readonly rootQname: string;
+  readonly sheetData: { start: XmlSpan; end: XmlSpan } | null;
+  readonly dimension: { start: XmlSpan; ref: string | undefined } | null;
+  readonly rows: IntList;
+  readonly rowCount: number;
+  readonly cells: IntList;
+  /** `true` when a row has no `r` attribute: then every row is written with references. */
+  readonly missingRowRefs: boolean;
+  /** Cell format of new cells by column (index = column), 0 for none (W2-03). */
+  readonly columnStyles: Int32Array;
+  /** Rows with their own format (`row@s` with `customFormat`), whose new cells take format 0 (D-A04). */
+  readonly rowsWithFormat: ReadonlySet<number>;
+}
+
+function parseIndex(value: string | undefined, digits: number): number {
+  const v = value?.trim() ?? '';
+  return v.length > 0 && v.length <= digits && /^[0-9]+$/.test(v) ? Number(v) : Number.NaN;
+}
+
+/**
+ * Scans a worksheet part once for {@link editSheetXml} and {@link newCellStyle}. Rows and cells
+ * are numbered as the reader numbers them (D-105); the reader skips rows and cells with invalid
+ * references (D-903), and editing around them could put new cells in the wrong place, so a sheet
+ * that has any is not edited.
+ */
+function scanSheet(text: string, part: string, sheet: string, limits: ReadLimits, styles: StylesEditor): SheetScan {
+  const invalid = (ref: string): never => {
+    throw new XlvError('XLV_E_INVALID_CELL_REF', `Sheet "${sheet}" contains the invalid reference "${ref.slice(0, 20)}", so it cannot be edited safely.`, {
+      location: { part, sheet },
+      hint: 'Open and re-save the file in a spreadsheet application, which drops the damaged cells, then edit the re-saved file.',
+      details: { ref: ref.slice(0, 40) },
+    });
+  };
+  const names: string[] = [];
+  /** Whether each open element is a recorded row (depth 3) or cell (depth 4). */
+  const recorded: boolean[] = [];
+  let rootQname: string | null = null;
+  let sheetDataStart: XmlSpan | null = null;
+  let sheetData: { start: XmlSpan; end: XmlSpan } | null = null;
+  let dimension: { start: XmlSpan; ref: string | undefined } | null = null;
+  const rows = new IntList();
+  const cells = new IntList();
+  let rowCount = 0;
+  let currentRow = 0;
+  let lastCol = 0;
+  let missingRowRefs = false;
+  const cols: { min: number; max: number; style: number }[] = [];
+  const rowsWithFormat = new Set<number>();
+  parseXml(
+    text,
+    {
+      start(_ns, local, attrs, span) {
+        const depth = names.length + 1;
+        const parent = names[names.length - 1] ?? '';
+        names.push(local);
+        let keep = false;
+        if (depth === 1) rootQname = span.qname;
+        else if (depth === 2 && local === 'sheetData' && sheetDataStart === null) sheetDataStart = span;
+        else if (depth === 2 && local === 'dimension' && dimension === null) dimension = { start: span, ref: attrs.get('ref') };
+        else if (depth === 3 && local === 'col' && parent === 'cols') {
+          const [min, max, style] = [parseIndex(attrs.get('min'), 10), parseIndex(attrs.get('max'), 10), parseIndex(attrs.get('style'), 10)];
+          if (Number.isInteger(min) && Number.isInteger(max) && Number.isInteger(style) && style !== 0 && styles.hasCellFormat(style)) cols.push({ min, max, style });
+        } else if (depth === 3 && local === 'row' && parent === 'sheetData') {
+          const r = attrs.get('r');
+          const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
+          if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) invalid(r ?? String(n));
+          currentRow = n;
+          lastCol = 0;
+          if (r === undefined) missingRowRefs = true;
+          const custom = attrs.get('customFormat')?.trim();
+          if (attrs.has('s') && (custom === '1' || custom === 'true')) rowsWithFormat.add(n);
+          rows.push(n);
+          rows.push(span.start);
+          rows.push(span.end);
+          rows.push(span.end);
+          rows.push(span.end);
+          rows.push((r === undefined ? 0 : 1) | (span.empty ? 2 : 0) | (span.qname.length << 2));
+          rows.push(cells.length / CELL_FIELDS);
+          rows.push(0);
+          rowCount++;
+          keep = true;
+        } else if (depth === 4 && local === 'c' && parent === 'row' && recorded[depth - 2] === true) {
+          const r = attrs.get('r');
+          const address = r === undefined || r === '' ? null : parseCellRef(r);
+          if (r !== undefined && r !== '' && address === null) invalid(r);
+          const col = address?.col ?? lastCol + 1;
+          lastCol = col;
+          cells.push(col);
+          cells.push(span.start);
+          cells.push(span.end);
+          cells.push(span.end);
+          cells.push((r === undefined ? 0 : 1) | (span.qname.length << 1));
+          rows.set((rowCount - 1) * ROW_FIELDS + 7, rows.get((rowCount - 1) * ROW_FIELDS + 7) + 1);
+          keep = true;
+        }
+        recorded.push(keep);
+      },
+      end(_ns, local, span) {
+        const depth = names.length;
+        names.pop();
+        const keep = recorded.pop() === true;
+        if (depth === 2 && local === 'sheetData' && sheetData === null && sheetDataStart !== null) sheetData = { start: sheetDataStart, end: span };
+        else if (keep && depth === 3) {
+          rows.set((rowCount - 1) * ROW_FIELDS + 3, span.start);
+          rows.set((rowCount - 1) * ROW_FIELDS + 4, span.end);
+        } else if (keep && depth === 4) cells.set(cells.length - 2, span.end);
+      },
+      text() {},
+    },
+    { part, limits },
+  );
+  if (rootQname === null) throw new XlvError('XLV_E_PART_INVALID', 'The part has no root element.', { location: { part }, hint: 'Re-save the file in a spreadsheet application.' });
+  // The first col element that covers a column gives its style. Each column is assigned once, so
+  // overlapping col elements cost no more than the columns they cover (A3).
+  const columnStyles = new Int32Array(MAX_COLUMNS + 2);
+  const next = new Int32Array(MAX_COLUMNS + 2);
+  for (let i = 0; i < next.length; i++) next[i] = i;
+  const unset = (c: number): number => {
+    let root = c;
+    while (next[root] !== root) root = next[root]!;
+    while (next[c] !== root) {
+      const up = next[c]!;
+      next[c] = root;
+      c = up;
+    }
+    return root;
+  };
+  for (const c of cols) {
+    const min = Math.max(c.min, 1);
+    const max = Math.min(c.max, MAX_COLUMNS);
+    if (min > max) continue;
+    for (let col = unset(min); col <= max; col = unset(col + 1)) {
+      columnStyles[col] = c.style;
+      next[col] = col + 1;
+    }
+  }
+  return { rootQname, sheetData, dimension, rows, rowCount, cells, missingRowRefs, columnStyles, rowsWithFormat };
 }
 
 /**
@@ -701,71 +975,48 @@ function insertRef(tag: string, qname: string, ref: string): string {
  * which of the two wins is not stated in the sources read (D-A04). Indexes beyond the cell
  * formats of the file are ignored.
  */
-function newCellStyles(text: string, part: string, limits: ReadLimits, styles: StylesEditor): (row: number, col: number) => number {
-  const { elements } = scan(text, part, limits, (local, depth, parent) => (depth === 3 && local === 'col' && parent === 'cols') || (depth === 3 && local === 'row' && parent === 'sheetData'));
-  const cols: { min: number; max: number; style: number }[] = [];
-  const rowsWithFormat = new Set<number>();
-  let rowNumber = 0;
-  for (const e of elements) {
-    if (e.local === 'col') {
-      const [min, max, style] = ['min', 'max', 'style'].map((k) => {
-        const v = e.attrs.get(k)?.trim() ?? '';
-        return /^[0-9]{1,10}$/.test(v) ? Number(v) : Number.NaN;
-      });
-      if (Number.isInteger(min) && Number.isInteger(max) && Number.isInteger(style) && style !== 0 && styles.hasCellFormat(style ?? 0)) cols.push({ min: min ?? 0, max: max ?? 0, style: style ?? 0 });
-    } else {
-      const r = e.attrs.get('r')?.trim();
-      rowNumber = r !== undefined && /^[0-9]{1,7}$/.test(r) ? Number(r) : rowNumber + 1;
-      const custom = e.attrs.get('customFormat')?.trim();
-      if (e.attrs.has('s') && (custom === '1' || custom === 'true')) rowsWithFormat.add(rowNumber);
-    }
-  }
-  return (row, col) => (rowsWithFormat.has(row) ? 0 : (cols.find((c) => col >= c.min && col <= c.max)?.style ?? 0));
+function newCellStyle(scan: SheetScan, row: number, col: number): number {
+  return scan.rowsWithFormat.has(row) ? 0 : (scan.columnStyles[col] ?? 0);
 }
 
-function editSheetXml(text: string, part: string, sheet: string, planned: readonly PlannedCell[], limits: ReadLimits): string {
-  const { root, elements } = scan(text, part, limits, (local, depth, parent) => (depth === 2 && (local === 'sheetData' || local === 'dimension')) || (depth === 3 && local === 'row' && parent === 'sheetData') || (depth === 4 && local === 'c' && parent === 'row'));
-  const prefix = prefixOf(root.start.qname);
-  const sheetData = elements.find((e) => e.depth === 2 && e.local === 'sheetData');
+/** Joins many small strings without keeping one string per piece until the end. */
+class TextBuilder {
+  private readonly pieces: string[] = [];
+  private readonly joined: string[] = [];
+
+  add(text: string): void {
+    this.pieces.push(text);
+    if (this.pieces.length >= 4096) {
+      this.joined.push(this.pieces.join(''));
+      this.pieces.length = 0;
+    }
+  }
+
+  /** The text as a list of strings of a few thousand pieces each. */
+  finish(): string[] {
+    this.joined.push(this.pieces.join(''));
+    this.pieces.length = 0;
+    return this.joined;
+  }
+}
+
+/** Inserts `r="…"` after the qualified name of a start tag given as source text. */
+function insertRef(tag: string, qnameLength: number, ref: string): string {
+  const at = 1 + qnameLength;
+  return `${tag.slice(0, at)} r="${ref}"${tag.slice(at)}`;
+}
+
+/** The edited text of a worksheet part, as pieces for {@link PackageEditor.write}. */
+function editSheetXml(text: string, part: string, sheet: string, scan: SheetScan, planned: readonly PlannedCell[]): string[] {
+  const prefix = prefixOf(scan.rootQname);
+  const sheetData = scan.sheetData;
   if (!sheetData) {
     throw new XlvError('XLV_E_PART_INVALID', `The worksheet part of sheet "${sheet}" has no sheetData element.`, {
       location: { part, sheet },
       hint: 'The sheet part is damaged. Re-save the file in a spreadsheet application.',
     });
   }
-
-  // Rows and cells with their positions, numbered as the reader numbers them (D-105).
-  const rows: RowInfo[] = [];
-  let currentRow = 0;
-  let current: RowInfo | null = null;
-  let lastCol = 0;
-  // The reader skips rows and cells with invalid references (D-903); editing around them could
-  // put new cells in the wrong place, so a sheet that has any is not edited.
-  const invalid = (ref: string): never => {
-    throw new XlvError('XLV_E_INVALID_CELL_REF', `Sheet "${sheet}" contains the invalid reference "${ref.slice(0, 20)}", so it cannot be edited safely.`, {
-      location: { part, sheet },
-      hint: 'Open and re-save the file in a spreadsheet application, which drops the damaged cells, then edit the re-saved file.',
-      details: { ref: ref.slice(0, 40) },
-    });
-  };
-  for (const e of elements) {
-    if (e.depth === 3) {
-      const r = e.attrs.get('r');
-      const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
-      if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) invalid(r ?? String(n));
-      currentRow = n;
-      current = { number: currentRow, hasR: r !== undefined, element: e, cells: [] };
-      rows.push(current);
-      lastCol = 0;
-    } else if (e.depth === 4 && current) {
-      const r = e.attrs.get('r');
-      const address = r === undefined || r === '' ? null : parseCellRef(r);
-      if (r !== undefined && r !== '' && address === null) invalid(r);
-      const col = address?.col ?? lastCol + 1;
-      lastCol = col;
-      current.cells.push({ col, hasR: r !== undefined, element: e });
-    }
-  }
+  const { rows, cells, rowCount } = scan;
 
   const byRow = new Map<number, PlannedCell[]>();
   for (const p of planned) {
@@ -774,54 +1025,74 @@ function editSheetXml(text: string, part: string, sheet: string, planned: readon
     list.push(p);
   }
   for (const list of byRow.values()) list.sort((a, b) => a.col - b.col);
-  const forceRefs = rows.some((r) => !r.hasR);
   const emitted = new Set<number>();
   // A set of the existing row numbers and an index into the sorted new ones: a search of every
   // row per edited row, and shift(), made many edits on a long sheet quadratic (D-H01).
-  const existingRows = new Set(rows.map((r) => r.number));
+  const existingRows = new Set<number>();
+  for (let i = 0; i < rowCount; i++) existingRows.add(rows.get(i * ROW_FIELDS));
   const pending = [...byRow.keys()].filter((n) => !existingRows.has(n)).sort((a, b) => a - b);
   let next = 0;
   const p = (xml: string): string => withPrefix(xml, prefix);
-  const newRow = (n: number): string => {
-    const cells = (byRow.get(n) ?? []).filter((c) => c.xml !== null).map((c) => p(c.xml ?? '')).join('');
-    return `${p(`<row r="${String(n)}">`)}${cells}</${prefix}row>`;
+  const out = new TextBuilder();
+  const newRow = (n: number): void => {
+    out.add(p(`<row r="${String(n)}">`));
+    for (const c of byRow.get(n) ?? []) if (c.xml !== null) out.add(p(c.xml));
+    out.add(`</${prefix}row>`);
   };
 
-  let inner = '';
-  for (const row of rows) {
-    while (next < pending.length && (pending[next] ?? 0) < row.number) inner += newRow(pending[next++] ?? 0);
-    const edits = byRow.get(row.number);
-    const needsRefs = forceRefs || row.cells.some((c) => !c.hasR);
-    if (!edits && row.hasR && !needsRefs) {
-      inner += text.slice(row.element.start.start, row.element.end.end);
+  for (let i = 0; i < rowCount; i++) {
+    const at = i * ROW_FIELDS;
+    const number = rows.get(at);
+    const tagStart = rows.get(at + 1);
+    const tagEnd = rows.get(at + 2);
+    const endStart = rows.get(at + 3);
+    const endEnd = rows.get(at + 4);
+    const flags = rows.get(at + 5);
+    const firstCell = rows.get(at + 6);
+    const cellCount = rows.get(at + 7);
+    const hasR = (flags & 1) === 1;
+    while (next < pending.length && (pending[next] ?? 0) < number) newRow(pending[next++] ?? 0);
+    const edits = byRow.get(number);
+    let needsRefs = scan.missingRowRefs;
+    for (let k = 0; !needsRefs && k < cellCount; k++) needsRefs = (cells.get((firstCell + k) * CELL_FIELDS + 4) & 1) === 0;
+    if (!edits && hasR && !needsRefs) {
+      out.add(text.slice(tagStart, endEnd));
       continue;
     }
-    let tag = text.slice(row.element.start.start, row.element.start.end);
-    if (!row.hasR) tag = insertRef(tag, row.element.start.qname, String(row.number));
-    let body = '';
+    let tag = text.slice(tagStart, tagEnd);
+    if (!hasR) tag = insertRef(tag, flags >>> 2, String(number));
+    const empty = (flags & 2) === 2;
+    out.add(empty ? openTag(tag) : tag);
     const edited = new Set((edits ?? []).map((c) => c.col));
-    const toInsert = emitted.has(row.number) ? [] : (edits ?? []).filter((c) => c.xml !== null);
-    emitted.add(row.number);
+    const toInsert = emitted.has(number) ? [] : (edits ?? []).filter((c) => c.xml !== null);
+    emitted.add(number);
     let k = 0;
-    for (const cell of row.cells) {
-      while (k < toInsert.length && (toInsert[k]?.col ?? 0) < cell.col) body += p(toInsert[k++]?.xml ?? '');
-      if (edited.has(cell.col)) continue;
-      let cellText = text.slice(cell.element.start.start, cell.element.end.end);
-      if (!cell.hasR) cellText = insertRef(cellText, cell.element.start.qname, formatCellRef(row.number, cell.col));
-      body += cellText;
+    for (let j = 0; j < cellCount; j++) {
+      const c = (firstCell + j) * CELL_FIELDS;
+      const col = cells.get(c);
+      while (k < toInsert.length && (toInsert[k]?.col ?? 0) < col) out.add(p(toInsert[k++]?.xml ?? ''));
+      if (edited.has(col)) continue;
+      const cellFlags = cells.get(c + 4);
+      if ((cellFlags & 1) === 1) out.add(text.slice(cells.get(c + 1), cells.get(c + 3)));
+      else {
+        // Only the start tag gets the reference; the rest of the cell is copied as it is.
+        out.add(insertRef(text.slice(cells.get(c + 1), cells.get(c + 2)), cellFlags >>> 1, formatCellRef(number, col)));
+        out.add(text.slice(cells.get(c + 2), cells.get(c + 3)));
+      }
     }
-    while (k < toInsert.length) body += p(toInsert[k++]?.xml ?? '');
-    inner += row.element.start.empty ? `${openTag(tag)}${body}</${row.element.start.qname}>` : `${tag}${body}${text.slice(row.element.end.start, row.element.end.end)}`;
+    while (k < toInsert.length) out.add(p(toInsert[k++]?.xml ?? ''));
+    out.add(empty ? `</${text.slice(tagStart + 1, tagStart + 1 + (flags >>> 2))}>` : text.slice(endStart, endEnd));
   }
-  while (next < pending.length) inner += newRow(pending[next++] ?? 0);
+  while (next < pending.length) newRow(pending[next++] ?? 0);
+  const inner = out.finish();
 
-  const changes: [number, number, string][] = [];
-  if (sheetData.start.empty) changes.push([sheetData.start.start, sheetData.start.end, `${openTag(text.slice(sheetData.start.start, sheetData.start.end))}${inner}</${sheetData.start.qname}>`]);
+  const changes: [number, number, readonly string[]][] = [];
+  if (sheetData.start.empty) changes.push([sheetData.start.start, sheetData.start.end, [openTag(text.slice(sheetData.start.start, sheetData.start.end)), ...inner, `</${sheetData.start.qname}>`]]);
   else changes.push([sheetData.start.end, sheetData.end.start, inner]);
 
-  const dimension = elements.find((e) => e.depth === 2 && e.local === 'dimension');
+  const dimension = scan.dimension;
   if (dimension) {
-    const old = parseRange(dimension.attrs.get('ref') ?? '');
+    const old = parseRange(dimension.ref ?? '');
     const values = planned.filter((c) => c.xml !== null);
     if (values.length > 0) {
       let minRow = old?.start.row ?? Infinity;
@@ -835,10 +1106,19 @@ function editSheetXml(text: string, part: string, sheet: string, planned: readon
         maxCol = Math.max(maxCol, c.col);
       }
       const ref = minRow === maxRow && minCol === maxCol ? formatCellRef(minRow, minCol) : `${formatCellRef(minRow, minCol)}:${formatCellRef(maxRow, maxCol)}`;
-      changes.push([dimension.start.start, dimension.start.end, setAttr(text.slice(dimension.start.start, dimension.start.end), 'ref', ref)]);
+      changes.push([dimension.start.start, dimension.start.end, [setAttr(text.slice(dimension.start.start, dimension.start.end), 'ref', ref)]]);
     }
   }
-  return splice(text, changes);
+  // The two changes (sheetData and dimension) never overlap.
+  changes.sort((a, b) => a[0] - b[0]);
+  const pieces: string[] = [];
+  let pos = 0;
+  for (const [start, end, replacement] of changes) {
+    pieces.push(text.slice(pos, start), ...replacement);
+    pos = end;
+  }
+  pieces.push(text.slice(pos));
+  return pieces;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -862,27 +1142,47 @@ export function requestFullCalculation(edit: PackageEditor, workbookPart: string
   edit.write(workbookPart, splice(text, [[next ? next.start.start : root.end.start, next ? next.start.start : root.end.start, created]]));
 }
 
+/** Ranges with their text as written, found by a cell they contain (A3). */
+class RangeLookup {
+  private readonly index = new RangeIndex();
+  private readonly refs = new Map<CellRange, string>();
+
+  add(range: CellRange, ref: string): void {
+    this.index.add(range);
+    this.refs.set(range, ref);
+  }
+
+  /** A range that contains the cell and that `accept` (when given) accepts, with its text. */
+  at(row: number, col: number, accept?: (range: CellRange) => boolean): { ref: string; range: CellRange } | undefined {
+    const cell = { row, col };
+    const range = this.index.find({ start: cell, end: cell }, accept);
+    return range === undefined ? undefined : { ref: this.refs.get(range) ?? '', range };
+  }
+}
+
 /**
  * editCells writes plain formulas only, and does not change cells whose formula covers other
  * cells: an array formula's range (P1 §18.17.6.3) or a shared formula master with dependents
  * (E-28). Replacing a cell that shares a master's formula is allowed: its own value overrides
  * the group (E-28).
  */
-function checkFormulaGroups(sheet: Sheet, ref: string, at: { row: number; col: number }, value: StoredValue | null, cache: Map<string, { ref: string; range: CellRange }[]>): void {
+function checkFormulaGroups(sheet: Sheet, ref: string, at: { row: number; col: number }, value: StoredValue | null, cache: Map<string, RangeLookup>): void {
   const refuse = (message: string, hint: string) => new XlvError('XLV_E_NOT_SUPPORTED', message, { location: { part: sheet.part ?? '', sheet: sheet.name, cell: ref }, hint, details: { cell: ref } });
   if (value !== null && value.kind === 'formula' && (value.group !== undefined || value.master !== undefined)) {
     throw refuse(`editCells writes plain formulas only; the value for ${ref} is an array or shared formula.`, 'Write { formula: "…" } for each cell, or build the sheet with createWorkbook to write array and shared formulas.');
   }
   let arrays = cache.get(sheet.name);
   if (arrays === undefined) {
-    arrays = [];
+    // An index of the array formulas, so that each edit costs about the same however many the
+    // sheet has (A3).
+    arrays = new RangeLookup();
     for (const c of sheet.cells()) {
       const range = c.formula?.kind === 'array' && c.formula.ref !== null ? parseRange(c.formula.ref) : null;
-      if (range !== null) arrays.push({ ref: c.formula!.ref!, range });
+      if (range !== null) arrays.add(range, c.formula!.ref!);
     }
     cache.set(sheet.name, arrays);
   }
-  const array = arrays.find((a) => at.row >= a.range.start.row && at.row <= a.range.end.row && at.col >= a.range.start.col && at.col <= a.range.end.col);
+  const array = arrays.at(at.row, at.col);
   if (array !== undefined) {
     throw refuse(`${ref} belongs to the array formula ${array.ref}, which editCells cannot change cell by cell.`, `Change the array formula in a spreadsheet application, or rebuild the sheet with createWorkbook; cells outside ${array.ref} can be edited.`);
   }
@@ -1042,14 +1342,15 @@ function planEdits(workbook: Workbook, edits: readonly unknown[]): Map<string, E
   const scratch = createWorkbook({ dateSystem: workbook.dateSystem });
   const scratchSheet = scratch.addSheet('Edit');
   const plans = new Map<string, EditPlan>();
-  const arrayRanges = new Map<string, { ref: string; range: CellRange }[]>();
+  const arrayRanges = new Map<string, RangeLookup>();
+  const byName = new Map(workbook.sheets.map((sheet) => [sheet.name, sheet]));
   edits.forEach((raw, i) => {
     const o = readOptions(raw, ['sheet', 'cell', 'value', 'style'], `edits[${String(i)}]`);
     const sheetName = o.get('sheet');
     if (typeof sheetName !== 'string') {
       throw new XlvError('XLV_E_INVALID_OPTION', `edits[${String(i)}] has no sheet name.`, { hint: 'Give each edit a sheet, for example { sheet: "Data", cell: "B2", value: 5 }.', details: { option: 'sheet' } });
     }
-    const sheet = workbook.getSheet(sheetName);
+    const sheet = byName.get(sheetName) ?? workbook.getSheet(sheetName);
     if (sheet.kind !== 'worksheet' || sheet.part === null) {
       throw new XlvError('XLV_E_INVALID_INPUT', `Sheet "${sheet.name}" is a ${sheet.kind} without editable cells.`, { location: { sheet: sheet.name }, hint: 'Edit cells of worksheets only.' });
     }
@@ -1115,16 +1416,33 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
     const part = plan.sheet.part ?? '';
     const planned: PlannedCell[] = [];
     const text = edit.text(part);
-    const columnStyle = text === undefined ? () => 0 : newCellStyles(text, part, limits, styles);
-    // A cell that holds only a style keeps that style when it gets a value (D-E05).
+    const sheetScan = text === undefined ? null : scanSheet(text, part, plan.sheet.name, limits, styles);
+    // A cell that holds only a style keeps that style when it gets a value (D-E05). Only the cells
+    // of this edit are kept, not every styled cell of the sheet.
     let styled: Map<string, Cell> | null = null;
-    const styledCell = (ref: string): Cell | undefined => (styled ??= new Map([...plan.sheet.styledCells()].map((cell) => [cell.ref, cell]))).get(ref);
-    const merges = plan.sheet.merges.map((m) => ({ ref: m, range: parseRange(m.trim().toUpperCase()) }));
+    const styledCell = (ref: string): Cell | undefined => {
+      if (styled === null) {
+        const wanted = new Set<string>();
+        for (const r of plan.cells.keys()) if (plan.sheet.cell(r) === undefined) wanted.add(r);
+        styled = new Map();
+        if (wanted.size > 0) for (const cell of plan.sheet.styledCells()) if (wanted.has(cell.ref)) styled.set(cell.ref, cell);
+      }
+      return styled.get(ref);
+    };
+    // Merged ranges in an index, so that each cell costs about the same however many the sheet has (A3).
+    let merges: RangeLookup | null = null;
     for (const [ref, c] of plan.cells) {
-      if (c.value !== null) {
+      if (c.value !== null && plan.sheet.merges.length > 0) {
+        if (merges === null) {
+          merges = new RangeLookup();
+          for (const m of plan.sheet.merges) {
+            const range = parseRange(m.trim().toUpperCase());
+            if (range !== null) merges.add(range, m);
+          }
+        }
         // Content of a merged range is stored in its top-left cell (E-35); a value elsewhere is not shown.
-        const merge = merges.find(({ range: r }) => r !== null && c.row >= r.start.row && c.row <= r.end.row && c.col >= r.start.col && c.col <= r.end.col && (c.row !== r.start.row || c.col !== r.start.col));
-        if (merge !== undefined && merge.range !== null) {
+        const merge = merges.at(c.row, c.col, (r) => c.row !== r.start.row || c.col !== r.start.col);
+        if (merge !== undefined) {
           const topLeft = formatCellRef(merge.range.start.row, merge.range.start.col);
           // Warnings of one sheet are grouped; `cells` lists the cells and the message names the first.
           warnings.add('XLV_W_MERGED_CELL_WRITE', `A value was written into a merged range outside its top-left cell (first: ${ref} in ${merge.ref}). Spreadsheet applications show only the top-left cell (${topLeft}), so the value will not be visible. Write it to the top-left cell, or unmerge the range.`, { part, sheet: plan.sheet.name, cell: ref });
@@ -1137,21 +1455,30 @@ function applyEdits(bytes: Uint8Array, workbook: Workbook, plans: Map<string, Ed
         continue;
       }
       // A new cell starts from its column's default style (col@style, W2-03).
-      const base = existing?.styleIndex ?? columnStyle(c.row, c.col);
+      const base = existing?.styleIndex ?? (sheetScan === null ? 0 : newCellStyle(sheetScan, c.row, c.col));
       let patch: NormalizedStyle = c.style ?? {};
       const existingIsDate = existing?.numFmt != null && isDateFormat(existing.numFmt);
       if (c.date !== null && patch.numFmt === undefined && !existingIsDate) patch = { ...patch, numFmt: c.date };
       const xf = Object.keys(patch).length === 0 ? base : styles.derive(base, patch);
       planned.push({ row: c.row, col: c.col, ref, xml: newCellXml(ref, c.value, xf, sst) });
     }
-    if (text === undefined) continue;
+    if (text === undefined || sheetScan === null) continue;
     syncTables(edit, plan, appended !== null && appended.sheet === plan.sheet.name ? appended : null);
-    edit.write(part, editSheetXml(text, part, plan.sheet.name, planned, limits));
+    edit.write(part, editSheetXml(text, part, plan.sheet.name, sheetScan, planned));
   }
   sst.finish();
   styles.finish();
 
-  const hasFormulas = formulasChanged || workbook.sheets.some((s) => [...s.cells()].some((cell) => cell.formula !== null));
+  let hasFormulas = formulasChanged;
+  for (const sheet of workbook.sheets) {
+    if (hasFormulas) break;
+    for (const cell of sheet.cells()) {
+      if (cell.formula !== null) {
+        hasFormulas = true;
+        break;
+      }
+    }
+  }
   if (hasFormulas) {
     requestFullCalculation(edit, workbookPart);
     warnings.add('XLV_W_FORMULAS_NOT_RECALCULATED', 'The workbook contains formulas. xlvane does not recalculate them: cached results may be out of date until the file is opened in a spreadsheet application, which is asked to recalculate on load.', { part: workbookPart });
@@ -1196,8 +1523,11 @@ export function editCells(input: Uint8Array | ArrayBuffer, edits: readonly CellE
     throw new XlvError('XLV_E_INVALID_INPUT', 'editCells expects an array of edits.', { hint: 'Pass an array such as [{ sheet: "Data", cell: "A1", value: 1 }].' });
   }
   const o = readOptions(options, ['limits'], 'editCells options');
-  const limits = resolveLimits(o.get('limits'));
+  const { limits, writable } = editLimits(o.get('limits'));
+  // The size of the edit is checked before anything per cell is built (A2).
+  checkWrites(edits.length, writable, `${String(edits.length)} edits`);
   const workbook = readWorkbook(bytes, { limits });
+  checkCellCount(newCells(workbook, edits), limits.maxCells);
   return applyEdits(bytes, workbook, planEdits(workbook, edits), limits);
 }
 
@@ -1205,10 +1535,14 @@ export function editCells(input: Uint8Array | ArrayBuffer, edits: readonly CellE
  * Appends rows below the last used row of a sheet (the rows of merged ranges count as used) in
  * an existing XLSX file, editing the file surgically like {@link editCells}. Object rows are
  * placed under the matching header columns (unknown keys throw `XLV_E_INVALID_ROWS` with
- * suggestions); array rows start at the first used column. A table whose last row is the sheet's last used row grows to include the new
- * rows (its range and filter); if that table has a totals row the call is refused with
+ * suggestions). Array rows start at the first used column, or, when the new rows extend a table
+ * (one that reaches the last used row), at that table's first column; when several such tables
+ * start in different columns the call is refused with `XLV_E_INVALID_ARGUMENT` (pass object rows
+ * instead). A table whose last row is the sheet's last used row grows to include the new rows
+ * (its range and filter); if that table has a totals row the call is refused with
  * `XLV_E_NOT_SUPPORTED` and a hint to insert the rows above the totals row with `insertRows`.
- * Calculated columns are not filled in the new rows.
+ * Calculated columns are not filled in the new rows. One call writes at most 1 000 000 cells
+ * unless `limits.maxCells` is given (see `EditOptions`).
  *
  * @example
  * ```ts
@@ -1219,6 +1553,9 @@ export function editCells(input: Uint8Array | ArrayBuffer, edits: readonly CellE
  *   { Customer: 'Alice', Total: 120.5 },
  *   { Customer: 'Bob', Total: 80 },
  * ]);
+ * // Array rows that extend a table start at the table's first column.
+ * const { bytes: more } = appendRows(updated, 'Orders', [['Carol', 64]]);
+ * console.log(more.length);
  * ```
  */
 export function appendRows(
@@ -1229,12 +1566,23 @@ export function appendRows(
 ): EditResult {
   const bytes = inputBytes(input);
   const o = readOptions(options, ['limits', 'header'], 'appendRows options');
-  const limits = resolveLimits(o.get('limits'));
+  const { limits, writable } = editLimits(o.get('limits'));
   const workbook = readWorkbook(bytes, { limits });
   const target = pickSheet(workbook, sheet);
   if (!Array.isArray(rows)) {
     throw new XlvError('XLV_E_INVALID_ROWS', 'appendRows expects an array of rows.', { hint: 'Pass an array of objects or arrays.' });
   }
+  // The cells to write are counted before any is built (A2).
+  let values = 0;
+  for (const row of rows as readonly unknown[]) {
+    if (Array.isArray(row)) {
+      for (const value of row as readonly unknown[]) if (value !== null && value !== undefined) values++;
+    } else if (typeof row === 'object' && row !== null) {
+      for (const key of Object.keys(row)) if ((row as Record<string, unknown>)[key] !== null && (row as Record<string, unknown>)[key] !== undefined) values++;
+    }
+  }
+  checkWrites(values, writable, `Appending ${String(rows.length)} rows`, target.name);
+  checkCellCount(new Map([[target, values]]), limits.maxCells);
   let lastRow = 0;
   let firstCol = Infinity;
   for (const cell of target.cells()) {
@@ -1255,13 +1603,32 @@ export function appendRows(
       details: { limit: 'rows', value: MAX_ROWS },
     });
   }
+  // Rows appended below a table that reaches the last used row join it (syncTables), so array rows
+  // start at its first column rather than at the sheet's first used column (B8).
+  let arrayCol = firstCol;
+  if ((rows as readonly unknown[]).some((row) => Array.isArray(row))) {
+    const joined = target.tables
+      .map((table) => ({ table, range: parseRange(table.ref.trim().toUpperCase()) }))
+      .filter((t): t is { table: (typeof target.tables)[number]; range: CellRange } => t.range !== null && lastRow > 0 && t.range.end.row >= lastRow && t.range.start.row <= lastRow);
+    const starts = new Set(joined.map((t) => t.range.start.col));
+    if (starts.size > 1) {
+      const names = joined.map((t) => `"${t.table.displayName}" (${t.table.ref})`).join(', ');
+      throw new XlvError('XLV_E_INVALID_ARGUMENT', `Tables ${names} of sheet "${target.name}" reach the last used row ${String(lastRow)} and start in different columns, so it is not clear in which column array rows start.`, {
+        location: { sheet: target.name },
+        hint: 'Pass the rows as objects keyed by header text, for example [{ Customer: "Dan", Total: 42 }], so that each value goes under its column (use { header: n } to name the header row).',
+        details: { tables: joined.map((t) => t.table.displayName), row: lastRow },
+      });
+    }
+    const [start] = starts;
+    if (start !== undefined) arrayCol = start;
+  }
   let columns: Map<string, number> | null = null;
   const edits: CellEdit[] = [];
   rows.forEach((row: unknown, i) => {
     const r = lastRow + 1 + i;
     if (Array.isArray(row)) {
       row.forEach((value: unknown, k) => {
-        if (value !== null && value !== undefined) edits.push({ sheet: target.name, cell: formatCellRef(r, firstCol + k), value: value as CellInput });
+        if (value !== null && value !== undefined) edits.push({ sheet: target.name, cell: formatCellRef(r, arrayCol + k), value: value as CellInput });
       });
       return;
     }

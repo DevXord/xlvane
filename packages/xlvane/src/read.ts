@@ -184,12 +184,27 @@ class ReadSheet implements Sheet {
     for (const row of this.rows()) yield* row;
   }
 
+  /** Number of cells that hold only a style (D-E06), without building them. */
+  get styledCellCount(): number {
+    let n = 0;
+    for (const list of this.data?.styleOnly.values() ?? []) for (let i = 1; i < list.length; i += 2) if (list[i] !== -1) n++;
+    return n;
+  }
+
   *styledCells(): IterableIterator<Cell> {
     // Built when asked for (D-E06): readers of values never pay for them.
     const data = this.data;
     if (!data) return;
     for (const r of [...data.styleOnly.keys()].sort((a, b) => a - b)) yield* styledCellsOf(r, data.styleOnly.get(r) ?? [], data.styledCell);
   }
+}
+
+/** Number of cells of a sheet that hold only a style (they count against `maxCells` but not `cellCount`). */
+export function styledCellCount(sheet: Sheet): number {
+  if (sheet instanceof ReadSheet) return sheet.styledCellCount;
+  let n = 0;
+  for (const _cell of sheet.styledCells()) n++;
+  return n;
 }
 
 class ReadWorkbook implements Workbook {

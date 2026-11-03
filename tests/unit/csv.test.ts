@@ -128,7 +128,8 @@ describe('CSV numbers, limits and warnings (D-R02)', () => {
   });
 
   it('keeps long whole numbers, overflow and underflow as text', () => {
-    expect(values('12345678901234567\r\n1e-400\r\n1e400\r\n1e-320\r\n0e5\r\n')).toEqual(['12345678901234567', '1e-400', '1e400', '1e-320', 0]);
+    // 1e-320 is a subnormal in the shortest form JavaScript writes for it, so it reads back as the number (C11).
+    expect(values('12345678901234567\r\n1e-400\r\n1e400\r\n1e-320\r\n1.23456e-320\r\n0e5\r\n')).toEqual(['12345678901234567', '1e-400', '1e400', 1e-320, '1.23456e-320', 0]);
     expect(values('0.123456789012345678\r\n0.12345678901234568\r\n')).toEqual(['0.123456789012345678', 0.12345678901234568]);
   });
 

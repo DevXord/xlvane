@@ -60,7 +60,21 @@ export class RangeIndex {
 
   /** Whether `range` shares a cell with a range added before. */
   overlaps(range: CellRange): boolean {
-    const hit = (list: readonly CellRange[] | undefined): boolean => list !== undefined && list.some((r) => overlap(r, range));
+    return this.find(range) !== undefined;
+  }
+
+  /**
+   * A range added before that shares a cell with `range` and that `accept` (when given) accepts,
+   * or `undefined`. Which one is returned when several qualify is not defined; ranges that do not
+   * overlap each other (merged ranges, tables, array formulas of a valid file) qualify at most
+   * once for a single cell.
+   */
+  find(range: CellRange, accept?: (stored: CellRange) => boolean): CellRange | undefined {
+    const pick = (list: readonly CellRange[] | undefined): CellRange | undefined => {
+      if (list === undefined) return undefined;
+      for (const r of list) if (overlap(r, range) && (accept === undefined || accept(r))) return r;
+      return undefined;
+    };
     for (const [key, level] of this.levels) {
       const rows = ROW_SIZES[key >> 4]!;
       const cols = COL_SIZES[key & 15]!;
@@ -68,23 +82,35 @@ export class RangeIndex {
       const rb2 = blockOf(range.end.row, rows);
       const cb1 = blockOf(range.start.col, cols);
       const cb2 = blockOf(range.end.col, cols);
-      const inColumn = (column: Map<number, CellRange[]>): boolean => {
+      const inColumn = (column: Map<number, CellRange[]>): CellRange | undefined => {
         if (rb2 - rb1 + 1 <= column.size) {
-          for (let rb = rb1; rb <= rb2; rb++) if (hit(column.get(rb))) return true;
-          return false;
+          for (let rb = rb1; rb <= rb2; rb++) {
+            const found = pick(column.get(rb));
+            if (found !== undefined) return found;
+          }
+          return undefined;
         }
-        for (const [rb, list] of column) if (rb >= rb1 && rb <= rb2 && hit(list)) return true;
-        return false;
+        for (const [rb, list] of column) {
+          if (rb < rb1 || rb > rb2) continue;
+          const found = pick(list);
+          if (found !== undefined) return found;
+        }
+        return undefined;
       };
       if (cb2 - cb1 + 1 <= level.size) {
         for (let cb = cb1; cb <= cb2; cb++) {
           const column = level.get(cb);
-          if (column !== undefined && inColumn(column)) return true;
+          const found = column === undefined ? undefined : inColumn(column);
+          if (found !== undefined) return found;
         }
       } else {
-        for (const [cb, column] of level) if (cb >= cb1 && cb <= cb2 && inColumn(column)) return true;
+        for (const [cb, column] of level) {
+          if (cb < cb1 || cb > cb2) continue;
+          const found = inColumn(column);
+          if (found !== undefined) return found;
+        }
       }
     }
-    return false;
+    return undefined;
   }
 }

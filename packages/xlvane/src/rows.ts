@@ -80,6 +80,14 @@ export interface DeleteRowsOptions extends EditOptions {
 }
 
 /** Relationship types of a worksheet whose parts do not depend on row positions or are handled here. */
+/**
+ * Media type of pivot cache definition parts, as Microsoft Excel writes it in
+ * `[Content_Types].xml` (Apache POI corpus files poi/ExcelPivotTableSample.xlsx, poi/54436.xlsx,
+ * poi/DataTableCities.xlsx; B6). The relationship from the workbook ends in
+ * `/pivotCacheDefinition` in the same files.
+ */
+const PIVOT_CACHE_DEFINITION_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml';
+
 const SAFE_SHEET_RELATIONSHIPS = new Set(['hyperlink', 'comments', 'vmlDrawing', 'printerSettings', 'image', 'customProperty', 'drawing', 'table']);
 
 /** Elements of a worksheet whose content refers to cells and that xlvane does not rewrite. */
@@ -119,15 +127,30 @@ function moveRow(n: number, c: RowChange): number | null {
   return n > end ? n + c.count : null;
 }
 
+/** Decodes the predefined entities and character references of XML text; a reference to a code point that does not exist stays as written. */
 function decodeEntities(s: string): string {
-  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g, (_m, e: string) => {
+  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g, (m, e: string) => {
     if (e === 'amp') return '&';
     if (e === 'lt') return '<';
     if (e === 'gt') return '>';
     if (e === 'quot') return '"';
     if (e === 'apos') return "'";
-    return String.fromCodePoint(e.startsWith('#x') ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+    const cp = e.startsWith('#x') ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
   });
+}
+
+/**
+ * Whether the XML text of a part may refer to a sheet: its name, ignoring case, appears in the
+ * text after entity and character references are decoded, as written or in the quoted form of a
+ * formula, where each "'" is doubled (docs/facts/formulas.md F2-11). Searching the raw XML missed names such
+ * as "R&D" (written "R&amp;D") and "O'Brien" (written "'O''Brien'!", B6). It may find the name
+ * where it is not a reference, which only refuses more.
+ */
+function mentionsSheet(xml: string, sheet: string): boolean {
+  const text = decodeEntities(xml).toLowerCase();
+  const name = sheet.toLowerCase();
+  return text.includes(name) || (name.includes("'") && text.includes(name.replace(/'/g, "''")));
 }
 
 function removeAttr(tag: string, name: string): string {
@@ -273,7 +296,7 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     if (target && /sqref|<xm:f|sparkline|slicer/i.test(body)) {
       throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines or slicers) that refers to cells, which xlvane cannot move with its rows yet.`, where(), { element: 'extLst' });
     }
-    if (!target && /<xm:f|sparkline/i.test(body) && body.toLowerCase().includes(c.sheet.toLowerCase())) {
+    if (!target && /<xm:f|sparkline/i.test(body) && mentionsSheet(body, c.sheet)) {
       throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines) that may refer to sheet "${c.sheet}", which xlvane cannot rewrite yet.`, where(), { element: 'extLst' });
     }
   }
@@ -995,21 +1018,45 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
   }
   // Charts and pivot caches anywhere may refer to the sheet by name. Chart parts are found by
   // their content type (CH-01) and as the targets of the chart relationships of drawing parts
-  // (CH-04), whatever their names; other XML parts in a charts folder and pivot cache definitions
-  // by their names, as before.
+  // (CH-04), whatever their names; pivot cache definitions by their content type and as the
+  // targets of the pivot cache relationships of the workbook (B6); other XML parts in a charts
+  // folder and parts named like pivot cache definitions by their names, as before. Drawings are
+  // found by their content type and as the targets of the drawing relationships of the sheets.
   const charts = new Set<string>();
+  const drawings = new Map<string, string>();
+  const unmatched = (source: string, r: { type: string; target: string }): XlvError =>
+    notSupported(`The part ${source} has a relationship to ${r.target}, which is not a part of the package (its name may be written differently in the archive), so xlvane cannot check whether a chart there refers to sheet "${sheet.name}".`, { part: source, sheet: sheet.name }, { type: r.type, target: r.target });
   for (const name of pkg.partNames) {
     const type = pkg.contentType(name);
-    if (type === CHART_CONTENT_TYPE) charts.add(partKey(name));
-    else if (type === DRAWING_CONTENT_TYPE) {
-      for (const r of pkg.relationships(name)) if (!r.external && classifyRelationship(r.type)?.name === 'chart') charts.add(partKey(r.target));
+    if (type === CHART_CONTENT_TYPE || type === PIVOT_CACHE_DEFINITION_CONTENT_TYPE) charts.add(partKey(name));
+    else if (type === DRAWING_CONTENT_TYPE) drawings.set(partKey(name), name);
+  }
+  for (const s of workbook.sheets) {
+    if (s.part === null) continue;
+    for (const r of pkg.relationships(s.part)) {
+      if (r.external || classifyRelationship(r.type)?.name !== 'drawing') continue;
+      // A drawing that cannot be found may hold charts that refer to the sheet (B7).
+      if (!pkg.hasPart(r.target)) throw unmatched(s.part, r);
+      drawings.set(partKey(r.target), r.target);
     }
   }
-  const lowerName = sheet.name.toLowerCase();
+  for (const name of drawings.values()) {
+    for (const r of pkg.relationships(name)) {
+      if (r.external || classifyRelationship(r.type)?.name !== 'chart') continue;
+      // A chart part whose name the archive spells differently (B7) is not a part, so it was missed.
+      if (!pkg.hasPart(r.target)) throw unmatched(name, r);
+      charts.add(partKey(r.target));
+    }
+  }
+  for (const r of pkg.relationships(workbookPart)) {
+    if (r.external || classifyRelationship(r.type)?.name !== 'pivotCacheDefinition') continue;
+    if (!pkg.hasPart(r.target)) throw unmatched(workbookPart, r);
+    charts.add(partKey(r.target));
+  }
   for (const name of pkg.partNames) {
     if (!charts.has(partKey(name)) && !/\/charts\/[^/]+\.xml$|pivotCacheDefinition[^/]*\.xml$/i.test(name)) continue;
     const text = edit.text(name);
-    if (text !== undefined && text.toLowerCase().includes(lowerName)) {
+    if (text !== undefined && mentionsSheet(text, sheet.name)) {
       throw notSupported(`The part ${name} (a chart or pivot table) may refer to sheet "${sheet.name}", and xlvane cannot rewrite it yet.`, { part: name, sheet: sheet.name });
     }
   }
