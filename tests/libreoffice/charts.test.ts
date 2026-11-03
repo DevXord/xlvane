@@ -98,17 +98,22 @@ function colouredPixels(png: Uint8Array): number {
 
 function convert(dir: string, to: string, files: string[]): void {
   const profile = pathToFileURL(join(dir, 'profile')).href;
-  const run = (list: string[]): void => {
+  const run = (list: string[]): string => {
     const result = spawnSync(SOFFICE, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', to, '--outdir', join(dir, 'out'), ...list], { encoding: 'utf8', timeout: 300_000 });
     expect(result.status, result.stderr).toBe(0);
+    return `${result.stdout}${result.stderr}`;
   };
   run(files);
-  // In CI a batch conversion has finished with status 0 but without the output of one file; such
-  // files are converted again one at a time, and a file still without output fails the test.
+  // In CI a conversion has finished with status 0 but without the output of a file; such files are
+  // converted again one at a time (up to three times), and a file still without output fails the
+  // test with what LibreOffice printed.
   const extension = to.split(':')[0]!;
   const output = (file: string): string => join(dir, 'out', `${basename(file).replace(/\.[^.]+$/, '')}.${extension}`);
-  for (const file of files.filter((f) => !existsSync(output(f)))) run([file]);
-  for (const file of files) expect(existsSync(output(file)), `LibreOffice wrote no ${extension} for ${basename(file)}`).toBe(true);
+  for (const file of files) {
+    let printed = '';
+    for (let attempt = 0; attempt < 3 && !existsSync(output(file)); attempt++) printed = run([file]);
+    expect(existsSync(output(file)), `LibreOffice wrote no ${extension} for ${basename(file)}:\n${printed}`).toBe(true);
+  }
 }
 
 describe.skipIf(!available && !required)('LibreOffice and charts', () => {
