@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('..', import.meta.url));
 
 /** Documentation files for users of the packages, in the order of llms-full.txt. */
-export const DOCS = ['errors.md', 'inspect-json.md', 'cli-json.md', 'exceljs-compat.md'];
+export const DOCS = ['errors.md', 'inspect-json.md', 'cli-json.md', 'exceljs-compat.md', 'migrate-from-exceljs.md', 'xlsx-cves.md'];
 
 /** Writes docs/, skills/ and llms-full.txt into `target` (default packages/xlvane). */
 export async function packageDocs(target = join(root, 'packages/xlvane')) {
