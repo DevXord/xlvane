@@ -4,7 +4,7 @@ The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2
 
 ## 1.3.0 (2026-11-03)
 
-Charts, and security fixes from a penetration test of the release candidate (docs/decisions.md D-K03). Please update all three packages.
+Charts, and security fixes from two reviews of the release candidate (docs/decisions.md D-K03 and D-K04). Please update all three packages.
 
 ### Security fixes
 
@@ -13,11 +13,24 @@ Charts, and security fixes from a penetration test of the release candidate (doc
 - **Charts:** series and chart groups count against `maxCells` when reading (a 4.9 MB file ran out of memory); `writeWorkbook` limits the cached text of charts (a `RangeError` before); a drawing part shared by several sheets is read once (`XLV_W_SHEET_PART_SHARED`); `insertRows`/`deleteRows` find chart parts by content type, so a renamed chart part no longer lets them leave its references wrong.
 - **@xlvane/mcp:** `..` in the text of a symbolic link is resolved as the system resolves it, so it no longer reveals what exists outside the roots; `write_table` and `convert` from JSON respect `--max-cells`.
 - **Text round trip (all versions):** text holding `_x` and four hex digits followed by a character that is written as an escape (a control character, U+FFFE or U+FFFF), for example `"_xAF0F\uFFFF"`, was read back changed; the writer now escapes its underscore. Found by fuzzing.
+- **Editing large files (all versions):** `editCells`, `appendRows`, `insertRows`, `deleteRows`, `xlvane edit` and the MCP tool `edit_cells` ran out of memory on a sheet of millions of cells (a 4.4 MB file with 4.9 million cells ended the process); editing now takes about 0.1 KB per existing cell instead of about 0.8 KB, the cells of the edited sheets plus the new cells count against `limits.maxCells`, and one call writes at most 1 000 000 cells unless `limits.maxCells` is given (`XLV_E_LIMIT_EXCEEDED`). Many edits on a sheet with many merged ranges, array formulas or column definitions no longer take quadratic time (200 000 merged ranges and 5 000 edits: 13 s).
+- **@xlvane/mcp:** a symbolic link inside a root whose text leaves the roots and comes back (`../outside/X/../root/file.xlsx`) answered differently depending on what X is outside; every path whose links pass through a directory outside the roots is now refused (`XLV_E_PATH_NOT_ALLOWED`). `edit_cells` checks the request against `--max-cells`.
+- **Command line output (all versions):** a line feed in text from a file (a sheet name, document property, defined name, chart title, formula or link target) started a new line in the output of `inspect`, `read`, `validate` and `diff`, so a file could print lines that look like the CLI's own; it is now shown as `⏎`.
+- **@xlvane/compat:** `cell.formula` of a shared-formula dependent keeps its moved text instead of moving the master's formula again on every read (a 4 KB file sharing a 1 000 000-character master with 250 cells took about 47 s to read each formula once); the text moved per workbook is limited to 32 Mi characters plus 256 per move (`XLV_E_LIMIT_EXCEEDED`, `details.limit` `sharedFormulaText`), also in `stream.xlsx.WorkbookReader`. A changed master formula gives fresh text (exceljs keeps the old text).
 - **Command line:** a dangling symbolic link as output is replaced with `--force` (it was reported as existing with a suggestion to add `--force` again); special files are reported as "not a regular file"; files with long names can be replaced.
 
 ### xlvane
 
 - **Charts:** `sheet.addChart({ type, anchor, series, title, legend, stacked, axes })` writes column, bar, line, pie, scatter and area charts over ranges of the workbook (also in `writeWorkbookStream`, per sheet `charts`); `sheet.charts` reads the charts of a worksheet's drawing (types, stacking, title, legend, axes and series references; references are never evaluated). New error code `XLV_E_INVALID_CHART`. `XLV_W_DRAWING_CONTENT_NOT_READ` no longer counts charts. `inspect` (and `xlvane inspect`, MCP `inspect_workbook`) reports `chartCount` and `charts` (at most 10 charts per sheet, at most 10 chart types each, with `typesTruncated`, and titles cut to 100 characters). A chart that cannot be read (a part over a per-part XML limit, not a chart part, not UTF-8 or UTF-16, not well-formed) is skipped with a warning instead of failing the workbook; cached chart values do not count against `maxXmlTreeElements`, so workbooks with charts over hundreds of thousands of cells read as before. `writeWorkbook` writes chart caches of at most 4 000 000 cells per workbook. Chart references quote sheet names of letters followed by digits (such as `'Sheet1'!$A$1`).
+
+### Fixed
+
+- **insertRows and deleteRows (all versions):** charts, pivot caches and sparklines that refer to a sheet whose name needs quoting or escaping (`O'Brien`, `R&D`, `A<B`) were left unchanged while the rows moved; such files are now refused with `XLV_E_NOT_SUPPORTED`, as documented. Pivot cache definitions are also found by content type and relationship, not only by part name, and a drawing, chart or pivot cache relationship to a part that does not exist (such as a chart stored under a percent-encoded name, which LibreOffice still shows) is refused.
+- **appendRows:** array rows that extend a table start at the table's first column (they started at the first used column of the sheet, outside the table); when tables that start in different columns reach the last used row, `XLV_E_INVALID_ARGUMENT` asks for object rows.
+- **fromCSV:** subnormal numbers written in their shortest form (`5e-324`, `1e-310`), as `toCSV` writes them, read back as numbers.
+- **validate (CLI and MCP):** a `--sheet` / `sheet` that does not exist is `XLV_E_SHEET_NOT_FOUND` also when no column is checked.
+- **Messages:** the CLI no longer suggests a dangling link as the file to read instead of itself, and a pipe or device as input gets a hint that does not mention directories; the MCP server says that it does not write through a symbolic link instead of calling the path outside the roots.
+- **Docs:** docs/errors.md lists every code in its index; docs/exceljs-compat.md corrects the byte order mark note (exceljs drops it too) and lists known differences planned for 1.3.1.
 
 ## 1.2.3 (2026-11-03)
 
