@@ -72,6 +72,17 @@ describe('a drawing part shared by several sheets', () => {
     expect(wb.images).toHaveLength(1);
   });
 
+  it('belongs to the first sheet that shows it, not to a sheet whose relationships only list it (review of D-K03)', async () => {
+    const { unzipSync } = await import('fflate');
+    const files = unzipSync(sharedDrawing(2, 1));
+    files['xl/worksheets/sheet1.xml'] = strToU8(new TextDecoder().decode(files['xl/worksheets/sheet1.xml']).replace('<drawing r:id="rD"/>', ''));
+    const wb = readWorkbook(zipSync(files));
+    expect(wb.getSheet('S1').charts).toEqual([]);
+    expect(wb.getSheet('S2').charts).toHaveLength(1);
+    expect(wb.getSheet('S2').images).toHaveLength(1);
+    expect(wb.warnings.map((w) => w.code)).not.toContain('XLV_W_SHEET_PART_SHARED');
+  });
+
   it('parses the drawing once: 50 sheets and 10 000 chart frames in linear time', () => {
     const bytes = sharedDrawing(50, 10_000);
     const t0 = performance.now();

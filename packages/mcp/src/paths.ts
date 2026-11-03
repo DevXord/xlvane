@@ -81,7 +81,8 @@ async function realInside(roots: Roots, path: string, target: string, onMissing:
  * does not exist the rest of the path is taken as written.
  */
 async function leadsOutside(roots: Roots, path: string): Promise<boolean> {
-  const split = (p: string): string[] => p.slice(parse(p).root.length).split(/[\\/]/).filter((part) => part !== '');
+  // Only "/" separates names on POSIX, where "\\" is an ordinary character of a name.
+  const split = (p: string): string[] => p.slice(parse(p).root.length).split(sep === '\\' ? /[\\/]/ : '/').filter((part) => part !== '');
   const pending = split(path);
   let current = parse(path).root;
   let links = 0;
@@ -115,7 +116,7 @@ async function leadsOutside(roots: Roots, path: string): Promise<boolean> {
       const target = resolve(text);
       current = parse(target).root;
       pending.unshift(...split(target));
-    } else pending.unshift(...text.split(/[\\/]/).filter((part) => part !== ''));
+    } else pending.unshift(...text.split(sep === '\\' ? /[\\/]/ : '/').filter((part) => part !== ''));
   }
   return !inside(roots, current);
 }
@@ -143,6 +144,22 @@ function absolute(roots: Roots, path: string): string {
     throw new XlvError('XLV_E_INVALID_INPUT', `"${path}" contains ":" after the drive.`, { hint: 'Use a file name without ":".', details: { path } });
   }
   return full;
+}
+
+/**
+ * The start of a file name, at most 100 bytes of UTF-8 and never cut inside a character, for the
+ * name of a temporary file next to it (file systems limit names in bytes, D-K03).
+ */
+function shortName(name: string): string {
+  let bytes = 0;
+  let end = 0;
+  for (const ch of name) {
+    const size = new TextEncoder().encode(ch).length;
+    if (bytes + size > 100) break;
+    bytes += size;
+    end += ch.length;
+  }
+  return name.slice(0, end);
 }
 
 /** Points in {@link readAllowedWith} where tests change the file system (races). */
@@ -298,8 +315,8 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
   // Replace: a new temporary file with a random name ('wx'), given the permissions of the file it
   // replaces, then renamed over it; a temporary file is removed only if this call created it (D-I04).
   const random = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
-  // At most 100 characters of the name, so a long name still leaves room for the suffix (D-K03).
-  const temp = join(dir, `.${name.slice(0, 100)}.xlvane-${random}.tmp`);
+  // At most 100 bytes of the name, so a long name still leaves room for the suffix (D-K03).
+  const temp = join(dir, `.${shortName(name)}.xlvane-${random}.tmp`);
   let created = false;
   try {
     // Readable by the owner only until it has the permissions of the file it replaces; setuid,

@@ -309,11 +309,13 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     drawingIds.push(data === null || entry.part === null ? null : { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null });
     return sheet;
   });
+  // Drawing parts by case-folded key and the worksheet that shows them first (D-H01, D-K03).
+  const drawingOwners = new Map<string, string>();
   book.sheets.forEach((entry, i) => {
     const ids = drawingIds[i];
     const sheet = sheets[i];
     if (ids === null || ids === undefined || sheet === undefined || entry.part === null) return;
-    const drawing = readSheetDrawing(pkg, entry.part, entry.name, ids, { limits, warnings }, media, chartCache, entry.foreignParts);
+    const drawing = readSheetDrawing(pkg, entry.part, entry.name, ids, { limits, warnings }, media, chartCache, drawingOwners);
     sheet.images = drawing.images;
     sheet.charts = drawing.charts;
     sheet.backgroundImage = drawing.background;
@@ -639,12 +641,12 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
       return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null, foreignParts: NO_PARTS };
     }
     owners.set(partKey(rel.target), entry.name);
-    // Comments, VML and table parts, and the drawings of worksheets (the only sheets whose
-    // drawings are read): each belongs to the first sheet that relates to it.
+    // Comments, VML and table parts: each belongs to the first sheet that relates to it. Drawing
+    // parts are given to the first worksheet whose <drawing> shows them, when drawings are read.
     const foreign = new Set<string>();
     for (const r of pkg.relationships(rel.target)) {
       const related = classifyRelationship(r.type)?.name ?? '';
-      if (r.external || !(SHEET_RELATED.has(related) || (related === 'drawing' && kind === 'worksheet'))) continue;
+      if (r.external || !SHEET_RELATED.has(related)) continue;
       const key = partKey(r.target);
       const first = owners.get(key);
       if (first === undefined) owners.set(key, entry.name);

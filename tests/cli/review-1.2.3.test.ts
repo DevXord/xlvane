@@ -139,3 +139,23 @@ describe('1.3.0: output paths that are not plain files (D-K03)', () => {
     });
   });
 });
+
+describe('1.3.0: replacing files after the review of D-K03', () => {
+  it('--force replaces a file whose name is 245 bytes of CJK characters', async () => {
+    await withFixtures(async (dir) => {
+      const name = `${'表'.repeat(80)}.xlsx`;
+      expect((await cli(['convert', 'sales.csv', name], { cwd: dir })).code).toBe(0);
+      const r = await cli(['convert', 'sales.csv', name, '--force'], { cwd: dir });
+      expect(r.code, r.stderr).toBe(0);
+    });
+  });
+
+  it('a replaced dangling link gets the permissions of a new file, not 0600', async () => {
+    await withFixtures(async (dir) => {
+      expect((await cli(['convert', 'report.xlsx', 'new.csv'], { cwd: dir })).code).toBe(0);
+      await symlink(join(dir, 'nowhere.csv'), join(dir, 'out.csv'));
+      expect((await cli(['convert', 'report.xlsx', 'out.csv', '--force'], { cwd: dir })).code).toBe(0);
+      expect((await stat(join(dir, 'out.csv'))).mode & 0o777).toBe((await stat(join(dir, 'new.csv'))).mode & 0o777);
+    });
+  });
+});

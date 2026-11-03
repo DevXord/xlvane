@@ -364,3 +364,21 @@ describe('1.3.0: --max-cells limits the cells the write tools create (D-K03)', (
     expect(bad.isError).toBe(true);
   });
 });
+
+describe('1.3.0: review of D-K03 (MCP paths and names)', () => {
+  it('overwrites a file whose name is 245 bytes of CJK characters', async () => {
+    const roots = await resolveRoots([root], base, 1 << 20);
+    const name = `${'表'.repeat(80)}.csv`;
+    await writeFile(join(root, name), 'old');
+    await expect(writeAllowed(roots, name, 'new', true)).resolves.toMatchObject({ replaced: true });
+  });
+
+  it('a backslash in the text of a link is part of a name on POSIX, not a separator', async () => {
+    if (process.platform === 'win32') return;
+    const { symlink } = await import('node:fs/promises');
+    await symlink('..\\..', join(root, 'L'));
+    c = await connect({ roots: [root] });
+    const r = await c.call('inspect_workbook', { path: 'L/x.xlsx' });
+    expect((r.result['error'] as { code: string }).code).toBe('XLV_E_FILE_READ');
+  });
+});

@@ -195,13 +195,14 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
     if (exists) {
       // A random name nobody else has; only a temporary file this call created is removed (D-J01).
       const random = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
-      // At most 100 characters of the name, so a long name still leaves room for the suffix.
-      const temp = join(dirname(target), `.${basename(target).slice(0, 100)}.xlvane-${random}.tmp`);
+      // At most 100 bytes of the name, so a long name still leaves room for the suffix.
+      const temp = join(dirname(target), `.${shortName(basename(target))}.xlvane-${random}.tmp`);
       let created = false;
       try {
         // Readable by the owner only until it has the permissions of the file it replaces, which
         // are set through the open handle, so a file swapped in meanwhile is not changed (D-J01).
-        const handle = await open(temp, 'wx', 0o600);
+        // A dangling link has no permissions to keep: the new file gets the default of a new file.
+        const handle = await open(temp, 'wx', mode === null ? undefined : 0o600);
         created = true;
         try {
           await handle.writeFile(bytes);
@@ -230,6 +231,22 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
     });
   }
   return { path, bytes: bytes.length, written: true, replaced: exists };
+}
+
+/**
+ * The start of a file name, at most 100 bytes of UTF-8 and never cut inside a character, for the
+ * name of a temporary file next to it (file systems limit names in bytes, D-K03).
+ */
+function shortName(name: string): string {
+  let bytes = 0;
+  let end = 0;
+  for (const ch of name) {
+    const size = new TextEncoder().encode(ch).length;
+    if (bytes + size > 100) break;
+    bytes += size;
+    end += ch.length;
+  }
+  return name.slice(0, end);
 }
 
 /** The line every writing command ends with; green when something was written. */

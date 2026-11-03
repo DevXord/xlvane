@@ -263,9 +263,9 @@ function coordinate(text: string | undefined): number | null {
  * connectors, group shapes, other graphic frames, content parts, alternate content) are counted
  * and reported once with `XLV_W_DRAWING_CONTENT_NOT_READ`. Broken markers skip their object with
  * a warning; a malformed or foreign drawing part gives a warning and no pictures or charts. A
- * drawing part whose key is in `foreign` belongs to an earlier sheet (reported with
- * `XLV_W_SHEET_PART_SHARED` when the workbook was analysed, D-H01): it is not read again, and
- * this sheet gets no pictures or charts from it. A chart part is parsed once per workbook
+ * drawing part belongs to the first worksheet whose `<drawing>` shows it (`owners`, keyed by the
+ * case-folded part name, D-H01, D-K03): a later sheet that shows it gets no pictures or charts
+ * from it and `XLV_W_SHEET_PART_SHARED`, and the part is not read again. A chart part is parsed once per workbook
  * (`chartCache`), however many frames show it, within the budget of `chartCache.budget`.
  */
 export function readSheetDrawing(
@@ -276,7 +276,7 @@ export function readSheetDrawing(
   ctx: { readonly limits: ReadLimits; readonly warnings: WarningCollector },
   media: MediaCache,
   chartCache: ChartCache,
-  foreign: ReadonlySet<string>,
+  owners: Map<string, string>,
 ): SheetDrawing {
   if (ids.drawing === null && ids.picture === null) return { images: [], charts: [], background: null };
   const rels = pkg.relationships(sheetPart);
@@ -287,8 +287,14 @@ export function readSheetDrawing(
     if (ids.drawing !== null) ctx.warnings.add('XLV_W_PART_MISSING', 'The sheet refers to a drawing that is not a drawing part of the package; its pictures are not read.', { part: sheetPart, sheet });
     return { images: [], charts: [], background };
   }
-  // A drawing part of an earlier sheet would be decompressed and parsed once per sheet (D-H01).
-  if (foreign.has(partKey(drawing.target))) return { images: [], charts: [], background };
+  // A drawing part shown by an earlier sheet would be decompressed and parsed once per sheet
+  // (D-H01): it belongs to the first worksheet whose <drawing> shows it (D-K03).
+  const owner = owners.get(partKey(drawing.target));
+  if (owner === undefined) owners.set(partKey(drawing.target), sheet);
+  else if (owner !== sheet) {
+    ctx.warnings.add('XLV_W_SHEET_PART_SHARED', `Sheet "${sheet}" shows the drawing ${drawing.target}, which belongs to sheet "${owner}"; it is read for "${owner}" only.`, { sheet, part: drawing.target });
+    return { images: [], charts: [], background };
+  }
   const xml = pkg.readXml(drawing.target);
   if (xml === undefined) {
     ctx.warnings.add('XLV_W_PART_MISSING', 'The drawing part of the sheet does not exist; its pictures are not read.', { part: drawing.target, sheet });
