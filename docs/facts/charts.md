@@ -1,13 +1,13 @@
-# Facts: charts (DrawingML charts in XLSX) - DRAFT
+# Facts: charts (DrawingML charts in XLSX)
 
-Draft for docs/facts/charts.md, compiled on 2026-11-03. Ids CH-01 … CH-34; CH-35 … CH-37 were added with the implementation (phase K). Status words as in tables-drawings.md: VERIFIED (schema or a cited document states it), OBSERVED (seen in files or in a program's behaviour), PROVISIONAL (inferred), NOT FOUND (no available source states it). The prose of ECMA-376 Part 1 §21.2 was **not** available in this session (the ECMA website is blocked from the container); every point that needs it is listed in `questions-R6.md` and marked "R6-n" below.
+Compiled on 2026-11-03. Ids CH-01 … CH-34; CH-35 … CH-37 were added with the implementation (phase K). Status words as in tables-drawings.md: VERIFIED (schema or a cited document states it), OBSERVED (seen in files or in a program's behaviour), PROVISIONAL (inferred), NOT FOUND (no available source states it). The prose of ECMA-376 Part 1 §21.2 was **not** available in this session (the ECMA website is blocked from the container); every point that needs it was sent to the maintainer as a question for a local review with the official documents (R6, as for the earlier reports R1 to R5) and is marked "R6-n" below; those points stay PROVISIONAL until the answers are recorded here.
 
 ## Sources
 
 **S-XSD (schemas).** Third-party copies of the ISO/IEC 29500-4:2016 (Transitional) schemas, not the official archive:
 - `dml-chart.xsd`, `dml-main.xsd`, `dml-spreadsheetDrawing.xsd` from github.com/ThinkInAIXYZ/deepchat, branch main, path `resources/skills/pptx/ooxml/schemas/ISO-IEC29500-4_2016/` (sha256 41b93bd8…bb354, 5375417f…0e9, b4532b6d…1e88).
 - The same three files from github.com/openakita/openakita, branch main, path `skills/docx/ooxml/schemas/ISO-IEC29500-4_2016/`. `diff` shows that each differs from the deepchat copy only by one extra final newline.
-- A third copy, byte-identical to the deepchat files, is in the container's skills bundle (`/mnt/skills/public/xlsx/scripts/office/schemas/ISO-IEC29500-4_2016/`). That folder also holds the imported `shared-commonSimpleTypes.xsd`, `shared-relationshipReference.xsd` and `dml-chartDrawing.xsd`, which were used for `xmllint --schema` validation and for ST_HexColorRGB (CH-21).
+- A third copy, byte-identical to the deepchat files, was found in a tool bundle of the development environment (directory `schemas/ISO-IEC29500-4_2016/`, not part of this repository). That folder also holds the imported `shared-commonSimpleTypes.xsd`, `shared-relationshipReference.xsd` and `dml-chartDrawing.xsd`, which were used for `xmllint --schema` validation and for ST_HexColorRGB (CH-21).
 - Line numbers ("L") refer to the deepchat `dml-chart.xsd` unless another file is named. "SD" means `dml-spreadsheetDrawing.xsd` and "DM" means `dml-main.xsd`.
 - **To check (R6-1):** compare these files with the xsd in the official `ECMA-376-4_5th_edition_december_2016.zip` (the `spec/` copy the TD facts cite).
 
@@ -32,7 +32,7 @@ Draft for docs/facts/charts.md, compiled on 2026-11-03. Ids CH-01 … CH-34; CH-
 | chartTitle_withTitleFormula.xlsx | Microsoft Excel 16.0300 | scatter |
 | 123233_charts.xlsx | "Microsoft Excel 12.0000", Company "IBM Incorporated" | bar ×2, pie, line; **not Excel output**, see CH-29 |
 
-"Excel files" below means the first nine. Every chart part they contain validates against S-XSD with `xmllint --schema dml-chart.xsd` after `mc:AlternateContent` is replaced by its `mc:Fallback` content (script `scripts/mce-fallback.mjs`). Every drawing part validates against SD with dml-chart imported.
+"Excel files" below means the first nine. Every chart part they contain validates against S-XSD with `xmllint --schema dml-chart.xsd` after `mc:AlternateContent` is replaced by its `mc:Fallback` content (with a scratch script that replaces each `mc:AlternateContent` by the content of its `mc:Fallback`; not kept in the repository). Every drawing part validates against SD with dml-chart imported.
 
 **S-LO.** LibreOffice 24.2.7.2 (build 420) in the container. The experiments are in CH-20 and CH-21.
 
@@ -120,7 +120,7 @@ CT_Boolean (L18-20) has an optional attribute `val` of xsd:boolean with **defaul
 - **Excel:**
   - `plotVisOnly val="1"` in every file;
   - `autoTitleDeleted`: absent in the Excel 12 files; Excel 15/16 write `val="1"` without a title (chartTitle_noTitle) and `val="0"` with a title (chartTitle_withTitle, …WithTitleFormula, SimpleScatterChart);
-  - `dispBlanksAs`: `gap` in most files, `zero` in WithThreeCharts chart3 (area), absent in WithChart and WithTwoCharts;
+  - `dispBlanksAs`: `gap` in most files, `zero` in WithThreeCharts chart3 (area), absent in WithChart, WithTwoCharts and WithThreeCharts chart2 (pie);
   - Excel 15/16 add `showDLblsOverMax val="0"`.
 - ST_DispBlanksAs: `span`, `gap`, `zero`, default `zero` (L1370-1379).
 - excelize writes `plotVisOnly val="0"` (drawing.go L84), unlike Excel.
@@ -257,7 +257,7 @@ Writers:
 Whether a consumer needs or uses the caches is R6-4. LibreOffice ignores them (CH-20).
 
 ### CH-20 - LibreOffice and caches (experiment) - OBSERVED (2026-11-03)
-**Files.** `scripts/make-lo-test.mjs` builds minimal workbooks with fflate 0.8.3. Each has:
+**Files.** A scratch script (not kept in the repository) builds minimal workbooks with fflate 0.8.3. Each has:
 - sheet "Sales Data" with A1:B5 = Month/Sales, Jan…Apr and 10, 20, 30, 40;
 - one twoCellAnchor drawing;
 - one `barChart` (`col`, `clustered`, `varyColors 0`) with one series: `tx` = `'Sales Data'!$B$1`, `cat` = `'Sales Data'!$A$2:$A$5`, `val` = `'Sales Data'!$B$2:$B$5`;
@@ -275,9 +275,9 @@ Every chart part validates against S-XSD. The variants differ as follows:
 | F | omitted | none | Excel 12 theme copied from WithChart | |
 | G | stale | red series fill | none | |
 | H | filled | none | Excel 12 theme copied from WithChart | |
-| I | E's caches | red series fill | none | with all sheet cells removed (`scripts/empty-cells.cjs`) |
+| I | E's caches | red series fill | none | with all sheet cells removed (by a scratch script) |
 
-**Commands** (S = the scratchpad `chart-facts` folder):
+**Commands** (S = a scratch working folder):
 `soffice --headless -env:UserInstallation=file://$S/lo-profile --convert-to png --outdir $S/lo-png <files>`
 and the same with `--convert-to xlsx --outdir $S/lo-xlsx`.
 
@@ -429,7 +429,7 @@ Its meaning and the meaning of its absence are R6-5. Proposed writer rule: write
 
 ### CH-30 - exceljs 4.4.0 - OBSERVED
 - **No chart API.** In `bench/node_modules/exceljs` (package.json version 4.4.0), "chart" (case-insensitive) occurs in `lib/` only in a comment in `lib/xlsx/xform/book/workbook-xform.js` L174-178 ("As we don't have the infrastructure to support chartsheets, we will ignore them for now"). It does not occur in `index.d.ts`.
-- **Round trip drops charts.** `readFile` then `writeFile` of WithChart.xlsx produces a file with no chart or drawing part (`scripts/exceljs-rt.cjs`).
+- **Round trip drops charts.** `readFile` then `writeFile` of WithChart.xlsx produces a file with no chart or drawing part (checked with a scratch script).
 
 @xlvane/compat therefore has no exceljs chart API to mirror.
 
@@ -454,7 +454,7 @@ Excel 15/16 write the following. Excel 12 files have none of them, and LibreOffi
 Proposed writer rule: omit all of them (PROVISIONAL). The reader skips unknown `extLst` content and resolves `mc:AlternateContent` (CH-29).
 
 ### CH-33 - LibreOffice and the requested types - OBSERVED (2026-11-03)
-`scripts/make-lo-types.mjs` writes one workbook per type: column clustered, stacked and percentStacked; bar clustered and stacked; line standard, stacked and percentStacked; pie; scatter; area standard and stacked. Each workbook has:
+A scratch script (not kept in the repository) writes one workbook per type: column clustered, stacked and percentStacked; bar clustered and stacked; line standard, stacked and percentStacked; pie; scatter; area standard and stacked. Each workbook has:
 - two series with `tx`/`cat`/`val` (scatter: `xVal`/`yVal`) as `strRef`/`numRef` without caches;
 - explicit `srgbClr` colours (none on pie);
 - a rich title and the legend positions `r`, `b`, `t`, `l` and `tr`;

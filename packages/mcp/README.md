@@ -61,7 +61,7 @@ Every tool has a JSON Schema for its input and returns its result as `structured
 import { createServer, runCli } from '@xlvane/mcp';
 ```
 
-`createServer({ roots, allowWrite, maxFileBytes, maxRows, maxResponseChars })` returns an `McpServer` to connect to any transport; `runCli(args)` is the command line.
+`createServer({ roots, allowWrite, maxFileBytes, maxRows, maxResponseChars, maxCells, cwd })` returns an `McpServer` to connect to any transport; `runCli(args)` is the command line.
 
 ## Links
 
