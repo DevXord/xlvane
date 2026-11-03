@@ -1,4 +1,6 @@
-# Fixing the vulnerabilities of the `xlsx` (SheetJS) package from npm
+# How to fix the CVEs in the `xlsx` package from npm
+
+xlvane is not affiliated with SheetJS or with the ExcelJS project. Their names are used only to identify the packages this page is about; the facts below are quoted from the cited advisories and registry data, and the fixes SheetJS publishes are listed first.
 
 The `xlsx` package on npm is the SheetJS Community Edition. Its latest version on npm is 0.18.5, published on 2022-03-24, and two published advisories cover that version. The fixed versions are distributed by SheetJS outside npm. This page lists the facts with their sources and two ways to deal with them: the fixed SheetJS version, or moving to xlvane. The sources were read on 2026-11-03.
 

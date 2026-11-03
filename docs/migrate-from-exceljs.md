@@ -1,5 +1,7 @@
 # Migrating from ExcelJS
 
+xlvane is not affiliated with the ExcelJS project; its name is used only to identify the package.
+
 `@xlvane/compat` offers the commonly used part of the exceljs 4.4.0 API on top of xlvane. It is installed under the name `exceljs` with an npm alias, so code that imports `exceljs` keeps its imports:
 
 ```json

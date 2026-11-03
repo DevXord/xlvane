@@ -42,7 +42,7 @@ Add `--json` to any command for machine-readable output ([docs/cli-json.md](docs
 ## Moving from exceljs or SheetJS
 
 - [docs/migrate-from-exceljs.md](docs/migrate-from-exceljs.md): switching a project from exceljs to `@xlvane/compat` with `npx xlvane migrate` and an npm alias, what to check afterwards and how to roll back.
-- [docs/xlsx-cves.md](docs/xlsx-cves.md): the two advisories of the `xlsx` (SheetJS) package on npm, the fixed SheetJS versions outside npm, and the equivalent xlvane calls.
+- [How to fix the CVEs in the `xlsx` package from npm](docs/xlsx-cves.md): the two advisories of the `xlsx` (SheetJS) package on npm, the fixed SheetJS versions outside npm, and the equivalent xlvane calls.
 
 ## xlvane compared with other libraries
 
