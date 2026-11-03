@@ -379,3 +379,109 @@ describe('F10: csv.read with latin1', () => {
     });
   });
 });
+
+describe('F9: csv formatter options', () => {
+  // exceljs passes formatterOptions to fast-csv's format (lib/csv/csv.js L118); a row is the
+  // array of mapped values (L156-163), and a missing row is written as [] (L153-156). Unless
+  // noted, each expected text is exceljs 4.4.0's output for the same worksheet and options (with
+  // fast-csv 4.3.6, @fast-csv/format 4.3.5); the files cited are of @fast-csv/format/build/src.
+  // The worksheet starts at row 1, where exceljs and xlvane write the same blank lines.
+  function sheet(): any {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    ws.getCell('A1').value = 'a';
+    ws.getCell('B1').value = 'b,c';
+    ws.getCell('C1').value = 3;
+    ws.getCell('A3').value = 'x';
+    ws.getCell('B3').value = 'y';
+    return wb;
+  }
+  const text = async (wb: any, formatterOptions: Record<string, unknown>, more: Record<string, unknown> = {}): Promise<string> => new TextDecoder('utf-8', { ignoreBOM: true }).decode(await wb.csv.writeBuffer({ formatterOptions, ...more }));
+
+  it('transform is applied to each row', async () => {
+    // formatter/RowFormatter.js L22-24, L70-91: the transform gets the row and its result is
+    // formatted; a falsy result writes no line.
+    expect(await text(sheet(), { transform: (row: unknown[]) => row.map((v) => (v === 'a' ? 'A' : v)) })).toBe('A,"b,c",3\n\nx,y');
+    expect(await text(sheet(), { transform: (row: unknown[]) => (row.length === 0 ? null : row) })).toBe('a,"b,c",3\nx,y');
+    // A transform that does not take exactly one parameter calls back (RowFormatter.js L47-63;
+    // types.js L5 `isSyncTransform`).
+    expect(await text(sheet(), { transform: (row: unknown[], cb: (e: unknown, r: unknown) => void) => setTimeout(() => cb(null, [...row, 'z']), 0) })).toBe('a,"b,c",3,z\nz\nx,y,z');
+    // An object row is written by the headers (RowFormatter.js L36-45, L126-131).
+    expect(await text(sheet(), { headers: ['two', 'one'], transform: (row: unknown[]) => ({ one: row[0], two: row[1] }) })).toBe('two,one\n"b,c",a\n,\ny,x');
+    expect(await text(sheet(), { transform: (row: unknown[]) => ({ one: row[0], two: row[1] }) })).toBe('a,"b,c"\n,\nx,y');
+    // An error of the transform rejects, as in exceljs ("bad row"; for a transform that is not a
+    // function exceljs rejects with a TypeError, RowFormatter.js L64-67).
+    await expect(
+      sheet().csv.writeBuffer({
+        formatterOptions: {
+          transform: (_row: unknown) => {
+            throw new Error('bad row');
+          },
+        },
+      }),
+    ).rejects.toThrow('bad row');
+    await expect(sheet().csv.writeBuffer({ formatterOptions: { transform: 'x' } })).rejects.toMatchObject({ code: 'XLV_E_INVALID_OPTION' });
+  });
+
+  it('a formula returned by transform is escaped like any other field (CSV injection)', async () => {
+    // exceljs writes "=1+1,+cmd,@SUM(A1),-2+3" on each line and "=h", "=2+2" unescaped.
+    const out = await text(sheet(), { transform: (_row: unknown) => ['=1+1', '+cmd', '@SUM(A1)', '-2+3'] });
+    expect(out.split('\n')).toEqual(Array(3).fill('"\'=1+1","\'+cmd","\'@SUM(A1)","\'-2+3"'));
+    const headers = await text(sheet(), { headers: ['=h'], transform: (_row: unknown) => ({ '=h': '=2+2' }) });
+    expect(headers.split('\n')).toEqual(['"\'=h"', '"\'=2+2"', '"\'=2+2"', '"\'=2+2"']);
+    // formulaInjection: "off" writes them as exceljs does.
+    expect((await text(sheet(), { transform: (_row: unknown) => ['=1+1'] }, { formulaInjection: 'off' })).split('\n')[0]).toBe('=1+1');
+  });
+
+  it('quoteHeaders and quoteColumns, also as objects of header names', async () => {
+    // FormatterOptions.js L12-13, L20-22: quoteHeaders defaults to quoteColumns;
+    // formatter/FieldFormatter.js L24-36: an object is looked up by the column's header.
+    const h = ['h1', 'h2'];
+    // With headers, a missing row gives one empty field per header (RowFormatter.js L142-147).
+    expect(await text(sheet(), { headers: h })).toBe('h1,h2\na,"b,c"\n,\nx,y');
+    expect(await text(sheet(), { headers: h, quoteHeaders: true })).toBe('"h1","h2"\na,"b,c"\n,\nx,y');
+    expect(await text(sheet(), { headers: h, quoteColumns: true })).toBe('"h1","h2"\n"a","b,c"\n"",""\n"x","y"');
+    expect(await text(sheet(), { headers: h, quoteColumns: true, quoteHeaders: false })).toBe('h1,h2\n"a","b,c"\n"",""\n"x","y"');
+    expect(await text(sheet(), { headers: ['h1', 'h2', 'h3'], quoteColumns: { h1: true } })).toBe('"h1",h2,h3\n"a","b,c",3\n"",,\n"x",y,');
+    expect(await text(sheet(), { headers: h, quoteHeaders: { h2: true } })).toBe('h1,"h2"\na,"b,c"\n,\nx,y');
+    expect(await text(sheet(), { headers: h, writeHeaders: false, quoteColumns: { h2: true } })).toBe('a,"b,c",3\n\nx,"y"');
+    expect(await text(sheet(), { quoteColumns: [false, true] })).toBe('a,"b,c",3\n\nx,"y"');
+    // Without headers, an object takes the header names from the first row written
+    // (RowFormatter.js L109-124).
+    expect(await text(sheet(), { quoteColumns: { a: true } })).toBe('"a","b,c",3\n\n"x",y');
+    expect(await text(sheet(), { quoteColumns: { a: true } }, { includeEmptyRows: false })).toBe('"a","b,c",3\n"x",y');
+  });
+
+  it('headers: true, alwaysWriteHeaders, and a worksheet without rows', async () => {
+    // headers: true writes the first row as the header line (RowFormatter.js L109-124), and later
+    // rows get its length (L142-147).
+    expect(await text(sheet(), { headers: true })).toBe('a,"b,c",3\n,,\nx,y,');
+    expect(await text(sheet(), { headers: true }, { includeEmptyRows: false })).toBe('a,"b,c",3\nx,y,');
+    expect(await text(sheet(), { headers: true, quoteHeaders: true }, { includeEmptyRows: false })).toBe('"a","b,c","3"\nx,y,');
+    const empty = new ExcelJS.Workbook();
+    empty.addWorksheet('S');
+    // The header line is written with the first row only, or always with alwaysWriteHeaders
+    // (RowFormatter.js L93-101); without header names that is an error (a plain Error in exceljs).
+    expect(await text(empty, { headers: ['h1'] })).toBe('');
+    expect(await text(empty, { headers: ['h1'], alwaysWriteHeaders: true })).toBe('h1');
+    await expect(empty.csv.writeBuffer({ formatterOptions: { headers: true, alwaysWriteHeaders: true } })).rejects.toMatchObject({ code: 'XLV_E_INVALID_OPTION' });
+    expect(await text(sheet(), { headers: ['h1'], alwaysWriteHeaders: true })).toBe('h1\na\n\nx');
+  });
+
+  it('a row of [header, value] pairs writes its values, escaped', async () => {
+    // RowFormatter.js L26-31, L36-45, L133-141: when the first field of a row is an array of two,
+    // the row is a list of pairs. exceljs writes "x\nx" for a map giving ['=1+1', 'x'].
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    ws.getCell('A1').value = 'a';
+    ws.getCell('A2').value = 'b';
+    expect(new TextDecoder().decode(await wb.csv.writeBuffer({ map: () => ['=1+1', 'x'] }))).toBe('x\nx');
+    expect(new TextDecoder().decode(await wb.csv.writeBuffer({ map: () => ['=1+1', '=2'] }))).toBe('"\'=2"\n"\'=2"');
+  });
+
+  it('a BOM other than U+FEFF is not supported', async () => {
+    // FormatterOptions.js L17-19: fast-csv takes `BOM` from the options too; exceljs writes "XX".
+    await expect(sheet().csv.writeBuffer({ formatterOptions: { writeBOM: true, BOM: 'XX' } })).rejects.toMatchObject({ code: 'XLV_E_NOT_SUPPORTED' });
+    expect(await text(sheet(), { writeBOM: true, BOM: '﻿' })).toBe('﻿a,"b,c",3\n\nx,y');
+  });
+});
