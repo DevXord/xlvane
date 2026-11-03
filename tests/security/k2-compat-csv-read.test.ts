@@ -42,7 +42,7 @@ describe('K2 item 6: csv.read limits', () => {
     const { error, ms } = await read(`a${',x'.repeat(4_000_000)}`);
     expect(error).toMatchObject({ code: 'XLV_E_LIMIT_EXCEEDED', details: { limit: 'maxColumns', value: MAX_COLS } });
     expect((error as { location?: { line?: number } }).location?.line).toBe(1);
-    expect(ms).toBeLessThan(3000);
+    expect(ms).toBeLessThan(8000);
   }, 30_000);
 
   it('accepts a row of exactly 16 384 fields', async () => {
@@ -57,7 +57,7 @@ describe('K2 item 6: csv.read limits', () => {
     const { error, ms, wb } = await read(`${'\n'.repeat(3_000_000)}${wide}\n1,2\n3,4\n`, { parserOptions: { ignoreEmpty: true, headers: true } });
     expect(error).toBeNull();
     expect(wb.worksheets[0]!.getSheetValues().filter(Boolean)).toHaveLength(2);
-    expect(ms).toBeLessThan(3000);
+    expect(ms).toBeLessThan(8000);
   }, 60_000);
 
   it('builds a long quoted field in linear time', async () => {

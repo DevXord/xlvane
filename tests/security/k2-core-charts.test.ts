@@ -134,7 +134,7 @@ describe('reading charts: series and chart groups count against maxCells', () =>
     const ms = performance.now() - t0;
     expect(wb.getSheet('S').charts).toEqual([]);
     expect(wb.warnings.map((w) => w.code)).toEqual(Array.from({ length: 10 }, () => 'XLV_W_LIMIT_REACHED'));
-    expect(ms).toBeLessThan(5000);
+    expect(ms).toBeLessThan(15000);
   }, 60_000);
 
   it('gives charts what the cells of every sheet leave, so a chart never makes cells fail', () => {

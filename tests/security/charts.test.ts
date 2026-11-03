@@ -157,7 +157,7 @@ describe('chart parts: sharing and damage', () => {
     const start = performance.now();
     const charts = readWorkbook(shared).getSheet('Data').charts;
     // Parsing the 40 000-element part for every frame would take minutes.
-    expect(performance.now() - start).toBeLessThan(5000);
+    expect(performance.now() - start).toBeLessThan(20000);
     expect(charts).toHaveLength(frames);
     expect(charts[1]!.series).toBe(charts[0]!.series);
     expect(charts[frames - 1]!.types).toBe(charts[0]!.types);

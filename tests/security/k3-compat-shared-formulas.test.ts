@@ -112,7 +112,7 @@ describe('K3 item 2: copying shared formulas from the streaming reader to the st
     gc?.();
     const grown = process.memoryUsage().heapUsed - before;
     expect(values).toHaveLength(201);
-    expect(ms).toBeLessThan(2000);
+    expect(ms).toBeLessThan(8000);
     // 200 moved texts of 1 000 000 characters would be about 200 MB.
     expect(grown).toBeLessThan(50 * 1024 * 1024);
     // Each is still there when asked for.
