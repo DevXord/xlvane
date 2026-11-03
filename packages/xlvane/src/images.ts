@@ -1,9 +1,10 @@
 // Pictures on worksheets: the Drawings part of a sheet (ECMA-376 Part 1 §12.3.8, §20.5), the
 // Image parts it points to (§15.2.14) and the sheet background (`picture`, §18.3.1.67). Facts:
-// docs/facts/tables-drawings.md TD-30 … TD-39; decisions: docs/decisions.md D-D03. Only pictures
-// are modelled; charts, shapes and group shapes in a drawing are counted and reported, and
-// `editCells` keeps every drawing byte for byte.
-import { XlvError } from './errors';
+// docs/facts/tables-drawings.md TD-30 … TD-39; decisions: docs/decisions.md D-D03. Pictures and
+// charts (charts.ts, D-K01) are modelled; shapes and group shapes in a drawing are counted and
+// reported, and `editCells` keeps every drawing byte for byte.
+import { CHART_NS, readChartPart, type ChartCache, type SheetChart } from './charts';
+import { XlvError, type XlvErrorCode } from './errors';
 import type { WarningCollector } from './util/warnings';
 import type { ReadLimits } from './limits';
 import type { OpcPackage, Relationship } from './opc/package';
@@ -224,9 +225,10 @@ export function imageFormat(bytes: Uint8Array): ImageFormat | null {
 // ---------------------------------------------------------------------------------------------
 // Reading
 
-/** The pictures of a worksheet and its background image. */
+/** The pictures and charts of a worksheet and its background image. */
 export interface SheetDrawing {
   readonly images: readonly SheetImage[];
+  readonly charts: readonly SheetChart[];
   readonly background: WorkbookImage | null;
 }
 
@@ -254,10 +256,12 @@ function coordinate(text: string | undefined): number | null {
 }
 
 /**
- * Reads the Drawings part and the background picture of a worksheet. Pictures are read; other
- * objects (charts, shapes, connectors, group shapes, content parts, alternate content) are
- * counted and reported once with `XLV_W_DRAWING_CONTENT_NOT_READ`. Broken markers skip their
- * picture with a warning; a malformed or foreign drawing part gives a warning and no pictures.
+ * Reads the Drawings part and the background picture of a worksheet. Pictures and charts (a
+ * `graphicFrame` whose `graphicData` holds a `c:chart`, CH-04) are read; other objects (shapes,
+ * connectors, group shapes, other graphic frames, content parts, alternate content) are counted
+ * and reported once with `XLV_W_DRAWING_CONTENT_NOT_READ`. Broken markers skip their object with
+ * a warning; a malformed or foreign drawing part gives a warning and no pictures or charts. A
+ * chart part is parsed once per workbook (`charts`), however many frames show it.
  */
 export function readSheetDrawing(
   pkg: OpcPackage,
@@ -266,20 +270,21 @@ export function readSheetDrawing(
   ids: { readonly drawing: string | null; readonly picture: string | null },
   ctx: { readonly limits: ReadLimits; readonly warnings: WarningCollector },
   media: MediaCache,
+  chartCache: ChartCache = new Map(),
 ): SheetDrawing {
-  if (ids.drawing === null && ids.picture === null) return { images: [], background: null };
+  if (ids.drawing === null && ids.picture === null) return { images: [], charts: [], background: null };
   const rels = pkg.relationships(sheetPart);
   const byId = (id: string | null, name: string): Relationship | undefined => (id === null ? undefined : rels.find((r) => r.id === id && classifyRelationship(r.type)?.name === name));
   const background = mediaOf(pkg, byId(ids.picture, 'image'), media);
   const drawing = byId(ids.drawing, 'drawing');
   if (drawing === undefined || drawing.external) {
     if (ids.drawing !== null) ctx.warnings.add('XLV_W_PART_MISSING', 'The sheet refers to a drawing that is not a drawing part of the package; its pictures are not read.', { part: sheetPart, sheet });
-    return { images: [], background };
+    return { images: [], charts: [], background };
   }
   const xml = pkg.readXml(drawing.target);
   if (xml === undefined) {
     ctx.warnings.add('XLV_W_PART_MISSING', 'The drawing part of the sheet does not exist; its pictures are not read.', { part: drawing.target, sheet });
-    return { images: [], background };
+    return { images: [], charts: [], background };
   }
   const where = { part: drawing.target, sheet };
   const warn = (message: string): void => ctx.warnings.add('XLV_W_INVALID_VALUE', message, where);
@@ -289,7 +294,7 @@ export function readSheetDrawing(
   } catch (error) {
     if (error instanceof XlvError && error.code === 'XLV_E_XML_MALFORMED') {
       warn('The drawing part of the sheet is not well-formed XML; its pictures are not read.');
-      return { images: [], background };
+      return { images: [], charts: [], background };
     }
     throw error;
   }
@@ -298,7 +303,7 @@ export function readSheetDrawing(
   const r = xdr === XDR_NS.strict ? REL_NS.strict : REL_NS.transitional;
   if (root.local !== 'wsDr' || root.ns !== xdr) {
     warn(`The drawing part of the sheet has the root element <${root.local}>; its pictures are not read.`);
-    return { images: [], background };
+    return { images: [], charts: [], background };
   }
   const drawingRels = pkg.relationships(drawing.target);
   // Ids are unique in a Relationships part, so a map finds what find() over the list found,
@@ -310,6 +315,7 @@ export function readSheetDrawing(
     return rel !== undefined && classifyRelationship(rel.type)?.name === name ? rel : undefined;
   };
   const images: SheetImage[] = [];
+  const charts: SheetChart[] = [];
   let other = 0;
   const marker = (el: XmlElement | undefined): AnchorMarker | null => {
     if (el === undefined) return null;
@@ -335,7 +341,11 @@ export function readSheetDrawing(
       continue;
     }
     const pic = childNamed(el, xdr, 'pic');
-    if (pic === undefined) {
+    // A chart frame: xdr:graphicFrame/a:graphic/a:graphicData[@uri = chart]/c:chart@r:id (CH-04).
+    const frame = pic === undefined ? childNamed(el, xdr, 'graphicFrame') : undefined;
+    const graphicData = frame === undefined ? undefined : childNamed(childNamed(frame, a, 'graphic') ?? frame, a, 'graphicData');
+    const chartEl = graphicData?.attrs.get('uri') === CHART_NS ? childNamed(graphicData, CHART_NS, 'chart') : undefined;
+    if (pic === undefined && chartEl === undefined) {
       other++;
       continue;
     }
@@ -357,7 +367,19 @@ export function readSheetDrawing(
       if (x !== null && y !== null && ext !== null) anchor = { type: 'absolute', position: Object.freeze({ x, y }), size: ext };
     }
     if (anchor === null) {
-      warn('A picture of the sheet has an invalid position; it is skipped.');
+      warn(`A ${pic === undefined ? 'chart' : 'picture'} of the sheet has an invalid position; it is skipped.`);
+      continue;
+    }
+    if (pic === undefined) {
+      const chartRel = relOfType(chartEl!.attrs.get(`{${r}}id`), 'chart');
+      if (chartRel === undefined || chartRel.external) {
+        warn('A chart of the sheet does not refer to a chart part of the package; it is skipped.');
+        continue;
+      }
+      const parsed = readChartPart(pkg, chartRel.target, sheet, ctx, chartCache);
+      if (parsed === null) continue;
+      const nvFrame = childNamed(childNamed(frame!, xdr, 'nvGraphicFramePr') ?? frame!, xdr, 'cNvPr');
+      charts.push(Object.freeze({ name: nvFrame?.attrs.get('name') ?? '', description: nvFrame?.attrs.get('descr') ?? null, anchor: Object.freeze(anchor), ...parsed }));
       continue;
     }
     const nv = childNamed(childNamed(pic, xdr, 'nvPicPr') ?? pic, xdr, 'cNvPr');
@@ -377,9 +399,9 @@ export function readSheetDrawing(
     );
   }
   if (other > 0) {
-    ctx.warnings.add('XLV_W_DRAWING_CONTENT_NOT_READ', `The drawing of the sheet has ${String(other)} object${other === 1 ? '' : 's'} other than pictures (charts, shapes or groups); xlvane reports only pictures, and editing keeps the drawing unchanged.`, where);
+    ctx.warnings.add('XLV_W_DRAWING_CONTENT_NOT_READ', `The drawing of the sheet has ${String(other)} object${other === 1 ? '' : 's'} other than pictures and charts (shapes, groups or other objects); xlvane reports only pictures and charts, and editing keeps the drawing unchanged.`, where);
   }
-  return { images, background };
+  return { images, charts, background };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -415,8 +437,12 @@ export interface ResolvedImage {
   readonly hyperlink: string | null;
 }
 
-function invalid(message: string, hint: string, details?: Record<string, string | number>): XlvError {
-  return new XlvError('XLV_E_INVALID_OPTION', message, { hint, ...(details ? { details } : {}) });
+/** Pictures report anchor problems as `XLV_E_INVALID_OPTION`, charts as `XLV_E_INVALID_CHART`. */
+export type AnchorKind = 'picture' | 'chart';
+
+function invalid(message: string, hint: string, details?: Record<string, string | number>, kind: AnchorKind = 'picture'): XlvError {
+  const code: XlvErrorCode = kind === 'chart' ? 'XLV_E_INVALID_CHART' : 'XLV_E_INVALID_OPTION';
+  return new XlvError(code, kind === 'chart' ? message.replace('picture', 'chart') : message, { hint, ...(details ? { details } : {}) });
 }
 
 /** Checks the image bytes given to `NewWorkbook.addImage` and returns their format. */
@@ -434,10 +460,11 @@ export function checkImage(bytes: unknown): { bytes: Uint8Array; format: Written
 }
 
 /** Validates the options of `NewSheet.addImage` (the anchor is resolved when the sheet is written). */
-export function normalizeImage(image: number, count: number, anchor: unknown, options: unknown): StoredImage {
+export function normalizeImage(image: number, count: number, input: unknown, options: unknown): StoredImage {
   if (typeof image !== 'number' || !Number.isInteger(image) || image < 0 || image >= count) {
     throw invalid(`Image ${String(image).slice(0, 20)} was not added to this workbook.`, 'Pass the number that workbook.addImage(bytes) returned.', { image: String(image).slice(0, 20) });
   }
+  const anchor = copyAnchor(input);
   checkAnchor(anchor);
   let name: string | null = null;
   let description: string | null = null;
@@ -463,10 +490,10 @@ export function normalizeImage(image: number, count: number, anchor: unknown, op
   return { image, anchor: anchor as ImageAnchorInput, name, description, hyperlink };
 }
 
-function position(p: unknown, what: string): { col: number; row: number } {
+function position(p: unknown, what: string, kind: AnchorKind = 'picture'): { col: number; row: number } {
   if (typeof p === 'string') {
     const at = parseCellRef(p.trim().toUpperCase());
-    if (at === null) throw invalid(`The picture ${what} "${p.slice(0, 20)}" is not a cell.`, 'Use a cell such as "B2" or a position such as { col: 1, row: 1 }.', { option: what });
+    if (at === null) throw invalid(`The picture ${what} "${p.slice(0, 20)}" is not a cell.`, 'Use a cell such as "B2" or a position such as { col: 1, row: 1 }.', { option: what }, kind);
     return { col: at.col - 1, row: at.row - 1 };
   }
   if (typeof p === 'object' && p !== null) {
@@ -476,31 +503,46 @@ function position(p: unknown, what: string): { col: number; row: number } {
       return { col, row };
     }
   }
-  throw invalid(`The picture ${what} is not a valid position.`, 'Use a cell such as "B2", or { col, row } with 0-based numbers (col below 16384, row below 1048576).', { option: what });
+  throw invalid(`The picture ${what} is not a valid position.`, 'Use a cell such as "B2", or { col, row } with 0-based numbers (col below 16384, row below 1048576).', { option: what }, kind);
 }
 
-function checkAnchor(anchor: unknown): void {
+/**
+ * A copy of a position as given, taken when the picture or chart is added, so that later changes
+ * to the caller's objects do not change it (and cannot bypass {@link checkAnchor}). Objects are
+ * copied two levels deep (the anchor and its `from`, `to` and `size`); unknown keys are kept, so
+ * that `checkAnchor` refuses them as before.
+ */
+export function copyAnchor(anchor: unknown): unknown {
+  const copy = (value: unknown): unknown =>
+    typeof value === 'object' && value !== null && !Array.isArray(value) ? Object.freeze(Object.fromEntries(Object.keys(value).map((k) => [k, (value as Record<string, unknown>)[k]]))) : value;
+  if (typeof anchor !== 'object' || anchor === null || Array.isArray(anchor)) return anchor;
+  return Object.freeze(Object.fromEntries(Object.keys(anchor).map((k) => [k, copy((anchor as Record<string, unknown>)[k])])));
+}
+
+/** Checks the position of a picture (`XLV_E_INVALID_OPTION`) or a chart (`XLV_E_INVALID_CHART`). */
+export function checkAnchor(anchor: unknown, kind: AnchorKind = 'picture'): void {
+  const bad = (message: string, hint: string, option: string): XlvError => invalid(message, hint, { option }, kind);
   if (typeof anchor === 'string') {
-    if (parseRange(anchor.trim().toUpperCase()) === null) throw invalid(`The picture range "${anchor.slice(0, 40)}" is not valid.`, 'Use a range such as "B2:D6".', { option: 'anchor' });
+    if (parseRange(anchor.trim().toUpperCase()) === null) throw bad(`The picture range "${anchor.slice(0, 40)}" is not valid.`, 'Use a range such as "B2:D6".', 'anchor');
     return;
   }
-  if (typeof anchor !== 'object' || anchor === null) throw invalid('The picture position must be a range or an object.', 'For example "B2:D6", { from: "B2", to: "E8" } or { from: "B2", size: { width: 160, height: 90 } }.', { option: 'anchor' });
+  if (typeof anchor !== 'object' || anchor === null) throw bad('The picture position must be a range or an object.', 'For example "B2:D6", { from: "B2", to: "E8" } or { from: "B2", size: { width: 160, height: 90 } }.', 'anchor');
   const o = anchor as Record<string, unknown>;
   for (const key of Object.keys(o)) {
-    if (!['from', 'to', 'size', 'editAs'].includes(key)) throw invalid(`Unknown picture position option "${key.slice(0, 40)}".`, 'Use from with to (and editAs), or from with size.', { option: key.slice(0, 40) });
+    if (!['from', 'to', 'size', 'editAs'].includes(key)) throw bad(`Unknown picture position option "${key.slice(0, 40)}".`, 'Use from with to (and editAs), or from with size.', key.slice(0, 40));
   }
-  const from = position(o['from'], 'from');
-  if ((o['to'] === undefined) === (o['size'] === undefined)) throw invalid('A picture position needs either "to" or "size".', 'For example { from: "B2", to: "E8" } or { from: "B2", size: { width: 160, height: 90 } }.', { option: 'anchor' });
+  const from = position(o['from'], 'from', kind);
+  if ((o['to'] === undefined) === (o['size'] === undefined)) throw bad('A picture position needs either "to" or "size".', 'For example { from: "B2", to: "E8" } or { from: "B2", size: { width: 160, height: 90 } }.', 'anchor');
   if (o['to'] !== undefined) {
-    const to = position(o['to'], 'to');
-    if (to.col < from.col || to.row < from.row) throw invalid('The picture corner "to" is above or left of "from".', 'Give the top-left corner as from and the bottom-right corner as to.', { option: 'to' });
+    const to = position(o['to'], 'to', kind);
+    if (to.col < from.col || to.row < from.row) throw bad('The picture corner "to" is above or left of "from".', 'Give the top-left corner as from and the bottom-right corner as to.', 'to');
     const editAs = o['editAs'];
-    if (editAs !== undefined && editAs !== 'twoCell' && editAs !== 'oneCell' && editAs !== 'absolute') throw invalid('editAs must be "twoCell", "oneCell" or "absolute".', 'Use editAs: "oneCell" for a picture that moves but does not resize with its cells.', { option: 'editAs' });
+    if (editAs !== undefined && editAs !== 'twoCell' && editAs !== 'oneCell' && editAs !== 'absolute') throw bad('editAs must be "twoCell", "oneCell" or "absolute".', 'Use editAs: "oneCell" for an object that moves but does not resize with its cells.', 'editAs');
   } else {
-    if (o['editAs'] !== undefined) throw invalid('editAs applies to pictures with two corners only.', 'Use { from, to, editAs } or leave editAs out.', { option: 'editAs' });
+    if (o['editAs'] !== undefined) throw bad('editAs applies to positions with two corners only.', 'Use { from, to, editAs } or leave editAs out.', 'editAs');
     const s = o['size'] as { width?: unknown; height?: unknown } | null;
     const ok = (v: unknown): boolean => typeof v === 'number' && Number.isFinite(v) && Math.round(v * EMU_PER_PIXEL) >= 1 && v * EMU_PER_PIXEL <= MAX_COORDINATE;
-    if (typeof s !== 'object' || s === null || !ok(s.width) || !ok(s.height)) throw invalid('The picture size must be { width, height } in pixels, both at least 1 EMU (1/9525 pixel).', 'For example size: { width: 160, height: 90 }.', { option: 'size' });
+    if (typeof s !== 'object' || s === null || !ok(s.width) || !ok(s.height)) throw bad('The picture size must be { width, height } in pixels, both at least 1 EMU (1/9525 pixel).', 'For example size: { width: 160, height: 90 }.', 'size');
   }
 }
 
@@ -538,10 +580,16 @@ function toMarker(p: { col: number; row: number }, m: SheetMetrics): Marker {
   return { col, row, colOff: Math.round((p.col - col) * m.colPixels(col) * EMU_PER_PIXEL), rowOff: Math.round((p.row - row) * m.rowPixels(row) * EMU_PER_PIXEL) };
 }
 
+/** Markers of a resolved anchor (see {@link ResolvedImage}). */
+export type ResolvedAnchor = Pick<ResolvedImage, 'from' | 'to' | 'ext' | 'editAs'>;
+
 /** Resolves the anchor of a stored picture with the sheet's column widths and row heights. */
 export function resolveImage(s: StoredImage, m: SheetMetrics): ResolvedImage {
-  const base = { image: s.image, name: s.name, description: s.description, hyperlink: s.hyperlink };
-  const anchor = s.anchor;
+  return { image: s.image, name: s.name, description: s.description, hyperlink: s.hyperlink, ...resolveAnchor(s.anchor, m) };
+}
+
+/** Resolves a checked anchor (of a picture or a chart) with the sheet's column widths and row heights. */
+export function resolveAnchor(anchor: ImageAnchorInput, m: SheetMetrics): ResolvedAnchor {
   if (typeof anchor === 'string') {
     const range = parseRange(anchor.trim().toUpperCase())!;
     // The exclusive `to` marker is the start of the next column and row; at the last column or
@@ -549,12 +597,12 @@ export function resolveImage(s: StoredImage, m: SheetMetrics): ResolvedImage {
     // width or height (D-D05).
     const toCol = range.end.col > MAX_MARKER_COL ? { col: MAX_MARKER_COL, colOff: m.colPixels(MAX_MARKER_COL) * EMU_PER_PIXEL } : { col: range.end.col, colOff: 0 };
     const toRow = range.end.row > MAX_MARKER_ROW ? { row: MAX_MARKER_ROW, rowOff: m.rowPixels(MAX_MARKER_ROW) * EMU_PER_PIXEL } : { row: range.end.row, rowOff: 0 };
-    return { ...base, from: { col: range.start.col - 1, row: range.start.row - 1, colOff: 0, rowOff: 0 }, to: { ...toCol, ...toRow }, ext: null, editAs: null };
+    return { from: { col: range.start.col - 1, row: range.start.row - 1, colOff: 0, rowOff: 0 }, to: { ...toCol, ...toRow }, ext: null, editAs: null };
   }
   const from = toMarker(position(anchor.from, 'from'), m);
-  if ('to' in anchor && anchor.to !== undefined) return { ...base, from, to: toMarker(position(anchor.to, 'to'), m), ext: null, editAs: anchor.editAs ?? null };
+  if ('to' in anchor && anchor.to !== undefined) return { from, to: toMarker(position(anchor.to, 'to'), m), ext: null, editAs: anchor.editAs ?? null };
   const size = (anchor as { size: { width: number; height: number } }).size;
-  return { ...base, from, to: null, ext: { cx: Math.round(size.width * EMU_PER_PIXEL), cy: Math.round(size.height * EMU_PER_PIXEL) }, editAs: null };
+  return { from, to: null, ext: { cx: Math.round(size.width * EMU_PER_PIXEL), cy: Math.round(size.height * EMU_PER_PIXEL) }, editAs: null };
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -615,7 +663,7 @@ export interface DrawingParts {
   readonly drawing: string;
   /** `<picture r:id="…"/>`, written after `legacyDrawing` (CT_Worksheet, TD-34). */
   readonly picture: string;
-  /** The drawing part and its relationships, or `null` without pictures. */
+  /** The drawing part and its relationships, or `null` without pictures and charts. */
   readonly part: { readonly name: string; readonly xml: string; readonly relsName: string; readonly rels: string } | null;
 }
 
@@ -623,16 +671,38 @@ function markerXml(local: 'from' | 'to', m: Marker): string {
   return `<xdr:${local}><xdr:col>${String(m.col)}</xdr:col><xdr:colOff>${String(m.colOff)}</xdr:colOff><xdr:row>${String(m.row)}</xdr:row><xdr:rowOff>${String(m.rowOff)}</xdr:rowOff></xdr:${local}>`;
 }
 
+/** A chart frame of a drawing: its resolved anchor, object name and description, and its chart part (relative to `xl/drawings/`). */
+export interface DrawingChart extends ResolvedAnchor {
+  readonly name: string | null;
+  readonly description: string | null;
+  readonly target: string;
+}
+
+/** An anchor element around an object (TD-32): `twoCellAnchor` with its markers or `oneCellAnchor` with its size. */
+function anchorXml(p: ResolvedAnchor, body: string): string {
+  if (p.to !== null) return `<xdr:twoCellAnchor${p.editAs === null ? '' : attr('editAs', p.editAs)}>${markerXml('from', p.from)}${markerXml('to', p.to)}${body}<xdr:clientData/></xdr:twoCellAnchor>`;
+  return `<xdr:oneCellAnchor>${markerXml('from', p.from)}<xdr:ext${attr('cx', p.ext!.cx)}${attr('cy', p.ext!.cy)}/>${body}<xdr:clientData/></xdr:oneCellAnchor>`;
+}
+
 /**
- * Builds the Drawings part `xl/drawings/drawing<n>.xml` (Part 1 §20.5, TD-35) for the pictures of
- * a sheet, adds the `drawing` and background `image` relationships to `rels`, and returns the
- * sheet elements. Each picture is an `xdr:pic` in a `twoCellAnchor` or `oneCellAnchor`, with a
- * unique `cNvPr` id, `a:blip r:embed` to its image and `a:stretch/a:fillRect`, as in the Part 1
- * Annex L picture example; one image relationship per image and drawing.
+ * Builds the Drawings part `xl/drawings/drawing<n>.xml` (Part 1 §20.5, TD-35) for the pictures and
+ * charts of a sheet, adds the `drawing` and background `image` relationships to `rels`, and
+ * returns the sheet elements. Each picture is an `xdr:pic` in a `twoCellAnchor` or
+ * `oneCellAnchor`, with a unique `cNvPr` id, `a:blip r:embed` to its image and
+ * `a:stretch/a:fillRect`, as in the Part 1 Annex L picture example; one image relationship per
+ * image and drawing. Each chart, after the pictures, is an `xdr:graphicFrame` as Excel writes it
+ * (CH-04) with a `chart` relationship from the same counter (CH-02).
  */
-export function drawingParts(pictures: readonly ResolvedImage[], background: number | null, media: MediaParts, n: number, rels: { add(type: string, target: string, external?: boolean): string }): DrawingParts {
+export function drawingParts(
+  pictures: readonly ResolvedImage[],
+  background: number | null,
+  media: MediaParts,
+  n: number,
+  rels: { add(type: string, target: string, external?: boolean): string },
+  charts: readonly DrawingChart[] = [],
+): DrawingParts {
   const picture = background === null ? '' : `<picture${attr('r:id', rels.add('image', media.target(background)))}/>`;
-  if (pictures.length === 0) return { drawing: '', picture, part: null };
+  if (pictures.length === 0 && charts.length === 0) return { drawing: '', picture, part: null };
   const items: string[] = [];
   const imageIds = new Map<number, string>();
   const add = (type: string, target: string, external = false): string => {
@@ -651,9 +721,15 @@ export function drawingParts(pictures: readonly ResolvedImage[], background: num
     const body =
       `<xdr:pic><xdr:nvPicPr><xdr:cNvPr${attr('id', i + 1)}${attr('name', p.name ?? `Picture ${String(i + 1)}`)}${p.description === null ? '' : attr('descr', p.description)}>${link}</xdr:cNvPr><xdr:cNvPicPr/></xdr:nvPicPr>` +
       `<xdr:blipFill><a:blip${attr('r:embed', embed)}/><a:stretch><a:fillRect/></a:stretch></xdr:blipFill>` +
-      '<xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic><xdr:clientData/>';
-    if (p.to !== null) xml += `<xdr:twoCellAnchor${p.editAs === null ? '' : attr('editAs', p.editAs)}>${markerXml('from', p.from)}${markerXml('to', p.to)}${body}</xdr:twoCellAnchor>`;
-    else xml += `<xdr:oneCellAnchor>${markerXml('from', p.from)}<xdr:ext${attr('cx', p.ext!.cx)}${attr('cy', p.ext!.cy)}/>${body}</xdr:oneCellAnchor>`;
+      '<xdr:spPr><a:prstGeom prst="rect"><a:avLst/></a:prstGeom></xdr:spPr></xdr:pic>';
+    xml += anchorXml(p, body);
+  });
+  charts.forEach((c, k) => {
+    const id = add('chart', c.target);
+    const body =
+      `<xdr:graphicFrame macro=""><xdr:nvGraphicFramePr><xdr:cNvPr${attr('id', pictures.length + k + 1)}${attr('name', c.name ?? `Chart ${String(k + 1)}`)}${c.description === null ? '' : attr('descr', c.description)}/><xdr:cNvGraphicFramePr/></xdr:nvGraphicFramePr>` +
+      `<xdr:xfrm><a:off x="0" y="0"/><a:ext cx="0" cy="0"/></xdr:xfrm><a:graphic><a:graphicData uri="${CHART_NS}"><c:chart xmlns:c="${CHART_NS}" xmlns:r="${REL_BASE.slice(0, -1)}"${attr('r:id', id)}/></a:graphicData></a:graphic></xdr:graphicFrame>`;
+    xml += anchorXml(c, body);
   });
   xml += '</xdr:wsDr>';
   const name = `xl/drawings/drawing${String(n)}.xml`;

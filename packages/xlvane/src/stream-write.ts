@@ -7,7 +7,8 @@ import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
 import { printNames, printXml, sheetProtectionXml, type HeaderFooter, type PageBreaks, type PageSetupOptions, type PrintTitles, type SheetProtectionOptions, type WorkbookProtectionOptions } from './printing';
 import type { DateSystem, SheetState } from './model';
-import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, metricsOf, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions } from './images';
+import { CHART_CONTENT_TYPE, chartPartName, chartPartXml, resolveChartSheets, type ChartInput, type NormalizedChart } from './charts';
+import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, metricsOf, resolveAnchor, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions } from './images';
 import type { NoteInput } from './notes';
 import type { ConditionalFormatRuleInput, DataValidationRule } from './sheet-rules';
 import { formatCellRef, MAX_COLUMNS, MAX_ROWS, type CellRange } from './sml/cell-ref';
@@ -154,6 +155,13 @@ export interface StreamSheetSpec {
   readonly images?: readonly (ImageOptions & { readonly image: number; readonly anchor: ImageAnchorInput })[];
   /** Background image (a position in `WriteWorkbookStreamOptions.images`), as for `NewSheet.background`. */
   readonly background?: number;
+  /**
+   * Charts, as for `NewSheet.addChart`. The streaming writer does not keep cell values, so the
+   * chart parts hold the references without caches; LibreOffice 24.2.7.2 draws such charts from
+   * the cells (docs/facts/charts.md CH-20). PROVISIONAL: whether Excel shows a chart without
+   * caches is not verified (R6-4). Fractional row positions assume the default row height.
+   */
+  readonly charts?: readonly ChartInput[];
   /** The rows, from row 1. Any iterable or async iterable (arrays, generators, streams of rows). */
   readonly rows: Iterable<StreamRowInput> | AsyncIterable<StreamRowInput>;
 }
@@ -317,7 +325,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Pass sheets: [{ name: "Sheet1", rows: [...] }].' });
   }
   const prepare = (raw: unknown, i: number): PreparedSheet => {
-    const s = readOptions(raw, ['name', 'state', 'sheetId', 'columns', 'freeze', 'tabColor', 'view', 'properties', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'rows'], `sheets[${String(i)}]`);
+    const s = readOptions(raw, ['name', 'state', 'sheetId', 'columns', 'freeze', 'tabColor', 'view', 'properties', 'autoFilter', 'merges', 'hyperlinks', 'protect', 'pageSetup', 'headerFooter', 'pageBreaks', 'printArea', 'printTitles', 'dataValidations', 'conditionalFormats', 'tables', 'images', 'background', 'charts', 'rows'], `sheets[${String(i)}]`);
     const state = s.get('state');
     const sheetId = s.get('sheetId');
     const sheet = book.addSheet(s.get('name') as string, { ...(state === undefined ? {} : { state: state as SheetState }), ...(sheetId === undefined ? {} : { sheetId: sheetId as number }) });
@@ -401,6 +409,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       sheet.addImage(image as number, anchor as ImageAnchorInput, options);
     }
     if (s.has('background')) sheet.background(s.get('background') as number);
+    for (const v of listOf('charts', '{ type: "column", anchor: "E2:L18", series: [{ values: "Data!B2:B13" }] }')) sheet.addChart(v as ChartInput);
     return { spec: raw as StreamSheetSpec, sheet, autoFilter, rows: rows as Iterable<StreamRowInput>, filterRange: null, rels: new SheetRels(), notes: null, tables: [], drawing: null };
   };
   const noVisibleSheet = (): XlvError =>
@@ -408,6 +417,10 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   const prepared: PreparedSheet[] = dynamic ? [] : (specs as unknown[]).map(prepare);
   if (!dynamic && !prepared.some((p) => p.sheet.state === 'visible')) throw noVisibleSheet();
   if (!dynamic) addNames();
+  // With an array of sheets every name is known now, so the charts' sheets are checked up front.
+  if (!dynamic) for (const p of prepared) for (const c of p.sheet.chartList) resolveChartSheets(c.chart, prepared.map((q) => q.sheet.name), p.sheet.name);
+  /** Charts in workbook order (CH-01); their parts are written once every sheet name is known. */
+  const chartQueue: { readonly chart: NormalizedChart; readonly sheet: string }[] = [];
 
   const strings = shared ? createSharedStrings() : null;
   const styleCache = new WeakMap<object, NormalizedStyle>();
@@ -521,12 +534,17 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     p.sheet.noteMap.clear();
     if (p.notes !== null) shapeBlock += p.notes.blocks;
     const rules = sheetRulesXml({ conditionalFormats: p.sheet.conditionalList, dataValidations: p.sheet.validationList }, n);
+    const frames = p.sheet.chartList.map((c) => {
+      chartQueue.push({ chart: c.chart, sheet: p.sheet.name });
+      return { ...resolveAnchor(c.anchor, metricsOf(p.sheet.columnMap, p.sheet.rowMap)), name: c.chart.name, description: c.chart.description, target: `../charts/chart${String(chartQueue.length)}.xml` };
+    });
     const drawing = drawingParts(
       p.sheet.imageList.map((i) => resolveImage(i, metricsOf(p.sheet.columnMap, p.sheet.rowMap))),
       p.sheet.backgroundImage,
       media,
       ++drawingCount,
       p.rels,
+      frames,
     );
     if (drawing.part === null) drawingCount--;
     p.drawing = drawing.part;
@@ -615,15 +633,19 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
     if (!selected) throw noVisibleSheet();
     if (dynamic) addNames();
+    const names = prepared.map((p) => p.sheet.name);
+    const chartParts = chartQueue.map((c, k) => ({ name: chartPartName(k + 1), xml: chartPartXml(resolveChartSheets(c.chart, names, c.sheet), null) }));
     const app = appXml() !== null;
     const overrides = [
       ...tableTypes(),
       ...prepared.flatMap((p) => (p.drawing === null ? [] : [[p.drawing.name, DRAWING_CONTENT_TYPE] as const])),
+      ...chartParts.map((c) => [c.name, CHART_CONTENT_TYPE] as const),
       ...media.entries().map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as ImageFormat]] as const),
     ];
     yield { name: '[Content_Types].xml', data: encoder.encode(contentTypesXml(prepared.length, shared, core !== null, app, noteSheets(), overrides)) };
     yield { name: '_rels/.rels', data: encoder.encode(rootRelsXml(core !== null, app)) };
     yield* media.entries();
+    for (const c of chartParts) yield { name: c.name, data: encoder.encode(c.xml) };
     yield* closingParts();
   }
   return createZipStream(entries(), level);
