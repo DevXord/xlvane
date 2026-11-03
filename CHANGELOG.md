@@ -2,7 +2,7 @@
 
 The date after each version is the day (UTC) the version was published on npm, from the `time` field of the npm registry.
 
-## Unreleased
+## 1.3.0 (unreleased)
 
 ### xlvane
 
