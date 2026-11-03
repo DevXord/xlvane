@@ -567,3 +567,147 @@ describe('csv.read: an empty line', () => {
     expect(ws.rowCount).toBe(6);
   });
 });
+
+describe('F3: row styles', () => {
+  // exceljs writes a row's style as row@s with customFormat="1" (lib/xlsx/xform/sheet/row-xform.js
+  // L19-23, L44-47) for the rows it writes: those with a height or cells (lib/doc/row.js L333-364,
+  // `get model` is null otherwise). It reads row@s back as row.style (row-xform.js L80-82, L130),
+  // and a cell created later in the row takes it (lib/doc/cell.js L27). Checked with exceljs
+  // 4.4.0: of rows 2 (style only), 3 (style and a cell) and 4 (style and a height), rows 3 and 4
+  // are written with s and customFormat="1"; read back, a new cell B3 is italic.
+  async function written(wb: any): Promise<Uint8Array> {
+    return (await wb.xlsx.writeBuffer()) as Uint8Array;
+  }
+  function styledRows(): any {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('S');
+    ws.getRow(2).font = { bold: true };
+    ws.getRow(3).font = { italic: true };
+    ws.getCell('A3').value = 1;
+    ws.getRow(4).fill = RED;
+    ws.getRow(4).height = 20;
+    // xlsx.load looks at row settings up to the dimension or the last cell (docs/exceljs-compat.md,
+    // "Writing workbooks that were read from files"), so a cell after row 4.
+    ws.getCell('A5').value = 'end';
+    return wb;
+  }
+
+  it('row.style is written as the row style of the rows exceljs writes', async () => {
+    const bytes = await written(styledRows());
+    const xml = strFromU8(unzipSync(bytes)['xl/worksheets/sheet1.xml']!);
+    expect(xml).toMatch(/<row r="3"[^>]* s="\d+"[^>]* customFormat="1"/);
+    expect(xml).toMatch(/<row r="4"[^>]* s="\d+"[^>]* customFormat="1"/);
+    expect(xml).not.toContain('<row r="2"');
+    const sheet = readWorkbook(bytes).sheets[0]!;
+    expect(sheet.rowInfo(3)?.style?.font?.italic).toBe(true);
+    expect(sheet.rowInfo(4)?.style?.fill).toMatchObject({ pattern: 'solid' });
+    // Without styles, no row style is written.
+    const plain = strFromU8(unzipSync((await styledRows().xlsx.writeBuffer({ useStyles: false })) as Uint8Array)['xl/worksheets/sheet1.xml']!);
+    expect(plain).not.toContain('customFormat');
+  });
+
+  it('xlsx.load reads the row style, and new cells in the row take it', async () => {
+    const back = (await load(await written(styledRows()))).getWorksheet('S');
+    expect(back.getRow(3).font).toMatchObject({ italic: true });
+    expect(back.getCell('B3').font).toMatchObject({ italic: true });
+    expect(back.getRow(4).fill).toEqual(RED);
+    expect(back.getCell('C4').fill).toEqual(RED);
+    // A cell with a style of its own in the file keeps it.
+    const file = buildXlsx({
+      sheets: [{ name: 'S', data: '<row r="1" s="1" customFormat="1"><c r="A1" s="2"><v>1</v></c></row><row r="2" s="1"><c r="A2"><v>2</v></c></row>' }],
+      styles: STYLES,
+    });
+    const ws = (await load(file)).getWorksheet('S');
+    expect(ws.getRow(1).font?.bold).toBe(true);
+    expect(ws.getCell('A1').font?.bold).toBeUndefined();
+    expect(ws.getCell('B1').font?.bold).toBe(true);
+    // Without customFormat="1" the row's s does not apply (ECMA-376 Part 1 §18.3.1.73), and the
+    // core does not read it; exceljs reads it all the same (row-xform.js L80-82).
+    expect(ws.getRow(2).style).toEqual({});
+  });
+
+  it('the streaming writer writes the row style, and the streaming reader reads it', async () => {
+    await withTempDir(async (dir) => {
+      const filename = join(dir, 'rows.xlsx');
+      const wb = new ExcelJS.stream.xlsx.WorkbookWriter({ filename, useStyles: true });
+      const ws = wb.addWorksheet('S');
+      const row = ws.getRow(1);
+      row.font = { italic: true };
+      row.getCell(1).value = 'a';
+      row.commit();
+      await wb.commit();
+      const bytes = new Uint8Array(readFileSync(filename));
+      expect(readWorkbook(bytes).sheets[0]!.rowInfo(1)?.style?.font?.italic).toBe(true);
+      let style: unknown;
+      for await (const sheet of new ExcelJS.stream.xlsx.WorkbookReader(bytes, { styles: 'cache' })) for await (const r of sheet as any) style = r.style;
+      expect(style).toMatchObject({ font: { italic: true } });
+    });
+  });
+});
+
+describe('F4: the workbook default font', () => {
+  // exceljs gives a style read from a file (s >= 1 for a cell, and row and column styles) the
+  // font its fontId names, also font 0 (lib/xlsx/xform/style/styles-xform.js L296-345
+  // `getStyleModel`, `addStyle` also for id 0); a cell with s="0" or no s has no style
+  // (lib/xlsx/xform/sheet/cell-xform.js L428-432). Checked with exceljs 4.4.0 on this file: A1
+  // (no s) and D1 (s="0") have no font, B1 (font 0 with format 0.000) is Arial 10, C1 bold
+  // Arial 10, the row style and column C's style Arial 10.
+  const FONT0_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><numFmts count="1"><numFmt numFmtId="164" formatCode="0.000"/></numFmts>
+<fonts count="2"><font><sz val="10"/><name val="Arial"/></font><font><b/><sz val="10"/><name val="Arial"/></font></fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="3"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>
+</styleSheet>`;
+  const file = buildXlsx({
+    sheets: [{ name: 'S', before: '<cols><col min="3" max="3" width="9" style="1"/></cols>', data: '<row r="1" s="1" customFormat="1"><c r="A1"><v>1</v></c><c r="B1" s="1"><v>2</v></c><c r="C1" s="2"><v>3</v></c><c r="D1" s="0"><v>4</v></c></row>' }],
+    styles: FONT0_STYLES,
+  });
+
+  it('styled cells, rows and columns that use font 0 read it as their font', async () => {
+    const ws = (await load(file)).getWorksheet('S');
+    expect(ws.getCell('A1').font).toBeUndefined();
+    expect(ws.getCell('D1').font).toBeUndefined();
+    expect(ws.getCell('B1').font).toMatchObject({ name: 'Arial', size: 10 });
+    expect(ws.getCell('B1').font.bold).toBeUndefined();
+    expect(ws.getCell('C1').font).toMatchObject({ name: 'Arial', size: 10, bold: true });
+    expect(ws.getRow(1).font).toMatchObject({ name: 'Arial', size: 10 });
+    expect(ws.getColumn(3).font).toMatchObject({ name: 'Arial', size: 10 });
+    expect(ws.getCell('E1').font).toMatchObject({ name: 'Arial', size: 10 });
+  });
+
+  it('a loaded workbook is written with its default font; one made in code with Calibri 11', async () => {
+    // exceljs writes Calibri 11 as font 0 whatever the file had (styles-xform.js), so its cells
+    // without a style become Calibri 11; xlvane keeps the file's font 0.
+    const bytes = new Uint8Array(readFileSync(`${POI}47737.xlsx`));
+    const wb = await load(bytes);
+    const out = (await wb.xlsx.writeBuffer()) as Uint8Array;
+    const read = readWorkbook(out);
+    expect(read.defaultFont).toMatchObject({ name: 'Arial', size: 10 });
+    // N1 uses font 0 with a style of its own: exceljs reads it as Arial 10.
+    expect(wb.worksheets[0].getCell('N1').font).toMatchObject({ name: 'Arial', size: 10 });
+    const n1 = [...read.sheets[0]!.cells(), ...read.sheets[0]!.styledCells()].find((c) => c.ref === 'N1');
+    expect(n1?.style.font?.name ?? read.defaultFont?.name).toBe('Arial');
+    const fresh = new ExcelJS.Workbook();
+    fresh.addWorksheet('S').getCell('A1').value = 1;
+    expect(readWorkbook((await fresh.xlsx.writeBuffer()) as Uint8Array).defaultFont).toMatchObject({ name: 'Calibri', size: 11 });
+  });
+});
+
+describe('F5: six-digit rgb colours', () => {
+  // POI corpus 52348.xlsx stores colours as rgb="000000", "808080", "C0C0C0", "FF0000". exceljs
+  // 4.4.0 reads them as { argb: '000000' } and so on (lib/xlsx/xform/style/color-xform.js L39-40)
+  // and writes the 6 digits back (L19-20). xlvane reads them as opaque RGB, FF and the 6 digits,
+  // and writes those 8 digits.
+  it('survive xlsx.load and writeBuffer as FF followed by the six digits', async () => {
+    const wb = await load(new Uint8Array(readFileSync(`${POI}52348.xlsx`)));
+    const ws = wb.worksheets[0];
+    expect(ws.getCell('C2').font.color).toEqual({ argb: 'FF000000' });
+    const out = (await wb.xlsx.writeBuffer()) as Uint8Array;
+    const styles = strFromU8(unzipSync(out)['xl/styles.xml']!);
+    for (const rgb of ['FF000000', 'FF808080', 'FFC0C0C0', 'FFFF0000']) expect(styles).toContain(`rgb="${rgb}"`);
+    const back = (await load(out)).worksheets[0];
+    expect(back.getCell('C2').font.color).toEqual({ argb: 'FF000000' });
+  });
+});

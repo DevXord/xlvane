@@ -1,6 +1,6 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
-import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
+import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type CellStyle, type FontStyle, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
 import { colorOut, formulaOut, hasFormulaText, noteOut, readBytes, readValueOut, richTextOut, styleOut, toNewWorkbook, viewOut, type ReadDates, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges, rangeCellCount } from './defined-names';
@@ -8,7 +8,7 @@ import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageDat
 import { checkSheetName, columnLetter, Worksheet } from './model';
 import { readFileBytes, xlvaneNode } from './node-api';
 import { conditionalFormatsOut, dataValidationsOut, headerFooterOut, pageSetupOut, protectionOut, rowBreaksOut, validationBudget } from './sheet-rules';
-import type { CellValue, HeaderFooter, WorksheetOptions } from './types';
+import type { CellValue, HeaderFooter, Style, WorksheetOptions } from './types';
 import type { Image } from './compat-types';
 
 /** Node.js Buffer, when available, so `writeBuffer()` returns what exceljs returns there. */
@@ -206,7 +206,8 @@ export class XlsxIO {
 
   private book(options: XlsxWriteOptions | undefined) {
     const useStyles = options?.useStyles !== false;
-    return toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, { ...this.workbook._meta(), useStyles });
+    const font = this.workbook._defaultFont;
+    return toNewWorkbook(this.workbook.worksheets, this.workbook._date1904, { ...this.workbook._meta(), useStyles, ...(font ? { defaultFont: font } : {}) });
   }
 
   private bytes(options: XlsxWriteOptions | undefined): Uint8Array {
@@ -300,6 +301,9 @@ export class Workbook {
     const properties = Object.fromEntries(entries.filter(([, v]) => v !== undefined));
     return { properties, definedNames: this._definedNames.model, media: this._media, views: this.views, calcProperties: this.calcProperties };
   }
+
+  /** @internal The default font (font 0) of the file this workbook was loaded from, written again (F4); `null` for a workbook made in code. */
+  _defaultFont: FontStyle | null = null;
 
   /** @internal */
   get _date1904(): boolean {
@@ -601,6 +605,14 @@ export class Workbook {
       if (options.maxCols !== undefined) for (const count of perRow.values()) if (count > options.maxCols) limit('maxCols', options.maxCols, count);
     }
     this._clearSheets();
+    // Font 0 of the file, written again as the workbook's default font (F4).
+    this._defaultFont = read.defaultFont;
+    // exceljs gives a style read from a file (a cell's s >= 1, a row or column style) the font its
+    // fontId names, also font 0 (styles-xform.js L296-345), which the core leaves out (F4). A row
+    // or column style counts as given when it has any part.
+    const font0 = read.defaultFont;
+    const fileStyle = (style: CellStyle, numFmt: string | null, styled = Object.keys(style).length > 0): Style => styleOut(styled && font0 && !style.font ? { ...style, font: font0 } : style, numFmt);
+    const lineFormat = (style: CellStyle): string | null => (typeof style.numFmt === 'string' ? style.numFmt : null);
     if (read.dateSystem === '1904') this.properties.date1904 = true;
     else delete this.properties.date1904;
     // exceljs assigns every core property from the file, so missing ones become undefined (workbook.js L184).
@@ -672,7 +684,7 @@ export class Workbook {
           if (c.width !== null) column.width = c.width;
           if (c.hidden) column.hidden = true;
           if (c.outlineLevel) column.outlineLevel = c.outlineLevel;
-          if (c.style) column.style = styleOut(c.style, typeof c.style.numFmt === 'string' ? c.style.numFmt : null);
+          if (c.style) column.style = fileStyle(c.style, lineFormat(c.style));
         }
       }
       // sheetFormatPr and outlinePr as exceljs reads them (sheet-format-properties-xform.js; X4-28).
@@ -692,7 +704,7 @@ export class Workbook {
       // Cells that hold only a style keep it (D-E05), as exceljs reads them (cell-xform.js).
       let lastRow = 0;
       for (const cell of use('sheetData') ? s.styledCells() : []) {
-        ws.getCell(cell.row, cell.col).style = styleOut(cell.style, cell.numFmt);
+        ws.getCell(cell.row, cell.col).style = fileStyle(cell.style, cell.numFmt, cell.styleIndex > 0);
         if (cell.row > lastRow) lastRow = cell.row;
       }
       for (const cell of use('sheetData') ? s.cells() : []) {
@@ -716,7 +728,7 @@ export class Workbook {
           value = h.tooltip ? { text, hyperlink, tooltip: h.tooltip } : { text, hyperlink };
         }
         target.value = value;
-        target.style = styleOut(cell.style, cell.numFmt);
+        target.style = fileStyle(cell.style, cell.numFmt, cell.styleIndex > 0);
         if (cell.row > lastRow) lastRow = cell.row;
       }
       // Row height, visibility and outline level, also of rows without cells (exceljs keeps every
@@ -736,6 +748,9 @@ export class Workbook {
         const info = s.rowInfo(r);
         if (!info) continue;
         const row = ws.getRow(r);
+        // The row's style, read only when the file marks it with customFormat="1" (F3; exceljs
+        // reads row@s without that check, row-xform.js L80-82). Cells created later take it.
+        if (info.style && use('sheetData')) row.style = fileStyle(info.style, lineFormat(info.style));
         // Excel shows rows up to 409.5 points (W-04, W-04a); a taller height in a file is read as
         // 409.5, so the workbook can be written again (D-R01).
         if (info.height !== null) row.height = Math.min(info.height, 409.5);

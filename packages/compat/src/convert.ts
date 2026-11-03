@@ -31,7 +31,7 @@ import {
   XlvError,
 } from 'xlvane';
 import { imageAnchorIn, imageBytes, tableInput, type ImageData } from './media';
-import { columnLetter, decodeAddress, isJsonValue, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
+import { columnLetter, decodeAddress, isJsonValue, notSupported, ValueType, type Cell, type Column, type Row, type Worksheet } from './model';
 import { conditionalFormatsIn, dataValidationsIn, headerFooterIn, pageSetupIn, protectionIn, rowBreaksIn } from './sheet-rules';
 import type { Alignment, Borders, CellValue, Color, Comment, Fill, Font, Style, WorksheetView } from './types';
 
@@ -662,6 +662,8 @@ export interface WorkbookMeta {
   readonly views?: readonly Record<string, unknown>[];
   /** `workbook.calcProperties`. */
   readonly calcProperties?: Record<string, unknown>;
+  /** The default font (font 0) of a loaded workbook (F4). */
+  readonly defaultFont?: FontStyle;
 }
 
 /**
@@ -729,7 +731,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 
 /** Builds an xlvane workbook from the exceljs model (D-503). */
 export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, meta: WorkbookMeta = {}): NewWorkbook {
-  const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}) });
+  const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}), ...(meta.defaultFont ? { defaultFont: meta.defaultFont } : {}) });
   if (sheets.length === 0) {
     // exceljs writes a workbook without sheets; xlvane requires one (D-505).
     notSupported('Writing a workbook without worksheets');
@@ -799,8 +801,10 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
     const blocks = mergeBlocks(ws);
     ws._rows.forEach((row) => {
       if (!row) return;
-      if (row.height !== undefined || row.hidden || row.outlineLevel) {
+      const style = rowStyleIn(row, useStyles, styleOf);
+      if (row.height !== undefined || row.hidden || row.outlineLevel || style) {
         sheet.row(row.number, {
+          ...(style ? { style } : {}),
           ...(row.height === undefined ? {} : { height: row.height }),
           ...(row.hidden ? { hidden: true } : {}),
           // row-xform.js L49–54: outlineLevel and the computed collapsed flag (X4-28).
@@ -879,6 +883,17 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   // exceljs writes each name's ranges joined by commas, without a sheet scope (defined-name-xform.js L5).
   for (const d of meta.definedNames ?? []) book.defineName(d.name, d.ranges.join(','));
   return book;
+}
+
+/**
+ * The row style to write for a row (F3), as exceljs writes it: row@s with customFormat="1"
+ * (row-xform.js L19-23, L44-47), with styles only, and only for a row that exceljs writes at all,
+ * one with a height or cells (lib/doc/row.js L333-364). `undefined` when there is none.
+ */
+export function rowStyleIn(row: Row, useStyles: boolean, convert: (s: Style) => CellStyle = styleIn): CellStyle | undefined {
+  if (!useStyles || (row.height === undefined && !row._cells.some((c) => c !== undefined))) return undefined;
+  const style = convert(row.style);
+  return Object.keys(style).length > 0 ? style : undefined;
 }
 
 /** Cells styled by one `sheet.style` call for a merged range: at most what the core styles at once. */

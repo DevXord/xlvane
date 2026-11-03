@@ -103,6 +103,18 @@ describe('K2 item 5: merged ranges with a styled master', () => {
     expect(fonts).toEqual({ A1: true, B1: false, A2: true, E200000: true });
   }, 120_000);
 
+  it('a loaded merge whose cells take a row style equal to the master is written in blocks', async () => {
+    // From 1.3.1 (F3) row styles are read and new cells take them, as in exceljs: 60 styled rows
+    // of a few bytes each give 983 040 merged cells the master's style.
+    const rows = Array.from({ length: 60 }, (_, i) => `<row r="${String(i + 1)}" s="1" customFormat="1">${i === 0 ? '<c r="A1" s="1"><v>1</v></c>' : ''}</row>`).join('');
+    const bytes = buildXlsx({ sheets: [{ name: 'S', before: '<dimension ref="A1:XFD60"/>', data: rows, after: '<mergeCells count="1"><mergeCell ref="A1:XFD60"/></mergeCells>' }], styles: STYLES });
+    expect(bytes.length).toBeLessThan(5000);
+    const wb = await new ExcelJS.Workbook().xlsx.load(bytes);
+    expect(wb.getWorksheet('S').getCell('XFD60').font?.bold).toBe(true);
+    const out = await countedWrite(wb, 10);
+    expect(writtenFonts(out, ['A1', 'B1', 'A60', 'XFD60'])).toEqual({ A1: true, B1: true, A60: true, XFD60: true });
+  }, 120_000);
+
   it('xlsx.load refuses merged ranges of more than 1 048 576 positions in a file with few cells', async () => {
     const bytes = mergedFile(400_000);
     const start = performance.now();

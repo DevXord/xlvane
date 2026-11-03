@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, hasFormulaText, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, readValueOut, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, hasFormulaText, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, readValueOut, resultIn, richTextOut, rowStyleIn, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 
 /**
  * A cell value for the streaming writer. Rows are written as they are committed, before later
@@ -288,8 +288,11 @@ export class WorksheetWriter extends Worksheet {
       if (styles[i] !== undefined) styled = true;
     });
     for (let i = 0; i < values.length; i++) if (values[i] === undefined) values[i] = null;
+    // The row's own style (F3), as exceljs's streaming writer writes it with useStyles.
+    const rowStyle = rowStyleIn(row, this.writer._useStyles);
     this.rowsOut.push({
       values: values as CellInput[],
+      ...(rowStyle ? { rowStyle } : {}),
       ...(styled ? { styles } : {}),
       ...(links.length > 0 ? { hyperlinks: links } : {}),
       ...(notes.length > 0 ? { notes } : {}),
@@ -794,6 +797,9 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
       const rows = async function* (): AsyncGenerator<Row> {
         for await (const r of book.rows(name)) {
           const row = sheet.getRow(r.number);
+          // The row's style (F3), read with styles: 'cache' as exceljs does (worksheet-reader.js
+          // L189-195), before the cells, which take it when they have no style of their own.
+          if (styles && r.style) row.style = styleOut(r.style, typeof r.style.numFmt === 'string' ? r.style.numFmt : null);
           for (const cell of r.cells) {
             // Time-only dates (F6); a number whose format exceljs takes for a date (F7), except a
             // formula's result, which exceljs's streaming reader leaves a number
