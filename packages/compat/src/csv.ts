@@ -487,6 +487,7 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
     }
     const rowLine = line;
     const fields: string[] = [];
+    let quoted = false;
     // Fields past the 16 384 a worksheet holds are only counted, and whether one has text.
     let extra = 0;
     let extraText = false;
@@ -502,6 +503,7 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
       let start = at;
       while (start < n && (text[start] === ' ' || text[start] === '\t') && text[start] !== o.delimiter) start++;
       if (o.quote !== '' && text[start] === o.quote) {
+        quoted = true;
         // The value is built from slices between escaped quotes (one character at a time before, K2).
         let value = '';
         let i = start + 1;
@@ -544,8 +546,9 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
     }
     at = skipLineEnd(at);
     line++;
-    // A line of white space only is one empty field (fast-csv).
-    const row = fields.length === 1 && fields[0]!.trim() === '' ? [''] : fields;
+    // A line of white space only is a row without fields: fast-csv's scanner skips white space
+    // (@fast-csv/parse/build/src/parser/RowParser.js L15-48), so exceljs calls no `map` for it.
+    const row = fields.length === 1 && !quoted && fields[0]!.trim() === '' ? [] : fields;
     if (o.ignoreEmpty && !extraText && row.every((f) => f.trim() === '')) continue;
     kept++;
     if (o.skipHeader && kept === 1) continue;

@@ -396,12 +396,17 @@ export class Cell {
     return undefined;
   }
 
-  /** `FormulaType.Shared` for a `{ sharedFormula }` value, `Master` for other formulas, otherwise `None` (lib/doc/cell.js L807). */
+  /**
+   * `FormulaType.Shared` for a `{ sharedFormula }` value, `Master` for other formulas, and
+   * `undefined` for a cell without a formula and for a merged cell other than the top-left one,
+   * as in exceljs, where only the formula value has a `formulaType` (lib/doc/cell.js L264-266,
+   * L807-815; exceljs's declaration says `FormulaType` all the same).
+   */
   get formulaType(): FormulaType {
-    const v = this.value;
-    if (!isRecord(v)) return FormulaType.None;
+    const v = this._master ? null : this.value;
+    if (!isRecord(v)) return undefined as unknown as FormulaType;
     if (typeof v['sharedFormula'] === 'string') return FormulaType.Shared;
-    return typeof v['formula'] === 'string' ? FormulaType.Master : FormulaType.None;
+    return typeof v['formula'] === 'string' ? FormulaType.Master : (undefined as unknown as FormulaType);
   }
 
   get result(): unknown {
@@ -1012,11 +1017,11 @@ export class Column {
     this._outlineLevel = value.outlineLevel ?? 0;
   }
 
-  /** Cell values of this column by row number (index 0 unused). */
+  /** Cell values of this column by row number (index 0 unused); empty cells are left out (lib/doc/column.js L179-187). */
   get values(): CellValue[] {
     const out: CellValue[] = [];
     this.eachCell((cell, r) => {
-      out[r] = cell.value;
+      if (cell.type !== ValueType.Null) out[r] = cell.value;
     });
     return out;
   }
@@ -1032,9 +1037,10 @@ export class Column {
     const cb = typeof options === 'function' ? options : iteratee;
     const includeEmpty = typeof options === 'object' && options !== null && options.includeEmpty === true;
     if (!cb) return;
+    // exceljs visits the column's cell of each row that worksheet.eachRow visits (the rows with
+    // values, or all rows with includeEmpty), creating it (lib/doc/column.js L168-177).
     this.worksheet.eachRow({ includeEmpty }, (row, r) => {
-      const cell = includeEmpty ? row.getCell(this.number) : row.findCell(this.number);
-      if (cell && (includeEmpty || cell.type !== ValueType.Null)) cb(cell, r);
+      cb(row.getCell(this.number), r);
     });
   }
 

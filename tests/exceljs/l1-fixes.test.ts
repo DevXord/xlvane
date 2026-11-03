@@ -485,3 +485,85 @@ describe('F9: csv formatter options', () => {
     expect(await text(sheet(), { writeBOM: true, BOM: '﻿' })).toBe('﻿a,"b,c",3\n\nx,y');
   });
 });
+
+describe('F12: column.eachCell and the column style setters', () => {
+  // lib/doc/column.js L168-177: eachCell calls worksheet.eachRow (lib/doc/worksheet.js L551-568,
+  // rows with values without includeEmpty) and gives the iteratee row.getCell(colNumber), which
+  // creates the cell. The style setters go through eachCell (column.js L206-212 `_applyStyle`).
+  // Checked with exceljs 4.4.0 on this worksheet: eachCell visits B1, B3, B5; values of A are
+  // [, 1, , , , 'x']; a fill on column C reaches C1, C3 and C5 only.
+  function sheet(): any {
+    const ws = new ExcelJS.Workbook().addWorksheet('S');
+    ws.getCell('A1').value = 1;
+    ws.getCell('B3').value = 2;
+    ws.getCell('A5').value = 'x';
+    ws.getRow(4).height = 20;
+    ws.getCell('B6').font = { bold: true };
+    return ws;
+  }
+
+  it('visits the column cell of every row with values, creating it', () => {
+    const ws = sheet();
+    const seen: string[] = [];
+    ws.getColumn(2).eachCell((cell: any, row: number) => seen.push(`${cell.address}:${String(row)}`));
+    expect(seen).toEqual(['B1:1', 'B3:3', 'B5:5']);
+    expect(ws.findCell(1, 2)).toBeDefined();
+    const all: number[] = [];
+    ws.getColumn(2).eachCell({ includeEmpty: true }, (_cell: any, row: number) => all.push(row));
+    expect(all).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('values keeps the cells with values; style setters reach the rows with values', () => {
+    const ws = sheet();
+    expect(ws.getColumn(1).values).toEqual([undefined, 1, undefined, undefined, undefined, 'x']);
+    expect(ws.getColumn(2).values).toEqual([undefined, undefined, undefined, 2]);
+    ws.getColumn(3).fill = RED;
+    const filled = [1, 2, 3, 4, 5, 6, 7].filter((r) => ws.findCell(r, 3)?.fill !== undefined);
+    expect(filled).toEqual([1, 3, 5]);
+    expect(ws.getColumn(3).fill).toEqual(RED);
+    // A cell created later takes the column style (lib/doc/cell.js L27).
+    expect(ws.getCell('C7').fill).toEqual(RED);
+  });
+});
+
+describe('formulaType', () => {
+  // lib/doc/cell.js L264-266: `this._value.formulaType`, which only the formula value defines
+  // (L807-815); exceljs 4.4.0 gives undefined for a number, an empty cell and a merged cell.
+  it('is undefined for a cell without a formula', () => {
+    const ws = new ExcelJS.Workbook().addWorksheet('S');
+    ws.getCell('A1').value = 1;
+    ws.getCell('B1').value = { formula: 'A1*2', result: 2 };
+    ws.getCell('C1').value = { sharedFormula: 'B1', result: 2 };
+    ws.mergeCells('B2:C2');
+    ws.getCell('B2').value = { formula: 'A1', result: 1 };
+    expect(ws.getCell('A1').formulaType).toBeUndefined();
+    expect(ws.getCell('Z9').formulaType).toBeUndefined();
+    expect(ws.getCell('C2').formulaType).toBeUndefined();
+    expect(ws.getCell('B1').formulaType).toBe(ExcelJS.FormulaType.Master);
+    expect(ws.getCell('C1').formulaType).toBe(ExcelJS.FormulaType.Shared);
+    expect(ws.getCell('B2').formulaType).toBe(ExcelJS.FormulaType.Master);
+  });
+});
+
+describe('csv.read: an empty line', () => {
+  // fast-csv 4.3.6 gives [] for a line of white space only (@fast-csv/parse/build/src/parser/
+  // RowParser.js L15-48: the scanner skips white space, ParserOptions NEXT_TOKEN_REGEXP), and
+  // exceljs adds `data.map(map)` (lib/csv/csv.js L86-89), so `map` is not called for it.
+  // Checked with exceljs 4.4.0: for "a,b\n\nc\n \nd" map is called for a, b, c and d only, and
+  // the empty lines are rows without values. A quoted empty field is a field ([""]).
+  it('gives a row without fields, and map is not called for it', async () => {
+    const calls: unknown[] = [];
+    const ws = await new ExcelJS.Workbook().csv.read(['a,b\n\nc\n \t\nd\n""\n'], {
+      map: (v: unknown) => {
+        calls.push(v);
+        return v;
+      },
+    });
+    expect(calls).toEqual(['a', 'b', 'c', 'd', '']);
+    expect(ws.getRow(2).values).toEqual([]);
+    expect(ws.getRow(4).values).toEqual([]);
+    expect(ws.getCell('A3').value).toBe('c');
+    expect(ws.getCell('A6').value).toBe('');
+    expect(ws.rowCount).toBe(6);
+  });
+});

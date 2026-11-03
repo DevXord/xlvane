@@ -83,7 +83,8 @@ describe('shared and array formulas', () => {
     expect(ws.getCell('B2').formula).toBe('A2*2');
     expect(ws.getCell('B1').formulaType).toBe(ExcelJS.FormulaType.Master);
     expect(ws.getCell('B2').formulaType).toBe(ExcelJS.FormulaType.Shared);
-    expect(ws.getCell('A1').formulaType).toBe(ExcelJS.FormulaType.None);
+    // exceljs 4.4.0 gives undefined for a cell without a formula (lib/doc/cell.js L264-266; 1.3.1).
+    expect(ws.getCell('A1').formulaType).toBeUndefined();
     const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
     expect(part(bytes, 'xl/worksheets/sheet1.xml')).toContain('<f t="shared" ref="B1:B3" si="0">A1*2</f>');
     const ws2 = (await roundTrip(wb)).getWorksheet('S')!;
