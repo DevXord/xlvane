@@ -3,13 +3,12 @@
 // module that answers fetch with the results) and one HTTP socket; the format follows
 // samples/helloworld_esm/config.capnp in github.com/cloudflare/workerd. `workerd serve` runs it.
 import { spawn } from 'node:child_process';
+import { createRequire } from 'node:module';
 import { copyFile, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-const root = fileURLToPath(new URL('../..', import.meta.url));
 /** Must not be later than the release date of the workerd binary (1.20260730.1). */
 export const COMPATIBILITY_DATE = '2026-07-01';
 
@@ -58,7 +57,10 @@ const smokeWorker :Workerd.Worker = (
 );
 `,
   );
-  const bin = join(root, 'node_modules/.bin/workerd');
+  // The platform binary itself (the default export of the workerd package, lib/main.js of
+  // 1.20260730.1): node_modules/.bin/workerd can be a Node.js script that starts the binary as a
+  // child, and killing that script left the binary running, so the runner never exited.
+  const bin = createRequire(import.meta.url)('workerd').default;
   const child = spawn(bin, ['serve', join(dir, 'config.capnp'), 'config'], { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
   child.stderr.on('data', (d) => (stderr += d));

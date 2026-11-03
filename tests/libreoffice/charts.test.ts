@@ -2,9 +2,10 @@
 // as XLSX they keep their types, stacking, titles and series references, and drawn as PNG they
 // are not blank. Skipped when `soffice` is not installed, unless XLV_REQUIRE_LIBREOFFICE=1 (CI).
 import { spawnSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { unzlibSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
@@ -97,8 +98,17 @@ function colouredPixels(png: Uint8Array): number {
 
 function convert(dir: string, to: string, files: string[]): void {
   const profile = pathToFileURL(join(dir, 'profile')).href;
-  const result = spawnSync(SOFFICE, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', to, '--outdir', join(dir, 'out'), ...files], { encoding: 'utf8', timeout: 300_000 });
-  expect(result.status, result.stderr).toBe(0);
+  const run = (list: string[]): void => {
+    const result = spawnSync(SOFFICE, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', to, '--outdir', join(dir, 'out'), ...list], { encoding: 'utf8', timeout: 300_000 });
+    expect(result.status, result.stderr).toBe(0);
+  };
+  run(files);
+  // In CI a batch conversion has finished with status 0 but without the output of one file; such
+  // files are converted again one at a time, and a file still without output fails the test.
+  const extension = to.split(':')[0]!;
+  const output = (file: string): string => join(dir, 'out', `${basename(file).replace(/\.[^.]+$/, '')}.${extension}`);
+  for (const file of files.filter((f) => !existsSync(output(f)))) run([file]);
+  for (const file of files) expect(existsSync(output(file)), `LibreOffice wrote no ${extension} for ${basename(file)}`).toBe(true);
 }
 
 describe.skipIf(!available && !required)('LibreOffice and charts', () => {
