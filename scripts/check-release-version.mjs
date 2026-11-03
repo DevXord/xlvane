@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const tag = process.argv[2] ?? '';
-const m = /^v(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?)$/.exec(tag);
+// No prerelease suffix: npm refuses to publish a prerelease without --tag, which the release
+// workflow does not pass (npm 11.21.1 lib/commands/publish.js; D-K03).
+const m = /^v(\d+\.\d+\.\d+)$/.exec(tag);
 const read = (dir) => JSON.parse(readFileSync(`${root}/${dir}/package.json`, 'utf8'));
 const xlvane = read('packages/xlvane');
 const exceljs = read('packages/compat');

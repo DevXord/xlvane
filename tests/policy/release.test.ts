@@ -28,6 +28,8 @@ describe('published packages', () => {
     expect(run(`v${xlvane.version}`)).toBe(0);
     expect(run('v0.0.1')).toBe(1);
     expect(run(xlvane.version)).toBe(1);
+    // npm refuses to publish a prerelease without --tag, and the release workflow passes none (D-K03).
+    expect(run(`v${xlvane.version}-rc.1`)).toBe(1);
   });
 
   it('no shipped text says the packages are unpublished', () => {

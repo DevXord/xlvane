@@ -122,6 +122,31 @@ async function book(roots: Roots, limits: ToolLimits, path: string): Promise<Wor
 }
 
 /**
+ * Refuses rows that hold more cells than `--max-cells` (values other than null, plus one header
+ * cell per key), so the write tools cannot create a workbook the read tools refuse (D-K03).
+ */
+function checkCells(rows: readonly unknown[], maxCells: number, path: string): void {
+  let cells = 0;
+  const keys = new Set<string>();
+  for (const row of rows) {
+    if (Array.isArray(row)) {
+      for (const v of row) if (v !== null && v !== undefined) cells++;
+    } else if (typeof row === 'object' && row !== null) {
+      for (const [k, v] of Object.entries(row)) {
+        keys.add(k);
+        if (v !== null && v !== undefined) cells++;
+      }
+    }
+    if (cells + keys.size > maxCells) {
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The rows hold more than ${String(maxCells)} cells, the server's limit (--max-cells).`, {
+        hint: 'Write fewer rows per file, or start the server with a higher --max-cells.',
+        details: { path, limit: 'maxCells', value: maxCells },
+      });
+    }
+  }
+}
+
+/**
  * `JSON.stringify(rows, null, 2)` plus a line feed, built row by row: every row repeats the header
  * names, so a small file can make a text far larger than the file limit, or than a string can be.
  * The text stops as soon as it is longer than `maxChars` characters, before encoding (D-J01).
@@ -387,6 +412,7 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
       annotations: WRITE,
     },
     handler(limits.maxResponseChars, async (a) => {
+      checkCells(a['rows'] as unknown[], limits.maxCells, a['path'] as string);
       const rows = (a['rows'] as unknown[]).map((r) =>
         Array.isArray(r) ? r.map(cellInput) : Object.fromEntries(Object.entries(r as Json).map(([k, v]) => [k, cellInput(v)])),
       );
@@ -505,9 +531,18 @@ export function registerTools(server: McpServer, roots: Roots, allowWrite: boole
           throw new XlvError('XLV_E_INVALID_INPUT', `"${input}" is not valid UTF-8 text.`, { hint: 'Save the CSV or JSON file as UTF-8 and convert it again.', details: { path: input } });
         }
         try {
+          let parsed: unknown = text;
+          if (from === 'json') {
+            try {
+              parsed = JSON.parse(text);
+            } catch {
+              // fromJSON reports the position of the syntax error.
+            }
+            if (Array.isArray(parsed)) checkCells(parsed, limits.maxCells, input);
+          }
           data =
             from === 'json'
-              ? fromJSON(text, { ...sheet, preset: 'plain', maxCells: limits.maxCells })
+              ? fromJSON(parsed as string | object[], { ...sheet, preset: 'plain', maxCells: limits.maxCells })
               : fromCSV(text, { ...sheet, delimiter: (a['delimiter'] as string | undefined) ?? (from === 'tsv' ? '\t' : ','), maxCells: limits.maxCells });
         } catch (error) {
           throw withPath(error, input);

@@ -3,7 +3,7 @@
 // D-I02, D-I04).
 import { constants } from 'node:fs';
 import { lstat, open, readlink, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { basename, dirname, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, dirname, isAbsolute, join, parse, resolve, sep } from 'node:path';
 import { XlvError } from 'xlvane';
 
 /** The allowed directories, resolved to real paths. */
@@ -66,7 +66,7 @@ async function realInside(roots: Roots, path: string, target: string, onMissing:
   try {
     real = await realpath(target);
   } catch (error) {
-    if (await leadsOutside(roots, target, 0)) throw notAllowed(roots, path, '');
+    if (await leadsOutside(roots, target)) throw notAllowed(roots, path, '');
     throw onMissing(error);
   }
   if (!inside(roots, real)) throw notAllowed(roots, path, '');
@@ -74,43 +74,50 @@ async function realInside(roots: Roots, path: string, target: string, onMissing:
 }
 
 /**
- * Whether a path that does not resolve would lead outside the roots: its nearest existing
- * ancestor is found with `lstat`; a symbolic link there (also one whose target is missing) is
- * followed by its text, anything else by its real path, and the rest of the path is added.
+ * Whether a path that does not resolve would lead outside the roots. The path is walked one
+ * component at a time from the file system root, as the system resolves it: a symbolic link (also
+ * one whose target is missing) is replaced by its text, so ".." in that text goes to the parent of
+ * the directory the link leads to, not of the link (D-J01, D-K03). From the first component that
+ * does not exist the rest of the path is taken as written.
  */
-async function leadsOutside(roots: Roots, path: string, depth: number): Promise<boolean> {
-  // A chain of links longer than the system follows is refused like a path outside.
-  if (depth > 40) return true;
-  let ancestor = path;
-  const rest: string[] = [];
-  for (;;) {
-    let info;
-    try {
-      info = await lstat(ancestor);
-    } catch {
-      const parent = dirname(ancestor);
-      if (parent === ancestor) return false;
-      rest.unshift(basename(ancestor));
-      ancestor = parent;
+async function leadsOutside(roots: Roots, path: string): Promise<boolean> {
+  const split = (p: string): string[] => p.slice(parse(p).root.length).split(/[\\/]/).filter((part) => part !== '');
+  const pending = split(path);
+  let current = parse(path).root;
+  let links = 0;
+  while (pending.length > 0) {
+    const part = pending.shift()!;
+    if (part === '.') continue;
+    if (part === '..') {
+      current = dirname(current);
       continue;
     }
-    if (info.isSymbolicLink()) {
-      let text: string;
-      try {
-        text = await readlink(ancestor);
-      } catch {
-        return true;
-      }
-      return leadsOutside(roots, join(resolve(dirname(ancestor), text), ...rest), depth + 1);
-    }
-    let real: string;
+    const next = join(current, part);
+    let info;
     try {
-      real = await realpath(ancestor);
+      info = await lstat(next);
+    } catch {
+      return !inside(roots, resolve(next, ...pending));
+    }
+    if (!info.isSymbolicLink()) {
+      current = next;
+      continue;
+    }
+    // A chain of links longer than the system follows is refused like a path outside.
+    if (++links > 40) return true;
+    let text: string;
+    try {
+      text = await readlink(next);
     } catch {
       return true;
     }
-    return !inside(roots, join(real, ...rest));
+    if (isAbsolute(text)) {
+      const target = resolve(text);
+      current = parse(target).root;
+      pending.unshift(...split(target));
+    } else pending.unshift(...text.split(/[\\/]/).filter((part) => part !== ''));
   }
+  return !inside(roots, current);
 }
 
 function notAllowed(roots: Roots, path: string, why: string): XlvError {
@@ -171,7 +178,16 @@ export async function readAllowedWith(roots: Roots, path: string, hooks: ReadHoo
     );
   const notAFile = (): XlvError => new XlvError('XLV_E_FILE_READ', `"${path}" is not a file.`, { hint: 'Pass the path of a file.', details: { path } });
   // Only regular files are opened: opening a FIFO or a device could block (D-I04).
-  if (!(await stat(await resolveInside())).isFile()) throw notAFile();
+  // A file removed between the real-path check and stat is a read error, not an internal one.
+  const statOf = async (): Promise<Awaited<ReturnType<typeof stat>>> => {
+    const real = await resolveInside();
+    try {
+      return await stat(real);
+    } catch (error) {
+      throw new XlvError('XLV_E_FILE_READ', `Cannot read "${path}" (${errorCode(error)}).`, { hint: 'Check that the file still exists.', details: { path, code: errorCode(error) } });
+    }
+  };
+  if (!(await statOf()).isFile()) throw notAFile();
   await hooks.afterCheck?.();
   let handle;
   try {
@@ -185,7 +201,7 @@ export async function readAllowedWith(roots: Roots, path: string, hooks: ReadHoo
     const opened = await handle.stat();
     // First: the path must still lead, inside a root, to the file that was opened. Only then
     // are its type and size reported, so nothing is said about a file outside the roots (D-I04).
-    const now = await stat(await resolveInside());
+    const now = await statOf();
     if (now.dev !== opened.dev || now.ino !== opened.ino) {
       throw new XlvError('XLV_E_FILE_READ', `"${path}" changed while it was being read.`, { hint: 'Read the file again when nothing else is writing to it.', details: { path } });
     }
@@ -282,7 +298,8 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
   // Replace: a new temporary file with a random name ('wx'), given the permissions of the file it
   // replaces, then renamed over it; a temporary file is removed only if this call created it (D-I04).
   const random = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
-  const temp = join(dir, `.${name}.xlvane-${random}.tmp`);
+  // At most 100 characters of the name, so a long name still leaves room for the suffix (D-K03).
+  const temp = join(dir, `.${name.slice(0, 100)}.xlvane-${random}.tmp`);
   let created = false;
   try {
     // Readable by the owner only until it has the permissions of the file it replaces; setuid,

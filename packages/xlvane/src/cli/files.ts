@@ -1,6 +1,6 @@
 // File access of the CLI: reading with the library limits, a progress line for large files,
 // and writing that never replaces a file without --force (docs/decisions.md D-604).
-import { open, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, open, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, dirname, extname, isAbsolute, join, resolve } from 'node:path';
 import { XlvError } from '../errors';
 import type { Workbook } from '../model';
@@ -165,13 +165,21 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
   let exists = false;
   let mode: number | null = null;
   try {
-    const info = await stat(target);
+    // lstat: a symbolic link exists even when its target does not, and is replaced, not written
+    // through (D-K03).
+    const link = await lstat(target);
     exists = true;
+    const info = link.isSymbolicLink() ? await stat(target).catch(() => null) : link;
     // Permission bits of the file being replaced (fs.Stats.mode; the type bits and the setuid,
     // setgid and sticky bits are dropped, D-J01).
-    mode = info.mode & 0o777;
-    if (!info.isFile()) {
-      throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is a directory.`, { hint: 'Give a file name for the output.', details: { path, code: 'EISDIR' } });
+    if (info !== null) {
+      mode = info.mode & 0o777;
+      if (info.isDirectory()) {
+        throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is a directory.`, { hint: 'Give a file name for the output.', details: { path, code: 'EISDIR' } });
+      }
+      if (!info.isFile()) {
+        throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is not a regular file.`, { hint: 'Give the name of a regular file for the output.', details: { path, code: 'ENOTREG' } });
+      }
     }
   } catch (error) {
     if (error instanceof XlvError) throw error;
@@ -187,7 +195,8 @@ export async function writeOutput(ctx: CommandContext, path: string, data: Uint8
     if (exists) {
       // A random name nobody else has; only a temporary file this call created is removed (D-J01).
       const random = Array.from(globalThis.crypto.getRandomValues(new Uint8Array(8)), (b) => b.toString(16).padStart(2, '0')).join('');
-      const temp = join(dirname(target), `.${basename(target)}.xlvane-${random}.tmp`);
+      // At most 100 characters of the name, so a long name still leaves room for the suffix.
+      const temp = join(dirname(target), `.${basename(target).slice(0, 100)}.xlvane-${random}.tmp`);
       let created = false;
       try {
         // Readable by the owner only until it has the permissions of the file it replaces, which
