@@ -2,7 +2,7 @@
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
 import { openWorkbookStream, shiftFormula, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
-import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
+import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, hasFormulaText, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 
 /**
  * A cell value for the streaming writer. Rows are written as they are committed, before later
@@ -751,14 +751,32 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
       // A name exceljs refuses gives an XlvError, as in xlsx.load.
       const sheet = host._addReadWorksheet(host.nextId, info.name, { state: info.state });
       const name = info.name;
+      // Shared-formula masters by group index, and their formulas for `cell.formula` of the
+      // dependents (the rows are not kept). A dependent is given as `{ sharedFormula, result }`
+      // without moving the master's text to it, which a huge master shared with many cells
+      // made too costly (K2).
+      const masters = new Map<number, string>();
+      sheet._sharedMasters = new Map();
       const rows = async function* (): AsyncGenerator<Row> {
         for await (const r of book.rows(name)) {
           const row = sheet.getRow(r.number);
           for (const cell of r.cells) {
             const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
             const target = row.getCell(cell.col);
-            target.value =
-              cell.formula && cell.formula.text !== null ? (plain === null ? { formula: cell.formula.text } : { formula: cell.formula.text, result: plain as number }) : cell.richText ? richTextOut(cell.richText) : plain;
+            const f = cell.formula;
+            const result = plain === null ? {} : { result: plain as number };
+            let value: CellValue;
+            if (f && f.kind === 'shared' && f.sharedIndex !== null && f.ref === null && masters.has(f.sharedIndex) && hasFormulaText(f)) {
+              value = { sharedFormula: masters.get(f.sharedIndex)!, ...result } as CellValue;
+            } else if (f && hasFormulaText(f)) {
+              const text = f.text ?? '';
+              if (f.kind === 'shared' && f.sharedIndex !== null && f.ref !== null) {
+                masters.set(f.sharedIndex, cell.ref);
+                sheet._sharedMasters?.set(cell.ref, text);
+              }
+              value = { formula: text, ...result } as CellValue;
+            } else value = cell.richText ? richTextOut(cell.richText) : plain;
+            target.value = value;
             // styles: 'cache' gives cells their style (worksheet-reader.js L282–286).
             if (styles) target.style = styleOut(cell.style, cell.numFmt);
           }

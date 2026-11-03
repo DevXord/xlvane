@@ -171,7 +171,10 @@ export async function run(ExcelJS, Workbook, dir) {
   csvSheet.getCell('A5').value = { text: 'site', hyperlink: 'https://example.com/a' };
   csvSheet.getCell('B5').value = { formula: 'B2*2', result: 25 };
   const csvDefault = (await csvBook.csv.writeBuffer()).toString();
-  const csvOptions = { dateFormat: 'DD/MM/YYYY HH:mm', dateUTC: true, includeEmptyRows: false, formatterOptions: { delimiter: ';', rowDelimiter: '\r\n', includeEndRowDelimiter: true } };
+  // formulaInjection is an @xlvane/compat option (exceljs ignores it): with ";" as the delimiter,
+  // xlvane quotes "Tea, green" by default, because an application that splits on commas would
+  // otherwise see a new field there (docs/exceljs-compat.md); "off" writes what exceljs writes.
+  const csvOptions = { dateFormat: 'DD/MM/YYYY HH:mm', dateUTC: true, includeEmptyRows: false, formulaInjection: 'off', formatterOptions: { delimiter: ';', rowDelimiter: '\r\n', includeEndRowDelimiter: true } };
   const csvCustom = (await csvBook.csv.writeBuffer(csvOptions)).toString();
   const csvPath = `${dir}/data.csv`;
   await csvBook.csv.writeFile(csvPath);

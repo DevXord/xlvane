@@ -1,7 +1,7 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
-import { colorOut, formulaOut, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
+import { colorOut, formulaOut, hasFormulaText, noteOut, readBytes, richTextOut, styleOut, toNewWorkbook, viewOut, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges, rangeCellCount } from './defined-names';
 import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageData } from './media';
@@ -563,6 +563,21 @@ export class Workbook {
         details: { limit: 'maxCells', value: budget },
       });
     };
+    // Merged ranges also have a smaller budget of their own: each merged cell carries the master's
+    // style, and writing a styled cell costs a few hundred bytes, so 2 000 000 merged positions from
+    // a 2.4 KB file took 1.4 GB to write and 4 000 000 ran out of memory (K2). A whole column
+    // (1 048 576 cells) fits; a file with more cells may merge as many positions as it has cells.
+    const mergeBudget = Math.max(MERGED_CELLS_BUDGET, cellsRead);
+    let merged = 0;
+    const spendMerge = (positions: number, ref: string, sheet: string): void => {
+      merged += positions;
+      if (merged <= mergeBudget) return;
+      throw new XlvError('XLV_E_LIMIT_EXCEEDED', `The merged range ${ref} of worksheet "${sheet}" would bring the merged cells past ${String(mergeBudget)} for ${String(cellsRead)} cells in the file.`, {
+        location: { sheet, cell: ref },
+        hint: 'The file merges far more cells than it holds. Load it with ignoreNodes: ["mergeCells"] to skip merged ranges, or read it with xlvane\'s readWorkbook, which does not create these cells.',
+        details: { limit: 'mergedCells', value: mergeBudget },
+      });
+    };
     // Rows looked up for their settings (height, visibility, outline) up to a sheet's dimension or
     // last cell: no object per row, but a lookup each, so a dimension of a million rows on many
     // sheets is limited too (D-H01): 64 Mi lookups or 16 per cell read, whichever is larger.
@@ -683,7 +698,8 @@ export class Workbook {
         const target = ws.getCell(cell.row, cell.col);
         let value: CellValue;
         const plain = cell.type === 'error' ? { error: cell.value as '#N/A' } : cell.value;
-        if (cell.formula && cell.formula.text !== null) value = formulaOut(cell.formula, plain, cell.ref, masters);
+        // hasFormulaText: a dependent's text is not built; formulaOut needs only its master (K2).
+        if (cell.formula && hasFormulaText(cell.formula)) value = formulaOut(cell.formula, plain, cell.ref, masters);
         else value = cell.richText ? richTextOut(cell.richText) : plain;
         const h = cell.hyperlink;
         // A link with neither a target nor a location leads nowhere; exceljs, which reads only
@@ -729,6 +745,7 @@ export class Workbook {
       for (const m of use('mergeCells') ? s.merges : []) {
         if (!m.includes(':')) continue;
         spend(areaOf(m), 'A merged range', s.name);
+        spendMerge(areaOf(m), m, s.name);
         try {
           ws.mergeCells(m);
         } catch (error) {
@@ -770,6 +787,9 @@ export class Workbook {
     }
   }
 }
+
+/** Merged cells `xlsx.load` creates at most for a file with fewer cells (one whole column; K2). */
+const MERGED_CELLS_BUDGET = 1_048_576;
 
 /**
  * @internal The chunks of an input stream, read until it ends. Reading stops with

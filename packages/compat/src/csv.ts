@@ -56,9 +56,12 @@ export interface CsvWriteOptions {
   /** fast-csv formatter options: `delimiter`, `rowDelimiter`, `quote`, `escape`, `quoteColumns`, `headers`, `writeHeaders`, `includeEndRowDelimiter`, `writeBOM`. */
   formatterOptions?: Record<string, unknown>;
   /**
-   * `"escape"` (default): text that starts with `=`, `+`, `-`, `@`, tab, CR or LF (or their
-   * full-width forms) is written with a leading `'`, so spreadsheet applications show it as text
-   * (OWASP CSV Injection). `"off"`: written unchanged, as exceljs does. An xlvane option.
+   * `"escape"` (default): text that starts with `=`, `+`, `-`, `@`, tab, CR, LF or another
+   * control character (or the full-width forms of the signs), or with a byte order mark, is
+   * written with a leading `'`, so spreadsheet applications show it as text (OWASP CSV
+   * Injection); so is a `latin1` or `utf16le` field whose first bytes are a byte order mark. A
+   * field holding a comma, `;`, tab or `|` is quoted whatever the delimiter. `"off"`: written
+   * unchanged, as exceljs does. An xlvane option.
    */
   formulaInjection?: 'escape' | 'off';
 }
@@ -81,7 +84,11 @@ const DEFAULT_DATE_FORMATS = ['YYYY-MM-DD[T]HH:mm:ssZ', 'YYYY-MM-DD[T]HH:mm:ss',
 // The xlvane core's set (CSV-10, CSV-12); text starting with another C0 control is escaped too.
 /** Signs that start a formula: refused as the first character of the delimiter while formulas are escaped (D-J01). */
 const FORMULA_SIGNS = new Set(['=', '+', '-', '@', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
-const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
+// U+FEFF and U+FFFE too: applications drop a byte order mark at the start of a file and run the
+// formula that follows it (K2; LibreOffice confirmed).
+const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b', '\ufeff', '\ufffe']);
+/** Characters a field is quoted for while formulas are escaped, whatever the delimiter: other applications may split on them (K2). */
+const COMMON_DELIMITERS = ',;\t|';
 
 function invalid(name: string, message: string, hint: string): XlvError {
   return new XlvError('XLV_E_INVALID_OPTION', message, { hint, details: { option: name } });
@@ -413,9 +420,33 @@ function malformed(line: number, message: string): XlvError {
   });
 }
 
-/** Splits CSV text into rows of fields as fast-csv 4.3 does with the given parser options. */
-export function parseCsv(text: string, o: ParserOptions): string[][] {
-  const rows: string[][] = [];
+/** Rows and columns of a worksheet (Part 1 §18.3.1.73, ST_CellRef up to XFD1048576). */
+const MAX_SHEET_ROWS = 1_048_576;
+const MAX_SHEET_COLUMNS = 16_384;
+
+/** A parsed CSV row: its fields and the line it starts on. */
+interface CsvRow {
+  fields: string[];
+  line: number;
+}
+
+function tooMany(what: 'rows' | 'columns', line: number): XlvError {
+  const rows = what === 'rows';
+  const max = rows ? MAX_SHEET_ROWS : MAX_SHEET_COLUMNS;
+  return new XlvError('XLV_E_LIMIT_EXCEEDED', `CSV line ${String(line)}: ${rows ? `the CSV has more than ${String(max)} rows` : `the row has more than ${String(max)} fields`}, more than a worksheet can hold.`, {
+    location: { line },
+    hint: rows ? 'Split the CSV file into parts of at most 1048576 rows, or read only part of it with parserOptions.maxRows.' : 'Split the CSV file into parts of at most 16384 columns, or check the delimiter (parserOptions.delimiter).',
+    details: { limit: rows ? 'maxRows' : 'maxColumns', value: max, line },
+  });
+}
+
+/**
+ * The rows of CSV text, split as fast-csv 4.3 does with the given parser options, one at a time:
+ * the rows that `ignoreEmpty`, the header, `skipRows` and `maxRows` drop are left out. More than
+ * 1 048 576 rows, or a row of more than 16 384 fields, throw `XLV_E_LIMIT_EXCEEDED` as soon as
+ * they are reached, because a worksheet cannot hold them (K2).
+ */
+function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
   let at = 0;
   let line = 1;
   const n = text.length;
@@ -424,6 +455,10 @@ export function parseCsv(text: string, o: ParserOptions): string[][] {
     if (text[i] === '\r' && text[i + 1] === '\n') return i + 2;
     return i < n ? i + 1 : i;
   };
+  const trim = (f: string): string => (o.trim ? f.trim() : o.ltrim ? f.trimStart() : o.rtrim ? f.trimEnd() : f);
+  // Rows kept so far (after ignoreEmpty), for the header, skipRows and maxRows.
+  let kept = 0;
+  let emitted = 0;
   // skipLines: raw lines dropped before parsing.
   for (let k = 0; k < o.skipLines && at < n; k++) {
     while (!atLineEnd(at)) at++;
@@ -437,14 +472,27 @@ export function parseCsv(text: string, o: ParserOptions): string[][] {
       line++;
       continue;
     }
+    const rowLine = line;
     const fields: string[] = [];
+    // Fields past the 16 384 a worksheet holds are only counted, and whether one has text.
+    let extra = 0;
+    let extraText = false;
+    const push = (field: string): void => {
+      if (fields.length < MAX_SHEET_COLUMNS) fields.push(field);
+      else {
+        extra++;
+        if (field.trim() !== '') extraText = true;
+      }
+    };
     for (;;) {
       // A field: optional quoted part (after leading white space), or plain text up to the delimiter.
       let start = at;
       while (start < n && (text[start] === ' ' || text[start] === '\t') && text[start] !== o.delimiter) start++;
       if (o.quote !== '' && text[start] === o.quote) {
+        // The value is built from slices between escaped quotes (one character at a time before, K2).
         let value = '';
         let i = start + 1;
+        let from = i;
         // A quote left open is reported on the line where it opens (D-E06).
         const opened = line;
         for (;;) {
@@ -452,26 +500,27 @@ export function parseCsv(text: string, o: ParserOptions): string[][] {
           const ch = text[i]!;
           // An escaped quote: `""` by default, or the `escape` character followed by the quote.
           if (ch === o.escape && text[i + 1] === o.quote) {
-            value += o.quote;
+            value += text.slice(from, i) + o.quote;
             i += 2;
+            from = i;
             continue;
           }
           if (ch === o.quote) {
+            value += text.slice(from, i);
             i++;
             break;
           }
           if (ch === '\n') line++;
-          value += ch;
           i++;
         }
         while (i < n && (text[i] === ' ' || text[i] === '\t') && text[i] !== o.delimiter) i++;
         if (i < n && text[i] !== o.delimiter && text[i] !== '\n' && text[i] !== '\r') throw malformed(line, `unexpected text after the closing ${o.quote}.`);
-        fields.push(value);
+        push(value);
         at = i;
       } else {
         let i = at;
         while (i < n && text[i] !== o.delimiter && text[i] !== '\n' && text[i] !== '\r') i++;
-        fields.push(text.slice(at, i));
+        push(text.slice(at, i));
         at = i;
       }
       if (at < n && text[at] === o.delimiter) {
@@ -484,14 +533,21 @@ export function parseCsv(text: string, o: ParserOptions): string[][] {
     line++;
     // A line of white space only is one empty field (fast-csv).
     const row = fields.length === 1 && fields[0]!.trim() === '' ? [''] : fields;
-    rows.push(row.map((f) => (o.trim ? f.trim() : o.ltrim ? f.trimStart() : o.rtrim ? f.trimEnd() : f)));
+    if (o.ignoreEmpty && !extraText && row.every((f) => f.trim() === '')) continue;
+    kept++;
+    if (o.skipHeader && kept === 1) continue;
+    if (kept - (o.skipHeader ? 1 : 0) <= o.skipRows) continue;
+    // Rows past maxRows are still parsed, so that malformed text after them is reported as before.
+    if (o.maxRows > 0 && emitted >= o.maxRows) continue;
+    if (extra > 0) throw tooMany('columns', rowLine);
+    if (++emitted > MAX_SHEET_ROWS) throw tooMany('rows', rowLine);
+    yield { fields: row.map(trim), line: rowLine };
   }
-  let out = rows;
-  if (o.ignoreEmpty) out = out.filter((r) => r.some((f) => f.trim() !== ''));
-  if (o.skipHeader) out = out.slice(1);
-  if (o.skipRows > 0) out = out.slice(o.skipRows);
-  if (o.maxRows > 0) out = out.slice(0, o.maxRows);
-  return out;
+}
+
+/** Splits CSV text into rows of fields as fast-csv 4.3 does with the given parser options. */
+export function parseCsv(text: string, o: ParserOptions): string[][] {
+  return Array.from(csvRows(text, o), (r) => r.fields);
 }
 
 /**
@@ -525,9 +581,11 @@ interface FormatterOptions {
   includeEndRowDelimiter: boolean;
   writeBOM: boolean;
   escapeChars: RegExp;
+  /** Formulas are escaped: with `quote: false`, a field that a reader splitting on a comma, ";", tab or "|" would turn into a formula is refused. */
+  strictQuoting: boolean;
 }
 
-function formatterOptions(raw: Record<string, unknown> | undefined): FormatterOptions {
+function formatterOptions(raw: Record<string, unknown> | undefined, escapeFormulas: boolean): FormatterOptions {
   const o = raw ?? {};
   const delimiter = typeof o['delimiter'] === 'string' ? o['delimiter'] : ',';
   const rowDelimiter = typeof o['rowDelimiter'] === 'string' ? o['rowDelimiter'] : '\n';
@@ -545,8 +603,29 @@ function formatterOptions(raw: Record<string, unknown> | undefined): FormatterOp
     includeEndRowDelimiter: o['includeEndRowDelimiter'] === true,
     writeBOM: o['writeBOM'] === true,
     // fast-csv FieldFormatter: the character class also contains "|" (it is written inside "[…]").
-    escapeChars: new RegExp(`[${escapeRe(delimiter)}${escapeRe(rowDelimiter)}|\\r|\\n]`),
+    // While formulas are escaped, a comma, ";", tab or "|" is quoted with any delimiter: an
+    // application that splits on another one would otherwise see a new field there (K2).
+    escapeChars: new RegExp(`[${escapeRe(delimiter)}${escapeRe(rowDelimiter)}|\\r|\\n${escapeFormulas ? escapeRe(COMMON_DELIMITERS) : ''}]`),
+    strictQuoting: escapeFormulas,
   };
+}
+
+/**
+ * Whether an application that splits `text` at a comma, ";", tab or "|" would get a field that
+ * starts like a formula: one of those characters followed by a formula sign, a control character
+ * or a byte order mark, after any spaces or tabs and an opening double quote (K2).
+ */
+function splitStartsFormula(text: string): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (!COMMON_DELIMITERS.includes(text[i]!)) continue;
+    let j = i + 1;
+    while (text[j] === ' ' || text[j] === '\t') j++;
+    if (text[j] === '"') j++;
+    while (text[j] === ' ') j++;
+    const c = text[j];
+    if (c !== undefined && (INJECTION_START.has(c) || c.charCodeAt(0) < 0x20)) return true;
+  }
+  return false;
 }
 
 /** One field as fast-csv FieldFormatter.format writes it. */
@@ -557,6 +636,14 @@ function formatField(value: unknown, index: number, f: FormatterOptions, forceQu
   if (f.quote === '' && (/[\r\n]/.test(text) || (f.delimiter !== '' && text.includes(f.delimiter)))) {
     throw new XlvError('XLV_E_INVALID_OPTION', `Field ${String(index + 1)} contains a line break or the delimiter, which cannot be written with quote: false.`, {
       hint: 'Leave formatterOptions.quote at its default (") so such fields are quoted, or remove the line breaks from the value.',
+      details: { option: 'quote', field: index + 1 },
+    });
+  }
+  // While formulas are escaped, a comma, ";", tab or "|" followed by a formula sign would start a
+  // formula for an application that splits on that character (K2); quoted otherwise.
+  if (f.quote === '' && f.strictQuoting && splitStartsFormula(text)) {
+    throw new XlvError('XLV_E_INVALID_OPTION', `Field ${String(index + 1)} has a comma, ";", tab or "|" followed by a formula sign, which an application splitting on that character reads as a formula; it cannot be written with quote: false.`, {
+      hint: 'Leave formatterOptions.quote at its default (") so such fields are quoted, or pass formulaInjection: "off" for a trusted consumer.',
       details: { option: 'quote', field: index + 1 },
     });
   }
@@ -594,15 +681,58 @@ function defaultWriteMap(dateFormat: string | undefined, dateUTC: boolean) {
   };
 }
 
+/** The character sets `csv.writeFile` writes; `writeBuffer` and `write` write UTF-8. */
+type OutputEncoding = 'utf8' | 'utf16le' | 'latin1';
+
+/** The output encoding for the `encoding` option (an unsupported one is refused when encoding). */
+function outputEncoding(encoding: string | undefined): OutputEncoding {
+  const e = (encoding ?? '').toLowerCase();
+  if (e === 'latin1' || e === 'binary') return 'latin1';
+  if (e === 'utf16le' || e === 'utf-16le' || e === 'ucs2' || e === 'ucs-2') return 'utf16le';
+  return 'utf8';
+}
+
+/** Leading UTF-8 sequences of U+FF1D, U+FF0B, U+FF0D, U+FF20, U+FE66, U+FE62, U+FE63, U+FE6B. */
+const UTF8_FORMULA_SIGNS = [
+  [0xef, 0xbc, 0x9d],
+  [0xef, 0xbc, 0x8b],
+  [0xef, 0xbc, 0x8d],
+  [0xef, 0xbc, 0xa0],
+  [0xef, 0xb9, 0xa6],
+  [0xef, 0xb9, 0xa2],
+  [0xef, 0xb9, 0xa3],
+  [0xef, 0xb9, 0xab],
+];
+
 /**
- * The CSV text of a worksheet, as exceljs `csv.write` gives it.
+ * Whether the first bytes of a field, as latin1 or UTF-16LE writes it, are a byte order mark
+ * (EF BB BF, FF FE, FE FF), which makes a reader decode the rest of the file in that encoding
+ * and drop the mark, or the UTF-8 form of a full-width or small formula sign, which a reader that
+ * guesses UTF-8 shows as one (K2). `prefix` holds bytes written before the field (latin1 writes
+ * the `writeBOM` mark U+FEFF as the single byte FF).
+ */
+function encodedStartIsUnsafe(text: string, encoding: OutputEncoding, prefix: readonly number[]): boolean {
+  if (encoding === 'utf8') return false;
+  const bytes = [...prefix];
+  for (let i = 0; bytes.length < 3 && i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (encoding === 'latin1') bytes.push(c & 0xff);
+    else bytes.push(c & 0xff, c >> 8);
+  }
+  const starts = (lead: readonly number[]): boolean => lead.every((b, i) => bytes[i] === b);
+  return starts([0xef, 0xbb, 0xbf]) || starts([0xff, 0xfe]) || starts([0xfe, 0xff]) || UTF8_FORMULA_SIGNS.some(starts);
+}
+
+/**
+ * The CSV text of a worksheet, as exceljs `csv.write` gives it, for output in `encoding`.
  *
  * @internal
  */
-export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOptions, latin1 = false): string {
-  const f = formatterOptions(options.formatterOptions);
+export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOptions, encoding: OutputEncoding = 'utf8'): string {
   const injection = options.formulaInjection ?? 'escape';
   if (injection !== 'escape' && injection !== 'off') throw invalid('formulaInjection', 'The option "formulaInjection" must be "escape" or "off".', 'Use "escape" (default) or "off".');
+  const f = formatterOptions(options.formatterOptions, injection === 'escape');
+  const latin1 = encoding === 'latin1';
   if (latin1) {
     // latin1 keeps only the low byte of each character, so U+013D would become "=" and U+010A a
     // line feed after the fields were checked and quoted (D-J01).
@@ -646,18 +776,26 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   const includeEmptyRows = options.includeEmptyRows === undefined || options.includeEmptyRows;
   const lines: string[] = [];
   // NUL characters are removed from fields (formatField), so the check looks past them: "\0=cmd"
-  // is written as "=cmd" and must be escaped too (D-R01).
-  const escape = (raw: unknown): [unknown, boolean] => {
-    const out = narrow(raw);
+  // is written as "=cmd" and must be escaped too (D-R01). Values other than numbers, booleans,
+  // null and undefined (a String object, an array, an object with toString from `map`) are
+  // written as their text, so they are turned into it first and checked like text, calling
+  // toString once (K2). `atStart`: the field is the first one of the file.
+  const escape = (raw: unknown, atStart: boolean): [unknown, boolean] => {
+    const value = raw === null || raw === undefined || typeof raw === 'number' || typeof raw === 'boolean' || typeof raw === 'bigint' || typeof raw === 'string' ? raw : String(raw);
+    const out = narrow(value);
     if (injection !== 'escape' || typeof out !== 'string') return [out, false];
-    const first = out.replace(/\0/g, '')[0];
-    return first !== undefined && (INJECTION_START.has(first) || first.charCodeAt(0) < 0x20) ? [`'${out}`, f.quote !== ''] : [out, false];
+    const text = out.replace(/\0/g, '');
+    const first = text[0];
+    if (first === undefined) return [out, false];
+    // latin1 writes the writeBOM mark U+FEFF as the byte FF, before the first field.
+    const unsafe = INJECTION_START.has(first) || first.charCodeAt(0) < 0x20 || encodedStartIsUnsafe(text, encoding, atStart && f.writeBOM && latin1 ? [0xff] : []);
+    return unsafe ? [`'${out}`, f.quote !== ''] : [out, false];
   };
   if (f.headers) {
     lines.push(
       f.headers
         .map((h, i) => {
-          const [out, force] = escape(h);
+          const [out, force] = escape(h, i === 0);
           return field(out, i, force);
         })
         .join(f.delimiter),
@@ -679,7 +817,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
           fields.push('');
           continue;
         }
-        const [out, force] = escape(map(values[i], i));
+        const [out, force] = escape(map(values[i], i), lines.length === 0 && i === 0);
         fields.push(field(out, i, force));
       }
       lines.push(fields.join(f.delimiter));
@@ -863,10 +1001,11 @@ export class CsvIO {
     // exceljs adds the worksheet first (lib/csv/csv.js L49), so it exists even when parsing fails.
     const worksheet = this.workbook.addWorksheet(options.sheetName);
     const parser = parserOptions(options.parserOptions);
-    const rows = parseCsv(await readText(stream, parser.encoding), parser);
+    const text = await readText(stream, parser.encoding);
     const formats = options.dateFormats ?? DEFAULT_DATE_FORMATS;
     const map = options.map ?? ((datum: string) => csvValue(datum, formats));
-    for (const row of rows) worksheet.addRow(row.map((datum, i) => map(datum, i)) as CellValue[]);
+    // Each row is added as it is parsed, so the parsed rows are never all held at once (K2).
+    for (const row of csvRows(text, parser)) worksheet.addRow(row.fields.map((datum, i) => map(datum, i)) as CellValue[]);
     return worksheet;
   }
 
@@ -894,8 +1033,7 @@ export class CsvIO {
 
   /** Writes a worksheet to a CSV file (Node.js, Bun, Deno), replacing it. */
   async writeFile(path: string, options: CsvWriteOptions = {}): Promise<void> {
-    const e = (options.encoding ?? '').toLowerCase();
-    const bytes = encode(this.text(options, e === 'latin1' || e === 'binary'), options.encoding);
+    const bytes = encode(this.text(options, outputEncoding(options.encoding)), options.encoding);
     const fs = await nodeFs('writeFile');
     try {
       await fs.writeFile(path, bytes);
@@ -917,7 +1055,7 @@ export class CsvIO {
     );
   }
 
-  private text(options: CsvWriteOptions, latin1 = false): string {
+  private text(options: CsvWriteOptions, encoding: OutputEncoding = 'utf8'): string {
     const key = options.sheetName || options.sheetId;
     const sheet = this.workbook.getWorksheet(key);
     if (key !== undefined && !sheet) {
@@ -928,6 +1066,6 @@ export class CsvIO {
         details: { available: this.workbook.worksheets.map((w) => w.name) },
       });
     }
-    return worksheetCsv(sheet, options, latin1);
+    return worksheetCsv(sheet, options, encoding);
   }
 }
