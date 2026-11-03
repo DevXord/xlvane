@@ -909,6 +909,8 @@ At the maintainer's request 1.3.0 (fb0e392, before tagging) and the published ve
 - **Documentation:** the errors.md index missed three codes (a test now checks it); README fuzzing and review statements and the affiliation note; RELEASING.md `--accept`; the exceljs byte order mark note.
 - **Not changed:** `mentionsSheet` compares names with `toLowerCase`, which gives a Greek final sigma by context, so `'aσ'!A1` is not matched to a sheet `AΣ` (whether Excel matches them was not checked); when a table ends with a totals row and array rows are ambiguous, `appendRows` reports the ambiguity first; `validate` reports an error cell as text, because `readTable` gives error values as their text; mcpchangefeed's "missing license signal" comes from a field the MCP Registry schema (2025-12-11) does not have, and no listed server has it.
 
+After the fixes and the independent review of the patch (its six findings fixed as described above): typecheck, `npm test` 2149 passed (48 skipped, 3 to do), LibreOffice 38/38, fuzzing with 100 000 runs 49/49, `check:pkg` (xlvane 242 kB of 300 kB gzip), Bun/Deno/browser/workerd; the attack files of D-H01, D-J01, D-K03 and this review are stopped on the build.
+
 Version 1.3.0. No new dependency or error code.
 
 ## Facts: Node.js

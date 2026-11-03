@@ -2,6 +2,15 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Full review of 1.3.0 before tagging (2026-11-03)
+
+- At the maintainer's request: the full test chain, the earlier attack files against 1.0.0 to 1.2.2 and the build, and four independent reviews (core, compat against exceljs 4.4.0, MCP and CLI, releases and documentation). Release machinery and supply chain: no findings (17 tarballs reproducible, signatures and attestations verify).
+- Fixed (D-K04): out of memory in editCells, appendRows, insertRows and deleteRows on sheets of millions of cells (all versions), quadratic merge and array-formula lookups in edits, row operations missing quoted or escaped sheet names and unmatched chart parts, appendRows placing array rows outside a table, CSV subnormals, a compat regression of D-K03 (shared formulas moved on every read), an MCP symlink detour that revealed what exists outside the roots, line feeds from files in CLI output, validate with a missing sheet, and messages.
+- An independent review of the patch found six more problems (CLI paths still unescaped, a root given through a link refused, edit counting only the edited sheets, getters, a compat budget too strict, a timing claim); all fixed with tests, plus a memory problem of kept formula texts found while measuring.
+- Docs: CHANGELOG 1.3.0, errors.md (index test), SECURITY.md, README, RELEASING.md (`--accept`, release order, F-NPM-07), exceljs-compat.md (known differences planned for 1.3.1), TD-40.
+- Verification: typecheck, `npm test` 2149 passed, LibreOffice 38/38, fuzzing 100 000 runs 49/49, `check:pkg`, runtimes.
+- For the maintainer: decisions listed in D-K04 (edit budget of 1 000 000 cells per call, compat shared-formula budgets, refusing rather than remapping percent-encoded part names, MCP refusing links that pass outside the roots, TD-40 sourced from corpus files only).
+
 ## Phase K: charts (2026-11-03)
 
 - Charts written and read (D-K01, docs/facts/charts.md CH-01 … CH-37): `NewSheet.addChart` and `charts` of `writeWorkbookStream` for column, bar, line, pie, scatter and area charts (stacked and 100 % stacked where allowed, titles, legend position, axis titles, value-axis minimum and maximum, series colours from a default palette, caches from the cell values in the in-memory writer); `Sheet.charts` reads the charts of worksheet drawings (types per chart group, also combinations and unmodelled types, stacking, title, legend, axes, series references). New error code `XLV_E_INVALID_CHART`; `XLV_W_DRAWING_CONTENT_NOT_READ` no longer reports charts.
