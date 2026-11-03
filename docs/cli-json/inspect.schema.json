@@ -359,6 +359,80 @@
                       "additionalProperties": false
                     }
                   },
+                  "chartCount": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "charts": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "cell": {
+                          "anyOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "string"
+                            }
+                          ]
+                        },
+                        "types": {
+                          "type": "array",
+                          "items": {
+                            "type": "string"
+                          }
+                        },
+                        "typesTruncated": {
+                          "type": "boolean"
+                        },
+                        "title": {
+                          "anyOf": [
+                            {
+                              "type": "null"
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "text": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "text"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "object",
+                              "properties": {
+                                "ref": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "ref"
+                              ],
+                              "additionalProperties": false
+                            }
+                          ]
+                        },
+                        "seriesCount": {
+                          "type": "integer",
+                          "minimum": 0
+                        }
+                      },
+                      "required": [
+                        "cell",
+                        "types",
+                        "typesTruncated",
+                        "title",
+                        "seriesCount"
+                      ],
+                      "additionalProperties": false
+                    }
+                  },
                   "protected": {
                     "type": "boolean"
                   },
@@ -485,6 +559,8 @@
                   "noteCount",
                   "imageCount",
                   "images",
+                  "chartCount",
+                  "charts",
                   "notes",
                   "protected",
                   "printArea",

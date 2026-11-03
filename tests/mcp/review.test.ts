@@ -314,3 +314,71 @@ describe('1.2.3: dangling links and --max-cells for every tool (independent revi
     expect((v.result['error'] as { code: string } | undefined)?.code).toBe('XLV_E_LIMIT_EXCEEDED');
   });
 });
+
+describe('1.3.0: ".." in the text of a link is resolved as the system does (D-K03)', () => {
+  it('a link whose text climbs out through another link gives one answer', async () => {
+    const outside = join(base, 'out');
+    await mkdir(join(outside, 'dir'), { recursive: true });
+    await writeFile(join(outside, 'secret.xlsx'), texts(1));
+    const { symlink } = await import('node:fs/promises');
+    await symlink(join(outside, 'dir'), join(root, 's'));
+    await symlink('s/..', join(root, 'L'));
+    await mkdir(join(base, 'home', 'proj'), { recursive: true });
+    await mkdir(join(base, 'home', '.ssh'));
+    await symlink(join(base, 'home', 'proj'), join(root, 'proj'));
+    await symlink('..', join(base, 'home', 'proj', 'parent'));
+    c = await connect({ roots: [root], allowWrite: true });
+    const codes: string[] = [];
+    for (const path of ['L/secret.xlsx', 'L/missing.xlsx', 'proj/parent/.ssh/x.xlsx', 'proj/parent/.gnupg/x.xlsx']) {
+      codes.push(((await c.call('inspect_workbook', { path })).result['error'] as { code: string }).code);
+    }
+    for (const path of ['proj/parent/.ssh/new.xlsx', 'proj/parent/.gnupg/new.xlsx']) {
+      codes.push(((await c.call('write_table', { path, rows: [{ a: 1 }] })).result['error'] as { code: string }).code);
+    }
+    expect(codes).toEqual(Array(6).fill('XLV_E_PATH_NOT_ALLOWED'));
+  });
+
+  it('a link inside the root whose text uses ".." to stay inside still works', async () => {
+    await mkdir(join(root, 'a', 'b'), { recursive: true });
+    await writeFile(join(root, 'a', 'x.xlsx'), texts(1));
+    const { symlink } = await import('node:fs/promises');
+    await symlink('b/..', join(root, 'a', 'up'));
+    c = await connect({ roots: [root] });
+    expect((await c.call('inspect_workbook', { path: 'a/up/x.xlsx' })).isError).toBe(false);
+    expect(((await c.call('inspect_workbook', { path: 'a/up/missing.xlsx' })).result['error'] as { code: string }).code).toBe('XLV_E_FILE_READ');
+  });
+});
+
+describe('1.3.0: --max-cells limits the cells the write tools create (D-K03)', () => {
+  it('write_table and convert from JSON refuse more cells than --max-cells', async () => {
+    const rows = Array.from({ length: 30 }, (_, i) => ({ a: i, b: `x${String(i)}` }));
+    await writeFile(join(root, 'r.json'), JSON.stringify(rows));
+    c = await connect({ roots: [root], allowWrite: true, maxCells: 50 });
+    const w = await c.call('write_table', { path: 'w.xlsx', rows });
+    expect(w.result['error']).toMatchObject({ code: 'XLV_E_LIMIT_EXCEEDED', details: { limit: 'maxCells' } });
+    const v = await c.call('convert', { input: 'r.json', output: 'r.xlsx' });
+    expect(v.result['error']).toMatchObject({ code: 'XLV_E_LIMIT_EXCEEDED', details: { limit: 'maxCells' } });
+    const small = await c.call('write_table', { path: 's.xlsx', rows: rows.slice(0, 10) });
+    expect(small.isError).toBe(false);
+    const bad = await c.call('convert', { input: 'missing-brace.json', output: 'x.xlsx' });
+    expect(bad.isError).toBe(true);
+  });
+});
+
+describe('1.3.0: review of D-K03 (MCP paths and names)', () => {
+  it('overwrites a file whose name is 245 bytes of CJK characters', async () => {
+    const roots = await resolveRoots([root], base, 1 << 20);
+    const name = `${'表'.repeat(80)}.csv`;
+    await writeFile(join(root, name), 'old');
+    await expect(writeAllowed(roots, name, 'new', true)).resolves.toMatchObject({ replaced: true });
+  });
+
+  it('a backslash in the text of a link is part of a name on POSIX, not a separator', async () => {
+    if (process.platform === 'win32') return;
+    const { symlink } = await import('node:fs/promises');
+    await symlink('..\\..', join(root, 'L'));
+    c = await connect({ roots: [root] });
+    const r = await c.call('inspect_workbook', { path: 'L/x.xlsx' });
+    expect((r.result['error'] as { code: string }).code).toBe('XLV_E_FILE_READ');
+  });
+});

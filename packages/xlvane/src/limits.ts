@@ -40,7 +40,12 @@ export interface ReadLimits {
   readonly maxXmlTextLength: number;
   /** Maximum number of elements plus attributes in a part that is parsed into a tree (workbook, styles, relationships). Default 1 000 000. */
   readonly maxXmlTreeElements: number;
-  /** Maximum number of cells in the workbook. Default 5 000 000 (about 0.9 GB of memory; see the README). */
+  /**
+   * Maximum number of cells in the workbook. Default 5 000 000 (about 0.9 GB of memory; see the
+   * README). `readWorkbook` reads charts after the cells of every sheet, and their chart groups and
+   * series (each counted once per chart part) count against what the cells leave of this limit;
+   * charts over it are skipped with `XLV_W_LIMIT_REACHED`.
+   */
   readonly maxCells: number;
   /**
    * Maximum total length, in UTF-16 code units, of the shared strings that cells refer to, each

@@ -52,6 +52,10 @@ describe('encodeXstring', () => {
     expect(encodeXstring('_x00zz_ _x41_ _X0041_')).toBe('_x00zz_ _x41_ _X0041_');
   });
 
+  it('escapes the underscore of "_x" and four hex digits followed by a character that is itself escaped (found by fuzzing, D-K03)', () => {
+    for (const s of ['_xAf0f\uffff', '_x0041\u0001', '_xBEEF\ufffe']) expect(decodeXstring(encodeXstring(s))).toBe(s);
+  });
+
   it('is the inverse of decodeXstring for well-formed strings', () => {
     expect(decodeXstring(encodeXstring('a\uD800b'))).toBe('a_xD800_b'); // documented: lone surrogates do not round-trip
     const tricky = fc.constantFrom('_', 'x', '_x', '0', 'A', 'f', '_x0041_', '_x005F_', '\u0001', '￿', '😀', 'ż');

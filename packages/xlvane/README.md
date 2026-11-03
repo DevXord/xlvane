@@ -26,7 +26,7 @@ From a shell: `npx xlvane inspect orders.xlsx`, then `npx xlvane read orders.xls
 ## Contents
 
 - [Command line in 5 minutes](#command-line-in-5-minutes)
-- [Reading a workbook](#reading-a-workbook) · [Writing a workbook](#writing-a-workbook) (rich text, hyperlinks, notes, images, printing, [data validation and conditional formatting](#data-validation-and-conditional-formatting), [tables](#tables))
+- [Reading a workbook](#reading-a-workbook) · [Writing a workbook](#writing-a-workbook) (rich text, hyperlinks, notes, images, [charts](#charts), printing, [data validation and conditional formatting](#data-validation-and-conditional-formatting), [tables](#tables))
 - [Tasks in one call](#tasks-in-one-call): tables of rows, CSV, JSON, editing files, diff · [inserting and deleting rows](#inserting-and-deleting-rows)
 - [Large files: streaming](#large-files-streaming)
 - [Inspecting a workbook](#inspecting-a-workbook) · [Errors and warnings](#errors-and-warnings) · [Untrusted input and limits](#untrusted-input-and-limits)
@@ -172,9 +172,40 @@ for (const picture of read.getSheet('Report').images) console.log(picture.anchor
 ```
 
 - **Adding:** `workbook.addImage(bytes)` takes PNG, JPEG or GIF bytes (recognised from the first bytes; other formats throw `XLV_E_INVALID_IMAGE`) and returns a number; the same image placed many times is stored once. `sheet.addImage(image, anchor, { name?, description?, hyperlink? })` places it over a range (`"E1:G4"`), between two corners (`{ from, to, editAs }`, each a cell or a 0-based `{ col, row }` with fractions) or at a corner with a size in pixels (`{ from, size }`). `sheet.background(image)` sets the sheet background. Pixels are converted at 96 per inch (9525 EMU); fractional positions use the sheet's column widths and row heights.
-- **Reading:** `sheet.images` lists the pictures (`anchor` in EMU with the cell of each corner, `image` with `format`, `contentType` and `bytes`, `description`, `hyperlink`), `sheet.backgroundImage` the background, and `workbook.images` every image once. Charts, shapes and other drawing objects are not read; `XLV_W_DRAWING_CONTENT_NOT_READ` reports them, and `editCells` keeps them unchanged.
+- **Reading:** `sheet.images` lists the pictures (`anchor` in EMU with the cell of each corner, `image` with `format`, `contentType` and `bytes`, `description`, `hyperlink`), `sheet.backgroundImage` the background, and `workbook.images` every image once. Charts are read into `sheet.charts` (see [Charts](#charts)); shapes and other drawing objects are not read: `XLV_W_DRAWING_CONTENT_NOT_READ` reports them, and `editCells` keeps them unchanged.
 - **Rows:** `insertRows` and `deleteRows` move pictures with their rows. A deletion that would cut a picture, and a drawing with charts or shapes, are refused with `XLV_E_NOT_SUPPORTED`.
 - **Streaming:** `writeWorkbookStream({ images: [png], sheets: [{ images: [{ image: 0, anchor: 'B2:D6' }], background: 0, rows }] })`.
+
+### Charts
+
+```ts
+import { createWorkbook, readWorkbook, writeWorkbook } from 'xlvane';
+
+const workbook = createWorkbook();
+const sales = workbook.addSheet('Sales').set('A1', 'Month').set('B1', 'North').set('C1', 'South');
+['Jan', 'Feb', 'Mar'].forEach((month, i) => sales.set(`A${String(i + 2)}`, month).set(`B${String(i + 2)}`, 10 + i).set(`C${String(i + 2)}`, 20 - i));
+sales.addChart({
+  type: 'column',
+  anchor: 'E2:L18',
+  title: 'Sales by month',
+  series: [
+    { name: 'Sales!B1', categories: 'Sales!A2:A4', values: 'Sales!B2:B4' },
+    { name: 'Sales!C1', categories: 'Sales!A2:A4', values: 'Sales!C2:C4', color: 'C00000' },
+  ],
+  legend: 'bottom',
+  axes: { y: { title: 'Units', min: 0 } },
+});
+
+const chart = readWorkbook(writeWorkbook(workbook)).getSheet('Sales').charts[0];
+console.log(chart?.types, chart?.title, chart?.series.map((s) => s.values)); // ['column'] { text: 'Sales by month' } ['Sales!$B$2:$B$4', 'Sales!$C$2:$C$4']
+```
+
+- **Adding:** `sheet.addChart({ type, anchor, series, title?, legend?, stacked?, axes?, name?, description? })` with `type` `column`, `bar`, `line`, `pie`, `scatter` or `area`; `anchor` as for pictures. Each series has `values` and optional `categories` (for scatter: the y and x values), each a sheet-qualified range of one row or one column such as `'Sales Data'!B2:B13`, an optional `name` (literal text, or a one-cell reference such as `Sales!B1`) and an optional `color` (`RRGGBB`). `stacked` is `true` or `'percent'` (not for pie and scatter); `legend` is `'right'` (default), `'bottom'`, `'top'`, `'left'` or `false`; `axes.x.title`, `axes.y.title`, `axes.y.min`, `axes.y.max`. A chart has 1 to 255 series; a pie exactly one, with at most 1 000 values. The sheets named in the ranges must exist when the workbook is written. Errors: `XLV_E_INVALID_CHART`.
+- **What is written:** a chart part per chart with the series colours from a fixed palette (the accent colours of Excel's Office theme), since xlvane writes no theme part, and with the current cell values as caches, as Excel writes them. Combination charts, secondary axes, trendlines, data labels and chart sheets are not written.
+- **Reading:** `sheet.charts` lists each chart's `name`, `description`, `anchor`, `types` (the chart groups in order, for example `['column', 'line']` for a combination chart; other chart types as `other:` and the element name), `stacked`, `title` (`{ text }`, `{ ref }` or `null`), `legend`, `axes` (`title`, `min`, `max`) and `series` (`type`, `name`, `categories`, `values` as reference text). References are never evaluated and cached values are not read. Charts on chart sheets are not read. `openWorkbookStream` does not report pictures or charts.
+- **Streaming:** `writeWorkbookStream({ sheets: [{ name: 'Sales', rows, charts: [{ type: 'line', anchor: 'E2:L18', series: [...] }] }] })`. The streaming writer keeps no cell values, so its charts have no caches. LibreOffice draws such charts from the cells; whether Excel does is not verified.
+- **Rows:** `insertRows` and `deleteRows` refuse sheets with charts, and workbooks whose charts may refer to the sheet, with `XLV_E_NOT_SUPPORTED`.
+- **Checked with:** a copy of the ECMA-376 chart schema and LibreOffice 24.2.7.2, not with Excel. In the repository, `node scripts/chart-samples.mjs <directory>` (after `npm run build`) writes one sample file per type and variant.
 
 ### Sheet rules and printing
 
@@ -398,7 +429,7 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 
 - xlvane does not calculate formulas. It reads and writes formula text and the cached results stored in the file; edited files ask spreadsheet applications to recalculate when they are opened.
 - Password-protected (encrypted) workbooks and legacy `.xls` files are rejected with `XLV_E_UNSUPPORTED_CONTAINER`. A sheet protection password is not encryption and is supported.
-- Charts, shapes, pivot tables, slicers and form controls are not modelled: reading skips them (with a warning for drawings), `editCells` keeps them unchanged, and row operations refuse sheets where they would have to move.
+- Shapes, pivot tables, slicers and form controls are not modelled: reading skips them (with a warning for drawings), `editCells` keeps them unchanged, and row operations refuse sheets where they would have to move. Charts are read and written for six types (see [Charts](#charts)); row operations refuse them too.
 - The command line reads files, not standard input.
 
 ## Links

@@ -130,6 +130,22 @@ describe('writing pictures', () => {
     expectXlvError(() => s.background(7), 'XLV_E_INVALID_OPTION');
   });
 
+  it('copies the position, so changing the caller objects after addImage does not change the picture', () => {
+    const wb = createWorkbook();
+    const id = wb.addImage(PNG);
+    const from = { col: 1, row: 1 };
+    const anchor = { from, to: 'D5' } as { from: unknown; to: unknown };
+    const size = { width: 100, height: 50 };
+    wb.addSheet('S').addImage(id, anchor as never).addImage(id, { from: 'E2', size });
+    from.col = 7;
+    anchor.from = { col: -5, row: Number.NaN };
+    anchor.to = 'A1';
+    size.width = -1;
+    const images = readWorkbook(writeWorkbook(wb)).getSheet('S').images;
+    expect(images[0]!.anchor).toMatchObject({ type: 'twoCell', from: { cell: 'B2' }, to: { cell: 'D5' } });
+    expect(images[1]!.anchor).toMatchObject({ type: 'oneCell', from: { cell: 'E2' }, size: { width: 952500, height: 476250 } });
+  });
+
   it('writes the same pictures with the streaming writer', async () => {
     const stream = writeWorkbookStream({
       images: [PNG, JPEG],

@@ -23,7 +23,8 @@ import {
 import type { DateSystem, SheetState, SheetView } from '../model';
 import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
-import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ResolvedImage, type WrittenImageFormat } from '../images';
+import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ResolvedAnchor, type ResolvedImage, type WrittenImageFormat } from '../images';
+import { CHART_CONTENT_TYPE, chartPartName, chartPartXml, chartSheetNames, checkChartCacheCells, resolveChartSheets, type ChartCacheValue, type ChartCells, type NormalizedChart } from '../charts';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
 import { FormulaGroups } from './formula-groups';
@@ -66,6 +67,8 @@ export interface WriteSheetData {
   readonly images?: readonly ResolvedImage[];
   /** Background image (index into `WritePackageInput.images`), or `null`. */
   readonly background?: number | null;
+  /** Charts with resolved anchors (D-K01). */
+  readonly charts?: readonly (ResolvedAnchor & { readonly chart: NormalizedChart })[];
 }
 
 /** Height, visibility and outline of a row. */
@@ -1000,12 +1003,25 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   let tableCount = 0;
   const media = new MediaParts(input.images ?? []);
   const drawings: { readonly name: string; readonly xml: string; readonly relsName: string; readonly rels: string }[] = [];
+  const charts: { readonly name: string; readonly xml: string }[] = [];
+  // One lookup of the sheet names for every chart of the workbook (D-K01).
+  const sheetNames = chartSheetNames(input.sheets.map((s) => s.name));
+  // Before any cache is built, so that the chart parts cannot grow without bound (D-K01).
+  checkChartCacheCells(input.sheets.flatMap((s) => (s.charts ?? []).map((c) => ({ chart: c.chart, sheet: s.name }))));
+  const cells = chartCells(input.sheets, input.styles);
+  // The characters of cached text written for all charts of the workbook (MAX_CHART_CACHE_TEXT).
+  const cacheText = { used: 0 };
   const sheetParts = input.sheets.map((sheet, i) => {
     const rels = sheetRels[i]!;
     const parts = noteParts(sheet.notes ?? [], i + 1, rels, block);
     notes.push(parts);
     if (parts !== null) block += parts.blocks;
-    const drawing = drawingParts(sheet.images ?? [], sheet.background ?? null, media, drawings.length + 1, rels);
+    // Chart parts are numbered across the workbook (CH-01), each filled with caches (CH-19).
+    const frames = (sheet.charts ?? []).map((c) => {
+      charts.push({ name: chartPartName(charts.length + 1), xml: chartPartXml(resolveChartSheets(c.chart, sheetNames, sheet.name), { cells, text: cacheText, sheet: sheet.name }) });
+      return { from: c.from, to: c.to, ext: c.ext, editAs: c.editAs, name: c.chart.name, description: c.chart.description, target: `../charts/chart${String(charts.length)}.xml` };
+    });
+    const drawing = drawingParts(sheet.images ?? [], sheet.background ?? null, media, drawings.length + 1, rels, frames);
     if (drawing.part !== null) drawings.push(drawing.part);
     const sheetTables = tableParts(sheet.tables ?? [], tableCount + 1, rels);
     tableCount += sheetTables.parts.length;
@@ -1025,6 +1041,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const types = contentTypesXml(n, shared, core !== null, app !== null, noteSheets, [
     ...tables.map((t) => [t.name, TABLE_CONTENT_TYPE] as const),
     ...drawings.map((d) => [d.name, DRAWING_CONTENT_TYPE] as const),
+    ...charts.map((c) => [c.name, CHART_CONTENT_TYPE] as const),
     ...mediaEntries.map((m) => [m.name, IMAGE_CONTENT_TYPES[m.name.slice(m.name.lastIndexOf('.') + 1) as WrittenImageFormat]] as const),
   ]);
 
@@ -1045,10 +1062,36 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   });
   for (const t of tables) entries.push({ name: t.name, data: encoder.encode(t.xml) });
   for (const d of drawings) entries.push({ name: d.name, data: encoder.encode(d.xml) }, { name: d.relsName, data: encoder.encode(d.rels) });
+  for (const c of charts) entries.push({ name: c.name, data: encoder.encode(c.xml) });
   entries.push(...mediaEntries);
   if (core !== null) entries.push({ name: CORE_PROPERTIES_PART, data: encoder.encode(core) });
   if (app !== null) entries.push({ name: APP_PROPERTIES_PART, data: encoder.encode(app) });
   return writeZip(entries, input.compressionLevel ?? 6);
+}
+
+/**
+ * The values of the workbook's cells for chart caches (CH-19): numbers with the code of their
+ * number format, text, and booleans as TRUE or FALSE; a formula gives its cached result; errors
+ * and empty cells give `null`.
+ */
+function chartCells(sheets: readonly WriteSheetData[], styles: readonly NormalizedStyle[]): ChartCells {
+  const bySheet = new Map(sheets.map((s) => [s.name, s.cells] as const));
+  const formatOf = (style: number): string => {
+    const f = styles[style]?.numFmt;
+    return f === undefined ? 'General' : typeof f === 'number' ? (BUILTIN_NUMBER_FORMATS.get(f) ?? 'General') : f;
+  };
+  const valueOf = (v: StoredValue | null, style: number): ChartCacheValue | null => {
+    if (v === null) return null;
+    if (v.kind === 'number') return { n: v.n, format: formatOf(style) };
+    if (v.kind === 'string') return { s: v.s };
+    if (v.kind === 'boolean') return { s: v.b ? 'TRUE' : 'FALSE' };
+    if (v.kind === 'formula') return valueOf(v.result, style);
+    return null;
+  };
+  return (sheet, row, col) => {
+    const cell = bySheet.get(sheet)?.get(row)?.get(col);
+    return cell === undefined ? null : valueOf(cell.value, cell.style);
+  };
 }
 
 /**

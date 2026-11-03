@@ -17,20 +17,34 @@ export interface XmlElement {
 export interface XmlTreeOptions {
   readonly part: string;
   readonly limits: XmlLimits & Pick<ReadLimits, 'maxXmlTreeElements'>;
+  /**
+   * Elements that are left out of the tree with everything inside them. They are still parsed
+   * under every limit of {@link XmlLimits}, but they and their content do not count against
+   * `maxXmlTreeElements` (used for the caches of chart parts, D-K01).
+   */
+  readonly skip?: (ns: string, local: string) => boolean;
 }
 
 /**
  * Parses a whole part into a tree. Use only for small parts (workbook, relationships, content
- * types, styles); worksheets and shared strings are processed with {@link parseXml} directly.
+ * types, styles), or with `skip` for parts whose bulk is not needed; worksheets and shared
+ * strings are processed with {@link parseXml} directly.
  */
 export function parseXmlTree(xml: string, options: XmlTreeOptions): XmlElement {
   const stack: XmlElement[] = [];
   let root: XmlElement | undefined;
   let count = 0;
+  // Depth inside a skipped element: 0 outside, 1 for the skipped element itself.
+  let skipped = 0;
+  const skip = options.skip;
   parseXml(
     xml,
     {
       start(ns, local, attrs) {
+        if (skipped > 0 || (skip !== undefined && skip(ns, local))) {
+          skipped++;
+          return;
+        }
         // Elements and attributes both stay in memory, so both count against the budget.
         count += 1 + attrs.size;
         if (count > options.limits.maxXmlTreeElements) {
@@ -47,16 +61,19 @@ export function parseXmlTree(xml: string, options: XmlTreeOptions): XmlElement {
         stack.push(element);
       },
       end() {
-        stack.pop();
+        if (skipped > 0) skipped--;
+        else stack.pop();
       },
       text(value) {
+        if (skipped > 0) return;
         const current = stack[stack.length - 1];
         if (current !== undefined) current.text += value;
       },
     },
     options,
   );
-  // parseXml guarantees exactly one root element.
+  // parseXml guarantees exactly one root element; a skipped root gives an empty element.
+  if (root === undefined) return { ns: '', local: '', attrs: new Map(), children: [], text: '' };
   return root as XmlElement;
 }
 

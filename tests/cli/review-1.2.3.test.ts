@@ -2,6 +2,7 @@
 // with --force removed a temporary file it had not created (its name came from Date.now()), the
 // replacement kept setuid/setgid bits, migrate read and replaced a package.json that is a symbolic
 // link, and "Try:" commands put options after "--", where they are positional arguments.
+import { existsSync } from 'node:fs';
 import { chmod, copyFile, lstat, mkdir, readdir, readFile, stat, symlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -102,4 +103,59 @@ describe('convert to JSON of a header repeated in many rows', () => {
       expect(r.stdout).not.toContain('XLV_E_INTERNAL');
     });
   }, 60_000);
+});
+
+describe('1.3.0: output paths that are not plain files (D-K03)', () => {
+  it('a dangling symbolic link as output is reported as existing and replaced with --force', async () => {
+    await withFixtures(async (dir) => {
+      await symlink(join(dir, 'nowhere.csv'), join(dir, 'out.csv'));
+      const r = await cli(['convert', 'report.xlsx', 'out.csv'], { cwd: dir });
+      expect(r.stderr).toContain('already exists');
+      expect(r.stderr).toContain('xlvane convert report.xlsx out.csv --force');
+      expect(r.stderr).not.toContain('--force --force');
+      const f = await cli(['convert', 'report.xlsx', 'out.csv', '--force'], { cwd: dir });
+      expect(f.code).toBe(0);
+      expect((await lstat(join(dir, 'out.csv'))).isFile()).toBe(true);
+      expect(existsSync(join(dir, 'nowhere.csv'))).toBe(false);
+    });
+  });
+
+  it('a FIFO as output is "not a regular file", not "a directory"', async () => {
+    await withFixtures(async (dir) => {
+      const { spawnSync } = await import('node:child_process');
+      if (spawnSync('mkfifo', [join(dir, 'f.csv')]).status !== 0) return;
+      const r = await cli(['convert', 'report.xlsx', 'f.csv', '--force'], { cwd: dir });
+      expect(r.stderr).toContain('is not a regular file');
+    });
+  });
+
+  it('--force replaces a file whose name is 250 characters long', async () => {
+    await withFixtures(async (dir) => {
+      const name = `${'n'.repeat(245)}.csv`;
+      await writeFile(join(dir, name), 'old');
+      const r = await cli(['convert', 'report.xlsx', name, '--force'], { cwd: dir });
+      expect(r.code, r.stderr).toBe(0);
+      expect(await readFile(join(dir, name), 'utf8')).not.toBe('old');
+    });
+  });
+});
+
+describe('1.3.0: replacing files after the review of D-K03', () => {
+  it('--force replaces a file whose name is 245 bytes of CJK characters', async () => {
+    await withFixtures(async (dir) => {
+      const name = `${'表'.repeat(80)}.xlsx`;
+      expect((await cli(['convert', 'sales.csv', name], { cwd: dir })).code).toBe(0);
+      const r = await cli(['convert', 'sales.csv', name, '--force'], { cwd: dir });
+      expect(r.code, r.stderr).toBe(0);
+    });
+  });
+
+  it('a replaced dangling link gets the permissions of a new file, not 0600', async () => {
+    await withFixtures(async (dir) => {
+      expect((await cli(['convert', 'report.xlsx', 'new.csv'], { cwd: dir })).code).toBe(0);
+      await symlink(join(dir, 'nowhere.csv'), join(dir, 'out.csv'));
+      expect((await cli(['convert', 'report.xlsx', 'out.csv', '--force'], { cwd: dir })).code).toBe(0);
+      expect((await stat(join(dir, 'out.csv'))).mode & 0o777).toBe((await stat(join(dir, 'new.csv'))).mode & 0o777);
+    });
+  });
 });

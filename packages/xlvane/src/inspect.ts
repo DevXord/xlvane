@@ -1,4 +1,6 @@
+import { cutAt } from './util/clip';
 import { isoDate } from './util/iso-date';
+import type { ChartKind, ChartText } from './charts';
 import { XlvError, type XlvWarning } from './errors';
 import type { ReadLimits } from './limits';
 import type { Cell, CellType, Conformance, DateSystem, Sheet, SheetKind, SheetState, Workbook, WorkbookFormat } from './model';
@@ -152,6 +154,15 @@ export interface InspectSheet {
   readonly imageCount: number;
   /** Up to ten pictures: the cell of the top-left corner (or `null` for an absolute position) and the image format. */
   readonly images: readonly { readonly cell: string | null; readonly format: 'png' | 'jpeg' | 'gif' | null }[];
+  /** Number of charts of the sheet's drawing (`Sheet.charts`). */
+  readonly chartCount: number;
+  /**
+   * Up to ten charts: the cell of the top-left corner (or `null` for an absolute position), the
+   * first ten chart group types (see `ChartKind`) and whether the chart has more
+   * (`typesTruncated`), the title (`{ text }` or `{ ref }`, cut to 100 characters and `…`, or
+   * `null`) and the number of series.
+   */
+  readonly charts: readonly { readonly cell: string | null; readonly types: readonly ChartKind[]; readonly typesTruncated: boolean; readonly title: ChartText | null; readonly seriesCount: number }[];
   /** `true` when the sheet is protected (`Sheet.protection.sheet`). */
   readonly protected: boolean;
   /** The print area (`Sheet.printArea`), or `null`. */
@@ -229,6 +240,12 @@ const MAX_RICH_TEXT_CELLS = 10;
 const MAX_HYPERLINK_SAMPLES = 10;
 /** Merged ranges listed per sheet; `mergedRangeCount` gives the total. */
 const MAX_MERGED_RANGES = 100;
+/** Chart group types listed per chart; `typesTruncated` says whether there are more. */
+const MAX_CHART_TYPES = 10;
+/** Characters shown of a defined name's formula (`refersTo`), of a chart title and of a text value. */
+const MAX_SHOWN_TEXT = 100;
+/** Cuts to `MAX_SHOWN_TEXT` characters and `…`, before a surrogate pair that would be split. */
+const cut = (text: string): string => (text.length > MAX_SHOWN_TEXT ? `${cutAt(text, MAX_SHOWN_TEXT)}…` : text);
 const TYPE_ORDER: readonly Exclude<CellType, 'empty'>[] = ['number', 'string', 'date', 'boolean', 'error'];
 
 interface ResolvedOptions {
@@ -289,8 +306,7 @@ function isWorkbook(input: unknown): input is Workbook {
 /** Formats a value for JSON: dates as ISO 8601 without a time zone (`isoDate`). */
 function jsonValue(value: string | number | boolean | Date): InspectValue {
   if (value instanceof Date) return isoDate(value);
-  if (typeof value === 'string' && value.length > 100) return `${value.slice(0, 100)}…`;
-  return value;
+  return typeof value === 'string' ? cut(value) : value;
 }
 
 /**
@@ -325,7 +341,7 @@ export function inspect(input: Uint8Array | ArrayBuffer | Workbook, options?: In
     properties: propertiesJson(workbook),
     definedNames: workbook.definedNames.slice(0, MAX_DEFINED_NAMES).map((n) => ({
       name: n.name,
-      refersTo: n.refersTo.length > 100 ? `${n.refersTo.slice(0, 100)}…` : n.refersTo,
+      refersTo: cut(n.refersTo),
       sheet: n.sheet,
       hidden: n.hidden,
     })),
@@ -410,6 +426,14 @@ function inspectSheet(sheet: Sheet, options: ResolvedOptions, warnings: WarningC
     notes: sheet.notes.slice(0, MAX_HYPERLINK_SAMPLES).map((n) => n.ref),
     imageCount: sheet.images.length,
     images: sheet.images.slice(0, MAX_HYPERLINK_SAMPLES).map((i) => ({ cell: i.anchor.type === 'absolute' ? null : i.anchor.from.cell, format: i.image?.format ?? null })),
+    chartCount: sheet.charts.length,
+    charts: sheet.charts.slice(0, MAX_HYPERLINK_SAMPLES).map((c) => ({
+      cell: c.anchor.type === 'absolute' ? null : c.anchor.from.cell,
+      types: c.types.slice(0, MAX_CHART_TYPES),
+      typesTruncated: c.types.length > MAX_CHART_TYPES,
+      title: c.title === null ? null : 'text' in c.title ? { text: cut(c.title.text) } : { ref: cut(c.title.ref) },
+      seriesCount: c.series.length,
+    })),
     protected: sheet.protection?.sheet === true,
     printArea: sheet.printArea === null ? null : sheet.printArea.slice(0, MAX_HYPERLINK_SAMPLES),
     pageBreakCount: sheet.pageBreaks.rows.length + sheet.pageBreaks.columns.length,

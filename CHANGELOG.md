@@ -1,6 +1,25 @@
 # Changelog
 
-## 1.2.3
+The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
+
+## 1.3.0 (unreleased)
+
+Charts, and security fixes from a penetration test of the release candidate (docs/decisions.md D-K03). Please update all three packages.
+
+### Security fixes
+
+- **CSV formula injection (all versions before 1.3.0):** a byte order mark (U+FEFF/U+FFFE) before `=`, `+`, `-` or `@` hid the formula sign from the escape, and spreadsheet applications drop the mark; such text is now escaped (`toCSV`, `xlvane convert`, `@xlvane/compat` `csv.write*`, also as bytes in `latin1` and `utf16le` output). In `@xlvane/compat`, values returned by `map` that are not strings (for example `new String('=1+1')`) are checked as the text written. Fields holding `,`, `;`, a tab or `|` are quoted whatever the delimiter. `utf16le` output: LibreOffice reads it as 8-bit text and drops the zero bytes, so characters such as `㴀㄀⬀㄀` (bytes `00 3d 00 31 …`) became `=1+1`; while formulas are escaped, utf16le output starts with a byte order mark, fields whose bytes start a formula get the leading `'`, and fields whose bytes would put a separator before `=` are refused (`XLV_E_INVALID_OPTION`, option `encoding`). An empty delimiter, and with `latin1` or `utf16le` a delimiter other than ASCII, is refused.
+- **@xlvane/compat denial of service:** `xlsx.load` and `stream.xlsx.WorkbookReader` no longer build the moved text of every shared formula (a 4.6 KB file ran out of memory); merged cells are limited to `max(1 048 576, cells in the file)` on load and written in blocks (a 2.4 KB file made `writeBuffer` run out of memory); `csv.read` adds rows while it parses and stops at 1 048 576 rows, 16 384 fields in a row or 5 000 000 fields in all. Rows from `stream.xlsx.WorkbookReader` copied into `stream.xlsx.WorkbookWriter` keep their shared formulas.
+- **Charts:** series and chart groups count against `maxCells` when reading (a 4.9 MB file ran out of memory); `writeWorkbook` limits the cached text of charts (a `RangeError` before); a drawing part shared by several sheets is read once (`XLV_W_SHEET_PART_SHARED`); `insertRows`/`deleteRows` find chart parts by content type, so a renamed chart part no longer lets them leave its references wrong.
+- **@xlvane/mcp:** `..` in the text of a symbolic link is resolved as the system resolves it, so it no longer reveals what exists outside the roots; `write_table` and `convert` from JSON respect `--max-cells`.
+- **Text round trip (all versions):** text holding `_x` and four hex digits followed by a character that is written as an escape (a control character, U+FFFE or U+FFFF), for example `"_xAF0F\uFFFF"`, was read back changed; the writer now escapes its underscore. Found by fuzzing.
+- **Command line:** a dangling symbolic link as output is replaced with `--force` (it was reported as existing with a suggestion to add `--force` again); special files are reported as "not a regular file"; files with long names can be replaced.
+
+### xlvane
+
+- **Charts:** `sheet.addChart({ type, anchor, series, title, legend, stacked, axes })` writes column, bar, line, pie, scatter and area charts over ranges of the workbook (also in `writeWorkbookStream`, per sheet `charts`); `sheet.charts` reads the charts of a worksheet's drawing (types, stacking, title, legend, axes and series references; references are never evaluated). New error code `XLV_E_INVALID_CHART`. `XLV_W_DRAWING_CONTENT_NOT_READ` no longer counts charts. `inspect` (and `xlvane inspect`, MCP `inspect_workbook`) reports `chartCount` and `charts` (at most 10 charts per sheet, at most 10 chart types each, with `typesTruncated`, and titles cut to 100 characters). A chart that cannot be read (a part over a per-part XML limit, not a chart part, not UTF-8 or UTF-16, not well-formed) is skipped with a warning instead of failing the workbook; cached chart values do not count against `maxXmlTreeElements`, so workbooks with charts over hundreds of thousands of cells read as before. `writeWorkbook` writes chart caches of at most 4 000 000 cells per workbook. Chart references quote sheet names of letters followed by digits (such as `'Sheet1'!$A$1`).
+
+## 1.2.3 (unreleased)
 
 A security release: three ways around the CSV formula-injection escape, an information leak in the MCP server and denial of service by crafted files. Found by penetration tests of the published versions (docs/decisions.md D-J01). Please update all three packages.
 
@@ -30,7 +49,7 @@ A security release: three ways around the CSV formula-injection escape, an infor
 
 - The release workflow fails when the npm registry cannot be asked, instead of passing with nothing staged.
 
-## 1.2.2
+## 1.2.2 (2026-11-02)
 
 ### @xlvane/mcp
 
@@ -40,7 +59,7 @@ A security release: three ways around the CSV formula-injection escape, an infor
 
 - The release workflow stages each package unless its version is already on npm, and goes on after a failed package, so a repeated run finishes the release. No change in the packages themselves.
 
-## 1.2.1
+## 1.2.1 (2026-11-02)
 
 ### @xlvane/mcp
 
@@ -50,7 +69,7 @@ A security release: three ways around the CSV formula-injection escape, an infor
 
 - No changes besides the version.
 
-## 1.2.0
+## 1.2.0 (2026-11-02)
 
 ### @xlvane/mcp (new)
 
@@ -76,7 +95,7 @@ A security release: three ways around the CSV formula-injection escape, an infor
 
 - No changes besides the version.
 
-## 1.1.1
+## 1.1.1 (2026-11-02)
 
 A security release: small, crafted files could make reading, converting or the command line take minutes or run out of memory. Upgrading is recommended for everyone who opens files from untrusted sources. No API changes besides two new warning codes.
 
@@ -97,7 +116,7 @@ A security release: small, crafted files could make reading, converting or the c
 - `xlsx.load` limits the cells it creates for merged ranges, tables and column definitions (`XLV_E_LIMIT_EXCEEDED`); before, one merged range covering the whole sheet ran out of memory. Checking a new merge against earlier ones takes linear time. Many sheets declaring a million rows in their dimension are refused instead of being scanned row by row.
 - `workbook.csv` escapes the same additional formula-like starts as `toCSV`.
 
-## 1.1.0
+## 1.1.0 (2026-11-02)
 
 ### xlvane
 
@@ -115,7 +134,7 @@ A security release: small, crafted files could make reading, converting or the c
 - `worksheet.id` is written as `sheetId` and kept when a file is loaded and by the `model` setter, as in exceljs, so `getWorksheet(id)` finds the same sheet after removing one, writing and loading.
 - A split view's `topLeftCell` is written and read back, as in exceljs.
 
-## 1.0.1
+## 1.0.1 (2026-11-02)
 
 ### xlvane
 
@@ -128,7 +147,7 @@ A security release: small, crafted files could make reading, converting or the c
 - README: installing (npm alias or `xlvane migrate`), requirements and runtimes, TypeScript settings, the differences from exceljs most likely to matter, links.
 - docs/exceljs-compat.md lists `ModelContainer` as not supported (constructing it throws `XLV_E_NOT_SUPPORTED`, as in 1.0.0).
 
-## 1.0.0
+## 1.0.0 (2026-11-02)
 
 First release of `xlvane` and `@xlvane/compat`.
 

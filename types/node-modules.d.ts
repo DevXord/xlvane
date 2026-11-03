@@ -72,6 +72,8 @@ declare module 'node:path' {
   export function dirname(path: string): string;
   export function basename(path: string, suffix?: string): string;
   export function extname(path: string): string;
+  /** https://nodejs.org/api/path.html#pathparsepath */
+  export function parse(path: string): { root: string; dir: string; base: string; ext: string; name: string };
   export const sep: string;
 }
 

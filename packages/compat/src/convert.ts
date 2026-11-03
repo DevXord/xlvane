@@ -706,6 +706,8 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       }
       return c;
     };
+    const styleFor = (cell: Cell): CellStyle => (useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {});
+    const uniform = uniformMerges(ws);
     ws._rows.forEach((row) => {
       if (!row) return;
       if (row.height !== undefined || row.hidden || row.outlineLevel) {
@@ -718,13 +720,39 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         });
       }
       row._cells.forEach((cell) => {
-        if (cell) at(ws.name, cell.address, () => writeCell(cell));
+        if (!cell) return;
+        // The other cells of a uniform merged range are styled with the range below; only their
+        // notes are written here (K3).
+        if (cell._master !== null && uniform.masters.has(cell._master)) {
+          if (cell.note !== undefined) {
+            at(ws.name, cell.address, () => {
+              const note = noteIn(cell);
+              if (note) sheet.note(cell.address, note);
+            });
+          }
+        } else at(ws.name, cell.address, () => writeCell(cell));
       });
     });
+    // A merged range whose cells all carry the master's style is styled in blocks of rows, with
+    // one style conversion, instead of a styled cell write each (K2). Each merged position is
+    // still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
+    // resident memory) to write (K3, measured with Node.js 22.23).
+    for (const m of uniform.ranges) {
+      const master = ws.findCell(m.top, m.left);
+      if (!master) continue;
+      const style = styleFor(master);
+      if (Object.keys(style).length === 0) continue;
+      const width = m.right - m.left + 1;
+      const step = Math.max(1, Math.floor(MERGE_STYLE_BLOCK / width));
+      for (let top = m.top; top <= m.bottom; top += step) {
+        const bottom = Math.min(m.bottom, top + step - 1);
+        sheet.style(`${columnLetter(m.left)}${String(top)}:${columnLetter(m.right)}${String(bottom)}`, style);
+      }
+    }
     function writeCell(cell: Cell): void {
       const note = noteIn(cell);
       if (note) sheet.note(cell.address, note);
-      const style = useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {};
+      const style = styleFor(cell);
       const value = cell.type === ValueType.Merge ? null : valueIn(cell, sharedRanges);
       if (value === null && Object.keys(style).length === 0) return;
       sheet.set(cell.address, value, style);
@@ -763,6 +791,56 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   // exceljs writes each name's ranges joined by commas, without a sheet scope (defined-name-xform.js L5).
   for (const d of meta.definedNames ?? []) book.defineName(d.name, d.ranges.join(','));
   return book;
+}
+
+/** Cells styled by one `sheet.style` call for a merged range: at most what the core styles at once. */
+const MERGE_STYLE_BLOCK = 1_048_576;
+
+/** Whether two exceljs styles have the same parts (the same objects, as a merge's copies have). */
+function sameStyleParts(a: Style, b: Style): boolean {
+  if (a === b) return true;
+  let n = 0;
+  for (const k in a) {
+    if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
+    n++;
+  }
+  for (const _ in b) n--;
+  return n === 0;
+}
+
+/**
+ * The merged ranges of a worksheet whose other cells all exist, belong to the range's master and
+ * carry the master's style (the copy `mergeCells` gives them, as in exceljs), and the masters all
+ * of whose ranges are such. Their cells are written as the master's style over the range (K2),
+ * and their notes one by one (K3).
+ */
+function uniformMerges(ws: Worksheet): { ranges: { top: number; left: number; bottom: number; right: number }[]; masters: Set<Cell> } {
+  const ranges: { top: number; left: number; bottom: number; right: number }[] = [];
+  const masters = new Set<Cell>();
+  const mixed = new Set<Cell>();
+  for (const m of ws._merges.values()) {
+    const master = ws.findCell(m.top, m.left);
+    if (!master) continue;
+    let ok = true;
+    for (let r = m.top; ok && r <= m.bottom; r++) {
+      const row = ws.findRow(r);
+      for (let c = m.left; c <= m.right; c++) {
+        if (r === m.top && c === m.left) continue;
+        const cell = row?.findCell(c);
+        if (!cell || cell._master !== master || !sameStyleParts(cell.style, master.style)) {
+          ok = false;
+          break;
+        }
+      }
+    }
+    if (ok) {
+      ranges.push(m);
+      masters.add(master);
+    } else mixed.add(master);
+  }
+  // A cell can be the master of several ranges; its cells are written one by one if any is mixed.
+  for (const master of mixed) masters.delete(master);
+  return { ranges: ranges.filter((m) => masters.has(ws.findCell(m.top, m.left)!)), masters };
 }
 
 /**
@@ -870,6 +948,19 @@ export function viewOut(view: SheetView, freeze: FrozenPanes | null): WorksheetV
     return { ...common, state: 'split', xSplit: Math.round(x * 20), ySplit: Math.round(y * 20), topLeftCell, activePane, ...active, ...style };
   }
   return { ...common, state: 'normal', ...active, ...style };
+}
+
+/**
+ * Whether a formula read by xlvane has text, without making the core build it: the core moves a
+ * shared master's text to a dependent only when the dependent's `text` is read (a getter), and
+ * gives `null` (a plain value) when it cannot move it. Reading the text of every dependent made a
+ * small file with a huge master and many dependents exhaust memory (K2), and exceljs reads a
+ * dependent as `{ sharedFormula }` without its text anyway.
+ */
+export function hasFormulaText(f: XlvFormula): boolean {
+  const d = Object.getOwnPropertyDescriptor(f, 'text');
+  if (d !== undefined && d.get !== undefined) return true;
+  return f.text !== null;
 }
 
 /**

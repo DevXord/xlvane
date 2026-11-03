@@ -5,7 +5,8 @@ import { normalizeProperties, type WorkbookProperties } from './doc-properties';
 import { XlvError, type XlvLocation } from './errors';
 import { normalizeHyperlink, type HyperlinkTarget, type NormalizedHyperlink } from './hyperlinks';
 import type { DateSystem, RichTextRun, SheetLayout, SheetState, SheetView, SplitPanes } from './model';
-import { checkImage, metricsOf, normalizeImage, resolveImage, type ImageAnchorInput, type ImageOptions, type WrittenImageFormat, type StoredImage } from './images';
+import { normalizeChart, type ChartInput, type NormalizedChart } from './charts';
+import { checkAnchor, checkImage, copyAnchor, metricsOf, normalizeImage, resolveAnchor, resolveImage, type ImageAnchorInput, type ImageOptions, type WrittenImageFormat, type StoredImage } from './images';
 import { MAX_AUTHOR_LENGTH, type NoteBox, type NoteInput } from './notes';
 import { MAX_DATA_VALIDATIONS, normalizeConditionalFormat, normalizeDataValidation, type ConditionalFormatRuleInput, type DataValidation, type DataValidationRule, type StoredConditionalFormat } from './sheet-rules';
 import {
@@ -560,6 +561,8 @@ export class NewSheet {
   readonly imageList: StoredImage[] = [];
   /** @internal Background image (index of `NewWorkbook.addImage`), or `null`. */
   backgroundImage: number | null = null;
+  /** @internal Charts in the order they were added (D-K01). */
+  readonly chartList: { readonly anchor: ImageAnchorInput; readonly chart: NormalizedChart }[] = [];
   /** @internal Data validations in the order they were added (SR-01). */
   readonly validationList: DataValidation[] = [];
   /** @internal Conditional formats in the order they were added (SR-07). */
@@ -1307,7 +1310,8 @@ export class NewSheet {
    * two corners `{ from, to }` (with `editAs`), or a corner and a size in pixels
    * (`{ from, size }`), see `ImageAnchorInput`. Fractional positions and pixel sizes use the
    * sheet's column widths and row heights at the time the workbook is written, at 96 pixels per
-   * inch (TD-33).
+   * inch (TD-33). The anchor is copied, so changing its object afterwards does not move the
+   * picture.
    *
    * @example
    * ```ts
@@ -1321,6 +1325,42 @@ export class NewSheet {
    */
   addImage(image: number, anchor: ImageAnchorInput, options?: ImageOptions): this {
     this.imageList.push(normalizeImage(image, this.book.imageCount, anchor, options));
+    return this;
+  }
+
+  /**
+   * Places a chart on the sheet: a column, bar, line, pie, scatter or area chart over ranges of
+   * this or another sheet of the workbook (see `ChartInput`). `anchor` places it like a picture.
+   * Each series gets an explicit colour from the default palette unless it has `color`, and the
+   * file holds the current cell values of the ranges as caches, as Excel writes them
+   * (docs/facts/charts.md CH-19, CH-21). The sheets named in the ranges must exist when the
+   * workbook is written. Charts are drawn above the sheet's pictures. The caches of all charts
+   * of a workbook cover at most 4 000 000 cells and hold at most 8 388 608 characters of text as
+   * written, after escaping (limits of xlvane, checked when the workbook is written;
+   * `writeWorkbookStream` writes no caches). The chart options and the anchor are copied, so changing the objects afterwards
+   * does not change the chart. Throws `XLV_E_INVALID_CHART`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const workbook = createWorkbook();
+   * const sales = workbook.addSheet('Sales').set('A1', 'Month').set('B1', 'Sales');
+   * ['Jan', 'Feb', 'Mar'].forEach((m, i) => sales.set(`A${String(i + 2)}`, m).set(`B${String(i + 2)}`, (i + 1) * 10));
+   * sales.addChart({ type: 'column', anchor: 'D2:K16', title: 'Sales', series: [{ name: 'Sales!B1', categories: 'Sales!A2:A4', values: 'Sales!B2:B4' }] });
+   * ```
+   */
+  addChart(chart: ChartInput): this {
+    const normalized = normalizeChart(chart, this.name);
+    // A copy, so that later changes to the caller's anchor object do not change the chart.
+    const anchor = copyAnchor((chart as { anchor?: unknown }).anchor);
+    try {
+      checkAnchor(anchor, 'chart');
+    } catch (error) {
+      if (error instanceof XlvError) throw new XlvError(error.code, error.message, { location: { sheet: this.name }, hint: error.hint, details: error.details });
+      throw error;
+    }
+    this.chartList.push({ anchor: anchor as ImageAnchorInput, chart: normalized });
     return this;
   }
 
@@ -1366,6 +1406,7 @@ export class NewSheet {
       tables: this.tableList,
       images: this.imageList.map((i) => resolveImage(i, metricsOf(this.columnMap, this.rowMap))),
       background: this.backgroundImage,
+      charts: this.chartList.map((c) => ({ ...resolveAnchor(c.anchor, metricsOf(this.columnMap, this.rowMap)), chart: c.chart })),
     };
   }
 }

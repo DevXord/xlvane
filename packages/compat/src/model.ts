@@ -159,7 +159,8 @@ export function typeOf(value: unknown): number {
   if (value instanceof Date) return ValueType.Date;
   if (isRecord(value)) {
     if (value['text'] && value['hyperlink']) return ValueType.Hyperlink;
-    if (value['formula'] || value['sharedFormula']) return ValueType.Formula;
+    // sharedFormula first: a dependent from stream.xlsx.WorkbookReader builds its `formula` when read (K3).
+    if (value['sharedFormula'] || value['formula']) return ValueType.Formula;
     if (value['richText']) return ValueType.RichText;
     if (value['sharedString']) return ValueType.SharedString;
     if (value['error']) return ValueType.Error;
@@ -317,8 +318,15 @@ export class Cell {
     if (typeof v['sharedFormula'] === 'string') {
       const masterRef = v['sharedFormula'].replace(/\$/g, '');
       const master = this.worksheet.findCell(masterRef);
-      const text = master?.formula;
-      if (!master || text === undefined || master === this) return undefined;
+      if (!master) {
+        // The streaming reader keeps the masters' formulas, not their rows.
+        const kept = this.worksheet._sharedMasters?.get(masterRef.toUpperCase());
+        if (kept === undefined) return undefined;
+        const at = decodeAddress(masterRef);
+        return shiftFormula(kept, this.row - at.row, this.col - at.col) ?? undefined;
+      }
+      const text = master.formula;
+      if (text === undefined || master === this) return undefined;
       return shiftFormula(text, this.row - master.row, this.col - master.col) ?? undefined;
     }
     return undefined;
@@ -1118,6 +1126,11 @@ export class Worksheet {
   _columns: Column[] = [];
   /** @internal */
   _merges: MergeMap = new MergeMap();
+  /**
+   * @internal Formulas of shared-formula masters by address, for the dependents of a worksheet
+   * whose rows are not kept (stream.xlsx.WorkbookReader), so `cell.formula` can move them (K2).
+   */
+  _sharedMasters: Map<string, string> | undefined = undefined;
   /** The cells covered by `_merges` (row × 16 385 + column), valid while `_mergedVersion` equals `_merges.version`. */
   private _mergedCells = new Set<number>();
   private _mergedVersion = -1;

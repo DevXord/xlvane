@@ -16,10 +16,13 @@ import {
   type EditResult,
   type Element,
 } from './edit';
+import { CHART_CONTENT_TYPE } from './charts';
 import { XlvError, type XlvWarning } from './errors';
+import { DRAWING_CONTENT_TYPE } from './images';
 import { resolveLimits, type ReadLimits } from './limits';
 import type { Sheet, Workbook } from './model';
 import { openPackage, type OpcPackage } from './opc/package';
+import { partKey } from './opc/part-name';
 import { readWorkbook } from './read';
 import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { shiftFormula } from './sml/formula-shift';
@@ -990,10 +993,21 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
       throw notSupported(`Sheet "${sheet.name}" has a related part of type "${name ?? rel.type}" (${rel.target}), which xlvane cannot move with its rows yet.`, { part: sheet.part, sheet: sheet.name }, { type: rel.type });
     }
   }
-  // Charts and pivot caches anywhere may refer to the sheet by name.
+  // Charts and pivot caches anywhere may refer to the sheet by name. Chart parts are found by
+  // their content type (CH-01) and as the targets of the chart relationships of drawing parts
+  // (CH-04), whatever their names; other XML parts in a charts folder and pivot cache definitions
+  // by their names, as before.
+  const charts = new Set<string>();
+  for (const name of pkg.partNames) {
+    const type = pkg.contentType(name);
+    if (type === CHART_CONTENT_TYPE) charts.add(partKey(name));
+    else if (type === DRAWING_CONTENT_TYPE) {
+      for (const r of pkg.relationships(name)) if (!r.external && classifyRelationship(r.type)?.name === 'chart') charts.add(partKey(r.target));
+    }
+  }
   const lowerName = sheet.name.toLowerCase();
   for (const name of pkg.partNames) {
-    if (!/\/charts\/[^/]+\.xml$|pivotCacheDefinition[^/]*\.xml$/i.test(name)) continue;
+    if (!charts.has(partKey(name)) && !/\/charts\/[^/]+\.xml$|pivotCacheDefinition[^/]*\.xml$/i.test(name)) continue;
     const text = edit.text(name);
     if (text !== undefined && text.toLowerCase().includes(lowerName)) {
       throw notSupported(`The part ${name} (a chart or pivot table) may refer to sheet "${sheet.name}", and xlvane cannot rewrite it yet.`, { part: name, sheet: sheet.name });
