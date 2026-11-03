@@ -848,6 +848,41 @@ At the maintainer's request (2026-11-03), documentation only; no change to the p
 - **docs/xlsx-cves.md** cites what was read: the registry document of `xlsx` (latest 0.18.5, `2022-03-24T14:23:09.623Z`), the registry's bulk advisory answer for `xlsx@0.18.5`, the GitHub Advisory Database files of GHSA-4r6h-8v6p-xvw6 (CVE-2023-30533, `< 0.19.3`) and GHSA-5pgg-2g8v-p4x9 (CVE-2024-22363, `< 0.20.2`) at github/advisory-database `887dcb68f13a7d9be8bf3d604c2e32fc3d6960e8`, the CVE records at CVEProject/cvelistV5 `cc01a172ea2819376e943af6fb3d73336eacea6b`, and the SheetJS README on GitHub. Not reachable from the development environment, so not cited: advisories.gitlab.com, cvefeed.io, db.fluidattacks.com, the github.com/advisories pages (HTTP 403), api.osv.dev, nvd.nist.gov, cveawg.mitre.org and the SheetJS sites. Because the SheetJS installation instructions could not be read, the page gives no install command for the SheetJS CDN and links to docs.sheetjs.com instead. It does not claim that a SheetJS-compatible xlvane package exists.
 - Both guides are added to `DOCS` in `scripts/package-docs.mjs`, so they are in the `xlvane` tarball and in `llms-full.txt`. Links from them to files that are not shipped point to GitHub.
 
+### D-K03 Penetration test of the 1.3.0 release candidate (2026-11-03)
+At the maintainer's request the release candidate (412226b) was tested before release: the full test chain (typecheck, 1927 tests, LibreOffice 38/38, fuzzing with 100 000 runs, `check:pkg`, Bun/Deno/browser/workerd), all earlier proofs of concept (1.1.1 and 1.2.2: all stopped), and four independent penetration tests (core with charts, MCP and CLI, `@xlvane/compat`, supply chain, documentation and website). No code execution, XML injection, prototype pollution, escape from the MCP roots or website injection was found. The confirmed findings, each reproduced and fixed test-first (`tests/security/k2-*.test.ts`, `tests/mcp/review.test.ts` "1.3.0", `tests/cli/review-1.2.3.test.ts` "1.3.0"):
+- **CSV formula injection:**
+  - a leading U+FEFF/U+FFFE hid the formula sign (LibreOffice 24.2.7.2 ran `"\uFEFF=1+1"` as a formula; also the bytes EF BB BF, FF FE, FE FF produced by `latin1` and `utf16le` output in `@xlvane/compat`);
+  - compat `map` results that are not strings were not checked;
+  - with `;`, tab or `|` as the delimiter a comma inside a field was not quoted (CSV-14).
+  All fixed in core and compat (CSV-12, CSV-14). Remaining limit, documented in CSV-14 and SECURITY.md: LibreOffice takes a quoted field apart when the reader's separator differs from the writer's and the closing quote is not followed by that separator, so the quoting fully protects only a reader that uses the writer's separator; changing text inside fields was not done.
+- **@xlvane/compat denial of service:**
+  - shared formulas: the moved text of every dependent was built on load (1M-character master, 30 dependents: 3.9 s and 950 MB; 200: out of memory; now 0.7 s); dependents are read without their text, and the streaming reader gives them as `{ sharedFormula }`;
+  - merged cells: one style per merged cell made `writeBuffer` of a 2.4 KB file run out of memory; merged ranges are written in blocks and limited to `max(1 048 576, cells in the file)` on load (`details.limit` `mergedCells`);
+  - `csv.read` built every row before any limit (40 MB of line feeds: out of memory); rows are added while parsing, up to 1 048 576 rows and 16 384 fields (`maxRows`, `maxColumns`), and quoted fields are sliced.
+- **Charts:**
+  - the cache budget counted cells, not text (20 000 cells of 32 767 characters: `RangeError`); `writeWorkbook` also limits the cached text to 8 388 608 characters;
+  - series had no workbook budget (10 parts of 300 000 series: 31.7 s; a 4.9 MB file ran out of memory); charts are read after the cells and count against what the cells leave of `maxCells`;
+  - a drawing part shared by sheets was parsed per sheet (50 sheets: 17.2 s, now 0.75 s); it follows D-H01;
+  - chart sheet names were resolved per chart on write (4 000 sheets: 5.16 s, now 2.28 s);
+  - row operations found chart parts by name only; they use the content type and chart relationships.
+- **MCP and CLI:**
+  - `..` in the text of a link was resolved lexically, so a link chain could reveal names outside the roots; paths are walked component by component;
+  - `write_table` and `convert` from JSON ignored `--max-cells`;
+  - a file removed between checks was `XLV_E_INTERNAL`;
+  - CLI messages for dangling links and special files;
+  - temporary names too long for long file names.
+- **Tests and release:**
+  - CI: LibreOffice finished a batch conversion without one PNG, so missing outputs are converted again;
+  - `run-runtimes` left the workerd binary running when `.bin/workerd` is a Node.js wrapper;
+  - prerelease tags are refused by the version check (npm 11.21.1 refuses to publish a prerelease without `--tag`).
+- **Documentation:**
+  - SECURITY.md named 1.2.x and nothing about charts;
+  - docs/facts/charts.md was still a draft with references to files outside the repository;
+  - the README fuzzing counts were wrong;
+  - "unreleased" markers would be frozen into the tag: RELEASING.md now says to replace them right before tagging.
+
+Version 1.3.0. No new dependency or error code.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await

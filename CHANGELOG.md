@@ -4,6 +4,16 @@ The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2
 
 ## 1.3.0 (unreleased)
 
+Charts, and security fixes from a penetration test of the release candidate (docs/decisions.md D-K03). Please update all three packages.
+
+### Security fixes
+
+- **CSV formula injection (all versions before 1.3.0):** a byte order mark (U+FEFF/U+FFFE) before `=`, `+`, `-` or `@` hid the formula sign from the escape, and spreadsheet applications drop the mark; such text is now escaped (`toCSV`, `xlvane convert`, `@xlvane/compat` `csv.write*`, also as bytes in `latin1` and `utf16le` output). In `@xlvane/compat`, values returned by `map` that are not strings (for example `new String('=1+1')`) are checked as the text written. Fields holding `,`, `;`, a tab or `|` are quoted whatever the delimiter.
+- **@xlvane/compat denial of service:** `xlsx.load` and `stream.xlsx.WorkbookReader` no longer build the moved text of every shared formula (a 4.6 KB file ran out of memory); merged cells are limited to `max(1 048 576, cells in the file)` on load and written in blocks (a 2.4 KB file made `writeBuffer` run out of memory); `csv.read` adds rows while it parses and stops at 1 048 576 rows or 16 384 fields.
+- **Charts:** series and chart groups count against `maxCells` when reading (a 4.9 MB file ran out of memory); `writeWorkbook` limits the cached text of charts (a `RangeError` before); a drawing part shared by several sheets is read once (`XLV_W_SHEET_PART_SHARED`); `insertRows`/`deleteRows` find chart parts by content type, so a renamed chart part no longer lets them leave its references wrong.
+- **@xlvane/mcp:** `..` in the text of a symbolic link is resolved as the system resolves it, so it no longer reveals what exists outside the roots; `write_table` and `convert` from JSON respect `--max-cells`.
+- **Command line:** a dangling symbolic link as output is replaced with `--force` (it was reported as existing with a suggestion to add `--force` again); special files are reported as "not a regular file"; files with long names can be replaced.
+
 ### xlvane
 
 - **Charts:** `sheet.addChart({ type, anchor, series, title, legend, stacked, axes })` writes column, bar, line, pie, scatter and area charts over ranges of the workbook (also in `writeWorkbookStream`, per sheet `charts`); `sheet.charts` reads the charts of a worksheet's drawing (types, stacking, title, legend, axes and series references; references are never evaluated). New error code `XLV_E_INVALID_CHART`. `XLV_W_DRAWING_CONTENT_NOT_READ` no longer counts charts. `inspect` (and `xlvane inspect`, MCP `inspect_workbook`) reports `chartCount` and `charts` (at most 10 charts per sheet, at most 10 chart types each, with `typesTruncated`, and titles cut to 100 characters). A chart that cannot be read (a part over a per-part XML limit, not a chart part, not UTF-8 or UTF-16, not well-formed) is skipped with a warning instead of failing the workbook; cached chart values do not count against `maxXmlTreeElements`, so workbooks with charts over hundreds of thousands of cells read as before. `writeWorkbook` writes chart caches of at most 4 000 000 cells per workbook. Chart references quote sheet names of letters followed by digits (such as `'Sheet1'!$A$1`).
