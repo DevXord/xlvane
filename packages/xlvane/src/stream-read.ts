@@ -17,6 +17,7 @@ import { columnLetters, formatCellRef } from './sml/cell-ref';
 import type { NumberFormat } from './sml/worksheet';
 import { createWorksheetParser } from './sml/worksheet';
 import type { StandardSchemaV1 } from './standard-schema';
+import type { CellStyle } from './style';
 import type { TableColumn, TableIssue, TableRow, TableValue } from './table';
 import { clip } from './util/clip';
 import { oneOfOption, readOptions } from './util/options';
@@ -52,6 +53,13 @@ export interface StreamRow {
   /** Row height in points, or `null` if the file sets none. */
   readonly height: number | null;
   readonly hidden: boolean;
+  /**
+   * The row's default style, as `RowInfo.style`: present only when the file marks the row as
+   * formatted (`row@s` with `customFormat="1"`). Rows without cells are not returned, so the
+   * style of a row that has only a style is not either; `readWorkbook` gives it with
+   * `Sheet.rowInfo`.
+   */
+  readonly style?: CellStyle;
 }
 
 /**
@@ -346,7 +354,10 @@ export async function openWorkbookStream(source: Uint8Array | ArrayBuffer | Blob
         budget: { remaining: Infinity, sharedText: limits.maxSharedStringChars, formulaText: limits.maxSharedStringChars },
         formatCache,
       },
-      (number, cells, rowInfo, styledCells) => ready.push({ number, cells: withNotes(cells), styledCells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false }),
+      (number, cells, rowInfo, styledCells) => {
+        const row = { number, cells: withNotes(cells), styledCells, height: rowInfo?.height ?? null, hidden: rowInfo?.hidden ?? false };
+        ready.push(rowInfo?.style === undefined ? row : { ...row, style: rowInfo.style });
+      },
     );
     const parser = createXmlByteStreamParser(handler, { part, limits });
     const stored = preloaded.entryOf(part);

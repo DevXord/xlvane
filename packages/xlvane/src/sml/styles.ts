@@ -271,11 +271,20 @@ export function parseDxfElement(el: XmlElement, ns: string, warn: (message: stri
   return parseDxf(el, ns, (c, what) => (c === undefined ? undefined : parseColor(c, what, warn)), warn);
 }
 
-/** Parses CT_Color (W2-16): rgb as ARGB, or theme (with tint), indexed or auto. */
+/**
+ * Parses CT_Color (W2-16): rgb as ARGB, or theme (with tint), indexed or auto. An rgb of exactly
+ * 6 hex digits is not valid (ST_UnsignedIntHex has 4 bytes) but some writers produce it; it is
+ * read as an opaque RGB colour, alpha FF, with a warning (W2-16a).
+ */
 export function parseColor(el: XmlElement, what: string, warn: (message: string) => void): Color | undefined {
   const rgb = el.attrs.get('rgb');
   if (rgb !== undefined) {
     if (/^[0-9A-Fa-f]{8}$/.test(rgb)) return rgb.toUpperCase();
+    if (/^[0-9A-Fa-f]{6}$/.test(rgb)) {
+      const argb = `FF${rgb.toUpperCase()}`;
+      warn(`The ${what} colour ${quote(rgb)} is not an ARGB value; it was read as the opaque RGB colour "${argb}".`);
+      return argb;
+    }
     warn(`The ${what} colour ${quote(rgb)} is not an ARGB value; it is ignored.`);
     return undefined;
   }
