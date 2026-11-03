@@ -1046,7 +1046,11 @@ export async function worksheetCsv(sheet: Worksheet | undefined, options: CsvWri
       rows.push([rowNumber, row]);
     });
     // exceljs starts at 1 and so writes one blank line too few before the first row; xlvane writes one per missing row.
-    let lastRow = 0;
+    // With headers: true, fast-csv takes the header names from the first row it gets; the blank
+    // rows before the worksheet's first row are left out, so that the header line is the first
+    // row and no data is lost (exceljs writes one blank row there from row 3 on, which becomes
+    // the headers, and writes no data; review of 1.3.1).
+    let lastRow = f.shouldWriteHeaders && f.headers === null && rows.length > 0 ? rows[0]![0] - 1 : 0;
     for (const [rowNumber, row] of rows) {
       if (includeEmptyRows) {
         while (++lastRow < rowNumber) {

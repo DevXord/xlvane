@@ -781,10 +781,26 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       if (options) sheet.column(column.number, options);
     });
     const styleCache = new Map<Style, CellStyle>();
+    // Converted styles also by their parts: cells created in a styled column or row have style
+    // objects of their own that share the column's or row's parts, and are converted once (review
+    // of 1.3.1). styleIn reads only these six parts.
+    const partsCache = new Map<unknown, unknown>();
+    const byParts = (s: Style): CellStyle => {
+      const parts = [s.numFmt, s.font, s.fill, s.border, s.alignment, s.protection];
+      let level = partsCache;
+      for (let i = 0; i < parts.length - 1; i++) {
+        let next = level.get(parts[i]) as Map<unknown, unknown> | undefined;
+        if (!next) level.set(parts[i], (next = new Map()));
+        level = next;
+      }
+      let c = level.get(parts[parts.length - 1]) as CellStyle | undefined;
+      if (!c) level.set(parts[parts.length - 1], (c = styleIn(s)));
+      return c;
+    };
     const styleOf = (s: Style): CellStyle => {
       let c = styleCache.get(s);
       if (!c) {
-        c = styleIn(s);
+        c = byParts(s);
         styleCache.set(s, c);
       }
       return c;
@@ -826,13 +842,12 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         } else at(ws.name, cell.address, () => writeCell(cell));
       });
     });
-    // The rows of a merged range whose cells all carry the master's style are styled in blocks,
-    // with one style conversion, instead of a styled cell write each (K2). Each merged position
-    // is still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
+    // The other cells of merged ranges are styled in blocks of cells with equal styles, with one
+    // style conversion each, instead of a styled cell write each (K2). Each merged position is
+    // still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
     // resident memory) to write (K3, measured with Node.js 22.23).
     for (const m of blocks.blocks) {
-      const master = m.master;
-      const style = styleFor(master);
+      const style = at(ws.name, m.cell.address, () => styleFor(m.cell));
       if (Object.keys(style).length === 0) continue;
       const width = m.right - m.left + 1;
       const step = Math.max(1, Math.floor(MERGE_STYLE_BLOCK / width));
@@ -886,6 +901,30 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
 }
 
 /**
+ * The part of a file's default font (font 0) that the writer accepts as `defaultFont`: parts it
+ * refuses (a name of more than 31 characters or an empty one, a size outside 1 to 409.55 points)
+ * are left out, so that a loaded workbook can always be written again, as with 1.3.0 and exceljs,
+ * which writes its own Calibri 11 as font 0. `null` when nothing of it is accepted.
+ */
+export function writableDefaultFont(font: FontStyle | null): FontStyle | null {
+  if (!font) return null;
+  const out: Record<string, unknown> = { ...font };
+  for (let tries = Object.keys(out).length; tries >= 0; tries--) {
+    if (Object.keys(out).length === 0) return null;
+    try {
+      createWorkbook({ defaultFont: out as FontStyle });
+      return out as FontStyle;
+    } catch (error) {
+      const property = error instanceof XlvError ? error.details['property'] : undefined;
+      const key = typeof property === 'string' && property.startsWith('font.') ? property.slice(5).split('.')[0]! : undefined;
+      if (error instanceof XlvError && error.code === 'XLV_E_INVALID_STYLE' && key !== undefined && key in out) delete out[key];
+      else return null;
+    }
+  }
+  return null;
+}
+
+/**
  * The row style to write for a row (F3), as exceljs writes it: row@s with customFormat="1"
  * (row-xform.js L19-23, L44-47), with styles only, and only for a row that exceljs writes at all,
  * one with a height or cells (lib/doc/row.js L333-364). `undefined` when there is none.
@@ -913,6 +952,11 @@ function sameStyle(a: Style, b: Style): boolean {
   return true;
 }
 
+/** Whether two styles read by the core are the same data (F3, F4: a row or column style against xf 0). */
+export function sameStyleData(a: CellStyle, b: CellStyle): boolean {
+  return samePlain(a, b, 0);
+}
+
 /** Deep equality of plain style data (objects, arrays and primitives), to a bounded depth. */
 function samePlain(a: unknown, b: unknown, depth: number): boolean {
   if (a === b) return true;
@@ -926,58 +970,55 @@ function samePlain(a: unknown, b: unknown, depth: number): boolean {
   return true;
 }
 
-/** A merged range's rows written as blocks: `rows[r - top]` is 1 when row r is in a block. */
-interface MergeRows {
+/** A vertical run of cells of one merged range and column with equal styles; `cell` is its first. */
+interface StyleRun {
   top: number;
-  left: number;
-  right: number;
-  rows: Uint8Array;
+  bottom: number;
+  cell: Cell;
 }
 
 /**
- * The blocks of merged cells that are styled with their master's style over a range: the rows of
- * a merged range whose other cells all exist, belong to the range's master and carry the master's
- * style (the object `mergeCells` shares with them, as in exceljs, or an equal one), grouped into
- * runs of rows. `covers` tells whether a merged cell lies in such a block; the cells of the other
- * rows are written one by one (K2, F2).
+ * The other cells of the merged ranges, styled in blocks instead of one by one (K2, F2): in each
+ * column of a range, runs of rows whose cells exist, belong to the range's master and have equal
+ * styles (the object `mergeCells` shares with them, as in exceljs, a column's or row's style
+ * parts, or equal data read from a file), joined across columns while the runs are the same
+ * (review of 1.3.1: cells of a styled column or row that differ from the master were written one
+ * by one). The master itself is written as a cell. `covers` tells whether a cell is styled by a
+ * block; only its note is then written on its own (K3).
  */
-function mergeBlocks(ws: Worksheet): { blocks: { master: Cell; top: number; left: number; bottom: number; right: number }[]; covers: (cell: Cell) => boolean } {
-  const blocks: { master: Cell; top: number; left: number; bottom: number; right: number }[] = [];
-  const byMaster = new Map<Cell, MergeRows[]>();
+function mergeBlocks(ws: Worksheet): { blocks: { cell: Cell; top: number; left: number; bottom: number; right: number }[]; covers: (cell: Cell) => boolean } {
+  const blocks: { cell: Cell; top: number; left: number; bottom: number; right: number }[] = [];
+  const masters = new Set<Cell>();
   for (const m of ws._merges.values()) {
     const master = ws.findCell(m.top, m.left);
     if (!master) continue;
-    const rows = new Uint8Array(m.bottom - m.top + 1);
-    let start = -1;
-    for (let r = m.top; r <= m.bottom + 1; r++) {
-      let ok = r <= m.bottom;
-      const row = ok ? ws.findRow(r) : undefined;
-      for (let c = m.left; ok && c <= m.right; c++) {
-        if (r === m.top && c === m.left) continue;
-        const cell = row?.findCell(c);
-        if (!cell || cell._master !== master || !sameStyle(cell.style, master.style)) ok = false;
+    masters.add(master);
+    let open: { run: StyleRun; left: number }[] = [];
+    const close = (right: number): void => {
+      for (const o of open) blocks.push({ cell: o.run.cell, top: o.run.top, bottom: o.run.bottom, left: o.left, right });
+    };
+    for (let c = m.left; c <= m.right; c++) {
+      const runs: StyleRun[] = [];
+      let run: StyleRun | null = null;
+      for (let r = m.top; r <= m.bottom; r++) {
+        const cell = r === m.top && c === m.left ? undefined : ws.findRow(r)?.findCell(c);
+        if (!cell || cell._master !== master) {
+          run = null;
+          continue;
+        }
+        if (run && sameStyle(cell.style, run.cell.style)) run.bottom = r;
+        else runs.push((run = { top: r, bottom: r, cell }));
       }
-      if (ok) {
-        rows[r - m.top] = 1;
-        if (start < 0) start = r;
-      } else if (start >= 0) {
-        blocks.push({ master, top: start, left: m.left, bottom: r - 1, right: m.right });
-        start = -1;
+      const same = open.length === runs.length && runs.every((x, i) => x.top === open[i]!.run.top && x.bottom === open[i]!.run.bottom && sameStyle(x.cell.style, open[i]!.run.cell.style));
+      if (!same) {
+        close(c - 1);
+        open = runs.map((x) => ({ run: x, left: c }));
       }
     }
-    const list = byMaster.get(master);
-    const entry = { top: m.top, left: m.left, right: m.right, rows };
-    if (list) list.push(entry);
-    else byMaster.set(master, [entry]);
+    close(m.right);
   }
-  const covers = (cell: Cell): boolean => {
-    for (const m of byMaster.get(cell._master!) ?? []) {
-      const i = cell.row - m.top;
-      if (cell.col >= m.left && cell.col <= m.right && i >= 0 && i < m.rows.length) return m.rows[i] === 1;
-    }
-    return false;
-  };
-  return { blocks, covers };
+  // Every other cell of a range is in a run: it exists and belongs to the range's master.
+  return { blocks, covers: (cell: Cell): boolean => cell._master !== null && masters.has(cell._master) };
 }
 
 /**

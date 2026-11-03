@@ -479,6 +479,22 @@ describe('F9: csv formatter options', () => {
     expect(new TextDecoder().decode(await wb.csv.writeBuffer({ map: () => ['=1+1', '=2'] }))).toBe('"\'=2"\n"\'=2"');
   });
 
+  it('headers: true takes the first row of the worksheet, also when it is not row 1', async () => {
+    // Review of 1.3.1: the blank line written for a missing row 1 became the header line, so no
+    // data was written. Checked with exceljs 4.4.0 (rows set with row.values): rows 2-3 give
+    // "name,age\nann,5"; rows 3-4 give "\n\n" (exceljs writes one blank row, which becomes the
+    // headers, and loses the data; xlvane writes the data); rows 1 and 3 give "name,age\n,\nann,5".
+    const csv = async (rows: [number, unknown[]][]): Promise<string> => {
+      const wb = new ExcelJS.Workbook();
+      const ws = wb.addWorksheet('S');
+      for (const [n, v] of rows) ws.getRow(n).values = v;
+      return text(wb, { headers: true });
+    };
+    expect(await csv([[2, ['name', 'age']], [3, ['ann', 5]]])).toBe('name,age\nann,5');
+    expect(await csv([[3, ['name', 'age']], [4, ['ann', 5]]])).toBe('name,age\nann,5');
+    expect(await csv([[1, ['name', 'age']], [3, ['ann', 5]]])).toBe('name,age\n,\nann,5');
+  });
+
   it('a BOM other than U+FEFF is not supported', async () => {
     // FormatterOptions.js L17-19: fast-csv takes `BOM` from the options too; exceljs writes "XX".
     await expect(sheet().csv.writeBuffer({ formatterOptions: { writeBOM: true, BOM: 'XX' } })).rejects.toMatchObject({ code: 'XLV_E_NOT_SUPPORTED' });
@@ -692,6 +708,77 @@ describe('F4: the workbook default font', () => {
     const fresh = new ExcelJS.Workbook();
     fresh.addWorksheet('S').getCell('A1').value = 1;
     expect(readWorkbook((await fresh.xlsx.writeBuffer()) as Uint8Array).defaultFont).toMatchObject({ name: 'Calibri', size: 11 });
+  });
+});
+
+describe('F4: a default font the writer does not accept', () => {
+  // Review of 1.3.1: font 0 with a name of more than 31 characters, an empty name, or a size
+  // outside 1 to 409.55 points made xlsx.writeBuffer throw XLV_E_INVALID_STYLE, because it was
+  // passed to the core as the default font. 1.3.0 and exceljs 4.4.0 write these files (exceljs always writes
+  // its own Calibri 11 as font 0). Such parts of font 0 are now left out, so saving never fails
+  // because of font 0; a cell that uses font 0 gets the same accepted font.
+  const fontFile = (font0: string): Uint8Array =>
+    buildXlsx({
+      sheets: [{ name: 'S', data: '<row r="1"><c r="A1"><v>1</v></c><c r="B1" s="1"><v>2</v></c></row>' }],
+      styles: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1">${font0}</fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/><xf numFmtId="2" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/></cellXfs>
+</styleSheet>`,
+    });
+  const cases: [string, string, Record<string, unknown>][] = [
+    ['a 60-character name', `<font><b/><sz val="11"/><name val="${'N'.repeat(60)}"/></font>`, { size: 11, bold: true }],
+    ['an empty name', '<font><sz val="11"/><name val=""/></font>', { size: 11 }],
+    ['size 5000', '<font><sz val="5000"/><name val="Arial"/></font>', { name: 'Arial' }],
+    ['size 0.5', '<font><sz val="0.5"/><name val="Arial"/></font>', { name: 'Arial' }],
+  ];
+  for (const [name, font0, kept] of cases) {
+    it(`a file whose font 0 has ${name} is written`, async () => {
+      const wb = await load(fontFile(font0));
+      const out = (await wb.xlsx.writeBuffer()) as Uint8Array;
+      const read = readWorkbook(out);
+      expect(read.defaultFont).toMatchObject(kept);
+      expect(wb.getWorksheet('S').getCell('B1').font).toMatchObject(kept);
+      expect((await load(out)).getWorksheet('S').getCell('B1').value).toBe(2);
+    });
+  }
+});
+
+describe('F3, F4: style index 0 on a column or row', () => {
+  // exceljs ignores style id 0 of a column or row (lib/xlsx/xform/sheet/col-xform.js L80
+  // `if (model.styleId)`, row-xform.js L130 `model.styleId ? ... : {}`). LibreOffice writes
+  // <col style="0"> on every column. Review of 1.3.1: such a column or row got xf 0 with font 0
+  // as its style, so new cells took it and the row was written back with s="1". Checked with
+  // exceljs 4.4.0 on this file: column A and row 2 have the style {}, and so has a new cell B5;
+  // the written file has no column or row style.
+  const file = buildXlsx({
+    sheets: [
+      {
+        name: 'S',
+        before: '<cols><col min="1" max="3" width="10" style="0"/></cols>',
+        data: '<row r="1"><c r="A1"><v>1</v></c></row><row r="2" s="0" customFormat="1"><c r="A2"><v>2</v></c></row>',
+      },
+    ],
+    styles: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="10"/><name val="Arial"/></font></fonts>
+<fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills>
+<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+<cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"><alignment vertical="bottom"/></xf></cellXfs>
+</styleSheet>`,
+  });
+
+  it('gives the column and row no style', async () => {
+    const wb = await load(file);
+    const ws = wb.getWorksheet('S');
+    expect(ws.getColumn(1).style).toEqual({});
+    expect(ws.getRow(2).style).toEqual({});
+    expect(ws.getCell('B5').style).toEqual({});
+    const xml = strFromU8(unzipSync((await wb.xlsx.writeBuffer()) as Uint8Array)['xl/worksheets/sheet1.xml']!);
+    expect(xml).not.toContain('customFormat');
+    expect(xml).not.toMatch(/<col [^>]*style=/);
   });
 });
 

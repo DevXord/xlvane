@@ -115,6 +115,48 @@ describe('K2 item 5: merged ranges with a styled master', () => {
     expect(writtenFonts(out, ['A1', 'B1', 'A60', 'XFD60'])).toEqual({ A1: true, B1: true, A60: true, XFD60: true });
   }, 120_000);
 
+  // Review of 1.3.1: merged cells that take a column or row style different from the master's
+  // are written one by one, and each, having a style object of its own, was converted on its own
+  // (twice the time of 1.3.0 for A1:B524288 with columns A and B styled differently). Styles
+  // are now converted once per distinct set of parts: counted as the distinct style objects the
+  // core is given, not timed.
+  async function distinctStyles(wb: any): Promise<number> {
+    const set = vi.spyOn(NewSheet.prototype, 'set');
+    try {
+      await wb.xlsx.writeBuffer();
+      return new Set(set.mock.calls.map((c) => c[2])).size;
+    } finally {
+      set.mockRestore();
+    }
+  }
+
+  it('merged cells with a column style other than the master are converted once per style', async () => {
+    const bytes = buildXlsx({
+      sheets: [{ name: 'S', before: '<cols><col min="1" max="1" width="9" style="1"/><col min="2" max="2" width="9" style="2"/></cols>', data: '<row r="1"><c r="A1" s="1"><v>1</v></c></row>', after: '<mergeCells count="1"><mergeCell ref="A1:B20000"/></mergeCells>' }],
+      styles: STYLES,
+    });
+    const wb = await new ExcelJS.Workbook().xlsx.load(bytes);
+    expect(wb.getWorksheet('S').getCell('B7').numFmt).toBe('0.00');
+    expect(await distinctStyles(wb)).toBeLessThanOrEqual(3);
+    const sheet = readWorkbook((await wb.xlsx.writeBuffer()) as Uint8Array).sheets[0]!;
+    const cells = new Map([...sheet.cells(), ...sheet.styledCells()].map((c) => [c.ref, c]));
+    expect(cells.get('B20000')?.numFmt).toBe('0.00');
+    expect(cells.get('A20000')?.style.font?.bold).toBe(true);
+  }, 120_000);
+
+  it('merged cells with a row style other than the master are converted once per style', async () => {
+    const rows = Array.from({ length: 20 }, (_, i) => `<row r="${String(i + 1)}" s="2" customFormat="1">${i === 0 ? '<c r="A1" s="1"><v>1</v></c>' : ''}</row>`).join('');
+    const bytes = buildXlsx({ sheets: [{ name: 'S', before: '<dimension ref="A1:CV20"/>', data: rows, after: '<mergeCells count="1"><mergeCell ref="A1:CV20"/></mergeCells>' }], styles: STYLES });
+    const wb = await new ExcelJS.Workbook().xlsx.load(bytes);
+    expect(wb.getWorksheet('S').getCell('CV20').numFmt).toBe('0.00');
+    expect(await distinctStyles(wb)).toBeLessThanOrEqual(3);
+    const sheet = readWorkbook((await wb.xlsx.writeBuffer()) as Uint8Array).sheets[0]!;
+    const cells = new Map([...sheet.cells(), ...sheet.styledCells()].map((c) => [c.ref, c]));
+    expect(cells.get('A1')?.style.font?.bold).toBe(true);
+    expect(cells.get('B1')?.numFmt).toBe('0.00');
+    expect(cells.get('CV20')?.numFmt).toBe('0.00');
+  }, 120_000);
+
   it('xlsx.load refuses merged ranges of more than 1 048 576 positions in a file with few cells', async () => {
     const bytes = mergedFile(400_000);
     const start = performance.now();

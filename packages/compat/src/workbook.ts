@@ -1,7 +1,7 @@
 // exceljs `Workbook` (lib/doc/workbook.js) and its `xlsx` reader/writer (lib/xlsx/xlsx.js), built
 // on xlvane (docs/decisions.md D-503 … D-506).
 import { DEFAULT_READ_LIMITS, XlvError, writeWorkbook, type CellStyle, type FontStyle, type Workbook as XlvWorkbook, type WorkbookImage } from 'xlvane';
-import { colorOut, formulaOut, hasFormulaText, noteOut, readBytes, readValueOut, richTextOut, styleOut, toNewWorkbook, viewOut, type ReadDates, type WorkbookMeta } from './convert';
+import { colorOut, sameStyleData, writableDefaultFont, formulaOut, hasFormulaText, noteOut, readBytes, readValueOut, richTextOut, styleOut, toNewWorkbook, viewOut, type ReadDates, type WorkbookMeta } from './convert';
 import { CsvIO } from './csv';
 import { DefinedNames, extractRanges, rangeCellCount } from './defined-names';
 import { imageBytes, imageOut, loadImageFiles, mediaOut, tableOut, type ImageData } from './media';
@@ -606,13 +606,34 @@ export class Workbook {
     }
     this._clearSheets();
     // Font 0 of the file, written again as the workbook's default font (F4).
-    this._defaultFont = read.defaultFont;
+    // Only the parts the writer accepts, so that the workbook can be written again (review of 1.3.1).
+    const font0 = writableDefaultFont(read.defaultFont);
+    this._defaultFont = font0;
     // exceljs gives a style read from a file (a cell's s >= 1, a row or column style) the font its
     // fontId names, also font 0 (styles-xform.js L296-345), which the core leaves out (F4). A row
     // or column style counts as given when it has any part.
-    const font0 = read.defaultFont;
     const fileStyle = (style: CellStyle, numFmt: string | null, styled = Object.keys(style).length > 0): Style => styleOut(styled && font0 && !style.font ? { ...style, font: font0 } : style, numFmt);
     const lineFormat = (style: CellStyle): string | null => (typeof style.numFmt === 'string' ? style.numFmt : null);
+    // exceljs ignores style id 0 of a column or row (col-xform.js L80, row-xform.js L130), which
+    // LibreOffice writes on every column. The core gives no style index for them, so a column or
+    // row style equal to xf 0 counts as id 0: xf 0 is the style of a cell without `s`, looked up
+    // once, when a column or row has a style (review of 1.3.1).
+    let xf0: CellStyle | null | undefined;
+    const defaultXf = (): CellStyle | null => {
+      if (xf0 !== undefined) return xf0;
+      xf0 = null;
+      for (const sheet of read.sheets) {
+        if (sheet.kind !== 'worksheet') continue;
+        for (const cell of sheet.cells()) {
+          if (cell.styleIndex === 0) return (xf0 = cell.style);
+        }
+      }
+      return xf0;
+    };
+    const lineStyle = (style: CellStyle): Style => {
+      const zero = defaultXf();
+      return zero && sameStyleData(style, zero) ? {} : fileStyle(style, lineFormat(style));
+    };
     if (read.dateSystem === '1904') this.properties.date1904 = true;
     else delete this.properties.date1904;
     // exceljs assigns every core property from the file, so missing ones become undefined (workbook.js L184).
@@ -684,7 +705,7 @@ export class Workbook {
           if (c.width !== null) column.width = c.width;
           if (c.hidden) column.hidden = true;
           if (c.outlineLevel) column.outlineLevel = c.outlineLevel;
-          if (c.style) column.style = fileStyle(c.style, lineFormat(c.style));
+          if (c.style) column.style = lineStyle(c.style);
         }
       }
       // sheetFormatPr and outlinePr as exceljs reads them (sheet-format-properties-xform.js; X4-28).
@@ -750,7 +771,7 @@ export class Workbook {
         const row = ws.getRow(r);
         // The row's style, read only when the file marks it with customFormat="1" (F3; exceljs
         // reads row@s without that check, row-xform.js L80-82). Cells created later take it.
-        if (info.style && use('sheetData')) row.style = fileStyle(info.style, lineFormat(info.style));
+        if (info.style && use('sheetData')) row.style = lineStyle(info.style);
         // Excel shows rows up to 409.5 points (W-04, W-04a); a taller height in a file is read as
         // 409.5, so the workbook can be written again (D-R01).
         if (info.height !== null) row.height = Math.min(info.height, 409.5);
