@@ -1,7 +1,7 @@
 // exceljs streaming API: `stream.xlsx.WorkbookWriter` (lib/stream/xlsx/workbook-writer.js) and
 // `stream.xlsx.WorkbookReader` (lib/stream/xlsx/workbook-reader.js), built on xlvane's
 // writeWorkbookStream and openWorkbookStream (docs/decisions.md D-507).
-import { openWorkbookStream, shiftFormula, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
+import { openWorkbookStream, writeWorkbookStream, XlvError, type CellInput, type CellStyle, type HyperlinkTarget, type NoteInput, type StreamRowInput, type StreamSheetSpec, type WorkbookProperties, type WriteWorkbookStreamOptions } from 'xlvane';
 import { autoFilterRange, bookViewsIn, cellStyleIn, columnIn, hasFormulaText, isDateCell, DATE_NUMFMT, layoutIn, linkIn, noteIn, resultIn, richTextOut, sheetIdOf, sheetPropertiesIn, sheetRulesIn, styleIn, styleOut, valueIn } from './convert';
 
 /**
@@ -36,7 +36,7 @@ import type { DefinedNames } from './defined-names';
 import { readFileBytes, xlvaneNode } from './node-api';
 import { imageAnchorIn, imageBytes, loadImageFiles, type ImageData } from './media';
 import { Dimensions } from './range';
-import { columnLetter, decodeAddress, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
+import { columnLetter, decodeAddress, moveSharedFormula, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import type { Image } from './compat-types';
 import { collectInput, Workbook } from './workbook';
@@ -706,9 +706,10 @@ export class WorksheetReader extends Emitter implements AsyncIterable<Row> {
  * master's text (`masters`, by address) to `row`/`col` when it is first read. The master's row is
  * not kept, so a sheet the value is copied into (stream.xlsx.WorkbookWriter, whose committed rows
  * are dropped) can write this formula instead of looking the master up (K3); reading the rows
- * alone builds no moved texts (K2). Setting `formula` replaces it with an ordinary property.
+ * alone builds no moved texts (K2). Setting `formula` replaces it with an ordinary property. A move
+ * counts against the shared-formula budget of `workbook`, as `cell.formula` does (K4 S1).
  */
-function sharedDependent(master: string, result: { result?: unknown }, masters: ReadonlyMap<string, string>, row: number, col: number): CellValue {
+function sharedDependent(master: string, result: { result?: unknown }, masters: ReadonlyMap<string, string>, row: number, col: number, workbook: object, sheet: string): CellValue {
   const value = { sharedFormula: master, ...result };
   let moved: string | undefined;
   let built = false;
@@ -718,8 +719,7 @@ function sharedDependent(master: string, result: { result?: unknown }, masters: 
     get(): string | undefined {
       if (!built) {
         const text = masters.get(master);
-        const at = decodeAddress(master);
-        moved = text === undefined ? undefined : (shiftFormula(text, row - at.row, col - at.col) ?? undefined);
+        moved = text === undefined ? undefined : moveSharedFormula(workbook, sheet, text, decodeAddress(master), row, col);
         built = true;
       }
       return moved;
@@ -800,7 +800,7 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
             const result = plain === null ? {} : { result: plain as number };
             let value: CellValue;
             if (f && f.kind === 'shared' && f.sharedIndex !== null && f.ref === null && masters.has(f.sharedIndex) && hasFormulaText(f)) {
-              value = sharedDependent(masters.get(f.sharedIndex)!, result, kept, r.number, cell.col);
+              value = sharedDependent(masters.get(f.sharedIndex)!, result, kept, r.number, cell.col, host, name);
             } else if (f && hasFormulaText(f)) {
               const text = f.text ?? '';
               if (f.kind === 'shared' && f.sharedIndex !== null && f.ref !== null) {
