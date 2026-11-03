@@ -8,7 +8,7 @@ An MIT-licensed library for reading and writing XLSX files, designed for input f
 
 Releases are published from GitHub Actions with npm provenance: `xlvane` and `@xlvane/compat` from 1.0.1, `@xlvane/mcp` from 1.2.2 ([SECURITY.md](SECURITY.md)).
 
-**Website:** [xlvane.github.io](https://xlvane.github.io) (guide, error codes, an in-browser demo). **Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/compat](https://www.npmjs.com/package/@xlvane/compat)). Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md), planned and deferred work in [ROADMAP.md](ROADMAP.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
+**Website:** [xlvane.github.io](https://xlvane.github.io) (guide, error codes, an in-browser demo). **Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/compat](https://www.npmjs.com/package/@xlvane/compat), [@xlvane/mcp](https://www.npmjs.com/package/@xlvane/mcp)). Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md), planned and deferred work in [ROADMAP.md](ROADMAP.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Packages
 
