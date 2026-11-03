@@ -4,7 +4,9 @@
 // sml/ref-adjust.ts (docs/facts/ref-adjust.md R-01 … R-14); anything that cannot be rewritten
 // safely makes the operation fail with an error instead of leaving a wrong reference behind.
 import {
+  IntList,
   PackageEditor,
+  TextBuilder,
   inputBytes,
   removeContentType,
   removeRelationships,
@@ -23,7 +25,7 @@ import { resolveLimits, type ReadLimits } from './limits';
 import type { Sheet, Workbook } from './model';
 import { openPackage, type OpcPackage } from './opc/package';
 import { partKey } from './opc/part-name';
-import { readWorkbook } from './read';
+import { readWorkbook, styledCellCount } from './read';
 import { formatCellRef, formatRange, MAX_ROWS, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { shiftFormula } from './sml/formula-shift';
 import { classifyRelationship, REL_NS, SML_NS } from './sml/namespaces';
@@ -31,6 +33,7 @@ import { adjustFormula, adjustRange, type ReferenceChange } from './sml/ref-adju
 import { X14_CF_URI, X14_DV_URI, X14_NS, XM_NS } from './sheet-rules';
 import { readOptions } from './util/options';
 import { WarningCollector } from './util/warnings';
+import { parseXml } from './xml/parser';
 import { escapeAttr, escapeText } from './xml/writer';
 import { openZip } from './zip/reader';
 
@@ -55,6 +58,8 @@ export interface InsertRowsOptions extends EditOptions {
   /**
    * Formatting of the new rows: `'above'` copies the row format, height and cell formats of the row
    * above, `'below'` those of the row that is pushed down, `'none'` (default) leaves them empty.
+   * The copied cell formats are cells that count against `limits.maxCells` with the cells of the
+   * workbook (`XLV_E_LIMIT_EXCEEDED` above it).
    */
   readonly style?: 'above' | 'below' | 'none';
 }
@@ -80,6 +85,14 @@ export interface DeleteRowsOptions extends EditOptions {
 }
 
 /** Relationship types of a worksheet whose parts do not depend on row positions or are handled here. */
+/**
+ * Media type of pivot cache definition parts, as Microsoft Excel writes it in
+ * `[Content_Types].xml` (Apache POI corpus files poi/ExcelPivotTableSample.xlsx, poi/54436.xlsx,
+ * poi/DataTableCities.xlsx; B6). The relationship from the workbook ends in
+ * `/pivotCacheDefinition` in the same files.
+ */
+const PIVOT_CACHE_DEFINITION_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml';
+
 const SAFE_SHEET_RELATIONSHIPS = new Set(['hyperlink', 'comments', 'vmlDrawing', 'printerSettings', 'image', 'customProperty', 'drawing', 'table']);
 
 /** Elements of a worksheet whose content refers to cells and that xlvane does not rewrite. */
@@ -119,15 +132,30 @@ function moveRow(n: number, c: RowChange): number | null {
   return n > end ? n + c.count : null;
 }
 
+/** Decodes the predefined entities and character references of XML text; a reference to a code point that does not exist stays as written. */
 function decodeEntities(s: string): string {
-  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g, (_m, e: string) => {
+  return s.replace(/&(#x[0-9a-fA-F]+|#[0-9]+|amp|lt|gt|quot|apos);/g, (m, e: string) => {
     if (e === 'amp') return '&';
     if (e === 'lt') return '<';
     if (e === 'gt') return '>';
     if (e === 'quot') return '"';
     if (e === 'apos') return "'";
-    return String.fromCodePoint(e.startsWith('#x') ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10));
+    const cp = e.startsWith('#x') ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);
+    return cp <= 0x10ffff ? String.fromCodePoint(cp) : m;
   });
+}
+
+/**
+ * Whether the XML text of a part may refer to a sheet: its name, ignoring case, appears in the
+ * text after entity and character references are decoded, as written or in the quoted form of a
+ * formula, where each "'" is doubled (docs/facts/formulas.md F2-11). Searching the raw XML missed names such
+ * as "R&D" (written "R&amp;D") and "O'Brien" (written "'O''Brien'!", B6). It may find the name
+ * where it is not a reference, which only refuses more.
+ */
+function mentionsSheet(xml: string, sheet: string): boolean {
+  const text = decodeEntities(xml).toLowerCase();
+  const name = sheet.toLowerCase();
+  return text.includes(name) || (name.includes("'") && text.includes(name.replace(/'/g, "''")));
 }
 
 function removeAttr(tag: string, name: string): string {
@@ -194,41 +222,179 @@ function applyEdits(text: string, edits: readonly [number, number, string][]): s
 }
 
 interface SheetEdit {
-  readonly text: string;
+  /** The new text, as one string or as pieces for {@link PackageEditor.write}; the same string when nothing changed. */
+  readonly text: string | string[];
   readonly hasFormulas: boolean;
 }
 
-interface CellInfo {
-  readonly col: number;
-  readonly hasR: boolean;
-  readonly element: Element;
-  f: Element | null;
+const KEEP_DEPTH3 = new Set(['mergeCell', 'hyperlink', 'cfRule', 'dataValidation', 'brk', 'ignoredError', 'protectedRange']);
+
+/** Integers per row of {@link WorksheetScan.rows}: number, start tag start and end, element end, flags, first cell, cell count. */
+const ROW_FIELDS = 7;
+/** Integers per cell of {@link WorksheetScan.cells}: column, start tag start and end, element end, flags. */
+const CELL_FIELDS = 5;
+/** Integers per formula of {@link WorksheetScan.formulas}: row, column, start tag start and end, end tag start and end, kind. */
+const FORMULA_FIELDS = 7;
+/** Row and cell flags. */
+const HAS_R = 1;
+const EMPTY = 2;
+/** Formula kinds (`f@t`); any other value is handled as a normal formula. */
+const NORMAL = 0;
+const SHARED = 1;
+const ARRAY = 2;
+const DATA_TABLE = 3;
+
+/**
+ * A worksheet part as rewriteSheet needs it: the elements that hold references, as objects (they
+ * do not grow with the cells), and the rows, cells and cell formulas as numbers, so that a sheet
+ * of millions of cells costs a few integers per cell instead of objects (the element scanner kept
+ * an object per cell and ran out of memory on 4.9 million cells).
+ */
+interface WorksheetScan {
+  readonly elements: Element[];
+  readonly rows: IntList;
+  readonly rowCount: number;
+  readonly cells: IntList;
+  readonly formulas: IntList;
+  readonly formulaCount: number;
+  /** A row or cell without a reference: then every row and cell gets one. */
+  readonly missingRefs: boolean;
+  /** The first invalid row or cell reference, reported where the element scanner reported it. */
+  readonly invalidRef: string | null;
 }
 
-interface RowInfo {
-  readonly number: number;
-  readonly hasR: boolean;
-  readonly element: Element;
-  readonly cells: CellInfo[];
+function scanWorksheet(text: string, part: string, limits: ReadLimits): WorksheetScan {
+  const keep = (local: string, depth: number, parent: string, ns: string): boolean =>
+    depth === 2 ||
+    (depth === 3 && (KEEP_DEPTH3.has(local) || (local === 'ext' && parent === 'extLst'))) ||
+    (depth === 4 && ((local === 'formula' && parent === 'cfRule') || ((local === 'formula1' || local === 'formula2') && parent === 'dataValidation'))) ||
+    (depth === 5 && local === 'cfvo' && CFVO_PARENTS.has(parent)) ||
+    // The [MS-XLSX] extension: containers, items, rules, the x14:id of a classic rule, xm:sqref and xm:f (SR-40, SR-41).
+    (ns === X14_NS && ((depth === 4 && (local === 'conditionalFormattings' || local === 'dataValidations')) || (depth === 5 && (local === 'conditionalFormatting' || local === 'dataValidation')) || (depth === 6 && (local === 'cfRule' || (local === 'id' && parent === 'ext'))))) ||
+    (ns === XM_NS && ((depth === 6 && local === 'sqref') || (depth >= 7 && local === 'f')));
+  const elements: Element[] = [];
+  /** Per open element: the kept Element, or a code for a recorded row (1), cell (2) or formula (3), or null. */
+  const open: (Element | 1 | 2 | 3 | null)[] = [];
+  const names: string[] = [];
+  let root = false;
+  const rows = new IntList();
+  const cells = new IntList();
+  const formulas = new IntList();
+  let rowCount = 0;
+  let formulaCount = 0;
+  let currentRow = 0;
+  let lastCol = 0;
+  let hasRow = false;
+  let hasCell = false;
+  let missingRefs = false;
+  let invalidRef: string | null = null;
+  parseXml(
+    text,
+    {
+      start(ns, local, attrs, span) {
+        const depth = names.length + 1;
+        const parent = names[names.length - 1] ?? '';
+        names.push(local);
+        if (depth === 1) {
+          root = true;
+          open.push(null);
+          return;
+        }
+        if (depth === 3 && local === 'row') {
+          const r = attrs.get('r');
+          const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
+          if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) invalidRef ??= r ?? String(n);
+          currentRow = Number.isInteger(n) ? n : currentRow;
+          lastCol = 0;
+          if (r === undefined) missingRefs = true;
+          rows.push(n);
+          rows.push(span.start);
+          rows.push(span.end);
+          rows.push(span.end);
+          rows.push((r === undefined ? 0 : HAS_R) | (span.empty ? EMPTY : 0));
+          rows.push(cells.length / CELL_FIELDS);
+          rows.push(0);
+          rowCount++;
+          hasRow = true;
+          hasCell = false;
+          open.push(1);
+          return;
+        }
+        if (depth === 4 && local === 'c' && parent === 'row' && hasRow) {
+          const r = attrs.get('r');
+          const address = r === undefined || r === '' ? null : parseCellRef(r);
+          if (r !== undefined && r !== '' && address === null) invalidRef ??= r;
+          const col = address?.col ?? lastCol + 1;
+          lastCol = col;
+          const hasR = r !== undefined && r !== '';
+          if (!hasR) missingRefs = true;
+          cells.push(col);
+          cells.push(span.start);
+          cells.push(span.end);
+          cells.push(span.end);
+          cells.push((hasR ? HAS_R : 0) | (span.empty ? EMPTY : 0));
+          const count = (rowCount - 1) * ROW_FIELDS + 6;
+          rows.set(count, rows.get(count) + 1);
+          hasCell = true;
+          open.push(2);
+          return;
+        }
+        if (depth === 5 && local === 'f' && parent === 'c' && hasCell) {
+          const t = attrs.get('t');
+          formulas.push(currentRow);
+          formulas.push(lastCol);
+          formulas.push(span.start);
+          formulas.push(span.end);
+          formulas.push(span.end);
+          formulas.push(span.end);
+          formulas.push(t === 'shared' ? SHARED : t === 'array' ? ARRAY : t === 'dataTable' ? DATA_TABLE : NORMAL);
+          formulaCount++;
+          open.push(3);
+          return;
+        }
+        if (keep(local, depth, parent, ns)) {
+          const element: Element = { local, ns, depth, attrs, start: span, end: span };
+          elements.push(element);
+          open.push(element);
+        } else open.push(null);
+      },
+      end(_ns, _local, span) {
+        names.pop();
+        const what = open.pop();
+        if (what === 1) {
+          rows.set((rowCount - 1) * ROW_FIELDS + 3, span.end);
+        } else if (what === 2) {
+          cells.set(cells.length - 2, span.end);
+        } else if (what === 3) {
+          formulas.set(formulas.length - 3, span.start);
+          formulas.set(formulas.length - 2, span.end);
+        } else if (what !== null && what !== undefined) what.end = span;
+      },
+      text() {},
+    },
+    { part, limits },
+  );
+  if (!root) throw new XlvError('XLV_E_PART_INVALID', 'The part has no root element.', { location: { part }, hint: 'Re-save the file in a spreadsheet application.' });
+  return { elements, rows, rowCount, cells, formulas, formulaCount, missingRefs, invalidRef };
 }
 
-const KEEP_DEPTH3 = new Set(['row', 'mergeCell', 'hyperlink', 'cfRule', 'dataValidation', 'brk', 'ignoredError', 'protectedRange']);
+/**
+ * The attributes of a start tag given as source text (already checked by the XML parser), with
+ * references decoded. Used for the few tags whose attributes are needed again, instead of keeping
+ * the attributes of every cell and formula.
+ */
+function tagAttributes(tag: string): Map<string, string> {
+  const attrs = new Map<string, string>();
+  const pattern = /\s+([^\s=/>]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/y;
+  pattern.lastIndex = tag.search(/[\s/>]/);
+  for (let m = pattern.exec(tag); m !== null; m = pattern.exec(tag)) attrs.set(m[1] ?? '', decodeEntities((m[2] ?? m[3] ?? '').replace(/[\t\n\r]/g, ' ')));
+  return attrs;
+}
 
 /** Rewrites one worksheet part: references everywhere, and row positions on the changed sheet. */
-function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, target: boolean, style: 'above' | 'below' | 'none', limits: ReadLimits): SheetEdit {
-  const { elements } = scan(
-    text,
-    part,
-    limits,
-    (local, depth, parent, ns) =>
-      depth === 2 ||
-      (depth === 3 && (KEEP_DEPTH3.has(local) || (local === 'ext' && parent === 'extLst'))) ||
-      (depth === 4 && ((local === 'c' && parent === 'row') || (local === 'formula' && parent === 'cfRule') || ((local === 'formula1' || local === 'formula2') && parent === 'dataValidation'))) ||
-      (depth === 5 && ((local === 'f' && parent === 'c') || (local === 'cfvo' && CFVO_PARENTS.has(parent)))) ||
-      // The [MS-XLSX] extension: containers, items, rules, the x14:id of a classic rule, xm:sqref and xm:f (SR-40, SR-41).
-      (ns === X14_NS && ((depth === 4 && (local === 'conditionalFormattings' || local === 'dataValidations')) || (depth === 5 && (local === 'conditionalFormatting' || local === 'dataValidation')) || (depth === 6 && (local === 'cfRule' || (local === 'id' && parent === 'ext'))))) ||
-      (ns === XM_NS && ((depth === 6 && local === 'sqref') || (depth >= 7 && local === 'f'))),
-  );
+function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, target: boolean, style: 'above' | 'below' | 'none', limits: ReadLimits, workbookCells: number): SheetEdit {
+  const scanned = scanWorksheet(text, part, limits);
+  const { elements, rows, rowCount, cells, formulas, formulaCount } = scanned;
   const edits: [number, number, string][] = [];
   const tagOf = (e: Element): string => text.slice(e.start.start, e.start.end);
   const replaceTag = (e: Element, tag: string): void => {
@@ -273,50 +439,25 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     if (target && /sqref|<xm:f|sparkline|slicer/i.test(body)) {
       throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines or slicers) that refers to cells, which xlvane cannot move with its rows yet.`, where(), { element: 'extLst' });
     }
-    if (!target && /<xm:f|sparkline/i.test(body) && body.toLowerCase().includes(c.sheet.toLowerCase())) {
+    if (!target && /<xm:f|sparkline/i.test(body) && mentionsSheet(body, c.sheet)) {
       throw notSupported(`Sheet "${sheet.name}" has extended content (such as sparklines) that may refer to sheet "${c.sheet}", which xlvane cannot rewrite yet.`, where(), { element: 'extLst' });
     }
   }
 
-  // Rows and cells, numbered as the reader numbers them (D-105).
-  const rows: RowInfo[] = [];
-  let current: RowInfo | null = null;
-  let currentRow = 0;
-  let lastCol = 0;
-  let lastCell: CellInfo | null = null;
-  const formulas: { cell: CellInfo; row: RowInfo }[] = [];
-  const invalidRef = (ref: string): never => {
+  // Rows and cells are numbered as the reader numbers them (D-105).
+  if (scanned.invalidRef !== null) {
+    const ref = scanned.invalidRef;
     throw new XlvError('XLV_E_INVALID_CELL_REF', `Sheet "${sheet.name}" contains the invalid reference "${ref.slice(0, 20)}", so its rows cannot be moved safely.`, {
       location: where(),
       hint: 'Open and re-save the file in a spreadsheet application, which drops the damaged cells, then try again.',
       details: { ref: ref.slice(0, 40) },
     });
-  };
-  let hasFormulas = false;
+  }
+  const hasFormulas = formulaCount > 0;
   let extension: Element | null = null;
   for (const e of elements) {
     if (e.depth === 3 && e.local === 'ext') extension = knownExts.has(e) ? e : null;
-    if (e.depth === 3 && e.local === 'row') {
-      const r = e.attrs.get('r');
-      const n = r === undefined ? currentRow + 1 : /^[0-9]{1,7}$/.test(r.trim()) ? Number(r.trim()) : Number.NaN;
-      if (!Number.isInteger(n) || n < 1 || n > MAX_ROWS) invalidRef(r ?? String(n));
-      currentRow = n;
-      current = { number: n, hasR: r !== undefined, element: e, cells: [] };
-      rows.push(current);
-      lastCol = 0;
-    } else if (e.depth === 4 && e.local === 'c' && current) {
-      const r = e.attrs.get('r');
-      const address = r === undefined || r === '' ? null : parseCellRef(r);
-      if (r !== undefined && r !== '' && address === null) invalidRef(r);
-      const col = address?.col ?? lastCol + 1;
-      lastCol = col;
-      lastCell = { col, hasR: r !== undefined && r !== '', element: e, f: null };
-      current.cells.push(lastCell);
-    } else if (e.depth === 5 && e.local === 'f' && lastCell && current) {
-      lastCell.f = e;
-      hasFormulas = true;
-      formulas.push({ cell: lastCell, row: current });
-    } else if (e.depth === 4 && (e.local === 'formula' || e.local === 'formula1' || e.local === 'formula2')) {
+    if (e.depth === 4 && (e.local === 'formula' || e.local === 'formula1' || e.local === 'formula2')) {
       const raw = content(text, e);
       const out = adjustText(raw, c, sheet.name);
       if (out === null) {
@@ -359,11 +500,14 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     }
   }
 
-  // Cell formulas, with shared formulas expanded where they cannot stay shared.
+  // Cell formulas, with shared formulas expanded where they cannot stay shared. The changes are
+  // worked out while the new text is written, one formula at a time, so they are never all held.
   const masters = new Map<string, { row: number; col: number; text: string }>();
-  for (const { cell, row } of formulas) {
-    const f = cell.f as Element;
-    if (f.attrs.get('t') === 'shared' && f.attrs.has('ref') && f.attrs.has('si')) masters.set(f.attrs.get('si') ?? '', { row: row.number, col: cell.col, text: content(text, f) });
+  for (let i = 0; i < formulaCount; i++) {
+    const at = i * FORMULA_FIELDS;
+    if (formulas.get(at + 6) !== SHARED) continue;
+    const attrs = tagAttributes(text.slice(formulas.get(at + 2), formulas.get(at + 3)));
+    if (attrs.get('t') === 'shared' && attrs.has('ref') && attrs.has('si')) masters.set(attrs.get('si') ?? '', { row: formulas.get(at), col: formulas.get(at + 1), text: text.slice(formulas.get(at + 3), formulas.get(at + 4)) });
   }
   const expand = new Set<string>();
   for (const [si, m] of masters) {
@@ -371,201 +515,308 @@ function rewriteSheet(text: string, part: string, sheet: Sheet, c: RowChange, ta
     if (target || out === null || out !== m.text) expand.add(si);
   }
   const deletedRow = (n: number): boolean => c.count < 0 && moveRow(n, c) === null;
-  for (const { cell, row } of formulas) {
-    const f = cell.f as Element;
-    if (target && deletedRow(row.number)) continue;
-    const ref = formatCellRef(row.number, cell.col);
-    const kind = f.attrs.get('t');
+  /** The changes of formula `i`: [start, end, text] replacements in document order. */
+  const formulaChanges = (i: number): [number, number, string][] => {
+    const at = i * FORMULA_FIELDS;
+    const row = formulas.get(at);
+    const col = formulas.get(at + 1);
+    const tagStart = formulas.get(at + 2);
+    const tagEnd = formulas.get(at + 3);
+    const endStart = formulas.get(at + 4);
+    const end = formulas.get(at + 5);
+    const kind = formulas.get(at + 6);
+    if (target && deletedRow(row)) return [];
+    const ref = formatCellRef(row, col);
     const failed = (formula: string): never => {
       throw notSupported(`The formula in ${ref} of sheet "${sheet.name}" cannot be adjusted safely: "${formula.slice(0, 60)}".`, where(ref), { formula: formula.slice(0, 80) });
     };
-    if (kind === 'shared') {
-      const si = f.attrs.get('si') ?? '';
+    const tag = text.slice(tagStart, tagEnd);
+    if (kind === SHARED) {
+      const si = tagAttributes(tag).get('si') ?? '';
       const master = masters.get(si);
-      if (master === undefined || !expand.has(si)) continue;
+      if (master === undefined || !expand.has(si)) return [];
       const source = decodeEntities(master.text);
-      const own = shiftFormula(source, row.number - master.row, cell.col - master.col);
+      const own = shiftFormula(source, row - master.row, col - master.col);
       if (own === null) failed(source);
       const adjusted = adjustFormula(own as string, refChange(c, sheet.name));
       if (adjusted === null) failed(own as string);
-      let tag = removeAttr(removeAttr(removeAttr(tagOf(f), 't'), 'ref'), 'si');
-      if (tag.endsWith('/>')) tag = `${tag.slice(0, -2).trimEnd()}>`;
-      edits.push([f.start.start, f.end.end, `${tag}${escapeText(adjusted as string)}</${f.start.qname}>`]);
-      continue;
+      let plain = removeAttr(removeAttr(removeAttr(tag, 't'), 'ref'), 'si');
+      if (plain.endsWith('/>')) plain = `${plain.slice(0, -2).trimEnd()}>`;
+      const qname = /^<([^\s/>]+)/.exec(tag)?.[1] ?? 'f';
+      return [[tagStart, end, `${plain}${escapeText(adjusted as string)}</${qname}>`]];
     }
-    if (kind === 'dataTable') {
+    if (kind === DATA_TABLE) {
       if (target) throw notSupported(`Cell ${ref} of sheet "${sheet.name}" is part of a data table, which xlvane cannot move.`, where(ref));
-      continue;
+      return [];
     }
-    const raw = content(text, f);
+    const raw = text.slice(tagEnd, endStart);
     const out = adjustText(raw, c, sheet.name);
     if (out === null) failed(decodeEntities(raw));
-    let tag = tagOf(f);
-    if (kind === 'array' && target) {
-      const range = parseRange(f.attrs.get('ref') ?? '');
+    const changes: [number, number, string][] = [];
+    if (kind === ARRAY && target) {
+      const arrayRef = tagAttributes(tag).get('ref') ?? '';
+      const range = parseRange(arrayRef);
       if (range !== null) {
-        const end = c.at - c.count - 1;
-        const split = c.count > 0 ? c.at > range.start.row && c.at <= range.end.row : !(range.start.row >= c.at && range.end.row <= end) && range.end.row >= c.at && range.start.row <= end;
-        if (split) throw notSupported(`The array formula in ${f.attrs.get('ref') ?? ref} of sheet "${sheet.name}" would be split by the change.`, where(ref));
-        const moved = adjustRange(f.attrs.get('ref') ?? '', refChange(c, sheet.name));
-        if (moved !== null && moved !== '' && moved !== f.attrs.get('ref')) tag = setAttr(tag, 'ref', moved);
+        const last = c.at - c.count - 1;
+        const split = c.count > 0 ? c.at > range.start.row && c.at <= range.end.row : !(range.start.row >= c.at && range.end.row <= last) && range.end.row >= c.at && range.start.row <= last;
+        if (split) throw notSupported(`The array formula in ${arrayRef === '' ? ref : arrayRef} of sheet "${sheet.name}" would be split by the change.`, where(ref));
+        const moved = adjustRange(arrayRef, refChange(c, sheet.name));
+        if (moved !== null && moved !== '' && moved !== arrayRef) changes.push([tagStart, tagEnd, setAttr(tag, 'ref', moved)]);
       }
     }
-    if (tag !== tagOf(f)) replaceTag(f, tag);
-    if (out !== raw) edits.push([f.start.end, f.end.start, out as string]);
-  }
+    if (out !== raw) changes.push([tagEnd, endStart, out as string]);
+    return changes;
+  };
 
-  if (!target) return { text: edits.length === 0 ? text : applyEdits(text, edits), hasFormulas };
+  let force = false;
+  if (target) {
+    force = scanned.missingRefs;
+    // Rows pushed past the last row must be empty.
+    for (let i = 0; i < rowCount && c.count > 0; i++) {
+      const at = i * ROW_FIELDS;
+      const number = rows.get(at);
+      if (moveRow(number, c) !== null) continue;
+      for (let j = 0; j < rows.get(at + 6); j++) {
+        if ((cells.get((rows.get(at + 5) + j) * CELL_FIELDS + 4) & EMPTY) === 0) {
+          throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Inserting ${String(c.count)} rows would push row ${String(number)} of sheet "${sheet.name}", which holds data, past the last row of the sheet.`, {
+            location: where(),
+            hint: `A sheet has ${String(MAX_ROWS)} rows. Delete the rows at the end of the sheet first, or insert fewer rows.`,
+            details: { limit: 'rows', value: MAX_ROWS },
+          });
+        }
+      }
+    }
+    const findRow = (test: (n: number) => boolean): number => {
+      for (let i = 0; i < rowCount; i++) if (test(rows.get(i * ROW_FIELDS))) return i;
+      return -1;
+    };
+    if (c.count > 0 && style !== 'none') {
+      const source = findRow((n) => n === (style === 'above' ? c.at - 1 : c.at));
+      if (source >= 0) {
+        const at = source * ROW_FIELDS;
+        const rowTag = text.slice(rows.get(at + 1), rows.get(at + 2));
+        const rowAttrs = tagAttributes(rowTag);
+        const rowQname = /^<([^\s/>]+)/.exec(rowTag)?.[1] ?? 'row';
+        const prefix = rowQname.slice(0, rowQname.length - 3);
+        const keep = ['s', 'customFormat', 'ht', 'customHeight'].filter((a) => rowAttrs.has(a));
+        const formats: { col: number; s: string }[] = [];
+        for (let j = 0; j < rows.get(at + 6); j++) {
+          const cell = (rows.get(at + 5) + j) * CELL_FIELDS;
+          const s = tagAttributes(text.slice(cells.get(cell + 1), cells.get(cell + 2))).get('s') ?? '0';
+          if (s !== '0') formats.push({ col: cells.get(cell), s });
+        }
+        // The new cells are counted before they are built: copying the formats of a wide row into
+        // many rows could otherwise ask for billions of cells.
+        const added = formats.length * c.count;
+        if (workbookCells + added > limits.maxCells) {
+          throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Inserting ${String(c.count)} rows formatted like row ${String(rows.get(at))} of sheet "${sheet.name}" would add ${String(added)} formatted cells, and the workbook would hold more cells than the limit of ${String(limits.maxCells)}.`, {
+            location: where(),
+            hint: `Cells that hold only a style count too. Insert fewer rows, use { style: 'none' } and format the rows afterwards, or, if there is enough memory, raise the limit, for example { limits: { maxCells: ${String(workbookCells + added)} } }.`,
+            details: { limit: 'maxCells', value: limits.maxCells },
+          });
+        }
+        const attrs = keep.map((a) => ` ${a}="${escapeAttr(rowAttrs.get(a) ?? '')}"`).join('');
+        const created = new TextBuilder();
+        for (let i = 0; i < c.count; i++) {
+          const n = c.at + i;
+          if (formats.length === 0) {
+            created.add(`<${prefix}row r="${String(n)}"${attrs}/>`);
+            continue;
+          }
+          created.add(`<${prefix}row r="${String(n)}"${attrs}>`);
+          for (const f of formats) created.add(`<${prefix}c r="${formatCellRef(n, f.col)}" s="${escapeAttr(f.s)}"/>`);
+          created.add(`</${prefix}row>`);
+        }
+        const createdText = created.finish().join('');
+        const next = findRow((n) => n >= c.at);
+        if (next >= 0) edits.push([rows.get(next * ROW_FIELDS + 1), rows.get(next * ROW_FIELDS + 1), createdText]);
+        else {
+          const sheetData = elements.find((e) => e.depth === 2 && e.local === 'sheetData');
+          if (sheetData && !sheetData.start.empty) edits.push([sheetData.end.start, sheetData.end.start, createdText]);
+          else if (sheetData) edits.push([sheetData.start.start, sheetData.start.end, `${tagOf(sheetData).slice(0, -2).trimEnd()}>${createdText}</${sheetData.start.qname}>`]);
+        }
+      }
+    }
 
-  // Rows and cells of the changed sheet.
-  const force = rows.some((r) => !r.hasR || r.cells.some((x) => !x.hasR));
-  for (const row of rows) {
-    const n = moveRow(row.number, c);
-    if (n === null) {
-      if (c.count > 0 && row.cells.some((x) => !x.element.start.empty)) {
-        throw new XlvError('XLV_E_LIMIT_EXCEEDED', `Inserting ${String(c.count)} rows would push row ${String(row.number)} of sheet "${sheet.name}", which holds data, past the last row of the sheet.`, {
-          location: where(),
-          hint: `A sheet has ${String(MAX_ROWS)} rows. Delete the rows at the end of the sheet first, or insert fewer rows.`,
-          details: { limit: 'rows', value: MAX_ROWS },
-        });
-      }
-      removeElement(row.element);
-      continue;
-    }
-    if (n === row.number && !force) continue;
-    replaceTag(row.element, setAttr(tagOf(row.element), 'r', String(n)));
-    for (const cell of row.cells) replaceTag(cell.element, setAttr(tagOf(cell.element), 'r', formatCellRef(n, cell.col)));
-  }
-  if (c.count > 0 && style !== 'none') {
-    const source = rows.find((r) => r.number === (style === 'above' ? c.at - 1 : c.at));
-    if (source) {
-      const prefix = source.element.start.qname.slice(0, source.element.start.qname.length - 3);
-      const keep = ['s', 'customFormat', 'ht', 'customHeight'].filter((a) => source.element.attrs.has(a));
-      let created = '';
-      for (let i = 0; i < c.count; i++) {
-        const n = c.at + i;
-        const attrs = keep.map((a) => ` ${a}="${escapeAttr(source.element.attrs.get(a) ?? '')}"`).join('');
-        const cells = source.cells.filter((x) => (x.element.attrs.get('s') ?? '0') !== '0').map((x) => `<${prefix}c r="${formatCellRef(n, x.col)}" s="${escapeAttr(x.element.attrs.get('s') ?? '0')}"/>`).join('');
-        created += cells === '' ? `<${prefix}row r="${String(n)}"${attrs}/>` : `<${prefix}row r="${String(n)}"${attrs}>${cells}</${prefix}row>`;
-      }
-      const next = rows.find((r) => r.number >= c.at);
-      if (next) edits.push([next.element.start.start, next.element.start.start, created]);
-      else {
-        const sheetData = elements.find((e) => e.depth === 2 && e.local === 'sheetData');
-        if (sheetData && !sheetData.start.empty) edits.push([sheetData.end.start, sheetData.end.start, created]);
-        else if (sheetData) edits.push([sheetData.start.start, sheetData.start.end, `${tagOf(sheetData).slice(0, -2).trimEnd()}>${created}</${sheetData.start.qname}>`]);
+    // Elements of the changed sheet that hold ranges.
+    const removedIds = new Set<string>();
+    // The x14:id values of the rules of each classic conditional format, collected in one pass.
+    const linkIds = new Map<Element, string[]>();
+    let format: Element | null = null;
+    for (const e of elements) {
+      if (e.depth === 2) format = e.local === 'conditionalFormatting' ? e : null;
+      else if (format !== null && e.depth === 6 && e.ns === X14_NS && e.local === 'id') {
+        const list = linkIds.get(format) ?? [];
+        list.push(content(text, e).trim().toLowerCase());
+        linkIds.set(format, list);
       }
     }
-  }
-
-  // Elements of the changed sheet that hold ranges.
-  const removedIds = new Set<string>();
-  // The x14:id values of the rules of each classic conditional format, collected in one pass.
-  const linkIds = new Map<Element, string[]>();
-  let format: Element | null = null;
-  for (const e of elements) {
-    if (e.depth === 2) format = e.local === 'conditionalFormatting' ? e : null;
-    else if (format !== null && e.depth === 6 && e.ns === X14_NS && e.local === 'id') {
-      const list = linkIds.get(format) ?? [];
-      list.push(content(text, e).trim().toLowerCase());
-      linkIds.set(format, list);
-    }
-  }
-  const containers = new Map<Element, { kept: number; total: number }>();
-  let parent2: Element | null = null;
-  for (const e of elements) {
-    if (e.depth === 2) {
-      parent2 = e;
-      if (e.local === 'dimension' || e.local === 'autoFilter') {
-        const ref = e.attrs.get('ref');
-        if (ref === undefined) continue;
-        const out = adjustRange(ref, refChange(c, sheet.name));
-        if (out === null || out === ref) continue;
-        if (e.local === 'dimension') replaceTag(e, setAttr(tagOf(e), 'ref', out === '' ? 'A1' : (out.split(' ')[0] ?? 'A1')));
-        else if (out === '') removeElement(e);
-        else replaceTag(e, setAttr(tagOf(e), 'ref', out));
-      } else if (e.local === 'conditionalFormatting') {
+    const containers = new Map<Element, { kept: number; total: number }>();
+    let parent2: Element | null = null;
+    for (const e of elements) {
+      if (e.depth === 2) {
+        parent2 = e;
+        if (e.local === 'dimension' || e.local === 'autoFilter') {
+          const ref = e.attrs.get('ref');
+          if (ref === undefined) continue;
+          const out = adjustRange(ref, refChange(c, sheet.name));
+          if (out === null || out === ref) continue;
+          if (e.local === 'dimension') replaceTag(e, setAttr(tagOf(e), 'ref', out === '' ? 'A1' : (out.split(' ')[0] ?? 'A1')));
+          else if (out === '') removeElement(e);
+          else replaceTag(e, setAttr(tagOf(e), 'ref', out));
+        } else if (e.local === 'conditionalFormatting') {
+          const sqref = e.attrs.get('sqref') ?? '';
+          const out = adjustRange(sqref, refChange(c, sheet.name));
+          if (out === null) throw notSupported(`A conditional format of sheet "${sheet.name}" has a range xlvane cannot adjust: "${sqref.slice(0, 60)}".`, where());
+          if (out === '') {
+            removeElement(e);
+            // The extension parts of its rules go too (the x14:id link, SR-41).
+            for (const id of linkIds.get(e) ?? []) removedIds.add(id);
+          } else if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
+        }
+        continue;
+      }
+      if (e.depth !== 3 || parent2 === null) continue;
+      const container = parent2;
+      const count = containers.get(container) ?? { kept: 0, total: 0 };
+      containers.set(container, count);
+      if (e.local === 'mergeCell') {
+        count.total++;
+        const ref = e.attrs.get('ref') ?? '';
+        const range = parseRange(ref);
+        // R-14: a merge whose top-left cell is deleted, or that shrinks to one cell, is dropped.
+        const out = range === null ? null : c.count < 0 && deletedRow(range.start.row) ? '' : adjustRange(ref, refChange(c, sheet.name));
+        if (out === null) {
+          count.kept++;
+          continue;
+        }
+        const moved = out === '' ? null : parseRange(out);
+        if (moved === null || (moved.start.row === moved.end.row && moved.start.col === moved.end.col)) {
+          removeElement(e);
+          continue;
+        }
+        count.kept++;
+        if (out !== ref) replaceTag(e, setAttr(tagOf(e), 'ref', out));
+      } else if (e.local === 'dataValidation' || e.local === 'ignoredError' || e.local === 'protectedRange') {
+        count.total++;
         const sqref = e.attrs.get('sqref') ?? '';
         const out = adjustRange(sqref, refChange(c, sheet.name));
-        if (out === null) throw notSupported(`A conditional format of sheet "${sheet.name}" has a range xlvane cannot adjust: "${sqref.slice(0, 60)}".`, where());
+        if (out === null) throw notSupported(`Sheet "${sheet.name}" has a ${e.local} range xlvane cannot adjust: "${sqref.slice(0, 60)}".`, where());
         if (out === '') {
           removeElement(e);
-          // The extension parts of its rules go too (the x14:id link, SR-41).
-          for (const id of linkIds.get(e) ?? []) removedIds.add(id);
-        } else if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
+          continue;
+        }
+        count.kept++;
+        if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
+      } else if (e.local === 'hyperlink') {
+        // The element itself was rewritten or removed above; only its container is counted here.
+        count.total++;
+        if (adjustRange(e.attrs.get('ref') ?? '', refChange(c, sheet.name)) !== '') count.kept++;
+      } else if (e.local === 'brk' && container.local === 'rowBreaks') {
+        count.total++;
+        const id = Number(e.attrs.get('id') ?? 'NaN');
+        if (!Number.isInteger(id)) {
+          count.kept++;
+          continue;
+        }
+        const n = moveRow(id, c);
+        if (n === null) {
+          removeElement(e);
+          continue;
+        }
+        count.kept++;
+        if (n !== id) replaceTag(e, setAttr(tagOf(e), 'id', String(n)));
       }
+    }
+    for (const [container, n] of containers) {
+      if (n.total === 0 || n.kept === n.total) continue;
+      // Elements removed: drop an emptied container, or update its count.
+      const counted = ['mergeCells', 'dataValidations', 'rowBreaks'].includes(container.local);
+      if (n.kept === 0) {
+        removeElement(container);
+      } else if (counted) {
+        let tag = tagOf(container);
+        if (container.attrs.has('count')) tag = setAttr(tag, 'count', String(n.kept));
+        if (container.local === 'rowBreaks' && container.attrs.has('manualBreakCount')) tag = setAttr(tag, 'manualBreakCount', String(n.kept));
+        if (tag !== tagOf(container)) replaceTag(container, tag);
+      }
+    }
+
+    rewriteExtensionRanges(text, elements, knownExts, c, sheet, removedIds, edits, where);
+  } else if (edits.length === 0) {
+    // Another sheet: most often no formula refers to the changed one, and the text stays as it is.
+    let changed = false;
+    for (let i = 0; i < formulaCount && !changed; i++) changed = formulaChanges(i).length > 0;
+    if (!changed) return { text, hasFormulas };
+  }
+
+  // The new text in one pass, in document order: the edits collected above, interleaved with the
+  // rows and cells (new references) and the formulas (adjusted), written as they are produced.
+  // As in applyEdits, edits are sorted by start, insertions first, and an edit that starts inside
+  // a replaced span is dropped with it.
+  const general = [...edits].sort((a, b) => a[0] - b[0] || Number(b[0] === b[1]) - Number(a[0] === a[1]) || b[1] - a[1]);
+  const out = new TextBuilder();
+  let pos = 0;
+  let g = 0;
+  const flush = (limit: number): void => {
+    while (g < general.length) {
+      const [start, end, replacement] = general[g]!;
+      if (!(start < limit || (start === limit && end === start))) break;
+      g++;
+      if (start < pos) continue;
+      out.add(text.slice(pos, start));
+      out.add(replacement);
+      pos = end;
+    }
+  };
+  const replace = (start: number, end: number, replacement: string): void => {
+    flush(start);
+    if (start < pos) return;
+    out.add(text.slice(pos, start));
+    out.add(replacement);
+    pos = end;
+  };
+  let f = 0;
+  /** Formulas that start before `limit`: adjusted, or skipped when `skip`. */
+  const formulasBefore = (limit: number, skip: boolean): void => {
+    for (; f < formulaCount && formulas.get(f * FORMULA_FIELDS + 2) < limit; f++) {
+      if (skip) continue;
+      for (const [start, end, replacement] of formulaChanges(f)) replace(start, end, replacement);
+    }
+  };
+  for (let i = 0; i < rowCount; i++) {
+    const at = i * ROW_FIELDS;
+    const number = rows.get(at);
+    const rowStart = rows.get(at + 1);
+    const rowTagEnd = rows.get(at + 2);
+    const rowEnd = rows.get(at + 3);
+    formulasBefore(rowStart, false);
+    const n = target ? moveRow(number, c) : number;
+    if (n === null) {
+      // A deleted row, or an empty row pushed past the last row.
+      replace(rowStart, rowEnd, '');
+      formulasBefore(rowEnd, true);
       continue;
     }
-    if (e.depth !== 3 || parent2 === null) continue;
-    const container = parent2;
-    const count = containers.get(container) ?? { kept: 0, total: 0 };
-    containers.set(container, count);
-    if (e.local === 'mergeCell') {
-      count.total++;
-      const ref = e.attrs.get('ref') ?? '';
-      const range = parseRange(ref);
-      // R-14: a merge whose top-left cell is deleted, or that shrinks to one cell, is dropped.
-      const out = range === null ? null : c.count < 0 && deletedRow(range.start.row) ? '' : adjustRange(ref, refChange(c, sheet.name));
-      if (out === null) {
-        count.kept++;
-        continue;
-      }
-      const moved = out === '' ? null : parseRange(out);
-      if (moved === null || (moved.start.row === moved.end.row && moved.start.col === moved.end.col)) {
-        removeElement(e);
-        continue;
-      }
-      count.kept++;
-      if (out !== ref) replaceTag(e, setAttr(tagOf(e), 'ref', out));
-    } else if (e.local === 'dataValidation' || e.local === 'ignoredError' || e.local === 'protectedRange') {
-      count.total++;
-      const sqref = e.attrs.get('sqref') ?? '';
-      const out = adjustRange(sqref, refChange(c, sheet.name));
-      if (out === null) throw notSupported(`Sheet "${sheet.name}" has a ${e.local} range xlvane cannot adjust: "${sqref.slice(0, 60)}".`, where());
-      if (out === '') {
-        removeElement(e);
-        continue;
-      }
-      count.kept++;
-      if (out !== sqref) replaceTag(e, setAttr(tagOf(e), 'sqref', out));
-    } else if (e.local === 'hyperlink') {
-      // The element itself was rewritten or removed above; only its container is counted here.
-      count.total++;
-      if (adjustRange(e.attrs.get('ref') ?? '', refChange(c, sheet.name)) !== '') count.kept++;
-    } else if (e.local === 'brk' && container.local === 'rowBreaks') {
-      count.total++;
-      const id = Number(e.attrs.get('id') ?? 'NaN');
-      if (!Number.isInteger(id)) {
-        count.kept++;
-        continue;
-      }
-      const n = moveRow(id, c);
-      if (n === null) {
-        removeElement(e);
-        continue;
-      }
-      count.kept++;
-      if (n !== id) replaceTag(e, setAttr(tagOf(e), 'id', String(n)));
+    const moved = target && (n !== number || force);
+    if (moved) replace(rowStart, rowTagEnd, setAttr(text.slice(rowStart, rowTagEnd), 'r', String(n)));
+    const first = rows.get(at + 5);
+    for (let j = 0; j < rows.get(at + 6); j++) {
+      const cell = (first + j) * CELL_FIELDS;
+      const cellStart = cells.get(cell + 1);
+      formulasBefore(cellStart, false);
+      if (moved) replace(cellStart, cells.get(cell + 2), setAttr(text.slice(cellStart, cells.get(cell + 2)), 'r', formatCellRef(n, cells.get(cell))));
+      formulasBefore(cells.get(cell + 3), false);
     }
+    formulasBefore(rowEnd, false);
   }
-  for (const [container, n] of containers) {
-    if (n.total === 0 || n.kept === n.total) continue;
-    // Elements removed: drop an emptied container, or update its count.
-    const counted = ['mergeCells', 'dataValidations', 'rowBreaks'].includes(container.local);
-    if (n.kept === 0) {
-      removeElement(container);
-    } else if (counted) {
-      let tag = tagOf(container);
-      if (container.attrs.has('count')) tag = setAttr(tag, 'count', String(n.kept));
-      if (container.local === 'rowBreaks' && container.attrs.has('manualBreakCount')) tag = setAttr(tag, 'manualBreakCount', String(n.kept));
-      if (tag !== tagOf(container)) replaceTag(container, tag);
-    }
-  }
-
-  rewriteExtensionRanges(text, elements, knownExts, c, sheet, removedIds, edits, where);
-
-  const result = applyEdits(text, edits);
-  return { text: /sortState/.test(result) ? rewriteSortStates(result, part, sheet, c, limits) : result, hasFormulas };
+  formulasBefore(text.length + 1, false);
+  flush(text.length + 1);
+  out.add(text.slice(pos));
+  const pieces = out.finish();
+  // Sort states are rare and small: they are moved on the whole text (D-B01).
+  if (target && /sortState/.test(text)) return { text: rewriteSortStates(pieces.join(''), part, sheet, c, limits), hasFormulas };
+  return { text: pieces, hasFormulas };
 }
 
 /**
@@ -995,32 +1246,60 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
   }
   // Charts and pivot caches anywhere may refer to the sheet by name. Chart parts are found by
   // their content type (CH-01) and as the targets of the chart relationships of drawing parts
-  // (CH-04), whatever their names; other XML parts in a charts folder and pivot cache definitions
-  // by their names, as before.
+  // (CH-04), whatever their names; pivot cache definitions by their content type and as the
+  // targets of the pivot cache relationships of the workbook (B6); other XML parts in a charts
+  // folder and parts named like pivot cache definitions by their names, as before. Drawings are
+  // found by their content type and as the targets of the drawing relationships of the sheets.
   const charts = new Set<string>();
+  const drawings = new Map<string, string>();
+  const unmatched = (source: string, r: { type: string; target: string }): XlvError =>
+    notSupported(`The part ${source} has a relationship to ${r.target}, which is not a part of the package (its name may be written differently in the archive), so xlvane cannot check whether a chart there refers to sheet "${sheet.name}".`, { part: source, sheet: sheet.name }, { type: r.type, target: r.target });
   for (const name of pkg.partNames) {
     const type = pkg.contentType(name);
-    if (type === CHART_CONTENT_TYPE) charts.add(partKey(name));
-    else if (type === DRAWING_CONTENT_TYPE) {
-      for (const r of pkg.relationships(name)) if (!r.external && classifyRelationship(r.type)?.name === 'chart') charts.add(partKey(r.target));
+    if (type === CHART_CONTENT_TYPE || type === PIVOT_CACHE_DEFINITION_CONTENT_TYPE) charts.add(partKey(name));
+    else if (type === DRAWING_CONTENT_TYPE) drawings.set(partKey(name), name);
+  }
+  for (const s of workbook.sheets) {
+    if (s.part === null) continue;
+    for (const r of pkg.relationships(s.part)) {
+      if (r.external || classifyRelationship(r.type)?.name !== 'drawing') continue;
+      // A drawing that cannot be found may hold charts that refer to the sheet (B7).
+      if (!pkg.hasPart(r.target)) throw unmatched(s.part, r);
+      drawings.set(partKey(r.target), r.target);
     }
   }
-  const lowerName = sheet.name.toLowerCase();
+  for (const name of drawings.values()) {
+    for (const r of pkg.relationships(name)) {
+      if (r.external || classifyRelationship(r.type)?.name !== 'chart') continue;
+      // A chart part whose name the archive spells differently (B7) is not a part, so it was missed.
+      if (!pkg.hasPart(r.target)) throw unmatched(name, r);
+      charts.add(partKey(r.target));
+    }
+  }
+  for (const r of pkg.relationships(workbookPart)) {
+    if (r.external || classifyRelationship(r.type)?.name !== 'pivotCacheDefinition') continue;
+    if (!pkg.hasPart(r.target)) throw unmatched(workbookPart, r);
+    charts.add(partKey(r.target));
+  }
   for (const name of pkg.partNames) {
     if (!charts.has(partKey(name)) && !/\/charts\/[^/]+\.xml$|pivotCacheDefinition[^/]*\.xml$/i.test(name)) continue;
     const text = edit.text(name);
-    if (text !== undefined && text.toLowerCase().includes(lowerName)) {
+    if (text !== undefined && mentionsSheet(text, sheet.name)) {
       throw notSupported(`The part ${name} (a chart or pivot table) may refer to sheet "${sheet.name}", and xlvane cannot rewrite it yet.`, { part: name, sheet: sheet.name });
     }
   }
 
   let hasFormulas = false;
+  // The cells of the workbook as read (with a value or only a style), for the formatted cells of
+  // inserted rows, which count against maxCells too.
+  let workbookCells = 0;
+  for (const s of workbook.sheets) workbookCells += s.cellCount + styledCellCount(s);
   for (const s of workbook.sheets) {
     if (s.kind !== 'worksheet' || s.part === null) continue;
     const text = edit.text(s.part);
     if (text === undefined) continue;
     const target = s.part === sheet.part;
-    const out = rewriteSheet(text, s.part, s, c, target, style, limits);
+    const out = rewriteSheet(text, s.part, s, c, target, style, limits, workbookCells);
     hasFormulas ||= out.hasFormulas;
     if (out.text !== text) edit.write(s.part, out.text);
     rewriteTables(edit, pkg, s.part, s, c, target);
@@ -1060,7 +1339,9 @@ function changeRows(input: unknown, sheetName: string, at: number, count: number
  * custom sheet views, other extended content that refers to cells (sparklines, slicers) and
  * other related parts xlvane does not know; charts or pivot tables anywhere in the workbook that
  * may refer to the sheet; data tables; an array formula the change would split; and formulas it
- * cannot rewrite safely (docs/facts/ref-adjust.md).
+ * cannot rewrite safely (docs/facts/ref-adjust.md). Rows formatted with `style` add a formatted
+ * cell for each formatted cell of the row they copy; when the workbook would then hold more cells
+ * than `limits.maxCells`, the call throws `XLV_E_LIMIT_EXCEEDED` before building them.
  *
  * @example
  * ```ts

@@ -34,8 +34,8 @@ const withWarning = (): Uint8Array =>
   });
 
 describe('terminal control characters', () => {
-  it('are escaped as \\xHH, except tab and line feed', () => {
-    expect(escapeControls('a\u001b[2Jb\u0007\u009b\u007f\tc\n')).toBe('a\\x1b[2Jb\\x07\\x9b\\x7f\tc\n');
+  it('are escaped as \\xHH, except tab; a line feed from a file is shown as ⏎ (D-K04)', () => {
+    expect(escapeControls('a\u001b[2Jb\u0007\u009b\u007f\tc\n')).toBe('a\\x1b[2Jb\\x07\\x9b\\x7f\tc⏎');
     // Only the colour codes Output wrote survive; the same bytes from anywhere else are escaped (D-H01).
     const out = new Output(true, 80);
     expect(terminalSafe(`${out.bold('ok')} \u001b[2J`, true)).toBe('\u001b[1mok\u001b[22m \\x1b[2J');

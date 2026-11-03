@@ -56,31 +56,45 @@ function inside(roots: Roots, real: string): boolean {
 }
 
 /**
- * The real path of `target`. When it cannot be resolved (it does not exist, or a file stands where
- * a directory should), the nearest ancestor that exists is resolved instead: if that leads outside
- * the roots, the path is refused as outside, so the answer does not depend on what exists behind a
- * symbolic link inside a root (D-J01). Otherwise `onMissing` gives the error for the missing path.
+ * The real path of `target`. The path is refused as outside when it leads outside the roots, or when
+ * a symbolic link on the way passes through a directory outside them, also when it then comes back
+ * inside: so the answer does not depend on what exists outside the roots (D-J01, D-K04). Otherwise
+ * `onMissing` gives the error for a path that does not exist.
  */
 async function realInside(roots: Roots, path: string, target: string, onMissing: (error: unknown) => XlvError): Promise<string> {
-  let real: string;
+  let real: string | null = null;
+  let failure: unknown = null;
   try {
     real = await realpath(target);
   } catch (error) {
-    if (await leadsOutside(roots, target)) throw notAllowed(roots, path, '');
-    throw onMissing(error);
+    failure = error;
   }
+  if (await passesOutside(roots, target)) throw notAllowed(roots, path, '');
+  if (real === null) throw onMissing(failure);
   if (!inside(roots, real)) throw notAllowed(roots, path, '');
   return real;
 }
 
 /**
- * Whether a path that does not resolve would lead outside the roots. The path is walked one
- * component at a time from the file system root, as the system resolves it: a symbolic link (also
- * one whose target is missing) is replaced by its text, so ".." in that text goes to the parent of
- * the directory the link leads to, not of the link (D-J01, D-K03). From the first component that
- * does not exist the rest of the path is taken as written.
+ * Whether `dir` is a root, inside one, or a parent directory of one, as a real path or as given
+ * (a root given through a link, such as /tmp on macOS, is reached through its given path too).
  */
-async function leadsOutside(roots: Roots, path: string): Promise<boolean> {
+function onTheWay(roots: Roots, dir: string): boolean {
+  if (inside(roots, dir) || within(roots.given, dir)) return true;
+  const prefix = dir.endsWith(sep) ? dir : dir + sep;
+  return roots.dirs.some((root) => root.startsWith(prefix)) || roots.given.some((root) => root.startsWith(prefix));
+}
+
+/**
+ * Whether resolving `path` leads outside the roots. The path is walked one component at a time
+ * from the file system root, as the system resolves it: a symbolic link (also one whose target is
+ * missing) is replaced by its text, so ".." in that text goes to the parent of the directory the
+ * link leads to, not of the link (D-J01, D-K03). Once a link has been followed, every directory the
+ * walk reaches, existing or not, must be a root, inside one or a parent of one; otherwise the path
+ * is outside even if it ends inside (D-K04). From the first component that does not exist the rest
+ * of the path is taken as written.
+ */
+async function passesOutside(roots: Roots, path: string): Promise<boolean> {
   // Only "/" separates names on POSIX, where "\\" is an ordinary character of a name.
   const split = (p: string): string[] => p.slice(parse(p).root.length).split(sep === '\\' ? /[\\/]/ : '/').filter((part) => part !== '');
   const pending = split(path);
@@ -94,6 +108,7 @@ async function leadsOutside(roots: Roots, path: string): Promise<boolean> {
       continue;
     }
     const next = join(current, part);
+    if (links > 0 && !onTheWay(roots, next)) return true;
     let info;
     try {
       info = await lstat(next);
@@ -113,9 +128,9 @@ async function leadsOutside(roots: Roots, path: string): Promise<boolean> {
       return true;
     }
     if (isAbsolute(text)) {
-      const target = resolve(text);
-      current = parse(target).root;
-      pending.unshift(...split(target));
+      // Not normalized: ".." in the text goes through the directory before it, as the system does.
+      current = parse(text).root;
+      pending.unshift(...split(text));
     } else pending.unshift(...text.split(sep === '\\' ? /[\\/]/ : '/').filter((part) => part !== ''));
   }
   return !inside(roots, current);
@@ -286,7 +301,13 @@ export async function writeAllowed(roots: Roots, path: string, data: Uint8Array 
   let existing: { mode: number } | null = null;
   try {
     const info = await lstat(file);
-    if (info.isSymbolicLink()) throw notAllowed(roots, path, ' (it is a symbolic link)');
+    if (info.isSymbolicLink()) {
+      // Refused wherever the link leads; the message does not claim the target is outside (D-K04).
+      throw new XlvError('XLV_E_PATH_NOT_ALLOWED', `"${path}" is a symbolic link; the server does not write through symbolic links.`, {
+        hint: 'Write to another file name, or replace the link with a regular file.',
+        details: { path, roots: [...roots.dirs] },
+      });
+    }
     if (!info.isFile()) throw new XlvError('XLV_E_FILE_WRITE', `"${path}" is not a file.`, { hint: 'Choose a file name that is not a directory.', details: { path, code: 'EISDIR' } });
     existing = info;
   } catch (error) {

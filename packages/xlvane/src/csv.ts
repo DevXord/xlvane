@@ -352,11 +352,14 @@ function inferNumber(s: string): number | null {
   }
   if (i !== n) return null;
   const value = Number(s);
-  // Overflow (1e400) and underflow (1e-400 would become 0, 1e-320 a subnormal that has lost
-  // digits) keep the text, so no digits are lost silently.
+  // Overflow (1e400) and underflow to 0 (1e-400) keep the text, so no digits are lost silently.
   if (!Number.isFinite(value)) return null;
   const digits = s.slice(intStart, intStart + intDigits + (fracDigits > 0 ? fracDigits + 1 : 0)).replace('.', '').replace(/^0+/, '');
-  if (value === 0 ? /[1-9]/.test(digits) : Math.abs(value) < MIN_NORMAL) return null;
+  if (value === 0 && /[1-9]/.test(digits)) return null;
+  // A subnormal (below 2^-1022) holds fewer significant digits, so it is a number only when the
+  // text is the shortest form JavaScript writes for it, which is what toCSV writes (5e-324,
+  // 1e-310); other texts, such as 1.6e-323, would lose digits and stay text (C11).
+  if (value !== 0 && Math.abs(value) < MIN_NORMAL && String(value) !== s) return null;
   // Up to 15 significant digits a decimal number survives a double exactly (D-307). Longer
   // numbers are numbers only when the text is the shortest form JavaScript writes for the value
   // (what toCSV writes, up to 17 digits, e.g. 0.30000000000000004), so they round-trip; a whole

@@ -60,6 +60,12 @@ describe('error catalogue', () => {
     expect(missing).toEqual([]);
   });
 
+  it('lists every error and warning code in the index of docs/errors.md (D-K04)', async () => {
+    const doc = await readFile(fileURLToPath(new URL('../../docs/errors.md', import.meta.url)), 'utf8');
+    const missing = [...ERROR_CODES, ...WARNING_CODES].filter((code) => !doc.includes(`| [\`${code}\`](#${code.toLowerCase()}) |`));
+    expect(missing).toEqual([]);
+  });
+
   it('uses unique codes with the documented prefixes', () => {
     expect(new Set(ERROR_CODES).size).toBe(ERROR_CODES.length);
     expect(new Set(WARNING_CODES).size).toBe(WARNING_CODES.length);

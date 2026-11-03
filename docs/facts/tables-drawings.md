@@ -82,3 +82,10 @@ No document states how markers move. xlvane moves each `from`/`to` marker row as
 
 ### TD-39 - LibreOffice 24.2.7.2 - OBSERVED
 A file written by xlvane with a PNG over B2:D6 (`to` = E7 + 0) and a JPEG with `editAs="oneCell"` is re-saved by LibreOffice with both images byte for byte, the description and `editAs`; LibreOffice writes the bottom-right corner as an offset inside the last covered cell (D6 + 611 280 EMU, 190 080 EMU) instead of the start of the next cell. `tests/libreoffice/images.test.ts`.
+
+### TD-40 - Pivot cache definition part - OBSERVED
+Corpus files written by Microsoft Excel (`tests/corpus/poi/ExcelPivotTableSample.xlsx` and `54436.xlsx`, Apache-2.0, tests/corpus/LICENSES.md), checked 2026-11-03:
+- content type `application/vnd.openxmlformats-officedocument.spreadsheetml.pivotCacheDefinition+xml` in `[Content_Types].xml`;
+- workbook relationship type `http://schemas.openxmlformats.org/officeDocument/2006/relationships/pivotCacheDefinition` in `xl/_rels/workbook.xml.rels`.
+
+Not yet checked against the ECMA-376 text. Row operations use both to find pivot caches that may name a sheet (D-K04).

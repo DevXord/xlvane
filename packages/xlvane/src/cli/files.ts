@@ -121,8 +121,8 @@ export function withPath(error: unknown, path: string): unknown {
 
 /**
  * For a missing file, suggests a file with a similar name in the same directory: only a name the
- * command can read (`accept`), and never a file that another argument of the command already
- * names, such as the other side of a diff (D-R08).
+ * command can read (`accept`), and never the path itself or a file that another argument of the
+ * command already names, such as the other side of a diff (D-R08, D-K04).
  */
 async function withFileHint(ctx: CommandContext, path: string, error: unknown, accept: (name: string) => boolean): Promise<unknown> {
   if (!(error instanceof XlvError) || error.details['code'] !== 'ENOENT') return error;
@@ -133,6 +133,8 @@ async function withFileHint(ctx: CommandContext, path: string, error: unknown, a
     return error;
   }
   const others = new Set(ctx.argv.filter((a) => a !== path && !a.startsWith('-')).map((a) => resolvePath(ctx, a)));
+  // The path itself is never suggested: a dangling link has the name it was given (D-K04).
+  others.add(resolvePath(ctx, path));
   const candidates = names.filter((n) => accept(n) && !others.has(resolvePath(ctx, join(dirname(path), n))));
   const close = suggest(basename(path), candidates, 1);
   if (close.length === 0) return error;

@@ -21,7 +21,7 @@ Sources that are not cited: the SheetJS documentation site (docs.sheetjs.com), g
 ## Latest version, date, license and runtime dependencies
 
 ### CMP-01 xlvane
-NPM-XLVANE: `dist-tags.latest` is `1.2.2`, `time["1.2.2"]` is `2026-11-02T20:43:48.111Z`, `license` is `MIT`, `dependencies` of 1.2.2 is `{"fflate":"^0.8.3"}` (one runtime dependency). `@xlvane/compat` 1.2.2 depends on `xlvane` only; `@xlvane/mcp` 1.2.2 on `xlvane` and `@modelcontextprotocol/server` (2.4.0). `dist.attestations.provenance` (`https://slsa.dev/provenance/v1`) is present for `xlvane` and `@xlvane/compat` 1.0.1 to 1.2.2 and for `@xlvane/mcp` 1.2.2; absent for 1.0.0, and for `@xlvane/mcp` 1.2.0 and 1.2.1. Version 1.2.3 is not in the registry document (CHANGELOG.md lists it as unreleased).
+NPM-XLVANE: `dist-tags.latest` is `1.2.2`, `time["1.2.2"]` is `2026-11-02T20:43:48.111Z`, `license` is `MIT`, `dependencies` of 1.2.2 is `{"fflate":"^0.8.3"}` (one runtime dependency). `@xlvane/compat` 1.2.2 depends on `xlvane` only; `@xlvane/mcp` 1.2.2 on `xlvane` and `@modelcontextprotocol/server` (2.4.0). `dist.attestations.provenance` (`https://slsa.dev/provenance/v1`) is present for `xlvane` and `@xlvane/compat` 1.0.1 to 1.2.2 and for `@xlvane/mcp` 1.2.2; absent for 1.0.0, and for `@xlvane/mcp` 1.2.0 and 1.2.1. Versions 1.2.3 and 1.3.0 were tagged on 2026-11-03 (CHANGELOG.md) and were not yet in the registry document when it was read; the README table gives 1.3.0 with its tag date.
 
 ### CMP-02 ExcelJS
 NPM-EXCELJS: `dist-tags.latest` is `4.4.0`, `time["4.4.0"]` is `2023-10-19T19:49:55.669Z`, `license` is `MIT`, `dependencies` of 4.4.0 has 9 entries: `archiver`, `dayjs`, `fast-csv`, `jszip`, `readable-stream`, `saxes`, `tmp`, `unzipper`, `uuid`.
@@ -55,7 +55,7 @@ EXCELIZE `README.md` "Introduction": "write to and read from XLAM / XLSM / XLSX 
 - excelize: EXCELIZE `styles.go`: `func (f *File) NewStyle(style *Style) (int, error)` (line 991) and `func (f *File) SetCellStyle(…)` (line 2368).
 
 ### CMP-10 Charts
-- xlvane 1.2.2: charts are not modelled; reading skips them with a warning, `editCells` keeps them unchanged, `insertRows`/`deleteRows` refuse sheets where they would have to move (packages/xlvane/README.md "Limitations"). Writing and reading charts is the work of phase K for version 1.3.0, which is not released (docs/decisions.md D-K01; ROADMAP.md).
+- xlvane 1.2.2: charts are not modelled; reading skips them with a warning, `editCells` keeps them unchanged, `insertRows`/`deleteRows` refuse sheets where they would have to move (packages/xlvane/README.md "Limitations"). From 1.3.0, column, bar, line, pie, scatter and area charts are written and read (docs/decisions.md D-K01; packages/xlvane/README.md "Charts").
 - ExcelJS: EXCELJS-README has no chart API (the word "chart" occurs only in the release history: "Don't break when loading an Excel file containing a chartsheet #466"); the 4.4.0 tarball has no file whose path contains "chart".
 - SheetJS: CMP-09 (graphs are listed under SheetJS Pro). XLSX-README "Chartsheet Object" (line 2451): chartsheets are read as sheets holding the cached data.
 - excelize: EXCELIZE `chart.go`: `AddChart` (line 1260), `AddChartSheet` (line 1294), `DeleteChart` (line 1375); README section "Add chart to spreadsheet file". No function that reads a chart into a model was found in `chart.go`.

@@ -7,7 +7,7 @@ import { pickSheet } from '../../table';
 import type { CellInput } from '../../write';
 import { flag, list, str, usageError } from '../args';
 import { readBytes, readText, withPath, writeOutput, wroteLine } from '../files';
-import { plural } from '../output';
+import { escapeControls, plural } from '../output';
 import type { CommandSpec } from '../types';
 import { warningLines } from '../warnings';
 
@@ -187,10 +187,10 @@ export const editCommand: CommandSpec = {
         render: (out) => {
           if (ctx.quiet && w.written) return '';
           const done = [
-            insert !== null ? `inserted ${plural(insert.count, 'row')} before row ${String(insert.at)} of "${sheetOption ?? ''}"` : '',
-            remove !== null ? `deleted ${remove.count === 1 ? `row ${String(remove.at)}` : `rows ${String(remove.at)}–${String(remove.at + remove.count - 1)}`} of "${sheetOption ?? ''}"` : '',
+            insert !== null ? `inserted ${plural(insert.count, 'row')} before row ${String(insert.at)} of "${escapeControls(sheetOption ?? '')}"` : '',
+            remove !== null ? `deleted ${remove.count === 1 ? `row ${String(remove.at)}` : `rows ${String(remove.at)}–${String(remove.at + remove.count - 1)}`} of "${escapeControls(sheetOption ?? '')}"` : '',
             parsed.length > 0 ? `set ${plural(parsed.length, 'cell')}` : '',
-            rows.length > 0 ? `appended ${plural(rows.length, 'row')} to "${appendSheet ?? ''}"` : '',
+            rows.length > 0 ? `appended ${plural(rows.length, 'row')} to "${escapeControls(appendSheet ?? '')}"` : '',
           ]
             .filter((p) => p !== '')
             .join(', ');
