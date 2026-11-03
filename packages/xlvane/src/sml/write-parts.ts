@@ -24,7 +24,7 @@ import type { DateSystem, SheetState, SheetView } from '../model';
 import { checkStyleCount, type NormalizedColor, type NormalizedStyle } from '../style';
 import { escapeAttr, escapeText, encodeXstring } from '../xml/writer';
 import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, type ResolvedAnchor, type ResolvedImage, type WrittenImageFormat } from '../images';
-import { CHART_CONTENT_TYPE, chartPartName, chartPartXml, checkChartCacheCells, resolveChartSheets, type ChartCacheValue, type ChartCells, type NormalizedChart } from '../charts';
+import { CHART_CONTENT_TYPE, chartPartName, chartPartXml, chartSheetNames, checkChartCacheCells, resolveChartSheets, type ChartCacheValue, type ChartCells, type NormalizedChart } from '../charts';
 import { writeZip, type ZipWriteEntry } from '../zip/writer';
 import { formatCellRef, type CellRange } from './cell-ref';
 import { FormulaGroups } from './formula-groups';
@@ -1004,10 +1004,13 @@ export function writePackage(input: WritePackageInput): Uint8Array {
   const media = new MediaParts(input.images ?? []);
   const drawings: { readonly name: string; readonly xml: string; readonly relsName: string; readonly rels: string }[] = [];
   const charts: { readonly name: string; readonly xml: string }[] = [];
-  const sheetNames = input.sheets.map((s) => s.name);
+  // One lookup of the sheet names for every chart of the workbook (D-K01).
+  const sheetNames = chartSheetNames(input.sheets.map((s) => s.name));
   // Before any cache is built, so that the chart parts cannot grow without bound (D-K01).
   checkChartCacheCells(input.sheets.flatMap((s) => (s.charts ?? []).map((c) => ({ chart: c.chart, sheet: s.name }))));
   const cells = chartCells(input.sheets, input.styles);
+  // The characters of cached text written for all charts of the workbook (MAX_CHART_CACHE_TEXT).
+  const cacheText = { used: 0 };
   const sheetParts = input.sheets.map((sheet, i) => {
     const rels = sheetRels[i]!;
     const parts = noteParts(sheet.notes ?? [], i + 1, rels, block);
@@ -1015,7 +1018,7 @@ export function writePackage(input: WritePackageInput): Uint8Array {
     if (parts !== null) block += parts.blocks;
     // Chart parts are numbered across the workbook (CH-01), each filled with caches (CH-19).
     const frames = (sheet.charts ?? []).map((c) => {
-      charts.push({ name: chartPartName(charts.length + 1), xml: chartPartXml(resolveChartSheets(c.chart, sheetNames, sheet.name), cells) });
+      charts.push({ name: chartPartName(charts.length + 1), xml: chartPartXml(resolveChartSheets(c.chart, sheetNames, sheet.name), { cells, text: cacheText, sheet: sheet.name }) });
       return { from: c.from, to: c.to, ext: c.ext, editAs: c.editAs, name: c.chart.name, description: c.chart.description, target: `../charts/chart${String(charts.length)}.xml` };
     });
     const drawing = drawingParts(sheet.images ?? [], sheet.background ?? null, media, drawings.length + 1, rels, frames);

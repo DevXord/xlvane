@@ -95,7 +95,9 @@ export interface ChartAxisInput {
  * `null` is refused. A chart has 1 to 255 series (a limit of xlvane), each an object (no holes
  * in the array), a pie chart exactly one with at most 1 000 values; titles and literal series
  * names are 1 to 255 characters without control characters. `writeWorkbook` writes the cached
- * values of at most 4 000 000 cells for all charts of a workbook together (a limit of xlvane).
+ * values of at most 4 000 000 cells, with at most 8 388 608 characters of cached text once
+ * escaped, for all charts of a workbook together (limits of xlvane; `writeWorkbookStream` writes
+ * no caches).
  * The anchor is copied when the chart is added. A sheet name that reads as a cell reference is
  * given in quotes (`'S1'!B2:B5`); without quotes it must be exactly the name of a sheet.
  *
@@ -235,11 +237,22 @@ const MAX_CHART_TEXT = 255;
 const MAX_PIE_POINTS = 1000;
 /**
  * Most cells the caches of all charts of one workbook written by `writeWorkbook` cover (a limit
- * of xlvane). A cached point takes about 42 bytes of XML (a 200 000-point scatter chart is a
- * 16.8 MB part), so the chart parts stay below about 170 MB, within the reader's default
- * `maxEntryBytes`. The streaming writer writes no caches (CH-20) and has no such limit.
+ * of xlvane). A cached point takes about 42 bytes of XML besides its text (a 200 000-point
+ * scatter chart is a 16.8 MB part), so the chart parts stay below about 170 MB plus the cached
+ * text ({@link MAX_CHART_CACHE_TEXT}), within the reader's default `maxEntryBytes`. The streaming
+ * writer writes no caches (CH-20) and has no such limit.
  */
 export const MAX_CHART_CACHE_CELLS = 4_000_000;
+/**
+ * Most characters of cached text (the `v` of string caches, and number format codes, counted as
+ * written, after escaping) of all charts of one workbook written by `writeWorkbook` (a limit of
+ * xlvane): 8 Mi characters, at most 24 MiB of UTF-8. With {@link MAX_CHART_CACHE_CELLS} a chart
+ * part stays below about 200 MB, under the reader's default `maxEntryBytes` (256 MiB), and its
+ * text far below the longest string of V8 (536 870 888 characters in Node.js 22,
+ * `buffer.constants.MAX_STRING_LENGTH`). Without it, 20 000 cells of 32 767 characters made a
+ * string too long for V8.
+ */
+export const MAX_CHART_CACHE_TEXT = 8_388_608;
 /** Longest reference text accepted, far above any sheet name (31) plus two cells. */
 const MAX_REF_LENGTH = 512;
 
@@ -443,16 +456,30 @@ export function normalizeChart(input: unknown, sheet: string): NormalizedChart {
   return { type: t, title, legend: legend === false ? null : (legend as ChartLegendPosition), stacked: stacked as boolean | 'percent', series, xTitle, yTitle, min, max, name: objectText('name'), description: objectText('description') };
 }
 
+/** The sheet names of a workbook, looked up by {@link resolveChartSheets}; built once per workbook. */
+export interface ChartSheetNames {
+  readonly names: readonly string[];
+  readonly exact: ReadonlySet<string>;
+  readonly byKey: ReadonlyMap<string, string>;
+}
+
+/** Builds the lookup of {@link resolveChartSheets} for the sheets of a workbook, in order. */
+export function chartSheetNames(names: readonly string[]): ChartSheetNames {
+  return { names, exact: new Set(names), byKey: new Map(names.map((s) => [s.toLowerCase(), s] as const)) };
+}
+
 /**
  * Replaces the sheet of every reference by the workbook's sheet of that name (names compare
- * without regard to case; an `unquoted` reference must name a sheet exactly). Throws
- * `XLV_E_INVALID_CHART` for a sheet the workbook does not have.
+ * without regard to case; an `unquoted` reference must name a sheet exactly). `lookup` is built
+ * once per workbook ({@link chartSheetNames}), so resolving the charts of a workbook takes time
+ * linear in its sheets and charts. Throws `XLV_E_INVALID_CHART` for a sheet the workbook does
+ * not have.
  */
-export function resolveChartSheets(chart: NormalizedChart, sheets: readonly string[], sheet: string): NormalizedChart {
-  const byKey = new Map(sheets.map((s) => [s.toLowerCase(), s] as const));
+export function resolveChartSheets(chart: NormalizedChart, lookup: ChartSheetNames, sheet: string): NormalizedChart {
+  const { names: sheets, exact, byKey } = lookup;
   const fix = (r: ChartRef): ChartRef => {
     if (r.unquoted === true) {
-      if (sheets.includes(r.sheet)) return { sheet: r.sheet, range: r.range };
+      if (exact.has(r.sheet)) return { sheet: r.sheet, range: r.range };
       const quoted = chartRefText({ sheet: r.sheet, range: r.range });
       throw new XlvError(
         'XLV_E_INVALID_CHART',
@@ -504,6 +531,30 @@ export type ChartCacheValue = { readonly n: number; readonly format: string } | 
 export type ChartCells = (sheet: string, row: number, col: number) => ChartCacheValue | null;
 
 /**
+ * What `chartPartXml` fills the caches of a chart with: the cell values, the characters of cached
+ * text written so far for the workbook (shared by all its charts, {@link MAX_CHART_CACHE_TEXT})
+ * and the sheet of the chart, for the error.
+ */
+export interface ChartCacheSource {
+  readonly cells: ChartCells;
+  readonly text: { used: number };
+  readonly sheet: string;
+}
+
+/** Counts `written` characters of cached text; throws `XLV_E_INVALID_CHART` over {@link MAX_CHART_CACHE_TEXT}. */
+function countCacheText(source: ChartCacheSource, written: string): string {
+  source.text.used += written.length;
+  if (source.text.used > MAX_CHART_CACHE_TEXT) {
+    throw new XlvError('XLV_E_INVALID_CHART', `The caches of the charts of the workbook would hold more than ${String(MAX_CHART_CACHE_TEXT)} characters of text (counted up to a chart on sheet "${source.sheet}"), the limit of xlvane.`, {
+      location: { sheet: source.sheet },
+      hint: 'Refer charts to cells with shorter text (for example the categories), or write the workbook with writeWorkbookStream, which writes charts without cached values.',
+      details: { option: 'series', limit: MAX_CHART_CACHE_TEXT, value: source.text.used },
+    });
+  }
+  return written;
+}
+
+/**
  * Quotes a sheet name for a reference (F2-11): unquoted only for ASCII letters, digits and `_`
  * starting with a letter or `_`, not `TRUE` or `FALSE`, not letters followed by digits (such as
  * `XFE1` or `Sheet1`, which can read as a cell even beyond the grid) and not read as a cell or
@@ -542,7 +593,7 @@ function titleXml(text: string | null, rotate = false): string {
 }
 
 /** The cells of a reference in order (one row or one column). */
-function cellsOf(r: ChartRef, cells: ChartCells): (ChartCacheValue | null)[] {
+function cellsOf(r: ChartRef, { cells }: ChartCacheSource): (ChartCacheValue | null)[] {
   const out: (ChartCacheValue | null)[] = [];
   for (let row = r.range.start.row; row <= r.range.end.row; row++) {
     for (let col = r.range.start.col; col <= r.range.end.col; col++) out.push(cells(r.sheet, row, col));
@@ -551,18 +602,18 @@ function cellsOf(r: ChartRef, cells: ChartCells): (ChartCacheValue | null)[] {
 }
 
 /** CT_StrData: `ptCount`, then a `pt` for every cell with a value (CH-19). */
-function strCache(values: readonly (ChartCacheValue | null)[]): string {
+function strCache(values: readonly (ChartCacheValue | null)[], source: ChartCacheSource): string {
   let xml = `<c:strCache>${val('ptCount', values.length)}`;
   values.forEach((v, i) => {
-    if (v !== null) xml += `<c:pt idx="${String(i)}"><c:v>${escapeText(encodeXstring('s' in v ? v.s : numText(v.n)))}</c:v></c:pt>`;
+    if (v !== null) xml += `<c:pt idx="${String(i)}"><c:v>${countCacheText(source, escapeText(encodeXstring('s' in v ? v.s : numText(v.n))))}</c:v></c:pt>`;
   });
   return `${xml}</c:strCache>`;
 }
 
 /** CT_NumData: `formatCode` (of the first number), `ptCount`, then a `pt` for every number (CH-19). */
-function numCache(values: readonly (ChartCacheValue | null)[]): string {
+function numCache(values: readonly (ChartCacheValue | null)[], source: ChartCacheSource): string {
   const first = values.find((v): v is { n: number; format: string } => v !== null && 'n' in v);
-  let xml = `<c:numCache><c:formatCode>${escapeText(encodeXstring(first?.format ?? 'General'))}</c:formatCode>${val('ptCount', values.length)}`;
+  let xml = `<c:numCache><c:formatCode>${countCacheText(source, escapeText(encodeXstring(first?.format ?? 'General')))}</c:formatCode>${val('ptCount', values.length)}`;
   values.forEach((v, i) => {
     if (v !== null && 'n' in v) xml += `<c:pt idx="${String(i)}"><c:v>${numText(v.n)}</c:v></c:pt>`;
   });
@@ -574,23 +625,23 @@ function numCache(values: readonly (ChartCacheValue | null)[]): string {
  * `kind` `'auto'` (categories) is a `numRef` when every non-empty cell holds a number and a
  * `strRef` otherwise; without cells (the streaming writer) it is a `strRef`.
  */
-function dataXml(local: string, r: ChartRef, kind: 'num' | 'str' | 'auto', cells: ChartCells | null): string {
+function dataXml(local: string, r: ChartRef, kind: 'num' | 'str' | 'auto', cells: ChartCacheSource | null): string {
   const values = cells === null ? null : cellsOf(r, cells);
   const k = kind !== 'auto' ? kind : values !== null && values.some((v) => v !== null) && values.every((v) => v === null || 'n' in v) ? 'num' : 'str';
-  const cache = values === null ? '' : k === 'num' ? numCache(values) : strCache(values);
+  const cache = values === null || cells === null ? '' : k === 'num' ? numCache(values, cells) : strCache(values, cells);
   return `<c:${local}><c:${k}Ref><c:f>${escapeText(chartRefText(r))}</c:f>${cache}</c:${k}Ref></c:${local}>`;
 }
 
 /** CT_SerTx: literal `v` or a `strRef` to one cell (CH-17). */
-function seriesNameXml(name: NormalizedSeries['name'], cells: ChartCells | null): string {
+function seriesNameXml(name: NormalizedSeries['name'], cells: ChartCacheSource | null): string {
   if (name === null) return '';
   if ('text' in name) return `<c:tx><c:v>${escapeText(encodeXstring(name.text))}</c:v></c:tx>`;
-  const cache = cells === null ? '' : strCache(cellsOf(name.ref, cells));
+  const cache = cells === null ? '' : strCache(cellsOf(name.ref, cells), cells);
   return `<c:tx><c:strRef><c:f>${escapeText(chartRefText(name.ref))}</c:f>${cache}</c:strRef></c:tx>`;
 }
 
 /** One series in the order of its type's sequence (CH-16), with an explicit colour (CH-21). */
-function seriesXml(type: ChartType, s: NormalizedSeries, i: number, cells: ChartCells | null): string {
+function seriesXml(type: ChartType, s: NormalizedSeries, i: number, cells: ChartCacheSource | null): string {
   const color = s.color ?? CHART_PALETTE[i % CHART_PALETTE.length]!;
   let xml = `<c:ser>${val('idx', i)}${val('order', i)}${seriesNameXml(s.name, cells)}`;
   const cat = s.categories === null ? '' : dataXml(type === 'scatter' ? 'xVal' : 'cat', s.categories, type === 'scatter' ? 'num' : 'auto', cells);
@@ -628,10 +679,11 @@ function axisXml(local: 'catAx' | 'valAx', id: number, cross: number, pos: 'b' |
 /**
  * The chart part `xl/charts/chartN.xml` (CH-06 … CH-28): `roundedCorners`, then `chart` with the
  * title, `autoTitleDeleted`, the plot area (one chart group and its axes), the legend,
- * `plotVisOnly` and `dispBlanksAs`. `cells` fills the caches (CH-19); the streaming writer passes
- * `null` and writes references without caches (CH-20). No Office extensions (CH-32).
+ * `plotVisOnly` and `dispBlanksAs`. `cells` fills the caches (CH-19) and counts their text
+ * against {@link MAX_CHART_CACHE_TEXT} (`XLV_E_INVALID_CHART` over it); the streaming writer
+ * passes `null` and writes references without caches (CH-20). No Office extensions (CH-32).
  */
-export function chartPartXml(chart: NormalizedChart, cells: ChartCells | null): string {
+export function chartPartXml(chart: NormalizedChart, cells: ChartCacheSource | null): string {
   const t = chart.type;
   const series = chart.series.map((s, i) => seriesXml(t, s, i, cells)).join('');
   const grouping = chart.stacked === 'percent' ? 'percentStacked' : chart.stacked ? 'stacked' : t === 'column' || t === 'bar' ? 'clustered' : 'standard';
@@ -672,8 +724,15 @@ export function chartPartName(n: number): string {
 /** What a chart part holds, shared by every frame that shows it. */
 export type ParsedChart = Omit<SheetChart, 'name' | 'description' | 'anchor'>;
 
-/** Chart parts already read, by part key, so that a part used by several frames is parsed once. */
-export type ChartCache = Map<string, ParsedChart | null>;
+/**
+ * Chart parts already read, by part key, so that a part used by several frames is parsed once,
+ * and the budget of series and chart groups the charts of the workbook may still build: what the
+ * cells of every sheet leave of `maxCells` (D-K01).
+ */
+export interface ChartCache {
+  readonly parts: Map<string, ParsedChart | null>;
+  readonly budget: { remaining: number };
+}
 
 /** Chart group elements of CT_PlotArea (CH-09). */
 const GROUPS: ReadonlySet<string> = new Set(['areaChart', 'area3DChart', 'lineChart', 'line3DChart', 'stockChart', 'radarChart', 'scatterChart', 'pieChart', 'pie3DChart', 'doughnutChart', 'barChart', 'bar3DChart', 'ofPieChart', 'surfaceChart', 'surface3DChart', 'bubbleChart']);
@@ -745,8 +804,15 @@ function axisOf(el: XmlElement | undefined): ChartAxis | null {
   });
 }
 
-/** The model of a `chartSpace` element; children are found by name, so order does not matter (CH-29). */
-function chartOf(root: XmlElement): ParsedChart | null {
+/** What `chartOf` returns when a chart has more series and chart groups than the budget left. */
+const OVER_BUDGET = Symbol('over budget');
+
+/**
+ * The model of a `chartSpace` element; children are found by name, so order does not matter
+ * (CH-29). Each chart group and series counts one against `remaining`; over it, nothing more is
+ * built and {@link OVER_BUDGET} is returned. `used` receives the count.
+ */
+function chartOf(root: XmlElement, remaining: number, used: { count: number }): ParsedChart | null | typeof OVER_BUDGET {
   const chart = childNamed(root, CHART_NS, 'chart');
   const plotArea = chart === undefined ? undefined : childNamed(chart, CHART_NS, 'plotArea');
   if (chart === undefined || plotArea === undefined) return null;
@@ -762,6 +828,7 @@ function chartOf(root: XmlElement): ParsedChart | null {
   let axisPair: { x: ChartAxis | null; y: ChartAxis | null } | null = null;
   for (const group of plotArea.children) {
     if (group.ns !== CHART_NS || !GROUPS.has(group.local)) continue;
+    if (++used.count > remaining) return OVER_BUDGET;
     // barDir is required; its schema default is col (CH-10).
     const kind: ChartKind = group.local === 'barChart' ? (valOf(childNamed(group, CHART_NS, 'barDir')) === 'bar' ? 'bar' : 'column') : (KINDS.get(group.local) ?? `other:${group.local}`);
     types.push(kind);
@@ -771,6 +838,7 @@ function chartOf(root: XmlElement): ParsedChart | null {
     }
     const scatter = group.local === 'scatterChart' || group.local === 'bubbleChart';
     for (const ser of childrenNamed(group, CHART_NS, 'ser')) {
+      if (++used.count > remaining) return OVER_BUDGET;
       series.push(
         Object.freeze({
           type: kind,
@@ -818,8 +886,11 @@ const skipNotRead = (ns: string, local: string): boolean => ns === CHART_NS && N
  *   or it has no `chartSpace` with a chart and a plot area;
  * - `XLV_W_LIMIT_REACHED`: the part's XML is over a limit of `ctx.limits` that applies to one
  *   part (`maxXmlTreeElements`, `maxXmlDepth`, `maxXmlAttributes`, `maxXmlNameLength`,
- *   `maxXmlTextLength`). Cached and literal values are parsed under these limits but do not count
- *   against `maxXmlTreeElements`.
+ *   `maxXmlTextLength`); or the chart groups and series of the charts read so far, each counted
+ *   once per part, are over what the cells of the workbook leave of `maxCells`
+ *   (`cache.budget`): this chart and every chart part read after it are skipped, the later ones
+ *   without being parsed. Cached and literal values are parsed under the XML limits but do not
+ *   count against `maxXmlTreeElements`.
  *
  * Errors of the package still throw as for every part: ZIP damage (`XLV_E_ZIP_CORRUPT`), the
  * budgets of the whole file (`maxEntryBytes`, `maxTotalBytes`, `maxCompressionRatio`, as
@@ -828,10 +899,17 @@ const skipNotRead = (ns: string, local: string): boolean => ns === CHART_NS && N
  */
 export function readChartPart(pkg: OpcPackage, target: string, sheet: string, ctx: { readonly limits: ReadLimits; readonly warnings: WarningCollector }, cache: ChartCache): ParsedChart | null {
   const key = partKey(target);
-  const cached = cache.get(key);
-  if (cached !== undefined || cache.has(key)) return cached ?? null;
-  cache.set(key, null);
+  const cached = cache.parts.get(key);
+  if (cached !== undefined || cache.parts.has(key)) return cached ?? null;
+  cache.parts.set(key, null);
   const where = { part: target, sheet };
+  const overBudget = (): null => {
+    cache.budget.remaining = 0;
+    ctx.warnings.add('XLV_W_LIMIT_REACHED', 'The charts of the workbook have more chart groups and series than the cells leave of the limit maxCells; this chart is skipped, as are the charts read after it. If you trust this file, raise limits.maxCells to read them.', where);
+    return null;
+  };
+  // Once the budget is spent, further chart parts are not decompressed or parsed.
+  if (cache.budget.remaining <= 0) return overBudget();
   if (!pkg.hasPart(target)) {
     ctx.warnings.add('XLV_W_PART_MISSING', 'A chart of the sheet refers to a chart part that does not exist; the chart is skipped.', where);
     return null;
@@ -858,8 +936,11 @@ export function readChartPart(pkg: OpcPackage, target: string, sheet: string, ct
     }
     throw error;
   }
-  const parsed = root.ns === CHART_NS && root.local === 'chartSpace' ? chartOf(root) : null;
+  const used = { count: 0 };
+  const parsed = root.ns === CHART_NS && root.local === 'chartSpace' ? chartOf(root, cache.budget.remaining, used) : null;
+  if (parsed === OVER_BUDGET) return overBudget();
+  cache.budget.remaining -= used.count;
   if (parsed === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `A chart part has no chart (root <${root.local.slice(0, 40)}>, or no chart with a plot area); the chart is skipped.`, where);
-  cache.set(key, parsed);
+  cache.parts.set(key, parsed);
   return parsed;
 }

@@ -8,6 +8,8 @@ import { XlvError, type XlvErrorCode } from './errors';
 import type { WarningCollector } from './util/warnings';
 import type { ReadLimits } from './limits';
 import type { OpcPackage, Relationship } from './opc/package';
+import { partKey } from './opc/part-name';
+import { clip } from './util/clip';
 import { formatCellRef, parseCellRef, parseRange } from './sml/cell-ref';
 import { classifyRelationship, PACKAGE_REL_NS, REL_NS } from './sml/namespaces';
 import { childNamed, parseXmlTree, type XmlElement } from './xml/tree';
@@ -261,7 +263,10 @@ function coordinate(text: string | undefined): number | null {
  * connectors, group shapes, other graphic frames, content parts, alternate content) are counted
  * and reported once with `XLV_W_DRAWING_CONTENT_NOT_READ`. Broken markers skip their object with
  * a warning; a malformed or foreign drawing part gives a warning and no pictures or charts. A
- * chart part is parsed once per workbook (`charts`), however many frames show it.
+ * drawing part whose key is in `foreign` belongs to an earlier sheet (reported with
+ * `XLV_W_SHEET_PART_SHARED` when the workbook was analysed, D-H01): it is not read again, and
+ * this sheet gets no pictures or charts from it. A chart part is parsed once per workbook
+ * (`chartCache`), however many frames show it, within the budget of `chartCache.budget`.
  */
 export function readSheetDrawing(
   pkg: OpcPackage,
@@ -270,7 +275,8 @@ export function readSheetDrawing(
   ids: { readonly drawing: string | null; readonly picture: string | null },
   ctx: { readonly limits: ReadLimits; readonly warnings: WarningCollector },
   media: MediaCache,
-  chartCache: ChartCache = new Map(),
+  chartCache: ChartCache,
+  foreign: ReadonlySet<string>,
 ): SheetDrawing {
   if (ids.drawing === null && ids.picture === null) return { images: [], charts: [], background: null };
   const rels = pkg.relationships(sheetPart);
@@ -281,6 +287,8 @@ export function readSheetDrawing(
     if (ids.drawing !== null) ctx.warnings.add('XLV_W_PART_MISSING', 'The sheet refers to a drawing that is not a drawing part of the package; its pictures are not read.', { part: sheetPart, sheet });
     return { images: [], charts: [], background };
   }
+  // A drawing part of an earlier sheet would be decompressed and parsed once per sheet (D-H01).
+  if (foreign.has(partKey(drawing.target))) return { images: [], charts: [], background };
   const xml = pkg.readXml(drawing.target);
   if (xml === undefined) {
     ctx.warnings.add('XLV_W_PART_MISSING', 'The drawing part of the sheet does not exist; its pictures are not read.', { part: drawing.target, sheet });
@@ -302,7 +310,7 @@ export function readSheetDrawing(
   const a = xdr === XDR_NS.strict ? A_NS.strict : A_NS.transitional;
   const r = xdr === XDR_NS.strict ? REL_NS.strict : REL_NS.transitional;
   if (root.local !== 'wsDr' || root.ns !== xdr) {
-    warn(`The drawing part of the sheet has the root element <${root.local}>; its pictures are not read.`);
+    warn(`The drawing part of the sheet has the root element <${clip(root.local)}>; its pictures are not read.`);
     return { images: [], charts: [], background };
   }
   const drawingRels = pkg.relationships(drawing.target);

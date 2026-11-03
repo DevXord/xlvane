@@ -280,8 +280,11 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
   const budget = { remaining: limits.maxCells, sharedText: limits.maxSharedStringChars, formulaText: limits.maxSharedStringChars };
   const formatCache = new Map<number, NumberFormat>();
   const media: MediaCache = new Map();
-  const chartCache: ChartCache = new Map();
-  const sheets = book.sheets.map((entry): Sheet => {
+  // Charts are read after the cells of every sheet and get what the cells leave of maxCells, so
+  // a chart never makes the cells of a later sheet fail (D-K01).
+  const chartCache: ChartCache = { parts: new Map(), budget };
+  const drawingIds: ({ readonly drawing: string | null; readonly picture: string | null } | null)[] = [];
+  const sheets = book.sheets.map((entry): ReadSheet => {
     let data: WorksheetData | null = null;
     if (entry.kind === 'worksheet' && entry.part !== null) {
       data = parseWorksheet(pkg.readXml(entry.part) ?? '', {
@@ -303,13 +306,17 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     if (data !== null) attachNotes(data.rows, notes);
     const sheet = new ReadSheet(entry.name, entry.index, entry.kind, entry.state, entry.part, data, entry.sheetId, links, notes, book.definedNames);
     if (data !== null && entry.part !== null) sheet.tables = readTables(pkg, entry.part, entry.name, limits, warnings, entry.foreignParts);
-    if (data !== null && entry.part !== null) {
-      const drawing = readSheetDrawing(pkg, entry.part, entry.name, { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null }, { limits, warnings }, media, chartCache);
-      sheet.images = drawing.images;
-      sheet.charts = drawing.charts;
-      sheet.backgroundImage = drawing.background;
-    }
+    drawingIds.push(data === null || entry.part === null ? null : { drawing: data.drawingRelId ?? null, picture: data.pictureRelId ?? null });
     return sheet;
+  });
+  book.sheets.forEach((entry, i) => {
+    const ids = drawingIds[i];
+    const sheet = sheets[i];
+    if (ids === null || ids === undefined || sheet === undefined || entry.part === null) return;
+    const drawing = readSheetDrawing(pkg, entry.part, entry.name, ids, { limits, warnings }, media, chartCache, entry.foreignParts);
+    sheet.images = drawing.images;
+    sheet.charts = drawing.charts;
+    sheet.backgroundImage = drawing.background;
   });
   const workbook = new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection, book.views, book.calculation);
   workbook.images = [...media.values()].filter((m): m is WorkbookImage => m !== null);
@@ -632,10 +639,12 @@ export function analyzeWorkbook(pkg: OpcPackage, limits: ReadLimits, warnings: W
       return { name: entry.name, index, sheetId: entry.sheetId, kind, state: entry.state, part: null, foreignParts: NO_PARTS };
     }
     owners.set(partKey(rel.target), entry.name);
-    // Comments, VML and table parts: each belongs to the first sheet that relates to it.
+    // Comments, VML and table parts, and the drawings of worksheets (the only sheets whose
+    // drawings are read): each belongs to the first sheet that relates to it.
     const foreign = new Set<string>();
     for (const r of pkg.relationships(rel.target)) {
-      if (r.external || !SHEET_RELATED.has(classifyRelationship(r.type)?.name ?? '')) continue;
+      const related = classifyRelationship(r.type)?.name ?? '';
+      if (r.external || !(SHEET_RELATED.has(related) || (related === 'drawing' && kind === 'worksheet'))) continue;
       const key = partKey(r.target);
       const first = owners.get(key);
       if (first === undefined) owners.set(key, entry.name);

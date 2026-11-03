@@ -7,7 +7,7 @@ import { XlvError } from './errors';
 import type { HyperlinkTarget } from './hyperlinks';
 import { printNames, printXml, sheetProtectionXml, type HeaderFooter, type PageBreaks, type PageSetupOptions, type PrintTitles, type SheetProtectionOptions, type WorkbookProtectionOptions } from './printing';
 import type { DateSystem, SheetState } from './model';
-import { CHART_CONTENT_TYPE, chartPartName, chartPartXml, resolveChartSheets, type ChartInput, type NormalizedChart } from './charts';
+import { CHART_CONTENT_TYPE, chartPartName, chartPartXml, chartSheetNames, resolveChartSheets, type ChartInput, type NormalizedChart } from './charts';
 import { DRAWING_CONTENT_TYPE, IMAGE_CONTENT_TYPES, MediaParts, drawingParts, metricsOf, resolveAnchor, resolveImage, type ImageAnchorInput, type ImageFormat, type ImageOptions } from './images';
 import type { NoteInput } from './notes';
 import type { ConditionalFormatRuleInput, DataValidationRule } from './sheet-rules';
@@ -418,7 +418,11 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
   if (!dynamic && !prepared.some((p) => p.sheet.state === 'visible')) throw noVisibleSheet();
   if (!dynamic) addNames();
   // With an array of sheets every name is known now, so the charts' sheets are checked up front.
-  if (!dynamic) for (const p of prepared) for (const c of p.sheet.chartList) resolveChartSheets(c.chart, prepared.map((q) => q.sheet.name), p.sheet.name);
+  if (!dynamic) {
+    // One lookup of the sheet names for every chart (D-K01).
+    const lookup = chartSheetNames(prepared.map((q) => q.sheet.name));
+    for (const p of prepared) for (const c of p.sheet.chartList) resolveChartSheets(c.chart, lookup, p.sheet.name);
+  }
   /** Charts in workbook order (CH-01); their parts are written once every sheet name is known. */
   const chartQueue: { readonly chart: NormalizedChart; readonly sheet: string }[] = [];
 
@@ -633,7 +637,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
     if (prepared.length === 0) throw new XlvError('XLV_E_INVALID_INPUT', 'The workbook has no sheets.', { hint: 'Add at least one sheet before closing the stream.' });
     if (!selected) throw noVisibleSheet();
     if (dynamic) addNames();
-    const names = prepared.map((p) => p.sheet.name);
+    const names = chartSheetNames(prepared.map((p) => p.sheet.name));
     const chartParts = chartQueue.map((c, k) => ({ name: chartPartName(k + 1), xml: chartPartXml(resolveChartSheets(c.chart, names, c.sheet), null) }));
     const app = appXml() !== null;
     const overrides = [

@@ -39,7 +39,8 @@ export interface ToCSVOptions {
   readonly bom?: boolean;
   /**
    * `"escape"` (default): text cells that start with `=`, `+`, `-`, `@`, their full-width or small
-   * forms, or a control character (tab, CR, LF, NUL, …) get a leading `'` and quotes, so
+   * forms, a control character (tab, CR, LF, NUL, …) or a byte order mark (U+FEFF, U+FFFE, which
+   * spreadsheet applications drop at the start of a file) get a leading `'` and quotes, so
    * spreadsheet applications show them as text instead of running them as formulas (OWASP CSV
    * Injection). `"off"`: write them as is.
    */
@@ -52,10 +53,12 @@ export interface ToCSVOptions {
 
 /**
  * First characters that make spreadsheet applications treat a CSV field as a formula (CSV-10),
- * plus, as a precaution, the small forms of = + - @ (CSV-12, D-H01). Text starting with any other
- * C0 control character is escaped too (see `injectionStart`).
+ * plus, as a precaution, the small forms of = + - @ (CSV-12, D-H01) and the byte order marks
+ * U+FEFF and U+FFFE, which an application drops at the start of the file before it looks at the
+ * field (CSV-12). Text starting with any other C0 control character is escaped too (see
+ * `injectionStart`).
  */
-const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
+const INJECTION_START = new Set(['=', '+', '-', '@', '\t', '\r', '\n', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b', '\ufeff', '\ufffe']);
 
 /** Signs that start a formula: refused as the delimiter while formulas are escaped (D-J01). */
 const FORMULA_SIGNS = new Set(['=', '+', '-', '@', '\uff1d', '\uff0b', '\uff0d', '\uff20', '\ufe66', '\ufe62', '\ufe63', '\ufe6b']);
@@ -64,8 +67,16 @@ const FORMULA_SIGNS = new Set(['=', '+', '-', '@', '\uff1d', '\uff0b', '\uff0d',
 const injectionStart = (c: string): boolean => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20;
 
 /**
- * Converts a sheet to CSV text. Fields that contain the delimiter, a quote, CR or LF are
- * enclosed in quotes, and quotes are doubled (RFC 4180). Numbers are written in JavaScript's
+ * Separators that common readers use besides the delimiter: a field that holds one of them is
+ * quoted whatever the delimiter, so a reader that splits with another separator keeps it whole
+ * (CSV-14).
+ */
+const SEPARATORS = [',', ';', '\t', '|'] as const;
+
+/**
+ * Converts a sheet to CSV text. Fields that contain the delimiter, a quote, CR, LF, or one of
+ * the common separators `,`, `;`, tab and `|` (whatever the delimiter, CSV-14) are enclosed in
+ * quotes, and quotes are doubled (RFC 4180). Numbers are written in JavaScript's
  * shortest form, booleans as `TRUE`/`FALSE`, dates as ISO 8601, error cells as their code and
  * formula cells as their cached value. By default, text that a spreadsheet would run as a
  * formula is escaped (`formulaInjection: "escape"`).
@@ -137,7 +148,9 @@ export function toCSV(input: Uint8Array | ArrayBuffer | Workbook, options?: ToCS
   }
   if (endRow >= startRow && endCol >= startCol) checkOutputPositions((endRow - startRow + 1) * (endCol - startCol + 1), cellCount, limits.maxCells, 'The CSV text', sheet.name);
 
-  const needsQuotes = (s: string): boolean => s.includes(delimiter) || s.includes('"') || s.includes('\r') || s.includes('\n');
+  // A field with a comma written with ";" would be split by a reader that uses commas, and text
+  // after the comma would start a field without the escape (CSV-14).
+  const needsQuotes = (s: string): boolean => s.includes(delimiter) || s.includes('"') || s.includes('\r') || s.includes('\n') || SEPARATORS.some((c) => s.includes(c));
   const field = (value: unknown): string => {
     if (value === null || value === undefined) return '';
     if (typeof value === 'number') return String(value);

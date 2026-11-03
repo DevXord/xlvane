@@ -1335,8 +1335,9 @@ export class NewSheet {
    * file holds the current cell values of the ranges as caches, as Excel writes them
    * (docs/facts/charts.md CH-19, CH-21). The sheets named in the ranges must exist when the
    * workbook is written. Charts are drawn above the sheet's pictures. The caches of all charts
-   * of a workbook cover at most 4 000 000 cells (a limit of xlvane, checked when the workbook is
-   * written). The chart options and the anchor are copied, so changing the objects afterwards
+   * of a workbook cover at most 4 000 000 cells and hold at most 8 388 608 characters of text as
+   * written, after escaping (limits of xlvane, checked when the workbook is written;
+   * `writeWorkbookStream` writes no caches). The chart options and the anchor are copied, so changing the objects afterwards
    * does not change the chart. Throws `XLV_E_INVALID_CHART`.
    *
    * @example

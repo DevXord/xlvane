@@ -450,11 +450,17 @@ export interface Sheet {
   readonly hyperlinks: readonly Hyperlink[];
   /** Notes (comments) of the sheet, in file order (see `Note`). */
   readonly notes: readonly Note[];
-  /** Pictures of the sheet's drawing, in file order (see `SheetImage`); shapes are not read. */
+  /**
+   * Pictures of the sheet's drawing, in file order (see `SheetImage`); shapes are not read. A
+   * drawing part shared with an earlier sheet is read for that sheet only
+   * (`XLV_W_SHEET_PART_SHARED`).
+   */
   readonly images: readonly SheetImage[];
   /**
    * Charts of the sheet's drawing, in file order (see `SheetChart`): types, series references,
-   * titles, legend and axes. References are never evaluated. Charts on chart sheets are not read.
+   * titles, legend and axes. References are never evaluated. Charts on chart sheets are not read,
+   * nor charts of a drawing part shared with an earlier sheet. Chart groups and series count
+   * against `limits.maxCells` after the cells (see `ReadLimits.maxCells`).
    */
   readonly charts: readonly SheetChart[];
   /** The background image of the sheet (`picture` element), or `null`. */

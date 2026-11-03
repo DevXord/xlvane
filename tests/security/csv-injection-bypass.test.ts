@@ -72,7 +72,8 @@ describe('toCSV: a delimiter that starts a formula', () => {
   }
 
   it('accepts it with formulaInjection "off", and keeps tab, ";" and "|"', () => {
-    expect(toCSV(book, { delimiter: '=', formulaInjection: 'off' })).toContain("=cmd|' /C calc'!A0");
+    // The field is quoted because it holds "|" (CSV-14); the line still starts with the delimiter.
+    expect(toCSV(book, { delimiter: '=', formulaInjection: 'off' })).toContain(`="cmd|' /C calc'!A0"`);
     for (const d of ['\t', ';', '|', ',']) expect(lineStarts(toCSV(book, { delimiter: d }).replace(/^\t/gm, ''))).toBe(false);
   });
 });

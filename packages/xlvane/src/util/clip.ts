@@ -4,7 +4,17 @@
 /** The most characters of a value from the file that a message or detail shows. */
 export const MAX_SHOWN = 200;
 
-/** Shortens a value from the file for messages and details. */
+/**
+ * The first `length` UTF-16 code units of `text`, one fewer when the cut would split a surrogate
+ * pair, so that no lone high surrogate is left at the end.
+ */
+export function cutAt(text: string, length: number): string {
+  const code = text.charCodeAt(length - 1);
+  const pairStart = code >= 0xd800 && code <= 0xdbff && text.length > length;
+  return text.slice(0, pairStart ? length - 1 : length);
+}
+
+/** Shortens a value from the file for messages and details, on a code point boundary. */
 export function clip(value: string): string {
-  return value.length > MAX_SHOWN ? `${value.slice(0, MAX_SHOWN)}…` : value;
+  return value.length > MAX_SHOWN ? `${cutAt(value, MAX_SHOWN)}…` : value;
 }

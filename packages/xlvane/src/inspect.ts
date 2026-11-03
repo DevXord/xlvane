@@ -1,3 +1,4 @@
+import { cutAt } from './util/clip';
 import { isoDate } from './util/iso-date';
 import type { ChartKind, ChartText } from './charts';
 import { XlvError, type XlvWarning } from './errors';
@@ -241,9 +242,10 @@ const MAX_HYPERLINK_SAMPLES = 10;
 const MAX_MERGED_RANGES = 100;
 /** Chart group types listed per chart; `typesTruncated` says whether there are more. */
 const MAX_CHART_TYPES = 10;
-/** Characters shown of a defined name's formula (`refersTo`) and of a chart title. */
+/** Characters shown of a defined name's formula (`refersTo`), of a chart title and of a text value. */
 const MAX_SHOWN_TEXT = 100;
-const cut = (text: string): string => (text.length > MAX_SHOWN_TEXT ? `${text.slice(0, MAX_SHOWN_TEXT)}…` : text);
+/** Cuts to `MAX_SHOWN_TEXT` characters and `…`, before a surrogate pair that would be split. */
+const cut = (text: string): string => (text.length > MAX_SHOWN_TEXT ? `${cutAt(text, MAX_SHOWN_TEXT)}…` : text);
 const TYPE_ORDER: readonly Exclude<CellType, 'empty'>[] = ['number', 'string', 'date', 'boolean', 'error'];
 
 interface ResolvedOptions {
@@ -304,8 +306,7 @@ function isWorkbook(input: unknown): input is Workbook {
 /** Formats a value for JSON: dates as ISO 8601 without a time zone (`isoDate`). */
 function jsonValue(value: string | number | boolean | Date): InspectValue {
   if (value instanceof Date) return isoDate(value);
-  if (typeof value === 'string' && value.length > 100) return `${value.slice(0, 100)}…`;
-  return value;
+  return typeof value === 'string' ? cut(value) : value;
 }
 
 /**
