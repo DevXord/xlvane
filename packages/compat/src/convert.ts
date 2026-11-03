@@ -720,13 +720,23 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         });
       }
       row._cells.forEach((cell) => {
-        // The other cells of a uniform merged range are styled with the range below.
-        if (cell && !(cell._master !== null && uniform.masters.has(cell._master))) at(ws.name, cell.address, () => writeCell(cell));
+        if (!cell) return;
+        // The other cells of a uniform merged range are styled with the range below; only their
+        // notes are written here (K3).
+        if (cell._master !== null && uniform.masters.has(cell._master)) {
+          if (cell.note !== undefined) {
+            at(ws.name, cell.address, () => {
+              const note = noteIn(cell);
+              if (note) sheet.note(cell.address, note);
+            });
+          }
+        } else at(ws.name, cell.address, () => writeCell(cell));
       });
     });
     // A merged range whose cells all carry the master's style is styled in blocks of rows, with
-    // one style conversion, instead of a styled cell write each (K2): a few bytes of
-    // <mergeCell> could otherwise make writing take seconds and gigabytes.
+    // one style conversion, instead of a styled cell write each (K2). Each merged position is
+    // still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
+    // resident memory) to write (K3, measured with Node.js 22.23).
     for (const m of uniform.ranges) {
       const master = ws.findCell(m.top, m.left);
       if (!master) continue;
@@ -799,10 +809,10 @@ function sameStyleParts(a: Style, b: Style): boolean {
 }
 
 /**
- * The merged ranges of a worksheet whose other cells all exist, belong to the range's master, have
- * no note and carry the master's style (the copy `mergeCells` gives them, as in exceljs), and the
- * masters all of whose ranges are such. Their cells are written as the master's style over the
- * range (K2).
+ * The merged ranges of a worksheet whose other cells all exist, belong to the range's master and
+ * carry the master's style (the copy `mergeCells` gives them, as in exceljs), and the masters all
+ * of whose ranges are such. Their cells are written as the master's style over the range (K2),
+ * and their notes one by one (K3).
  */
 function uniformMerges(ws: Worksheet): { ranges: { top: number; left: number; bottom: number; right: number }[]; masters: Set<Cell> } {
   const ranges: { top: number; left: number; bottom: number; right: number }[] = [];
@@ -817,7 +827,7 @@ function uniformMerges(ws: Worksheet): { ranges: { top: number; left: number; bo
       for (let c = m.left; c <= m.right; c++) {
         if (r === m.top && c === m.left) continue;
         const cell = row?.findCell(c);
-        if (!cell || cell._master !== master || cell.note !== undefined || !sameStyleParts(cell.style, master.style)) {
+        if (!cell || cell._master !== master || !sameStyleParts(cell.style, master.style)) {
           ok = false;
           break;
         }

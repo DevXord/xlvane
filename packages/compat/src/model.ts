@@ -159,7 +159,8 @@ export function typeOf(value: unknown): number {
   if (value instanceof Date) return ValueType.Date;
   if (isRecord(value)) {
     if (value['text'] && value['hyperlink']) return ValueType.Hyperlink;
-    if (value['formula'] || value['sharedFormula']) return ValueType.Formula;
+    // sharedFormula first: a dependent from stream.xlsx.WorkbookReader builds its `formula` when read (K3).
+    if (value['sharedFormula'] || value['formula']) return ValueType.Formula;
     if (value['richText']) return ValueType.RichText;
     if (value['sharedString']) return ValueType.SharedString;
     if (value['error']) return ValueType.Error;

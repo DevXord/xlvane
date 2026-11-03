@@ -16,15 +16,16 @@ function streamValueIn(cell: ModelCell, masters: Map<string, { formula: string; 
     const r = v as Record<string, unknown>;
     // A master with a `ref` (exceljs fillFormula, or { formula, ref }) is written as a shared
     // formula over that range; its dependents come after it in row order (X4-29).
-    if (typeof r['formula'] === 'string' && r['shareType'] !== 'array' && typeof r['ref'] === 'string') {
+    if (typeof r['ref'] === 'string' && r['shareType'] !== 'array' && typeof r['formula'] === 'string') {
       masters.set(cell.address, { formula: r['formula'], row: cell.row, col: cell.col });
       return { formula: r['formula'], ...resultIn(r['result']), shared: r['ref'] } as CellInput;
     }
     if (typeof r['sharedFormula'] === 'string') {
       const address = r['sharedFormula'].replace(/\$/g, '').toUpperCase();
       if (masters.has(address)) return { sharedFormula: address, ...resultIn(r['result']) } as CellInput;
-      // A dependent of a plain formula is written as its translated formula; the master's row
-      // must not be committed yet, because committed rows are dropped.
+      // A dependent of a plain formula is written as its translated formula: from the master's
+      // row if it is not committed yet (committed rows are dropped), or the one a dependent from
+      // stream.xlsx.WorkbookReader carries (K3).
       const formula = cell.formula;
       if (formula !== undefined) return { formula, ...resultIn(r['result']) } as CellInput;
     }
@@ -35,7 +36,7 @@ import type { DefinedNames } from './defined-names';
 import { readFileBytes, xlvaneNode } from './node-api';
 import { imageAnchorIn, imageBytes, loadImageFiles, type ImageData } from './media';
 import { Dimensions } from './range';
-import { columnLetter, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
+import { columnLetter, decodeAddress, notSupported, Row, ValueType, Worksheet, type Cell as ModelCell } from './model';
 import type { CellValue, WorksheetOptions } from './types';
 import type { Image } from './compat-types';
 import { collectInput, Workbook } from './workbook';
@@ -700,6 +701,37 @@ export class WorksheetReader extends Emitter implements AsyncIterable<Row> {
 }
 
 /**
+ * The value of a shared-formula dependent read by the streaming reader: `{ sharedFormula: master,
+ * result }`, as exceljs's xlsx.load gives it, with a non-enumerable `formula` that moves the
+ * master's text (`masters`, by address) to `row`/`col` when it is first read. The master's row is
+ * not kept, so a sheet the value is copied into (stream.xlsx.WorkbookWriter, whose committed rows
+ * are dropped) can write this formula instead of looking the master up (K3); reading the rows
+ * alone builds no moved texts (K2). Setting `formula` replaces it with an ordinary property.
+ */
+function sharedDependent(master: string, result: { result?: unknown }, masters: ReadonlyMap<string, string>, row: number, col: number): CellValue {
+  const value = { sharedFormula: master, ...result };
+  let moved: string | undefined;
+  let built = false;
+  Object.defineProperty(value, 'formula', {
+    configurable: true,
+    enumerable: false,
+    get(): string | undefined {
+      if (!built) {
+        const text = masters.get(master);
+        const at = decodeAddress(master);
+        moved = text === undefined ? undefined : (shiftFormula(text, row - at.row, col - at.col) ?? undefined);
+        built = true;
+      }
+      return moved;
+    },
+    set(this: object, formula: unknown): void {
+      Object.defineProperty(this, 'formula', { value: formula, writable: true, enumerable: true, configurable: true });
+    },
+  });
+  return value as CellValue;
+}
+
+/**
  * The streaming reader of exceljs (`ExcelJS.stream.xlsx.WorkbookReader`): iterate worksheets
  * and their rows with `for await`, or call `read()` and listen to `worksheet`, `end`,
  * `finished` and `error` events (and `entry` with `entries: 'emit'`). Rows are not kept.
@@ -754,9 +786,10 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
       // Shared-formula masters by group index, and their formulas for `cell.formula` of the
       // dependents (the rows are not kept). A dependent is given as `{ sharedFormula, result }`
       // without moving the master's text to it, which a huge master shared with many cells
-      // made too costly (K2).
+      // made too costly (K2); its moved formula is built when it is read (sharedDependent, K3).
       const masters = new Map<number, string>();
-      sheet._sharedMasters = new Map();
+      const kept = new Map<string, string>();
+      sheet._sharedMasters = kept;
       const rows = async function* (): AsyncGenerator<Row> {
         for await (const r of book.rows(name)) {
           const row = sheet.getRow(r.number);
@@ -767,12 +800,12 @@ export class WorkbookReader extends Emitter implements AsyncIterable<WorksheetRe
             const result = plain === null ? {} : { result: plain as number };
             let value: CellValue;
             if (f && f.kind === 'shared' && f.sharedIndex !== null && f.ref === null && masters.has(f.sharedIndex) && hasFormulaText(f)) {
-              value = { sharedFormula: masters.get(f.sharedIndex)!, ...result } as CellValue;
+              value = sharedDependent(masters.get(f.sharedIndex)!, result, kept, r.number, cell.col);
             } else if (f && hasFormulaText(f)) {
               const text = f.text ?? '';
               if (f.kind === 'shared' && f.sharedIndex !== null && f.ref !== null) {
                 masters.set(f.sharedIndex, cell.ref);
-                sheet._sharedMasters?.set(cell.ref, text);
+                kept.set(cell.ref, text);
               }
               value = { formula: text, ...result } as CellValue;
             } else value = cell.richText ? richTextOut(cell.richText) : plain;

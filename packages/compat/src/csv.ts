@@ -59,9 +59,10 @@ export interface CsvWriteOptions {
    * `"escape"` (default): text that starts with `=`, `+`, `-`, `@`, tab, CR, LF or another
    * control character (or the full-width forms of the signs), or with a byte order mark, is
    * written with a leading `'`, so spreadsheet applications show it as text (OWASP CSV
-   * Injection); so is a `latin1` or `utf16le` field whose first bytes are a byte order mark. A
-   * field holding a comma, `;`, tab or `|` is quoted whatever the delimiter. `"off"`: written
-   * unchanged, as exceljs does. An xlvane option.
+   * Injection); so is a `latin1` or `utf16le` field whose first bytes are a byte order mark, and
+   * a `utf16le` field whose bytes without NULs start with `=`. `utf16le` output starts with the
+   * UTF-16LE byte order mark. A field holding a comma, `;`, tab or `|` is quoted whatever the
+   * delimiter. `"off"`: written unchanged, as exceljs does. An xlvane option.
    */
   formulaInjection?: 'escape' | 'off';
 }
@@ -430,7 +431,17 @@ interface CsvRow {
   line: number;
 }
 
-function tooMany(what: 'rows' | 'columns', line: number): XlvError {
+/** Fields added to the worksheet in total, as the core's `maxCells` read limit (K3). */
+const MAX_CSV_CELLS = DEFAULT_READ_LIMITS.maxCells;
+
+function tooMany(what: 'rows' | 'columns' | 'cells', line: number): XlvError {
+  if (what === 'cells') {
+    return new XlvError('XLV_E_LIMIT_EXCEEDED', `CSV line ${String(line)}: the CSV has more than ${String(MAX_CSV_CELLS)} fields in the rows read, the most csv.read adds to a worksheet.`, {
+      location: { line },
+      hint: 'Split the CSV file into smaller parts, read only part of it with parserOptions.maxRows or skipRows, or read it with the core fromCSV, whose maxCells option can be raised for a trusted file.',
+      details: { limit: 'maxCells', value: MAX_CSV_CELLS, line },
+    });
+  }
   const rows = what === 'rows';
   const max = rows ? MAX_SHEET_ROWS : MAX_SHEET_COLUMNS;
   return new XlvError('XLV_E_LIMIT_EXCEEDED', `CSV line ${String(line)}: ${rows ? `the CSV has more than ${String(max)} rows` : `the row has more than ${String(max)} fields`}, more than a worksheet can hold.`, {
@@ -444,7 +455,8 @@ function tooMany(what: 'rows' | 'columns', line: number): XlvError {
  * The rows of CSV text, split as fast-csv 4.3 does with the given parser options, one at a time:
  * the rows that `ignoreEmpty`, the header, `skipRows` and `maxRows` drop are left out. More than
  * 1 048 576 rows, or a row of more than 16 384 fields, throw `XLV_E_LIMIT_EXCEEDED` as soon as
- * they are reached, because a worksheet cannot hold them (K2).
+ * they are reached, because a worksheet cannot hold them (K2); so do more than 5 000 000 fields
+ * in the rows given (`DEFAULT_READ_LIMITS.maxCells`, K3).
  */
 function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
   let at = 0;
@@ -459,6 +471,7 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
   // Rows kept so far (after ignoreEmpty), for the header, skipRows and maxRows.
   let kept = 0;
   let emitted = 0;
+  let cells = 0;
   // skipLines: raw lines dropped before parsing.
   for (let k = 0; k < o.skipLines && at < n; k++) {
     while (!atLineEnd(at)) at++;
@@ -541,6 +554,8 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
     if (o.maxRows > 0 && emitted >= o.maxRows) continue;
     if (extra > 0) throw tooMany('columns', rowLine);
     if (++emitted > MAX_SHEET_ROWS) throw tooMany('rows', rowLine);
+    cells += row.length;
+    if (cells > MAX_CSV_CELLS) throw tooMany('cells', rowLine);
     yield { fields: row.map(trim), line: rowLine };
   }
 }
@@ -548,6 +563,17 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
 /** Splits CSV text into rows of fields as fast-csv 4.3 does with the given parser options. */
 export function parseCsv(text: string, o: ParserOptions): string[][] {
   return Array.from(csvRows(text, o), (r) => r.fields);
+}
+
+/** The delimiters and line-break characters in `text`: at least the number of fields less one. */
+function fieldEnds(text: string, delimiter: string): number {
+  const d = delimiter.charCodeAt(0);
+  let n = 0;
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (c === d || c === 10 || c === 13) n++;
+  }
+  return n;
 }
 
 /**
@@ -667,7 +693,7 @@ function defaultWriteMap(dateFormat: string | undefined, dateUTC: boolean) {
     if (typeof value === 'object') {
       const v = value as Record<string, unknown>;
       if (v['text'] || v['hyperlink']) return v['hyperlink'] || v['text'] || '';
-      if (v['formula'] || v['sharedFormula'] || 'result' in v) {
+      if (v['sharedFormula'] || v['formula'] || 'result' in v) {
         const result = v['result'];
         if (result === undefined || result === null) return '';
         if (result instanceof Date) return date(result);
@@ -709,7 +735,9 @@ const UTF8_FORMULA_SIGNS = [
  * (EF BB BF, FF FE, FE FF), which makes a reader decode the rest of the file in that encoding
  * and drop the mark, or the UTF-8 form of a full-width or small formula sign, which a reader that
  * guesses UTF-8 shows as one (K2). `prefix` holds bytes written before the field (latin1 writes
- * the `writeBOM` mark U+FEFF as the single byte FF).
+ * the `writeBOM` mark U+FEFF as the single byte FF). UTF-16LE bytes are taken without their NUL
+ * bytes, as an 8-bit reader that drops them reads them (K3); a sequence that holds no NUL byte is
+ * the same either way.
  */
 function encodedStartIsUnsafe(text: string, encoding: OutputEncoding, prefix: readonly number[]): boolean {
   if (encoding === 'utf8') return false;
@@ -717,10 +745,88 @@ function encodedStartIsUnsafe(text: string, encoding: OutputEncoding, prefix: re
   for (let i = 0; bytes.length < 3 && i < text.length; i++) {
     const c = text.charCodeAt(i);
     if (encoding === 'latin1') bytes.push(c & 0xff);
-    else bytes.push(c & 0xff, c >> 8);
+    else for (const b of [c & 0xff, c >> 8]) if (b !== 0) bytes.push(b);
   }
   const starts = (lead: readonly number[]): boolean => lead.every((b, i) => bytes[i] === b);
   return starts([0xef, 0xbb, 0xbf]) || starts([0xff, 0xfe]) || starts([0xfe, 0xff]) || UTF8_FORMULA_SIGNS.some(starts);
+}
+
+// ---- utf16le output read as 8-bit text (K3) ----------------------------------------------------
+// LibreOffice 24.2.7.2 reads a UTF-16LE CSV file as 8-bit text and drops its NUL bytes, with its
+// default import and with charset 76 (UTF-8), also when the file starts with the UTF-16LE byte
+// order mark; there a field starts a formula when it starts with "=", or with a quote (after any
+// spaces) and "=" (checked with LibreOffice; "+", "-", "@" and the full-width signs stay text).
+// The bytes of a character above U+00FF can be such a "=", or a delimiter, line break or quote
+// that splits a field or changes where quoted text ends in that reading.
+
+/** Bytes that end a field or a row for a reader of the 8-bit text, whatever its delimiter. */
+const BYTE_BREAKS = new Set([0x2c, 0x3b, 0x09, 0x7c, 0x0d, 0x0a]);
+
+/** Whether the 8-bit text `view` has a formula start at `i`: "=", or spaces or tabs, a quote and "=". */
+function viewFormulaAt(view: string, i: number): boolean {
+  if (view[i] === '=') return true;
+  let j = i;
+  while (view[j] === ' ' || view[j] === '\t') j++;
+  return view[j] === '"' && view[j + 1] === '=';
+}
+
+/**
+ * Whether the UTF-16LE bytes of `text` without NULs start a formula (see {@link viewFormulaAt})
+ * because of a character above U+00FF, such as U+3D00 (00 3D) or U+4E3D (3D 4E). Starts made only
+ * of characters up to U+00FF are the same text in both readings and are checked as text.
+ */
+function utf16StartsFormula(text: string): boolean {
+  let view = '';
+  let foreign = false;
+  // Leading spaces and tabs, and whether only those were read so far.
+  let lead = 0;
+  let blank = true;
+  for (let i = 0; i < text.length && view.length - lead < 2; i++) {
+    const c = text.charCodeAt(i);
+    if (c > 0xff) foreign = true;
+    for (const b of c > 0xff ? [c & 0xff, c >> 8] : [c]) {
+      if (b === 0) continue;
+      view += String.fromCharCode(b);
+      if (blank && (b === 0x20 || b === 0x09)) lead++;
+      else blank = false;
+    }
+  }
+  return foreign && viewFormulaAt(view, 0);
+}
+
+/** The UTF-16LE bytes of a written field without NULs, and whether characters above U+00FF give a break or a quote among them. */
+function utf16View(written: string, delimiter: string): { view: string; foreignBreak: boolean; foreignQuote: boolean } {
+  let view = '';
+  let foreignBreak = false;
+  let foreignQuote = false;
+  for (let i = 0; i < written.length; i++) {
+    const c = written.charCodeAt(i);
+    for (const b of c > 0xff ? [c & 0xff, c >> 8] : [c]) {
+      if (b === 0) continue;
+      if (c > 0xff) {
+        if (b === 0x22) foreignQuote = true;
+        else if (BYTE_BREAKS.has(b) || delimiter.includes(String.fromCharCode(b))) foreignBreak = true;
+      }
+      view += String.fromCharCode(b);
+    }
+  }
+  return { view, foreignBreak, foreignQuote };
+}
+
+/** Whether the 8-bit text `view` has a delimiter (`delimiter` or a common one) or a line break followed by a formula start. */
+function viewSplitStartsFormula(view: string, delimiter: string): boolean {
+  for (let i = 0; i < view.length; i++) {
+    if (BYTE_BREAKS.has(view.charCodeAt(i)) && viewFormulaAt(view, i + 1)) return true;
+    if (view.startsWith(delimiter, i) && viewFormulaAt(view, i + delimiter.length)) return true;
+  }
+  return false;
+}
+
+/** Column letters of a 1-based column number. */
+function columnName(n: number): string {
+  let s = '';
+  for (let c = n; c > 0; c = Math.floor((c - 1) / 26)) s = String.fromCharCode(65 + ((c - 1) % 26)) + s;
+  return s;
 }
 
 /**
@@ -733,6 +839,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   if (injection !== 'escape' && injection !== 'off') throw invalid('formulaInjection', 'The option "formulaInjection" must be "escape" or "off".', 'Use "escape" (default) or "off".');
   const f = formatterOptions(options.formatterOptions, injection === 'escape');
   const latin1 = encoding === 'latin1';
+  const sheetName = sheet?.name ?? '';
   if (latin1) {
     // latin1 keeps only the low byte of each character, so U+013D would become "=" and U+010A a
     // line feed after the fields were checked and quoted (D-J01).
@@ -741,11 +848,24 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
     }
   }
   if (injection === 'escape') {
+    const off = 'or pass formulaInjection: "off" for a trusted consumer.';
+    // Fields are checked one at a time, so they must not run together: with an empty delimiter,
+    // or one whose latin1 or UTF-16LE bytes are not ASCII, the bytes of one field and the next
+    // (or of the delimiter) could make a byte order mark or a formula sign (K3).
+    if (f.delimiter === '') {
+      throw invalid('delimiter', 'The delimiter is empty, so the fields of a row run together and the text of one field could complete a formula or a byte order mark begun by the one before.', `Use "," (default), ";", "|" or "\\t", ${off}`);
+    }
+    if (encoding !== 'utf8') {
+      for (const [name, value] of [['delimiter', f.delimiter], ['rowDelimiter', f.rowDelimiter]] as const) {
+        if (/[^\u0000-\u007f]/.test(value)) {
+          throw invalid(name, `The option "${name}" (${JSON.stringify(value)}) has characters other than ASCII, whose ${encoding} bytes could join the bytes of the fields around them into a byte order mark or a formula sign.`, `Use ASCII characters with encoding "${encoding}" (for example "," or ";"), write UTF-8 (the default encoding), ${off}`);
+        }
+      }
+    }
     // Ways around the escape that a standard (RFC 4180) reader would split differently (D-J01):
     // formula signs or controls in the delimiter (a line with an empty first field starts with
     // it), a row delimiter other than a line break, and a quote other than '"', which such a
     // reader does not take as quoting, so line breaks and delimiters in a value split it.
-    const off = 'or pass formulaInjection: "off" for a trusted consumer.';
     if (f.delimiter !== '\t' && [...f.delimiter].some((c) => INJECTION_START.has(c) || c.charCodeAt(0) < 0x20)) {
       throw invalid('delimiter', `The delimiter ${JSON.stringify(f.delimiter)} holds a formula sign or a control character, so a line could start with a formula.`, `Use "," (default), ";", "|" or "\\t", ${off}`);
     }
@@ -761,14 +881,50 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   }
   /** The text latin1 will write: characters above U+00FF as "?". */
   const narrow = (out: unknown): unknown => (latin1 && typeof out === 'string' ? out.replace(/[^\u0000-\u00ff]/g, '?') : out);
-  /** A formatted field, refused if a standard reader would take its leading quote as quoting. */
-  const field = (out: unknown, index: number, force: boolean): string => {
+  const utf16 = encoding === 'utf16le' && injection === 'escape';
+  // Bytes that LibreOffice does not drop come before the first field when utf16le output starts
+  // with its mark (FF FE) or latin1 output with writeBOM (FF): read as 8-bit text, the first
+  // field then does not start with its opening quote, so the quote is not taken as quoting and a
+  // delimiter or line break inside it ends the field (K3; checked with LibreOffice 24.2.7.2).
+  const marked = injection === 'escape' && (utf16 || (latin1 && f.writeBOM));
+  /** A quote may be taken differently by a reader of the 8-bit text from here on (K3). */
+  let quoteShifted = false;
+  const unsafeField = (index: number, row: number, reason: string, hint: string): XlvError => {
+    const cell = `${columnName(index + 1)}${String(row)}`;
+    return new XlvError('XLV_E_INVALID_OPTION', `The text of ${row === 0 ? `header ${String(index + 1)}` : `cell ${cell}`} cannot be written safely as ${encoding}: ${reason}`, {
+      location: row === 0 ? { sheet: sheetName } : { sheet: sheetName, cell },
+      hint,
+      details: { option: 'encoding', field: index + 1, row },
+    });
+  };
+  /**
+   * A formatted field, refused if a standard reader would take its leading quote as quoting, or
+   * if a reader of the output as 8-bit text that drops NUL bytes (LibreOffice) would split it
+   * before a formula start: in utf16le output, when characters above U+00FF give a delimiter,
+   * line break or quote there, when an earlier quote of that kind may shift the quoting, or for
+   * the first field after a mark that reader keeps (K3). `row` is the row number, 0 for the header
+   * line; `atStart`: the field is the first one of the file.
+   */
+  const field = (out: unknown, index: number, force: boolean, row: number, atStart: boolean): string => {
     const text = formatField(out, index, f, force);
     if (injection === 'escape' && f.quote !== '"' && text.startsWith('"')) {
       throw new XlvError('XLV_E_INVALID_OPTION', `Field ${String(index + 1)} starts with a double quote, which a standard CSV reader takes as quoting when formatterOptions.quote is not '"'.`, {
         hint: 'Leave formatterOptions.quote at its default ("), or pass formulaInjection: "off" for a trusted consumer.',
         details: { option: 'quote', field: index + 1 },
       });
+    }
+    const first = marked && atStart;
+    if (first || quoteShifted || (utf16 && /[^\u0000-\u00ff]/.test(text))) {
+      const { view, foreignBreak, foreignQuote } = utf16 ? utf16View(text, f.delimiter) : { view: text, foreignBreak: false, foreignQuote: false };
+      if ((first || foreignBreak || foreignQuote || quoteShifted) && viewSplitStartsFormula(view, f.delimiter)) {
+        throw first
+          ? unsafeField(index, row, `the file starts with ${utf16 ? 'the UTF-16LE byte order mark (FF FE)' : 'the byte FF (writeBOM)'}, which LibreOffice keeps when it reads the file as 8-bit text, so the opening quote of this first field is not taken as quoting and its delimiter or line break followed by "=" starts a formula.`, utf16 ? 'Write UTF-8 (the default encoding), move this text out of the first cell, or pass formulaInjection: "off" for a trusted consumer.' : 'Leave formatterOptions.writeBOM off with latin1, write UTF-8, or pass formulaInjection: "off" for a trusted consumer.')
+          : utf16
+            ? unsafeField(index, row, 'read as 8-bit text without its NUL bytes, as LibreOffice reads UTF-16LE CSV files, its bytes hold a delimiter or a line break followed by "=", which starts a formula there.', 'Write UTF-8 (the default encoding), or pass formulaInjection: "off" for a trusted consumer.')
+            : unsafeField(index, row, 'the first field, after the byte FF of writeBOM, is split by LibreOffice, which may then take the quotes after it differently, and this field holds a delimiter or a line break followed by "=".', 'Leave formatterOptions.writeBOM off with latin1, write UTF-8, or pass formulaInjection: "off" for a trusted consumer.');
+      }
+      // A first field split by that reader may leave a quote opening the next part.
+      if (foreignQuote || (first && ([...view].some((c) => BYTE_BREAKS.has(c.charCodeAt(0))) || view.includes(f.delimiter)))) quoteShifted = true;
     }
     return text;
   };
@@ -787,8 +943,9 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
     const text = out.replace(/\0/g, '');
     const first = text[0];
     if (first === undefined) return [out, false];
-    // latin1 writes the writeBOM mark U+FEFF as the byte FF, before the first field.
-    const unsafe = INJECTION_START.has(first) || first.charCodeAt(0) < 0x20 || encodedStartIsUnsafe(text, encoding, atStart && f.writeBOM && latin1 ? [0xff] : []);
+    // latin1 writes the writeBOM mark U+FEFF as the byte FF, before the first field. UTF-16LE
+    // output always starts with its own mark (FF FE), which is not part of the first field.
+    const unsafe = INJECTION_START.has(first) || first.charCodeAt(0) < 0x20 || encodedStartIsUnsafe(text, encoding, atStart && f.writeBOM && latin1 ? [0xff] : []) || (utf16 && utf16StartsFormula(text));
     return unsafe ? [`'${out}`, f.quote !== ''] : [out, false];
   };
   if (f.headers) {
@@ -796,7 +953,7 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
       f.headers
         .map((h, i) => {
           const [out, force] = escape(h, i === 0);
-          return field(out, i, force);
+          return field(out, i, force, 0, i === 0);
         })
         .join(f.delimiter),
     );
@@ -817,8 +974,9 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
           fields.push('');
           continue;
         }
-        const [out, force] = escape(map(values[i], i), lines.length === 0 && i === 0);
-        fields.push(field(out, i, force));
+        const atStart = lines.length === 0 && i === 0;
+        const [out, force] = escape(map(values[i], i), atStart);
+        fields.push(field(out, i, force, rowNumber, atStart));
       }
       lines.push(fields.join(f.delimiter));
       lastRow = rowNumber;
@@ -826,7 +984,10 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
   }
   let text = lines.join(f.rowDelimiter);
   if (f.includeEndRowDelimiter) text += f.rowDelimiter;
-  return (f.writeBOM ? '\uFEFF' : '') + text;
+  // While formulas are escaped, utf16le output starts with the UTF-16LE byte order mark (FF FE),
+  // so that readers which honour it decode UTF-16 instead of 8-bit text (K3); exceljs writes it
+  // only with writeBOM.
+  return (f.writeBOM || utf16 ? '\uFEFF' : '') + text;
 }
 
 // ---- bytes, streams and files ----------------------------------------------------------------
@@ -1004,6 +1165,18 @@ export class CsvIO {
     const text = await readText(stream, parser.encoding);
     const formats = options.dateFormats ?? DEFAULT_DATE_FORMATS;
     const map = options.map ?? ((datum: string) => csvValue(datum, formats));
+    // A text with more delimiters and line breaks than the cell budget may hold more fields
+    // (each field but the last ends in one): it is parsed and counted first, so that too many
+    // fields are refused before any row is added (K3). Other errors are left to the pass below,
+    // which reaches them after adding the rows before them, as fast-csv does.
+    if (text.length >= MAX_CSV_CELLS && fieldEnds(text, parser.delimiter) >= MAX_CSV_CELLS) {
+      try {
+        const rows = csvRows(text, parser);
+        while (rows.next().done !== true);
+      } catch (error) {
+        if (error instanceof XlvError && error.code === 'XLV_E_LIMIT_EXCEEDED' && (error.details as { limit?: unknown } | undefined)?.limit === 'maxCells') throw error;
+      }
+    }
     // Each row is added as it is parsed, so the parsed rows are never all held at once (K2).
     for (const row of csvRows(text, parser)) worksheet.addRow(row.fields.map((datum, i) => map(datum, i)) as CellValue[]);
     return worksheet;
