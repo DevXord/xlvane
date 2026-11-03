@@ -706,8 +706,16 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       }
       return c;
     };
-    const styleFor = (cell: Cell): CellStyle => (useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {});
-    const uniform = uniformMerges(ws);
+    const styleFor = (cell: Cell): CellStyle => {
+      if (!useStyles) return isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {};
+      // A merged cell whose style equals the master's is converted once, with the master's: a
+      // loaded range keeps each cell's own style object (F2), and a column style can give a
+      // million merged cells equal styles.
+      const master = cell._master;
+      const style = master !== null && cell.style !== master.style && sameStyle(cell.style, master.style) ? master.style : cell.style;
+      return cellStyleIn(cell, styleOf(style));
+    };
+    const blocks = mergeBlocks(ws);
     ws._rows.forEach((row) => {
       if (!row) return;
       if (row.height !== undefined || row.hidden || row.outlineLevel) {
@@ -721,9 +729,9 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       }
       row._cells.forEach((cell) => {
         if (!cell) return;
-        // The other cells of a uniform merged range are styled with the range below; only their
+        // The other cells of a merged range in rows that are styled as a block below; only their
         // notes are written here (K3).
-        if (cell._master !== null && uniform.masters.has(cell._master)) {
+        if (cell._master !== null && blocks.covers(cell)) {
           if (cell.note !== undefined) {
             at(ws.name, cell.address, () => {
               const note = noteIn(cell);
@@ -733,13 +741,12 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         } else at(ws.name, cell.address, () => writeCell(cell));
       });
     });
-    // A merged range whose cells all carry the master's style is styled in blocks of rows, with
-    // one style conversion, instead of a styled cell write each (K2). Each merged position is
-    // still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
+    // The rows of a merged range whose cells all carry the master's style are styled in blocks,
+    // with one style conversion, instead of a styled cell write each (K2). Each merged position
+    // is still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
     // resident memory) to write (K3, measured with Node.js 22.23).
-    for (const m of uniform.ranges) {
-      const master = ws.findCell(m.top, m.left);
-      if (!master) continue;
+    for (const m of blocks.blocks) {
+      const master = m.master;
       const style = styleFor(master);
       if (Object.keys(style).length === 0) continue;
       const width = m.right - m.left + 1;
@@ -796,51 +803,85 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
 /** Cells styled by one `sheet.style` call for a merged range: at most what the core styles at once. */
 const MERGE_STYLE_BLOCK = 1_048_576;
 
-/** Whether two exceljs styles have the same parts (the same objects, as a merge's copies have). */
-function sameStyleParts(a: Style, b: Style): boolean {
+/**
+ * Whether two exceljs styles are equal: the same object (as `mergeCells` shares the master's),
+ * parts that are the same objects (a column style given to new cells), or equal plain data (styles
+ * read from a file). Parts that are `undefined` count as missing.
+ */
+function sameStyle(a: Style, b: Style): boolean {
   if (a === b) return true;
-  let n = 0;
-  for (const k in a) {
-    if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
-    n++;
-  }
-  for (const _ in b) n--;
-  return n === 0;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  for (const k in x) if (!samePlain(x[k], y[k], 0)) return false;
+  for (const k in y) if (x[k] === undefined && y[k] !== undefined) return false;
+  return true;
+}
+
+/** Deep equality of plain style data (objects, arrays and primitives), to a bounded depth. */
+function samePlain(a: unknown, b: unknown, depth: number): boolean {
+  if (a === b) return true;
+  if (depth > 8 || a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b) || a instanceof Date || b instanceof Date) return false;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  if (keys.length !== Object.keys(y).length) return false;
+  for (const k of keys) if (!Object.prototype.hasOwnProperty.call(y, k) || !samePlain(x[k], y[k], depth + 1)) return false;
+  return true;
+}
+
+/** A merged range's rows written as blocks: `rows[r - top]` is 1 when row r is in a block. */
+interface MergeRows {
+  top: number;
+  left: number;
+  right: number;
+  rows: Uint8Array;
 }
 
 /**
- * The merged ranges of a worksheet whose other cells all exist, belong to the range's master and
- * carry the master's style (the copy `mergeCells` gives them, as in exceljs), and the masters all
- * of whose ranges are such. Their cells are written as the master's style over the range (K2),
- * and their notes one by one (K3).
+ * The blocks of merged cells that are styled with their master's style over a range: the rows of
+ * a merged range whose other cells all exist, belong to the range's master and carry the master's
+ * style (the object `mergeCells` shares with them, as in exceljs, or an equal one), grouped into
+ * runs of rows. `covers` tells whether a merged cell lies in such a block; the cells of the other
+ * rows are written one by one (K2, F2).
  */
-function uniformMerges(ws: Worksheet): { ranges: { top: number; left: number; bottom: number; right: number }[]; masters: Set<Cell> } {
-  const ranges: { top: number; left: number; bottom: number; right: number }[] = [];
-  const masters = new Set<Cell>();
-  const mixed = new Set<Cell>();
+function mergeBlocks(ws: Worksheet): { blocks: { master: Cell; top: number; left: number; bottom: number; right: number }[]; covers: (cell: Cell) => boolean } {
+  const blocks: { master: Cell; top: number; left: number; bottom: number; right: number }[] = [];
+  const byMaster = new Map<Cell, MergeRows[]>();
   for (const m of ws._merges.values()) {
     const master = ws.findCell(m.top, m.left);
     if (!master) continue;
-    let ok = true;
-    for (let r = m.top; ok && r <= m.bottom; r++) {
-      const row = ws.findRow(r);
-      for (let c = m.left; c <= m.right; c++) {
+    const rows = new Uint8Array(m.bottom - m.top + 1);
+    let start = -1;
+    for (let r = m.top; r <= m.bottom + 1; r++) {
+      let ok = r <= m.bottom;
+      const row = ok ? ws.findRow(r) : undefined;
+      for (let c = m.left; ok && c <= m.right; c++) {
         if (r === m.top && c === m.left) continue;
         const cell = row?.findCell(c);
-        if (!cell || cell._master !== master || !sameStyleParts(cell.style, master.style)) {
-          ok = false;
-          break;
-        }
+        if (!cell || cell._master !== master || !sameStyle(cell.style, master.style)) ok = false;
+      }
+      if (ok) {
+        rows[r - m.top] = 1;
+        if (start < 0) start = r;
+      } else if (start >= 0) {
+        blocks.push({ master, top: start, left: m.left, bottom: r - 1, right: m.right });
+        start = -1;
       }
     }
-    if (ok) {
-      ranges.push(m);
-      masters.add(master);
-    } else mixed.add(master);
+    const list = byMaster.get(master);
+    const entry = { top: m.top, left: m.left, right: m.right, rows };
+    if (list) list.push(entry);
+    else byMaster.set(master, [entry]);
   }
-  // A cell can be the master of several ranges; its cells are written one by one if any is mixed.
-  for (const master of mixed) masters.delete(master);
-  return { ranges: ranges.filter((m) => masters.has(ws.findCell(m.top, m.left)!)), masters };
+  const covers = (cell: Cell): boolean => {
+    for (const m of byMaster.get(cell._master!) ?? []) {
+      const i = cell.row - m.top;
+      if (cell.col >= m.left && cell.col <= m.right && i >= 0 && i < m.rows.length) return m.rows[i] === 1;
+    }
+    return false;
+  };
+  return { blocks, covers };
 }
 
 /**

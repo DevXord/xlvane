@@ -747,7 +747,9 @@ export class Workbook {
         spend(areaOf(m), 'A merged range', s.name);
         spendMerge(areaOf(m), m, s.name);
         try {
-          ws.mergeCells(m);
+          // exceljs merges a file's ranges without styles (lib/doc/worksheet.js L895-901
+          // `_parseMergeCells`), so each cell keeps its own style from the file.
+          ws.mergeCellsWithoutStyle(m);
         } catch (error) {
           // exceljs's plain Error for overlapping merges becomes an XlvError on load.
           if (error instanceof XlvError || !(error instanceof Error) || error.message !== 'Cannot merge already merged cells') throw error;
