@@ -37,13 +37,20 @@ function hex4(code: number): string {
 
 /**
  * Encodes a string as an ST_Xstring value: characters that XML 1.0 cannot represent become
- * `_xHHHH_`, and an underscore that starts `_x` + four hex digits + `_` becomes `_x005F_`, so
+ * `_xHHHH_`, and an underscore that starts `_x` + four hex digits + `_` becomes `_x005F_` (also
+ * when the character after the digits is one that is escaped, since its escape starts with `_`), so
  * `decodeXstring(encodeXstring(s)) === s` for every well-formed string. Lone surrogates must be
  * rejected by the caller first ({@link firstLoneSurrogate}); they are encoded here as
  * escapes, which the reader keeps as text (D-XS-3).
  */
 export function encodeXstring(s: string): string {
   if (!/[\x00-\x08\x0B\x0C\x0E-\x1F\uD800-\uDFFF￾￿]|_x[0-9A-Fa-f]{4}_/.test(s)) return s;
+  /** Whether the character at `j` is written as an escape (so its output starts with `_`). */
+  const escaped = (j: number): boolean => {
+    const c = s.charCodeAt(j);
+    if (c >= 0xd800 && c <= 0xdbff) return !(s.charCodeAt(j + 1) >= 0xdc00 && s.charCodeAt(j + 1) <= 0xdfff);
+    return (c < 0x20 && c !== 0x09 && c !== 0x0a && c !== 0x0d) || (c >= 0xdc00 && c <= 0xdfff) || c === 0xfffe || c === 0xffff;
+  };
   let out = '';
   for (let i = 0; i < s.length; i++) {
     const c = s.charCodeAt(i);
@@ -62,7 +69,7 @@ export function encodeXstring(s: string): string {
       c === 0xffff
     ) {
       out += `_x${hex4(c)}_`;
-    } else if (c === 0x5f && /^_x[0-9A-Fa-f]{4}_/.test(s.slice(i, i + 7))) {
+    } else if (c === 0x5f && /^_x[0-9A-Fa-f]{4}/.test(s.slice(i, i + 6)) && (s[i + 6] === '_' || (i + 6 < s.length && escaped(i + 6)))) {
       out += '_x005F_';
     } else {
       out += s[i]!;

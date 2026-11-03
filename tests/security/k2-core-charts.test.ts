@@ -168,25 +168,32 @@ describe('writing charts: sheets are looked up once per workbook', () => {
     return performance.now() - t0;
   };
 
-  it('writes 3000 sheets with one chart each in time linear in the sheets', async () => {
-    // Before: 2000 sheets took 2.1 s with charts and 0.46 s without.
-    const n = 3000;
-    const plain = build(n, false);
-    const charted = build(n, true);
-    const plainMs = time(() => writeWorkbook(plain));
-    const chartMs = time(() => writeWorkbook(charted));
-    expect(chartMs).toBeLessThan(3 * plainMs + 1000);
-
-    const specs = (withCharts: boolean) => Array.from({ length: n }, (_, i) => ({ name: `S${String(i)}x`, rows: [[1]], ...(withCharts ? { charts: [{ type: 'line' as const, anchor: 'C2:J12', series: [{ values: `S${String(i)}x!B1:B2` }] }] } : {}) }));
-    const drain = async (withCharts: boolean): Promise<number> => {
-      const t0 = performance.now();
-      for await (const chunk of writeWorkbookStream({ sheets: specs(withCharts) })) void chunk;
-      return performance.now() - t0;
+  it('writes sheets with one chart each in time linear in the sheets', async () => {
+    // Doubling the sheets doubles linear work and quadruples quadratic work. Before: 2000 and 4000
+    // sheets took 1.49 s and 5.16 s (3.5 times); after: about 1.2 s and 2.3 s. The ratio, unlike a
+    // bound against the time without charts, does not depend on the speed of the machine.
+    const best = async (fn: () => Promise<unknown> | unknown): Promise<number> => {
+      let min = Infinity;
+      for (let k = 0; k < 2; k++) {
+        const t0 = performance.now();
+        await fn();
+        min = Math.min(min, performance.now() - t0);
+      }
+      return min;
     };
-    const streamPlain = await drain(false);
-    const streamCharts = await drain(true);
-    expect(streamCharts).toBeLessThan(3 * streamPlain + 1000);
-  }, 120_000);
+    const charted = (n: number) => build(n, true);
+    const small = charted(2000);
+    const large = charted(4000);
+    const ratio = (await best(() => writeWorkbook(large))) / (await best(() => writeWorkbook(small)));
+    expect(ratio).toBeLessThan(2.8);
+
+    const specs = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `S${String(i)}x`, rows: [[1]], charts: [{ type: 'line' as const, anchor: 'C2:J12', series: [{ values: `S${String(i)}x!B1:B2` }] }] }));
+    const drain = async (n: number): Promise<void> => {
+      for await (const chunk of writeWorkbookStream({ sheets: specs(n) })) void chunk;
+    };
+    const streamRatio = (await best(() => drain(4000))) / (await best(() => drain(2000)));
+    expect(streamRatio).toBeLessThan(2.8);
+  }, 300_000);
 });
 
 describe('inspect: titles are cut on a code point boundary', () => {

@@ -871,8 +871,10 @@ At the maintainer's request the release candidate (412226b) was tested before re
   - a file removed between checks was `XLV_E_INTERNAL`;
   - CLI messages for dangling links and special files;
   - temporary names too long for long file names.
+- **Text encoding (found by the property tests in CI, all versions):** `encodeXstring` escaped the underscore of `_xHHHH` only when `_` followed the digits, but a following control character, U+FFFE or U+FFFF is written as `_xHHHH_` too, so `"_xAF0F\uFFFF"` was read back as `"\uAF0FxFFFF_"`; the underscore is escaped in that case as well.
 - **Tests and release:**
-  - CI: LibreOffice finished a batch conversion without one PNG, so missing outputs are converted again;
+  - CI: LibreOffice finished a batch conversion without one PNG, so missing outputs are converted again, and the CI image (libreoffice-calc only) has no PNG export filter, so the drawing check is skipped there with a stated reason (the re-save test still checks every chart);
+  - a timing test now compares the time for 4 000 and 2 000 sheets instead of a bound against the time without charts, which a slower CI machine exceeded;
   - `run-runtimes` left the workerd binary running when `.bin/workerd` is a Node.js wrapper;
   - prerelease tags are refused by the version check (npm 11.21.1 refuses to publish a prerelease without `--tag`).
 - **Documentation:**

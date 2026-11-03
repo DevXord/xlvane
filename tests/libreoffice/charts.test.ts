@@ -167,9 +167,17 @@ describe.skipIf(!available && !required)('LibreOffice and charts', () => {
     }
   });
 
-  it('draws every chart type: the PNG of each has coloured pixels, the sheet without a chart none', { timeout: 400_000 }, async () => {
+  it('draws every chart type: the PNG of each has coloured pixels, the sheet without a chart none', { timeout: 400_000 }, async (ctx) => {
     const dir = await mkdtemp(join(tmpdir(), 'xlvane-lo-chart-png-'));
     try {
+      // The CI image installs libreoffice-calc only, whose LibreOffice has no PNG export filter
+      // ("Error: no export filter"); the drawing is then not checked there (the re-save test above
+      // still checks every chart), but it is wherever the filter exists.
+      const probe = join(dir, 'probe.xlsx');
+      await writeFile(probe, book({}, false));
+      const profile = pathToFileURL(join(dir, 'profile')).href;
+      const tried = spawnSync(SOFFICE, [`-env:UserInstallation=${profile}`, '--headless', '--convert-to', 'png', '--outdir', join(dir, 'probe'), probe], { encoding: 'utf8', timeout: 300_000 });
+      if (/no export filter/i.test(`${tried.stdout}${tried.stderr}`)) ctx.skip();
       const files: string[] = [];
       for (const [name, chart] of Object.entries({ ...CHARTS, empty: CHARTS['column']! })) {
         const file = join(dir, `${name}.xlsx`);
