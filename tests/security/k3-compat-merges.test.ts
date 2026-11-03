@@ -3,7 +3,8 @@
 // of the range made it fall back to a styled cell write per position (twice the time for a range
 // of 200 000 positions). The cells of such a range are now styled as a block, and their notes are
 // written on their own.
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import { NewSheet } from '../../packages/xlvane/src/write';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { ExcelJS } from '../exceljs/helpers';
 
@@ -20,20 +21,20 @@ function merged(note: boolean): any {
   return wb;
 }
 
-async function writeMs(note: boolean): Promise<number> {
-  const wb = merged(note);
-  const start = performance.now();
-  await wb.xlsx.writeBuffer();
-  return performance.now() - start;
-}
-
 describe('K3 item 4: a note inside a merged range', () => {
-  it('keeps the block writing: about as fast as the same range without a note', async () => {
-    await writeMs(false);
-    const plain = Math.min(await writeMs(false), await writeMs(false));
-    const noted = Math.min(await writeMs(true), await writeMs(true));
-    // Before: about twice as long (a styled cell write per merged position).
-    expect(noted / plain).toBeLessThan(1.4);
+  it('keeps the block writing: no styled cell write per merged position', async () => {
+    // Counted instead of timed (a time ratio was too close to the old one on CI machines). Before:
+    // a note made every one of the 200 000 merged positions a styled cell write of its own.
+    const set = vi.spyOn(NewSheet.prototype, 'set');
+    try {
+      await merged(false).xlsx.writeBuffer();
+      const plain = set.mock.calls.length;
+      set.mockClear();
+      await merged(true).xlsx.writeBuffer();
+      expect(set.mock.calls.length).toBeLessThan(plain + 10);
+    } finally {
+      set.mockRestore();
+    }
   }, 120_000);
 
   it('writes the notes and the style of every merged cell', async () => {
