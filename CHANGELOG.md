@@ -2,6 +2,27 @@
 
 The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
 
+## 1.3.1 (unreleased)
+
+`@xlvane/compat` behaves like exceljs 4.4.0 where the review of 1.3.0 found it did not (docs/decisions.md D-L01), with three additions to the core API that it needs. No security fixes; no new dependency or error code.
+
+### xlvane
+
+- **Row styles:** `sheet.row(n, { style })` (and `rowStyle` of a streamed row) writes the row's default style (`row@s` with `customFormat="1"`), also for a row without cells; `sheet.rowInfo(n).style` and `StreamRow.style` read it back when the row has `customFormat`. The style is not applied to the row's cells.
+- **Default font:** `createWorkbook({ defaultFont })` and `writeWorkbookStream({ defaultFont })` set the workbook's default font (font 0); other fonts take their missing name and size from it. `workbook.defaultFont` gives the default font of a read workbook. Without the option the output is unchanged.
+- **Colours:** a colour with 6 hex digits (`rgb="000000"`), which some writers produce instead of 8-digit ARGB, is read as the opaque colour `FF000000` instead of being dropped; the `XLV_W_INVALID_VALUE` warning remains.
+
+### @xlvane/compat
+
+- **Merged cells:** the cells of a merged range share the top-left cell's style object, as in exceljs, so a style set on any of them after `mergeCells` shows on all and is written for all (before, a border or fill set on the master after merging was written on the master only); `unMergeCells` gives them the row and column style again. `xlsx.load` merges without styles, as exceljs does, so each merged cell keeps its own style from the file (for example the edges of a box border). Rows of a merged range whose cells carry the master's style, or an equal one, are still written as style blocks.
+- **Row styles** (`row.font`, `row.fill`, ...) are written as the row's own style for rows with a height or cells, also by the streaming writer, and read back by `xlsx.load` and the streaming reader, so cells added later take them. A row's style in a file is read only when the row has `customFormat="1"` (exceljs also reads it without).
+- **Default font:** a workbook read with `xlsx.load` is written with its own default font (for example Arial 10) instead of Calibri 11; styled cells, rows and columns that use it read it as their `font`, as in exceljs.
+- **Colours:** six-digit `rgb` colours in a file's styles are read and kept (written as `FF` plus the six digits; exceljs writes the six).
+- **Dates:** a `Date` from 1899-12-30 to the end of 1899 (exceljs's time-only values) is written as exceljs's serial instead of throwing `XLV_E_INVALID_VALUE`, and a serial below 1 with a date format reads as 1899-12-30 plus the time. Numbers whose format exceljs takes for a date, also in upper case such as `DD.MM.YYYY`, read as dates.
+- **CSV:** `formatterOptions.transform`, `quoteHeaders`, `quoteColumns` and `quoteHeaders` as objects, `headers: true` and `alwaysWriteHeaders` work as in fast-csv, with formulas still escaped after `transform`; with `headers` an empty row gives one empty field per header, and the header line is written with the first row; a `BOM` other than U+FEFF throws `XLV_E_NOT_SUPPORTED`. `csv.read` with `latin1` or `binary` decodes each byte as the same code point (it was windows-1252), and a line of only white space is a row without fields.
+- **API:** `column.eachCell` without `includeEmpty`, and the column style setters, reach the column's cell in every row with values, as in exceljs; `cell.formulaType` is `undefined` for a cell without a formula.
+- **Docs:** docs/exceljs-compat.md describes each change; the remaining known differences are dates from 1900-01-01 to 1900-02-28 (wrong in exceljs) and values xlvane refuses to write.
+
 ## 1.3.0 (2026-11-03)
 
 Charts, and security fixes from two reviews of the release candidate (docs/decisions.md D-K03 and D-K04). Please update all three packages.

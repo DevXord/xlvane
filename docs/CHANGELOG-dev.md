@@ -2,6 +2,11 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Phase L1: exceljs compatibility, version 1.3.1 (2026-11-03)
+
+- The twelve differences of @xlvane/compat from exceljs 4.4.0 found in D-K04, checked against exceljs 4.4.0: merged-cell styles, row styles, the default font, six-digit colours, time-only dates, exceljs date formats, CSV formatter options, latin1 reading, `column.eachCell`, `formulaType` (D-L01). Core: row styles, `defaultFont`, six-digit colours.
+- Version 1.3.1 of the three packages. Decisions for the maintainer are listed in D-L01.
+
 ## Releases 1.2.3 and 1.3.0 (2026-11-03)
 
 - Both published with provenance and listed in the MCP Registry; website rebuilt for 1.3.0 with the guides for moving from exceljs and the xlsx CVEs.

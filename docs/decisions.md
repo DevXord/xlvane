@@ -919,6 +919,22 @@ Version 1.3.0. No new dependency or error code.
 - `@xlvane/compat` 1.3.0 failed twice with `TLOG_CREATE_ENTRY_ERROR` (409 "an equivalent entry already exists in the transparency log", after about 40 s) and was staged by the third run of the job. npm 11.21.1 signs provenance with a 5 s timeout and two retries (`sigstore/dist/config.js` L25-26) and does not fetch an existing entry on conflict (`fetchOnConflict: false`, L105; `@sigstore/sign/dist/witness/tlog/client.js` L34-56), so a slow first request that succeeds makes the retry fail. `scripts/stage-publish.mjs` now tries such a package again, up to three times 30 s apart; nothing is staged before the signature, so a new try cannot stage twice.
 - `npm stage list` without a package name answered "No staged packages found." for the versions staged by the workflow; with the name they were listed. The `mcp-publisher` login expired within about 40 minutes.
 
+## Decisions: phase L (compatibility, 1.3.1)
+
+### D-L01 @xlvane/compat differences from exceljs 4.4.0 (2026-11-03)
+The review of 1.3.0 (D-K04) found twelve differences from exceljs 4.4.0; at the maintainer's choice they were fixed in 1.3.1, each checked by running exceljs 4.4.0 (`bench/node_modules/exceljs`) and cited by file and line in the tests (`tests/exceljs/l1-fixes.test.ts`).
+- **Merged cells:** cells of a merged range share the master's style object (exceljs `lib/doc/cell.js` L169-175), and `xlsx.load` merges without styles (`lib/doc/worksheet.js` L895-901). The K2 memory protection (D-K03) is kept: style blocks are chosen by equal style data, not object identity, so a column or row style over a million merged positions still makes at most ten single-cell writes.
+- **Core API added for compat:** row default styles (`RowOptions.style`, `StreamRowInput.rowStyle`, `RowInfo.style`, `StreamRow.style`; sml-write.md W2-04a), the workbook default font (`CreateWorkbookOptions.defaultFont`, `WriteWorkbookStreamOptions.defaultFont`, `Workbook.defaultFont`; W2-12a) and six-digit `rgb` colours read as `FF` + RRGGBB with the warning kept (W2-16a). Decisions for the maintainer:
+  - the streamed row's field is `rowStyle`, because `style` already styles every cell of the row;
+  - a row's style is read only with `customFormat="1"` (E-24), although exceljs reads `s` without it;
+  - `Workbook.defaultFont` is a required member of the `Workbook` interface;
+  - row styles are not merged into `Cell.style`, although LibreOffice shows unstyled cells of a formatted row in the row's format.
+- **Dates:** compat writes exceljs's time-only dates (1899-12-30 to the end of 1899) as serials and reads serials below 1 as 1899-12-30 plus the time; the core (D-112) is unchanged. exceljs's date-format rule (`lib/utils/utils.js` L140-151) is applied in compat, so `DD.MM.YYYY` reads as a date; the core rule (V-32) is unchanged. Dates from 1900-01-01 to 1900-02-28, where exceljs is wrong, stay as they are.
+- **CSV:** writing follows @fast-csv/format 4.3.5 (row and field formatter, `transform`, `quoteHeaders`, object forms, `headers: true`, `alwaysWriteHeaders`), with the formula-injection escape applied after `transform`; `latin1` reading is byte for byte.
+- **Not changed:** values exceljs writes but xlvane refuses (NaN, Infinity, Invalid Date, dates outside 1900-9999, text over 32 767 characters, unpaired surrogates, formulas over 8 192 characters), because Office would refuse or change them; the frozen-view `activeCell` and `topLeftCell` (a core change); font 0 in the streaming reader (`WorkbookStream` has no default font).
+
+Version 1.3.1. No new dependency or error code.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
