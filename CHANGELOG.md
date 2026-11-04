@@ -2,6 +2,10 @@
 
 The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
 
+## Unreleased
+
+- **Package pages:** the `homepage` of `xlvane`, `@xlvane/compat` and `@xlvane/mcp` points to the website (https://xlvane.github.io/, and its pages for `@xlvane/compat` and `@xlvane/mcp`) instead of the GitHub README. npm shows it from the next published version.
+
 ## 1.3.1 (2026-11-04)
 
 `@xlvane/compat` behaves like exceljs 4.4.0 where the review of 1.3.0 found it did not (docs/decisions.md D-L01), with three additions to the core API that it needs. No security fixes; no new dependency or error code.
