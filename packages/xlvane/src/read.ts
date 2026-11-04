@@ -10,7 +10,7 @@ import { parseComments, parseNoteBoxes, THREADED_COMMENTS_REL, type Note } from 
 import { MAX_TABLES_PER_SHEET, parseTable, type TableDefinition } from './tables';
 import type { ConditionalFormat, DataValidation } from './sheet-rules';
 import type { Cell, ColumnInfo, Conformance, DateSystem, FrozenPanes, RichTextRun, RowInfo, Sheet, SheetKind, SheetProperties, SheetState, SheetView, Workbook, WorkbookFormat, WorkbookView } from './model';
-import type { Color } from './style';
+import type { Color, FontStyle } from './style';
 import { openPackage, type OpcPackage, type Relationship } from './opc/package';
 import { partKey } from './opc/part-name';
 import { parseCellRef, parseRange } from './sml/cell-ref';
@@ -224,6 +224,7 @@ class ReadWorkbook implements Workbook {
     readonly protection: WorkbookProtection | null = null,
     readonly views: readonly WorkbookView[] = [],
     readonly calculation: { readonly fullCalcOnLoad: boolean } | null = null,
+    readonly defaultFont: FontStyle | null = null,
   ) {}
 
   getSheet(name: string): Sheet {
@@ -335,7 +336,7 @@ export function readWorkbook(data: Uint8Array | ArrayBuffer, options?: ReadOptio
     sheet.charts = drawing.charts;
     sheet.backgroundImage = drawing.background;
   });
-  const workbook = new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection, book.views, book.calculation);
+  const workbook = new ReadWorkbook(sheets, book.dateSystem, book.conformance, book.format, book.hasMacros, book.externalLinkCount, warnings.list(), book.properties, book.definedNames, book.protection, book.views, book.calculation, book.styles.defaultFont() ?? null);
   workbook.images = [...media.values()].filter((m): m is WorkbookImage => m !== null);
   return workbook;
 }

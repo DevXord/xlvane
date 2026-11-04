@@ -253,16 +253,19 @@ describe('review fixes: formulas', () => {
 });
 
 describe('review fixes: merges, styles and the grid edge', () => {
-  it('keeps the own style of each merged cell and never shares style objects', () => {
+  it('keeps the style of each merged cell', () => {
     const ws = sheet();
     ws.mergeCells('B10:C10');
     ws.getCell('B10').font = { bold: true };
     ws.getCell('C10').border = { right: { style: 'thick' } };
     ws.insertRow(1, [1]);
+    // From 1.3.1 (F1) the merged cells share the master's style object, as in exceljs
+    // (lib/doc/cell.js L169-175), so both setters above changed the style of B10 and C10; the
+    // moved cells keep that object, as exceljs's spliceRows moves `cell.style` (lib/doc/worksheet.js
+    // L501-505). Checked with exceljs 4.4.0: B11 and C11 then have the same style object.
     expect(ws.getCell('C11').border).toEqual({ right: { style: 'thick' } });
     expect(ws.getCell('B11').font).toEqual({ bold: true });
-    expect(ws.getCell('B11').style).not.toBe(ws.getCell('C11').style);
-    expect(ws.getCell('C11').font).not.toBe(ws.getCell('B11').font);
+    expect(ws.getCell('B11').style).toBe(ws.getCell('C11').style);
   });
 
   it('gives cells inserted inside a merge a copy of the master style', () => {

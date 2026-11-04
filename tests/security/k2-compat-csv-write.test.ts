@@ -195,7 +195,10 @@ describe('K2 item 1: a leading byte order mark', () => {
 describe('K2 item 2: map returning values that are not strings', () => {
   const cases: [string, (v: unknown) => unknown][] = [
     ['a String object', () => new String('=1+1')],
-    ['an array', () => ['=1+1', 'x']],
+    // Three items: a row whose first field is an array of two is a row of [header, value] pairs
+    // for fast-csv (@fast-csv/format/build/src/formatter/RowFormatter.js L26-31), whose values
+    // are written instead (F9, tests/exceljs/l1-fixes.test.ts).
+    ['an array', () => ['=1+1', 'x', 'y']],
     ['an object with toString', () => ({ toString: () => '@cmd' })],
     ['a String object with a BOM', () => new String('﻿=1+1')],
   ];

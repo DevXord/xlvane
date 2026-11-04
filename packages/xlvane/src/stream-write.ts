@@ -33,7 +33,7 @@ import {
   workbookXml,
   tableParts,
 } from './sml/write-parts';
-import { normalizeStyle, type CellStyle, type Color, type NormalizedStyle } from './style';
+import { normalizeStyle, type CellStyle, type Color, type FontStyle, type NormalizedStyle } from './style';
 import type { TableColumnSpec } from './table';
 import { normalizeTable, TABLE_CONTENT_TYPE, type TableInput } from './tables';
 import { readOptions } from './util/options';
@@ -66,6 +66,7 @@ import { createZipStream, type ZipStreamEntry } from './zip/stream';
  *
  * const plain: StreamRowInput = ['Alice', 42, new Date(Date.UTC(2024, 0, 31))];
  * const header: StreamRowInput = { values: ['Name', 'Total', 'Date'], style: { font: { bold: true } }, height: 20 };
+ * const shaded: StreamRowInput = { values: ['Bob', 7], rowStyle: { fill: { color: 'EEEEEE' } } };
  * const linked: StreamRowInput = { values: ['Docs', 7], hyperlinks: [{ url: 'https://example.com' }], notes: [undefined, 'Estimate'] };
  * ```
  */
@@ -77,6 +78,12 @@ export type StreamRowInput =
       readonly style?: CellStyle;
       /** Style per cell, by position. */
       readonly styles?: readonly (CellStyle | undefined)[];
+      /**
+       * Default style of the row itself (`row@s` with `customFormat="1"`), as `RowOptions.style`
+       * of `NewSheet.row`. It is not applied to the row's cells; use `style` or `styles` for them.
+       * A row with only a row style and no values is written.
+       */
+      readonly rowStyle?: CellStyle;
       /** Row height in points. */
       readonly height?: number;
       readonly hidden?: boolean;
@@ -207,6 +214,8 @@ export interface WriteWorkbookStreamOptions {
   readonly protection?: WorkbookProtectionOptions;
   /** Image files (PNG, JPEG or GIF bytes) used by the sheets' `images` and `background`, by position. */
   readonly images?: readonly Uint8Array[];
+  /** The workbook's default font, as `CreateWorkbookOptions.defaultFont`. Default Calibri 11. */
+  readonly defaultFont?: FontStyle;
 }
 
 /**
@@ -278,11 +287,12 @@ async function* iterate<T>(source: Iterable<T> | AsyncIterable<T>): AsyncGenerat
  * ```
  */
 export function writeWorkbookStream(options: WriteWorkbookStreamOptions): ReadableStream<Uint8Array> {
-  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection', 'images', 'views', 'calculation', 'compressionLevel'], 'writeWorkbookStream options');
+  const o = readOptions(options, ['sheets', 'dateSystem', 'sharedStrings', 'properties', 'definedNames', 'protection', 'images', 'views', 'calculation', 'compressionLevel', 'defaultFont'], 'writeWorkbookStream options');
   const dateSystem = o.get('dateSystem');
   const book = createWorkbook({
     ...(dateSystem === undefined ? {} : { dateSystem: dateSystem as DateSystem }),
     ...(o.has('properties') ? { properties: o.get('properties') as WorkbookProperties } : {}),
+    ...(o.has('defaultFont') ? { defaultFont: o.get('defaultFont') as FontStyle } : {}),
   });
   if (o.has('protection')) book.protect(o.get('protection') as WorkbookProtectionOptions);
   if (o.has('views')) book.views(o.get('views') as WorkbookViewOptions[]);
@@ -459,10 +469,10 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       let values: readonly unknown[];
       let rowStyle: CellStyle | undefined;
       let styles: readonly (CellStyle | undefined)[] | undefined;
-      let info: { height: number | null; hidden: boolean; outlineLevel: number; collapsed: boolean } | undefined;
+      let info: { height: number | null; hidden: boolean; style: number; outlineLevel: number; collapsed: boolean } | undefined;
       if (Array.isArray(raw)) values = raw;
       else {
-        const ro = readOptions(raw, ['values', 'style', 'styles', 'height', 'hidden', 'outlineLevel', 'collapsed', 'hyperlinks', 'notes'], `row ${String(r)} of sheet "${name}"`);
+        const ro = readOptions(raw, ['values', 'style', 'styles', 'rowStyle', 'height', 'hidden', 'outlineLevel', 'collapsed', 'hyperlinks', 'notes'], `row ${String(r)} of sheet "${name}"`);
         const v = ro.get('values');
         if (!Array.isArray(v)) {
           throw new XlvError('XLV_E_INVALID_ROWS', `Row ${String(r)} of sheet "${name}" is not an array of values.`, { location: { sheet: name }, hint: 'Yield arrays of values, or { values: [...] } objects.', details: { row: r } });
@@ -472,6 +482,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
         styles = ro.get('styles') as (CellStyle | undefined)[] | undefined;
         const format: Record<string, unknown> = {};
         for (const key of ['height', 'hidden', 'outlineLevel', 'collapsed'] as const) if (ro.get(key) !== undefined) format[key] = ro.get(key);
+        if (ro.get('rowStyle') !== undefined) format.style = ro.get('rowStyle');
         if (Object.keys(format).length > 0) {
           // Validated with the batch writer's rules, then dropped from the scratch sheet.
           p.sheet.row(r, format as RowOptions);
@@ -596,7 +607,7 @@ export function writeWorkbookStream(options: WriteWorkbookStreamOptions): Readab
       data: encoder.encode(workbookXml(prepared.map((p) => ({ name: p.sheet.name, state: p.sheet.state, sheetId: p.sheet.sheetId, autoFilter: p.filterRange })), book.dateSystem, allNames(), book.workbookProtection, { bookViews: book.bookViews, calculation: book.calcProps })),
     };
     yield { name: 'xl/_rels/workbook.xml.rels', data: encoder.encode(workbookRelsXml(prepared.length, shared)) };
-    yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true, book.dxfStyles()).xml) };
+    yield { name: 'xl/styles.xml', data: encoder.encode(buildStyles(book.styles(), true, book.dxfStyles(), book.fontDefault).xml) };
     if (core !== null) yield { name: CORE_PROPERTIES_PART, data: encoder.encode(core) };
     const app = appXml();
     if (app !== null) yield { name: APP_PROPERTIES_PART, data: encoder.encode(app) };

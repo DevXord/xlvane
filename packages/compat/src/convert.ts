@@ -31,7 +31,7 @@ import {
   XlvError,
 } from 'xlvane';
 import { imageAnchorIn, imageBytes, tableInput, type ImageData } from './media';
-import { columnLetter, decodeAddress, isJsonValue, notSupported, ValueType, type Cell, type Column, type Worksheet } from './model';
+import { columnLetter, decodeAddress, isJsonValue, notSupported, ValueType, type Cell, type Column, type Row, type Worksheet } from './model';
 import { conditionalFormatsIn, dataValidationsIn, headerFooterIn, pageSetupIn, protectionIn, rowBreaksIn } from './sheet-rules';
 import type { Alignment, Borders, CellValue, Color, Comment, Fill, Font, Style, WorksheetView } from './types';
 
@@ -72,6 +72,82 @@ const BUILTIN_CODES: ReadonlyMap<string, number> = new Map([
 
 /** exceljs writes dates without a number format with built-in format 14 (styles-xform.js L260; X4-02). */
 export const DATE_NUMFMT = 14;
+
+// ---------------------------------------------------------------------------------------------
+// Dates near the start of the 1900 date system (F6) and exceljs's date formats (F7)
+
+const DAY_MS = 86_400_000;
+/** exceljs's serial 0 in the 1900 date system (lib/utils/utils.js L55-61: 25569 days before 1970). */
+const EPOCH_1899_12_30 = Date.UTC(1899, 11, 30);
+/** Serial 0 of the core's Transitional 1900 system for 1900-01-01 to 1900-02-28 (D-112). */
+const EPOCH_1899_12_31 = Date.UTC(1899, 11, 31);
+const EPOCH_1904_01_01 = Date.UTC(1904, 0, 1);
+const TIME_1900_01_01 = Date.UTC(1900, 0, 1);
+const MIN_DATE_TIME = new Date(0).setUTCFullYear(1, 0, 1);
+const MAX_DATE_TIME = Date.UTC(9999, 11, 31, 23, 59, 59, 999);
+
+/**
+ * The serial exceljs writes for a Date from 1899-12-30 to the end of 1899 in the 1900 date system
+ * (time-only values such as `new Date(Date.UTC(1899, 11, 30, 13, 20))`): `25569 + ms / 86400000`
+ * (lib/utils/utils.js L55-57 `dateToExcel`). The core refuses these dates, so they are written
+ * as numbers with the cell's date format. `undefined` for other values.
+ */
+export function earlyDateSerial(v: unknown, date1904: boolean): number | undefined {
+  if (date1904 || !(v instanceof Date)) return undefined;
+  const t = v.getTime();
+  return t >= EPOCH_1899_12_30 && t < TIME_1900_01_01 ? (t - EPOCH_1899_12_30) / DAY_MS : undefined;
+}
+
+/**
+ * exceljs's test for a date format (lib/utils/utils.js L140-151 `isDateFmt`): after removing the
+ * parts in brackets and in double quotes, the format has one of the letters y, m, d, h, M, s, b.
+ * It also takes upper-case formats such as `DD.MM.YYYY`, which the core does not.
+ */
+export function isExcelJsDateFormat(fmt: string | null | undefined): boolean {
+  if (!fmt) return false;
+  return /[ymdhMsb]/.test(fmt.replace(/\[[^\]]*]/g, '').replace(/"[^"]*"/g, ''));
+}
+
+/** How the dates of a workbook that was read are counted. */
+export interface ReadDates {
+  date1904: boolean;
+  /** Strict conformance: the 1900 system counts from 1899-12-30 without the 1900 leap day. */
+  strict: boolean;
+}
+
+/**
+ * A serial as a Date, as the core converts it (D-112), except that a serial below 1 in the
+ * Transitional 1900 system counts from 1899-12-30 as in exceljs (F6). `null` where the core has no
+ * Date either (serial 60, negative serials, outside 0001-9999).
+ */
+function serialToDate(serial: number, dates: ReadDates): Date | null {
+  if (!Number.isFinite(serial) || Math.abs(serial) > 3_000_000) return null;
+  const ms = Math.round(serial * DAY_MS);
+  let time: number;
+  if (dates.date1904) time = EPOCH_1904_01_01 + ms;
+  else if (dates.strict) time = EPOCH_1899_12_30 + ms;
+  else if (ms < 0) return null;
+  else if (ms < DAY_MS) time = EPOCH_1899_12_30 + ms;
+  else if (ms < 60 * DAY_MS) time = EPOCH_1899_12_31 + ms;
+  else if (ms < 61 * DAY_MS) return null;
+  else time = EPOCH_1899_12_30 + ms;
+  return time < MIN_DATE_TIME || time > MAX_DATE_TIME ? null : new Date(time);
+}
+
+/**
+ * A plain value read by the core as exceljs gives it: a time-only Date of the Transitional 1900
+ * system (which the core places on 1899-12-31, D-112) on 1899-12-30, as exceljs's `excelToDate`
+ * (lib/utils/utils.js L58-61) does (F6); and, when `dateFormat` is set, a number whose format
+ * exceljs takes for a date (`isExcelJsDateFormat`) as a Date (F7).
+ */
+export function readValueOut(value: unknown, numFmt: string | null, dates: ReadDates, dateFormat = true): unknown {
+  if (value instanceof Date) {
+    const t = value.getTime();
+    return !dates.date1904 && !dates.strict && t < TIME_1900_01_01 ? new Date(t - DAY_MS) : value;
+  }
+  if (dateFormat && typeof value === 'number' && isExcelJsDateFormat(numFmt)) return serialToDate(value, dates) ?? value;
+  return value;
+}
 
 // ---------------------------------------------------------------------------------------------
 // exceljs → xlvane
@@ -275,15 +351,17 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 }
 
 /** The `result` part of a formula value for the writer. */
-export function resultIn(r: unknown): { result?: CellInput } {
+export function resultIn(r: unknown, date1904 = false): { result?: CellInput } {
   if (r === undefined || r === null) return {};
+  const serial = earlyDateSerial(r, date1904);
+  if (serial !== undefined) return { result: serial };
   if (isRecord(r) && typeof r['error'] === 'string') return { result: { error: r['error'] as '#N/A' } } as { result: CellInput };
   return { result: r as number };
 }
 
 /** The cached result of a formula as a plain value (`null` without one). */
-function resultValue(r: unknown): CellInput {
-  return resultIn(r).result ?? null;
+function resultValue(r: unknown, date1904: boolean): CellInput {
+  return resultIn(r, date1904).result ?? null;
 }
 
 /**
@@ -406,9 +484,12 @@ function overlapCounts(queries: readonly Rect[], set: readonly Rect[]): number[]
 }
 
 /** Converts a cell value for the writer; a `{ text, hyperlink }` value gives its text (the link is {@link linkIn}). */
-export function valueIn(cell: Cell, sharedRanges?: ReadonlyMap<string, string>): CellInput {
+export function valueIn(cell: Cell, sharedRanges?: ReadonlyMap<string, string>, date1904 = false): CellInput {
   const v: CellValue = cell.value;
   if (v === null || v === undefined) return null;
+  // A Date the core refuses but exceljs writes (F6): its serial, with the cell's date format.
+  const serial = earlyDateSerial(v, date1904);
+  if (serial !== undefined) return serial;
   if (typeof v === 'string' || typeof v === 'number' || typeof v === 'boolean' || v instanceof Date) return v;
   if (isRecord(v)) {
     if (cell.type === ValueType.Hyperlink) {
@@ -421,15 +502,15 @@ export function valueIn(cell: Cell, sharedRanges?: ReadonlyMap<string, string>):
     // range of its dependents, an array formula its `ref`.
     if (typeof v['sharedFormula'] === 'string') {
       const master = v['sharedFormula'].replace(/\$/g, '').toUpperCase();
-      if (sharedRanges === undefined || sharedRanges.has(master)) return { sharedFormula: master, ...resultIn(v['result']) } as CellInput;
+      if (sharedRanges === undefined || sharedRanges.has(master)) return { sharedFormula: master, ...resultIn(v['result'], date1904) } as CellInput;
       // A group the core cannot write as shared (see sharedFormulaRanges): the formula of this
       // cell, translated from its master as exceljs's `cell.formula` does, or else its result.
       const text = cell.formula;
-      if (text !== undefined) return { formula: text, ...resultIn(v['result']) } as CellInput;
-      return resultValue(v['result']);
+      if (text !== undefined) return { formula: text, ...resultIn(v['result'], date1904) } as CellInput;
+      return resultValue(v['result'], date1904);
     }
     if (typeof v['formula'] === 'string') {
-      const base = { formula: v['formula'], ...resultIn(v['result']) };
+      const base = { formula: v['formula'], ...resultIn(v['result'], date1904) };
       if (v['shareType'] === 'array' && typeof v['ref'] === 'string') return { ...base, array: v['ref'] } as CellInput;
       const shared = sharedRanges?.get(cell.address);
       return (shared === undefined ? base : { ...base, shared }) as CellInput;
@@ -581,6 +662,8 @@ export interface WorkbookMeta {
   readonly views?: readonly Record<string, unknown>[];
   /** `workbook.calcProperties`. */
   readonly calcProperties?: Record<string, unknown>;
+  /** The default font (font 0) of a loaded workbook (F4). */
+  readonly defaultFont?: FontStyle;
 }
 
 /**
@@ -648,7 +731,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 
 /** Builds an xlvane workbook from the exceljs model (D-503). */
 export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, meta: WorkbookMeta = {}): NewWorkbook {
-  const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}) });
+  const book = createWorkbook({ ...(date1904 ? { dateSystem: '1904' as const } : {}), ...(meta.properties ? { properties: meta.properties } : {}), ...(meta.defaultFont ? { defaultFont: meta.defaultFont } : {}) });
   if (sheets.length === 0) {
     // exceljs writes a workbook without sheets; xlvane requires one (D-505).
     notSupported('Writing a workbook without worksheets');
@@ -698,20 +781,46 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       if (options) sheet.column(column.number, options);
     });
     const styleCache = new Map<Style, CellStyle>();
+    // Converted styles also by their parts: cells created in a styled column or row have style
+    // objects of their own that share the column's or row's parts, and are converted once (review
+    // of 1.3.1). styleIn reads only these six parts.
+    const partsCache = new Map<unknown, unknown>();
+    const byParts = (s: Style): CellStyle => {
+      const parts = [s.numFmt, s.font, s.fill, s.border, s.alignment, s.protection];
+      let level = partsCache;
+      for (let i = 0; i < parts.length - 1; i++) {
+        let next = level.get(parts[i]) as Map<unknown, unknown> | undefined;
+        if (!next) level.set(parts[i], (next = new Map()));
+        level = next;
+      }
+      let c = level.get(parts[parts.length - 1]) as CellStyle | undefined;
+      if (!c) level.set(parts[parts.length - 1], (c = styleIn(s)));
+      return c;
+    };
     const styleOf = (s: Style): CellStyle => {
       let c = styleCache.get(s);
       if (!c) {
-        c = styleIn(s);
+        c = byParts(s);
         styleCache.set(s, c);
       }
       return c;
     };
-    const styleFor = (cell: Cell): CellStyle => (useStyles ? cellStyleIn(cell, styleOf(cell.style)) : isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {});
-    const uniform = uniformMerges(ws);
+    const styleFor = (cell: Cell): CellStyle => {
+      if (!useStyles) return isDateCell(cell) ? { numFmt: DATE_NUMFMT } : {};
+      // A merged cell whose style equals the master's is converted once, with the master's: a
+      // loaded range keeps each cell's own style object (F2), and a column style can give a
+      // million merged cells equal styles.
+      const master = cell._master;
+      const style = master !== null && cell.style !== master.style && sameStyle(cell.style, master.style) ? master.style : cell.style;
+      return cellStyleIn(cell, styleOf(style));
+    };
+    const blocks = mergeBlocks(ws);
     ws._rows.forEach((row) => {
       if (!row) return;
-      if (row.height !== undefined || row.hidden || row.outlineLevel) {
+      const style = rowStyleIn(row, useStyles, styleOf);
+      if (row.height !== undefined || row.hidden || row.outlineLevel || style) {
         sheet.row(row.number, {
+          ...(style ? { style } : {}),
           ...(row.height === undefined ? {} : { height: row.height }),
           ...(row.hidden ? { hidden: true } : {}),
           // row-xform.js L49–54: outlineLevel and the computed collapsed flag (X4-28).
@@ -721,9 +830,9 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       }
       row._cells.forEach((cell) => {
         if (!cell) return;
-        // The other cells of a uniform merged range are styled with the range below; only their
+        // The other cells of a merged range in rows that are styled as a block below; only their
         // notes are written here (K3).
-        if (cell._master !== null && uniform.masters.has(cell._master)) {
+        if (cell._master !== null && blocks.covers(cell)) {
           if (cell.note !== undefined) {
             at(ws.name, cell.address, () => {
               const note = noteIn(cell);
@@ -733,14 +842,12 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
         } else at(ws.name, cell.address, () => writeCell(cell));
       });
     });
-    // A merged range whose cells all carry the master's style is styled in blocks of rows, with
-    // one style conversion, instead of a styled cell write each (K2). Each merged position is
+    // The other cells of merged ranges are styled in blocks of cells with equal styles, with one
+    // style conversion each, instead of a styled cell write each (K2). Each merged position is
     // still a styled cell of the output: 1 048 575 of them took about 3.5 s and 750 MB (peak
     // resident memory) to write (K3, measured with Node.js 22.23).
-    for (const m of uniform.ranges) {
-      const master = ws.findCell(m.top, m.left);
-      if (!master) continue;
-      const style = styleFor(master);
+    for (const m of blocks.blocks) {
+      const style = at(ws.name, m.cell.address, () => styleFor(m.cell));
       if (Object.keys(style).length === 0) continue;
       const width = m.right - m.left + 1;
       const step = Math.max(1, Math.floor(MERGE_STYLE_BLOCK / width));
@@ -753,7 +860,7 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
       const note = noteIn(cell);
       if (note) sheet.note(cell.address, note);
       const style = styleFor(cell);
-      const value = cell.type === ValueType.Merge ? null : valueIn(cell, sharedRanges);
+      const value = cell.type === ValueType.Merge ? null : valueIn(cell, sharedRanges, date1904);
       if (value === null && Object.keys(style).length === 0) return;
       sheet.set(cell.address, value, style);
       const link = cell.type === ValueType.Merge ? null : linkIn(cell);
@@ -793,54 +900,125 @@ export function toNewWorkbook(sheets: readonly Worksheet[], date1904: boolean, m
   return book;
 }
 
-/** Cells styled by one `sheet.style` call for a merged range: at most what the core styles at once. */
-const MERGE_STYLE_BLOCK = 1_048_576;
-
-/** Whether two exceljs styles have the same parts (the same objects, as a merge's copies have). */
-function sameStyleParts(a: Style, b: Style): boolean {
-  if (a === b) return true;
-  let n = 0;
-  for (const k in a) {
-    if ((a as Record<string, unknown>)[k] !== (b as Record<string, unknown>)[k]) return false;
-    n++;
+/**
+ * The part of a file's default font (font 0) that the writer accepts as `defaultFont`: parts it
+ * refuses (a name of more than 31 characters or an empty one, a size outside 1 to 409.55 points)
+ * are left out, so that a loaded workbook can always be written again, as with 1.3.0 and exceljs,
+ * which writes its own Calibri 11 as font 0. `null` when nothing of it is accepted.
+ */
+export function writableDefaultFont(font: FontStyle | null): FontStyle | null {
+  if (!font) return null;
+  const out: Record<string, unknown> = { ...font };
+  for (let tries = Object.keys(out).length; tries >= 0; tries--) {
+    if (Object.keys(out).length === 0) return null;
+    try {
+      createWorkbook({ defaultFont: out as FontStyle });
+      return out as FontStyle;
+    } catch (error) {
+      const property = error instanceof XlvError ? error.details['property'] : undefined;
+      const key = typeof property === 'string' && property.startsWith('font.') ? property.slice(5).split('.')[0]! : undefined;
+      if (error instanceof XlvError && error.code === 'XLV_E_INVALID_STYLE' && key !== undefined && key in out) delete out[key];
+      else return null;
+    }
   }
-  for (const _ in b) n--;
-  return n === 0;
+  return null;
 }
 
 /**
- * The merged ranges of a worksheet whose other cells all exist, belong to the range's master and
- * carry the master's style (the copy `mergeCells` gives them, as in exceljs), and the masters all
- * of whose ranges are such. Their cells are written as the master's style over the range (K2),
- * and their notes one by one (K3).
+ * The row style to write for a row (F3), as exceljs writes it: row@s with customFormat="1"
+ * (row-xform.js L19-23, L44-47), with styles only, and only for a row that exceljs writes at all,
+ * one with a height or cells (lib/doc/row.js L333-364). `undefined` when there is none.
  */
-function uniformMerges(ws: Worksheet): { ranges: { top: number; left: number; bottom: number; right: number }[]; masters: Set<Cell> } {
-  const ranges: { top: number; left: number; bottom: number; right: number }[] = [];
+export function rowStyleIn(row: Row, useStyles: boolean, convert: (s: Style) => CellStyle = styleIn): CellStyle | undefined {
+  if (!useStyles || (row.height === undefined && !row._cells.some((c) => c !== undefined))) return undefined;
+  const style = convert(row.style);
+  return Object.keys(style).length > 0 ? style : undefined;
+}
+
+/** Cells styled by one `sheet.style` call for a merged range: at most what the core styles at once. */
+const MERGE_STYLE_BLOCK = 1_048_576;
+
+/**
+ * Whether two exceljs styles are equal: the same object (as `mergeCells` shares the master's),
+ * parts that are the same objects (a column style given to new cells), or equal plain data (styles
+ * read from a file). Parts that are `undefined` count as missing.
+ */
+function sameStyle(a: Style, b: Style): boolean {
+  if (a === b) return true;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  for (const k in x) if (!samePlain(x[k], y[k], 0)) return false;
+  for (const k in y) if (x[k] === undefined && y[k] !== undefined) return false;
+  return true;
+}
+
+/** Whether two styles read by the core are the same data (F3, F4: a row or column style against xf 0). */
+export function sameStyleData(a: CellStyle, b: CellStyle): boolean {
+  return samePlain(a, b, 0);
+}
+
+/** Deep equality of plain style data (objects, arrays and primitives), to a bounded depth. */
+function samePlain(a: unknown, b: unknown, depth: number): boolean {
+  if (a === b) return true;
+  if (depth > 8 || a === null || b === null || typeof a !== 'object' || typeof b !== 'object') return false;
+  if (Array.isArray(a) !== Array.isArray(b) || a instanceof Date || b instanceof Date) return false;
+  const x = a as Record<string, unknown>;
+  const y = b as Record<string, unknown>;
+  const keys = Object.keys(x);
+  if (keys.length !== Object.keys(y).length) return false;
+  for (const k of keys) if (!Object.prototype.hasOwnProperty.call(y, k) || !samePlain(x[k], y[k], depth + 1)) return false;
+  return true;
+}
+
+/** A vertical run of cells of one merged range and column with equal styles; `cell` is its first. */
+interface StyleRun {
+  top: number;
+  bottom: number;
+  cell: Cell;
+}
+
+/**
+ * The other cells of the merged ranges, styled in blocks instead of one by one (K2, F2): in each
+ * column of a range, runs of rows whose cells exist, belong to the range's master and have equal
+ * styles (the object `mergeCells` shares with them, as in exceljs, a column's or row's style
+ * parts, or equal data read from a file), joined across columns while the runs are the same
+ * (review of 1.3.1: cells of a styled column or row that differ from the master were written one
+ * by one). The master itself is written as a cell. `covers` tells whether a cell is styled by a
+ * block; only its note is then written on its own (K3).
+ */
+function mergeBlocks(ws: Worksheet): { blocks: { cell: Cell; top: number; left: number; bottom: number; right: number }[]; covers: (cell: Cell) => boolean } {
+  const blocks: { cell: Cell; top: number; left: number; bottom: number; right: number }[] = [];
   const masters = new Set<Cell>();
-  const mixed = new Set<Cell>();
   for (const m of ws._merges.values()) {
     const master = ws.findCell(m.top, m.left);
     if (!master) continue;
-    let ok = true;
-    for (let r = m.top; ok && r <= m.bottom; r++) {
-      const row = ws.findRow(r);
-      for (let c = m.left; c <= m.right; c++) {
-        if (r === m.top && c === m.left) continue;
-        const cell = row?.findCell(c);
-        if (!cell || cell._master !== master || !sameStyleParts(cell.style, master.style)) {
-          ok = false;
-          break;
+    masters.add(master);
+    let open: { run: StyleRun; left: number }[] = [];
+    const close = (right: number): void => {
+      for (const o of open) blocks.push({ cell: o.run.cell, top: o.run.top, bottom: o.run.bottom, left: o.left, right });
+    };
+    for (let c = m.left; c <= m.right; c++) {
+      const runs: StyleRun[] = [];
+      let run: StyleRun | null = null;
+      for (let r = m.top; r <= m.bottom; r++) {
+        const cell = r === m.top && c === m.left ? undefined : ws.findRow(r)?.findCell(c);
+        if (!cell || cell._master !== master) {
+          run = null;
+          continue;
         }
+        if (run && sameStyle(cell.style, run.cell.style)) run.bottom = r;
+        else runs.push((run = { top: r, bottom: r, cell }));
+      }
+      const same = open.length === runs.length && runs.every((x, i) => x.top === open[i]!.run.top && x.bottom === open[i]!.run.bottom && sameStyle(x.cell.style, open[i]!.run.cell.style));
+      if (!same) {
+        close(c - 1);
+        open = runs.map((x) => ({ run: x, left: c }));
       }
     }
-    if (ok) {
-      ranges.push(m);
-      masters.add(master);
-    } else mixed.add(master);
+    close(m.right);
   }
-  // A cell can be the master of several ranges; its cells are written one by one if any is mixed.
-  for (const master of mixed) masters.delete(master);
-  return { ranges: ranges.filter((m) => masters.has(ws.findCell(m.top, m.left)!)), masters };
+  // Every other cell of a range is in a run: it exists and belongs to the range's master.
+  return { blocks, covers: (cell: Cell): boolean => cell._master !== null && masters.has(cell._master) };
 }
 
 /**

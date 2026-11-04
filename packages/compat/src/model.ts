@@ -265,9 +265,13 @@ export class Cell {
     /** @internal The column number; changed when cells are spliced. */
     public _col: number,
   ) {
-    const column = _row.worksheet.findColumn(_col);
-    // Row style wins over column style, part by part (lib/doc/cell.js _mergeStyle).
-    this.style = { ...column?.style, ...withoutEmpty(_row.style) };
+    this.style = this._rowColumnStyle();
+  }
+
+  /** The style a new cell takes: row style wins over column style, part by part (lib/doc/cell.js L99-119 `_mergeStyle`). */
+  private _rowColumnStyle(): Style {
+    const column = this._row.worksheet.findColumn(this._col);
+    return { ...column?.style, ...withoutEmpty(this._row.style) };
   }
 
   get worksheet(): Worksheet {
@@ -392,12 +396,17 @@ export class Cell {
     return undefined;
   }
 
-  /** `FormulaType.Shared` for a `{ sharedFormula }` value, `Master` for other formulas, otherwise `None` (lib/doc/cell.js L807). */
+  /**
+   * `FormulaType.Shared` for a `{ sharedFormula }` value, `Master` for other formulas, and
+   * `undefined` for a cell without a formula and for a merged cell other than the top-left one,
+   * as in exceljs, where only the formula value has a `formulaType` (lib/doc/cell.js L264-266,
+   * L807-815; exceljs's declaration says `FormulaType` all the same).
+   */
   get formulaType(): FormulaType {
-    const v = this.value;
-    if (!isRecord(v)) return FormulaType.None;
+    const v = this._master ? null : this.value;
+    if (!isRecord(v)) return undefined as unknown as FormulaType;
     if (typeof v['sharedFormula'] === 'string') return FormulaType.Shared;
-    return typeof v['formula'] === 'string' ? FormulaType.Master : FormulaType.None;
+    return typeof v['formula'] === 'string' ? FormulaType.Master : (undefined as unknown as FormulaType);
   }
 
   get result(): unknown {
@@ -581,6 +590,16 @@ export class Cell {
   /** @internal */
   _unmerge(): void {
     this._master = null;
+  }
+
+  /**
+   * @internal As exceljs `cell.unmerge()` (lib/doc/cell.js L177-183): a cell merged into another
+   * one gets the row and column style again, instead of the master's.
+   */
+  _unmergeResetStyle(): void {
+    if (this._master === null) return;
+    this._master = null;
+    this.style = this._rowColumnStyle();
   }
 }
 
@@ -998,11 +1017,11 @@ export class Column {
     this._outlineLevel = value.outlineLevel ?? 0;
   }
 
-  /** Cell values of this column by row number (index 0 unused). */
+  /** Cell values of this column by row number (index 0 unused); empty cells are left out (lib/doc/column.js L179-187). */
   get values(): CellValue[] {
     const out: CellValue[] = [];
     this.eachCell((cell, r) => {
-      out[r] = cell.value;
+      if (cell.type !== ValueType.Null) out[r] = cell.value;
     });
     return out;
   }
@@ -1018,9 +1037,10 @@ export class Column {
     const cb = typeof options === 'function' ? options : iteratee;
     const includeEmpty = typeof options === 'object' && options !== null && options.includeEmpty === true;
     if (!cb) return;
+    // exceljs visits the column's cell of each row that worksheet.eachRow visits (the rows with
+    // values, or all rows with includeEmpty), creating it (lib/doc/column.js L168-177).
     this.worksheet.eachRow({ includeEmpty }, (row, r) => {
-      const cell = includeEmpty ? row.getCell(this.number) : row.findCell(this.number);
-      if (cell && (includeEmpty || cell.type !== ValueType.Null)) cb(cell, r);
+      cb(row.getCell(this.number), r);
     });
   }
 
@@ -1613,8 +1633,9 @@ export class Worksheet {
 
   /**
    * @internal Merges a range without the overlap check of `mergeCells`. Cells keep their own
-   * style, except those for which `takeMasterStyle` returns true (cells inserted inside the range),
-   * which get a copy of the master's style; style objects are never shared.
+   * style object (the master's, when `mergeCells` shared it with them), except those for which
+   * `takeMasterStyle` returns true (cells inserted inside the range), which get a copy of the
+   * master's style.
    */
   _mergeRange(range: { top: number; left: number; bottom: number; right: number }, takeMasterStyle: (r: number, c: number) => boolean = () => false): void {
     const master = this.getCell(range.top, range.left);
@@ -1938,7 +1959,9 @@ export class Worksheet {
         if (r === range.top && c === range.left) continue;
         const cell = this.getCell(r, c);
         cell._merge(master);
-        if (!this._mergeKeepStyle) cell.style = { ...master.style };
+        // exceljs shares the master's style object (lib/doc/cell.js L169-175 `this.style =
+        // master.style`), so a style set on any cell of the range afterwards shows on all of them.
+        if (!this._mergeKeepStyle) cell.style = master.style;
       }
     }
     master._mergeCount++;
@@ -1962,7 +1985,7 @@ export class Worksheet {
     const range = parseRangeArgs(args);
     for (const [key, m] of this._merges) {
       if (range.top <= m.bottom && m.top <= range.bottom && range.left <= m.right && m.left <= range.right) {
-        for (let r = m.top; r <= m.bottom; r++) for (let c = m.left; c <= m.right; c++) this.findCell(r, c)?._unmerge();
+        for (let r = m.top; r <= m.bottom; r++) for (let c = m.left; c <= m.right; c++) this.findCell(r, c)?._unmergeResetStyle();
         const master = this.findCell(m.top, m.left);
         if (master) master._mergeCount = Math.max(0, master._mergeCount - 1);
         this._merges.delete(key);

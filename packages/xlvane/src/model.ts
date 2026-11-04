@@ -181,7 +181,7 @@ export interface ColumnInfo {
 }
 
 /**
- * Height and visibility of a row.
+ * Height, visibility, outline and default style of a row.
  *
  * @example
  * ```ts
@@ -189,13 +189,19 @@ export interface ColumnInfo {
  *
  * declare const bytes: Uint8Array;
  * const first: RowInfo | undefined = readWorkbook(bytes).sheets[0]?.rowInfo(1);
- * console.log(first?.height, first?.hidden);
+ * console.log(first?.height, first?.hidden, first?.style?.font?.bold);
  * ```
  */
 export interface RowInfo {
   /** Height in points, or `null` if the file does not set one. */
   readonly height: number | null;
   readonly hidden: boolean;
+  /**
+   * The row's default style (`row@s`), resolved like `Cell.style`; present only when the file
+   * marks the row as formatted (`customFormat="1"`, without which `s` does not apply, ECMA-376
+   * Part 1 §18.3.1.73). It is not merged into `Cell.style` of the row's cells.
+   */
+  readonly style?: CellStyle;
   /** Outline level 1 to 7; absent for 0. */
   readonly outlineLevel?: number;
   /** Present and `true` when the row's outline group is collapsed. */
@@ -529,7 +535,7 @@ export interface Sheet {
  *
  * declare const bytes: Uint8Array;
  * const workbook: Workbook = readWorkbook(bytes);
- * console.log(workbook.sheets.map((sheet) => sheet.name), workbook.hasMacros);
+ * console.log(workbook.sheets.map((sheet) => sheet.name), workbook.hasMacros, workbook.defaultFont?.name);
  * ```
  */
 export interface Workbook {
@@ -555,6 +561,11 @@ export interface Workbook {
   readonly calculation: { readonly fullCalcOnLoad: boolean } | null;
   /** The images used by pictures and sheet backgrounds, each once (see `WorkbookImage`). */
   readonly images: readonly WorkbookImage[];
+  /**
+   * The workbook's default font: font 0 of the styles part (W2-12), the font of cells whose
+   * `style` has no `font`. `null` when the file has no styles part or no fonts.
+   */
+  readonly defaultFont: FontStyle | null;
   /** Returns the sheet with this name; throws `XLV_E_SHEET_NOT_FOUND` if there is none. */
   getSheet(name: string): Sheet;
 }

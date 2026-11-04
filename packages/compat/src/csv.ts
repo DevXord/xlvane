@@ -4,7 +4,7 @@
 // (OWASP CSV Injection, docs/facts/csv.md CSV-10) and fixes a few exceljs bugs, listed in
 // docs/exceljs-compat.md.
 import { DEFAULT_READ_LIMITS, XlvError } from 'xlvane';
-import type { Worksheet } from './model';
+import type { Row, Worksheet } from './model';
 import type { CellValue } from './types';
 import type { Workbook } from './workbook';
 
@@ -53,7 +53,7 @@ export interface CsvWriteOptions {
   map?(value: unknown, index: number): unknown;
   /** Blank lines for missing rows (default `true`). */
   includeEmptyRows?: boolean;
-  /** fast-csv formatter options: `delimiter`, `rowDelimiter`, `quote`, `escape`, `quoteColumns`, `headers`, `writeHeaders`, `includeEndRowDelimiter`, `writeBOM`. */
+  /** fast-csv formatter options: `delimiter`, `rowDelimiter`, `quote`, `escape`, `quoteColumns`, `quoteHeaders`, `headers`, `writeHeaders`, `alwaysWriteHeaders`, `includeEndRowDelimiter`, `writeBOM`, `transform`. */
   formatterOptions?: Record<string, unknown>;
   /**
    * `"escape"` (default): text that starts with `=`, `+`, `-`, `@`, tab, CR, LF or another
@@ -487,6 +487,7 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
     }
     const rowLine = line;
     const fields: string[] = [];
+    let quoted = false;
     // Fields past the 16 384 a worksheet holds are only counted, and whether one has text.
     let extra = 0;
     let extraText = false;
@@ -502,6 +503,7 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
       let start = at;
       while (start < n && (text[start] === ' ' || text[start] === '\t') && text[start] !== o.delimiter) start++;
       if (o.quote !== '' && text[start] === o.quote) {
+        quoted = true;
         // The value is built from slices between escaped quotes (one character at a time before, K2).
         let value = '';
         let i = start + 1;
@@ -544,8 +546,9 @@ function* csvRows(text: string, o: ParserOptions): Generator<CsvRow> {
     }
     at = skipLineEnd(at);
     line++;
-    // A line of white space only is one empty field (fast-csv).
-    const row = fields.length === 1 && fields[0]!.trim() === '' ? [''] : fields;
+    // A line of white space only is a row without fields: fast-csv's scanner skips white space
+    // (@fast-csv/parse/build/src/parser/RowParser.js L15-48), so exceljs calls no `map` for it.
+    const row = fields.length === 1 && !quoted && fields[0]!.trim() === '' ? [] : fields;
     if (o.ignoreEmpty && !extraText && row.every((f) => f.trim() === '')) continue;
     kept++;
     if (o.skipHeader && kept === 1) continue;
@@ -603,7 +606,14 @@ interface FormatterOptions {
   quote: string;
   escapedQuote: string;
   quoteColumns: unknown;
+  /** fast-csv's quoteHeaders: quoteColumns unless given (FormatterOptions.js L12-13, L20-22). */
+  quoteHeaders: unknown;
+  /** Header names given as an array (FormatterOptions.js L33). */
   headers: string[] | null;
+  /** A header line is written: `headers` given (an array or `true`) and `writeHeaders` not false (L32). */
+  shouldWriteHeaders: boolean;
+  alwaysWriteHeaders: boolean;
+  transform: ((...args: unknown[]) => unknown) | undefined;
   includeEndRowDelimiter: boolean;
   writeBOM: boolean;
   escapeChars: RegExp;
@@ -619,13 +629,25 @@ function formatterOptions(raw: Record<string, unknown> | undefined, escapeFormul
   const quote = q === false ? '' : q === true || q === undefined ? '"' : String(q);
   const escape = typeof o['escape'] === 'string' ? o['escape'] : quote;
   const escapeRe = (s: string): string => s.replace(/[\\^$.*+?()[\]{}|-]/g, '\\$&');
+  const transform = o['transform'];
+  // RowFormatter.js L22-24, L64-67: a transform that is not a function is refused.
+  if (transform && typeof transform !== 'function') throw invalid('formatterOptions.transform', 'The option "transform" must be a function.', 'Pass a function that takes a row and returns the row to write.');
+  // fast-csv also takes the byte order mark text from the options (FormatterOptions.js L17-19).
+  if (o['BOM'] !== undefined && o['BOM'] !== '\uFEFF') {
+    throw new XlvError('XLV_E_NOT_SUPPORTED', 'formatterOptions.BOM other than "\\uFEFF" is not supported.', { hint: 'Leave BOM out; writeBOM: true writes the byte order mark U+FEFF.', details: { option: 'BOM' } });
+  }
+  const quoteColumns = o['quoteColumns'] ?? false;
   return {
     delimiter,
     rowDelimiter,
     quote,
     escapedQuote: `${escape}${quote}`,
-    quoteColumns: o['quoteColumns'] ?? false,
-    headers: Array.isArray(o['headers']) && o['writeHeaders'] !== false ? (o['headers'] as unknown[]).map(String) : null,
+    quoteColumns,
+    quoteHeaders: o['quoteHeaders'] === undefined ? quoteColumns : o['quoteHeaders'],
+    headers: Array.isArray(o['headers']) ? (o['headers'] as unknown[]).map(String) : null,
+    shouldWriteHeaders: !!o['headers'] && !!(o['writeHeaders'] ?? true),
+    alwaysWriteHeaders: o['alwaysWriteHeaders'] === true,
+    transform: typeof transform === 'function' ? (transform as (...args: unknown[]) => unknown) : undefined,
     includeEndRowDelimiter: o['includeEndRowDelimiter'] === true,
     writeBOM: o['writeBOM'] === true,
     // fast-csv FieldFormatter: the character class also contains "|" (it is written inside "[…]").
@@ -654,8 +676,8 @@ function splitStartsFormula(text: string): boolean {
   return false;
 }
 
-/** One field as fast-csv FieldFormatter.format writes it. */
-function formatField(value: unknown, index: number, f: FormatterOptions, forceQuote: boolean): string {
+/** One field as fast-csv FieldFormatter.format writes it; `quoteThis`: quoteColumns or quoteHeaders asks for quotes, or the escape. */
+function formatField(value: unknown, index: number, f: FormatterOptions, quoteThis: boolean): string {
   const text = `${value === null || value === undefined ? '' : String(value)}`.replace(/\0/g, '');
   // Without a quote character a CR, LF or delimiter in a field would split it into other fields or
   // rows (D-R01).
@@ -674,8 +696,6 @@ function formatField(value: unknown, index: number, f: FormatterOptions, forceQu
     });
   }
   if (f.quote !== '' && text.includes(f.quote)) return `${f.quote}${text.split(f.quote).join(f.escapedQuote)}${f.quote}`;
-  const q = f.quoteColumns;
-  const quoteThis = forceQuote || q === true || (Array.isArray(q) && q[index] === true);
   if (text.search(f.escapeChars) !== -1 || quoteThis) return `${f.quote}${text}${f.quote}`;
   return text;
 }
@@ -834,7 +854,7 @@ function columnName(n: number): string {
  *
  * @internal
  */
-export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOptions, encoding: OutputEncoding = 'utf8'): string {
+export async function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOptions, encoding: OutputEncoding = 'utf8'): Promise<string> {
   const injection = options.formulaInjection ?? 'escape';
   if (injection !== 'escape' && injection !== 'off') throw invalid('formulaInjection', 'The option "formulaInjection" must be "escape" or "off".', 'Use "escape" (default) or "off".');
   const f = formatterOptions(options.formatterOptions, injection === 'escape');
@@ -948,39 +968,107 @@ export function worksheetCsv(sheet: Worksheet | undefined, options: CsvWriteOpti
     const unsafe = INJECTION_START.has(first) || first.charCodeAt(0) < 0x20 || encodedStartIsUnsafe(text, encoding, atStart && f.writeBOM && latin1 ? [0xff] : []) || (utf16 && utf16StartsFormula(text));
     return unsafe ? [`'${out}`, f.quote !== ''] : [out, false];
   };
-  if (f.headers) {
-    lines.push(
-      f.headers
-        .map((h, i) => {
-          const [out, force] = escape(h, i === 0);
-          return field(out, i, force, 0, i === 0);
-        })
-        .join(f.delimiter),
-    );
-  }
-  if (sheet) {
-    // exceljs starts at 1 and so writes one blank line too few before the first row; xlvane writes one per missing row.
-    let lastRow = 0;
-    sheet.eachRow((row, rowNumber) => {
-      if (includeEmptyRows) while (++lastRow < rowNumber) lines.push('');
-      let values = row.values.slice(1);
-      // With headers, fast-csv writes one field per header for an array row (RowFormatter
-      // gatherColumns): longer rows are cut, shorter ones end in empty fields (D-E06).
-      if (f.headers) values = f.headers.map((_h, i) => values[i]);
-      const fields: string[] = [];
-      for (let i = 0; i < values.length; i++) {
-        // Array.prototype.map skips holes, and fast-csv writes them as empty, unquoted fields.
-        if (!(i in values)) {
-          fields.push('');
-          continue;
-        }
-        const atStart = lines.length === 0 && i === 0;
-        const [out, force] = escape(map(values[i], i), atStart);
-        fields.push(field(out, i, force, rowNumber, atStart));
+  // fast-csv's RowFormatter (@fast-csv/format/build/src/formatter/RowFormatter.js), which
+  // exceljs feeds with each row's mapped values and [] for a missing row (lib/csv/csv.js
+  // L150-163). Formulas are escaped in the fields it gives, after `transform` (F9).
+  /** RowFormatter `headers`: given, or taken from the first row written (L109-124). */
+  let headers: unknown[] | null = f.headers;
+  /** FieldFormatter `_headers`, by which an object of quoteColumns or quoteHeaders is looked up. */
+  let fieldHeaders: unknown[] | null = f.headers;
+  let hasWrittenHeaders = false;
+  const own = (o: object, key: string): boolean => Object.prototype.hasOwnProperty.call(o, key);
+  // FieldFormatter.js L24-36 `shouldQuote`.
+  const shouldQuote = (index: number, isHeader: boolean): boolean => {
+    const config = isHeader ? f.quoteHeaders : f.quoteColumns;
+    if (typeof config === 'boolean') return config;
+    if (Array.isArray(config)) return Boolean(config[index]);
+    if (fieldHeaders !== null && config !== null && typeof config === 'object') {
+      const key = String(fieldHeaders[index]);
+      return own(config, key) && Boolean((config as Record<string, unknown>)[key]);
+    }
+    return false;
+  };
+  // RowFormatter.js L155-165 `formatColumns`; holes are skipped by `map`, so they are empty and unquoted.
+  const formatColumns = (columns: unknown[], isHeader: boolean, rowNumber: number): void => {
+    const fields: string[] = [];
+    for (let i = 0; i < columns.length; i++) {
+      if (!(i in columns)) {
+        fields.push('');
+        continue;
       }
-      lines.push(fields.join(f.delimiter));
-      lastRow = rowNumber;
+      const atStart = lines.length === 0 && i === 0;
+      const [out, force] = escape(columns[i], atStart);
+      fields.push(field(out, i, force || shouldQuote(i, isHeader), isHeader ? 0 : rowNumber, atStart));
+    }
+    lines.push(fields.join(f.delimiter));
+  };
+  const isHashArray = (row: unknown): row is unknown[][] => Array.isArray(row) && Array.isArray(row[0]) && (row[0] as unknown[]).length === 2;
+  // RowFormatter.js L36-45 `gatherHeaders`.
+  const gatherHeaders = (row: unknown): unknown[] => (isHashArray(row) ? row.map((it) => it[0]) : Array.isArray(row) ? row : Object.keys(Object(row)));
+  // RowFormatter.js L126-148 `gatherColumns`; object rows are read by their own properties.
+  const gatherColumns = (row: unknown, names: unknown[]): unknown[] => {
+    if (!Array.isArray(row)) {
+      const o = Object(row) as Record<string, unknown>;
+      return names.map((h) => (own(o, String(h)) ? o[String(h)] : undefined));
+    }
+    if (isHashArray(row)) return names.map((_h, i) => (row[i] ? (row[i] as unknown[])[1] : ''));
+    if (!f.shouldWriteHeaders) return row;
+    return names.map((_h, i) => row[i]);
+  };
+  // RowFormatter.js L70-91 `format` and L109-124 `checkHeaders`.
+  const formatRow = (row: unknown, rowNumber: number): void => {
+    if (!row) return;
+    let formatRowColumns = true;
+    if (headers === null) {
+      headers = gatherHeaders(row);
+      fieldHeaders = headers;
+      // lodash isEqual(headers, row): the headers of an array row are the row itself.
+      if (f.shouldWriteHeaders) formatRowColumns = !(Array.isArray(row) && !isHashArray(row));
+    }
+    if (f.shouldWriteHeaders && !hasWrittenHeaders) {
+      formatColumns(headers, true, 0);
+      hasWrittenHeaders = true;
+    }
+    if (formatRowColumns) formatColumns(gatherColumns(row, headers), false, rowNumber);
+  };
+  // RowFormatter.js L47-63: a transform with one parameter returns the row, others call back.
+  const transform = f.transform;
+  const transformed = (row: unknown[]): unknown | Promise<unknown> => {
+    if (!transform) return row;
+    if (transform.length === 1) return transform(row);
+    return new Promise((resolve, reject) => {
+      transform(row, (error: unknown, out: unknown) => (error ? reject(error instanceof Error ? error : new Error(String(error))) : resolve(out)));
     });
+  };
+  if (sheet) {
+    const rows: [number, Row][] = [];
+    sheet.eachRow((row, rowNumber) => {
+      rows.push([rowNumber, row]);
+    });
+    // exceljs starts at 1 and so writes one blank line too few before the first row; xlvane writes one per missing row.
+    // With headers: true, fast-csv takes the header names from the first row it gets; the blank
+    // rows before the worksheet's first row are left out, so that the header line is the first
+    // row and no data is lost (exceljs writes one blank row there from row 3 on, which becomes
+    // the headers, and writes no data; review of 1.3.1).
+    let lastRow = f.shouldWriteHeaders && f.headers === null && rows.length > 0 ? rows[0]![0] - 1 : 0;
+    for (const [rowNumber, row] of rows) {
+      if (includeEmptyRows) {
+        while (++lastRow < rowNumber) {
+          const out = transformed([]);
+          formatRow(out instanceof Promise ? await out : out, lastRow);
+        }
+      }
+      // Array.prototype.map skips holes, as exceljs's `values.map(map)`.
+      const values = row.values.slice(1).map((v, i) => map(v, i));
+      const out = transformed(values);
+      formatRow(out instanceof Promise ? await out : out, rowNumber);
+      lastRow = rowNumber;
+    }
+  }
+  // RowFormatter.js L93-101 `finish`.
+  if (f.alwaysWriteHeaders && lines.length === 0) {
+    if (!headers) throw invalid('formatterOptions.alwaysWriteHeaders', 'alwaysWriteHeaders is set, but no header names are given in formatterOptions.headers.', 'Pass formatterOptions.headers as an array of names, or leave alwaysWriteHeaders out.');
+    formatColumns(headers, true, 0);
   }
   let text = lines.join(f.rowDelimiter);
   if (f.includeEndRowDelimiter) text += f.rowDelimiter;
@@ -1012,9 +1100,30 @@ function encode(text: string, encoding: string | undefined): Uint8Array {
   throw invalid('encoding', `The encoding "${encoding ?? ''}" is not supported.`, 'Use "utf8" (default), "utf16le" or "latin1".');
 }
 
-function decoderFor(encoding: string): TextDecoder {
+/** What `readText` needs of a decoder. */
+interface ChunkDecoder {
+  decode(input?: Uint8Array, options?: { stream?: boolean }): string;
+}
+
+/**
+ * Node.js's 'latin1' (alias 'binary'), which fast-csv's StringDecoder uses
+ * (`@fast-csv/parse/build/src/CsvParserStream.js` L20): each byte is the code point of the same
+ * value. The WHATWG label 'latin1' of `TextDecoder` is windows-1252 instead (bytes 80-9F become
+ * other characters, for example 80 the euro sign), so it is not used (F10).
+ */
+const latin1Decoder: ChunkDecoder = {
+  decode(input?: Uint8Array): string {
+    if (!input) return '';
+    let out = '';
+    for (let i = 0; i < input.length; i += 8192) out += String.fromCharCode(...input.subarray(i, i + 8192));
+    return out;
+  },
+};
+
+function decoderFor(encoding: string): ChunkDecoder {
   const e = encoding.toLowerCase();
-  const label = e === 'utf8' ? 'utf-8' : e === 'ucs2' || e === 'ucs-2' || e === 'utf16le' ? 'utf-16le' : e === 'binary' ? 'latin1' : e;
+  if (e === 'latin1' || e === 'binary') return latin1Decoder;
+  const label = e === 'utf8' ? 'utf-8' : e === 'ucs2' || e === 'ucs-2' || e === 'utf16le' ? 'utf-16le' : e;
   try {
     return new TextDecoder(label);
   } catch {
@@ -1201,12 +1310,12 @@ export class CsvIO {
 
   /** Writes a worksheet as CSV to a stream and ends it. */
   async write(stream: unknown, options: CsvWriteOptions = {}): Promise<void> {
-    await writeTo(stream, encode(this.text(options), 'utf8'));
+    await writeTo(stream, encode(await this.text(options), 'utf8'));
   }
 
   /** Writes a worksheet to a CSV file (Node.js, Bun, Deno), replacing it. */
   async writeFile(path: string, options: CsvWriteOptions = {}): Promise<void> {
-    const bytes = encode(this.text(options, outputEncoding(options.encoding)), options.encoding);
+    const bytes = encode(await this.text(options, outputEncoding(options.encoding)), options.encoding);
     const fs = await nodeFs('writeFile');
     try {
       await fs.writeFile(path, bytes);
@@ -1218,7 +1327,7 @@ export class CsvIO {
 
   /** The CSV of a worksheet as bytes (a Buffer in Node.js), UTF-8 encoded. */
   async writeBuffer(options: CsvWriteOptions = {}): Promise<Uint8Array> {
-    return asBuffer(encode(this.text(options), 'utf8'));
+    return asBuffer(encode(await this.text(options), 'utf8'));
   }
 
   /** Removed in exceljs 4 (it throws there too); use `read`. */
@@ -1228,7 +1337,7 @@ export class CsvIO {
     );
   }
 
-  private text(options: CsvWriteOptions, encoding: OutputEncoding = 'utf8'): string {
+  private async text(options: CsvWriteOptions, encoding: OutputEncoding = 'utf8'): Promise<string> {
     const key = options.sheetName || options.sheetId;
     const sheet = this.workbook.getWorksheet(key);
     if (key !== undefined && !sheet) {

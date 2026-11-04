@@ -4,7 +4,7 @@
 import { XlvError } from '../errors';
 import type { ReadLimits } from '../limits';
 import type { Cell, CellType, CellValue, ColumnInfo, Conformance, DateSystem, Formula, FormulaKind, FrozenPanes, RichTextRun, RowInfo, SheetLayout, SheetProperties, SheetView, SplitPanes } from '../model';
-import type { Color } from '../style';
+import type { CellStyle, Color } from '../style';
 import { createPrintCollector, type ReadPrintData } from '../printing';
 import { createRuleCollector, type ConditionalFormat, type DataValidation } from '../sheet-rules';
 import type { WarningCollector } from '../util/warnings';
@@ -707,7 +707,18 @@ export function createWorksheetParser(
           }
           const validHeight = height !== null && height >= 0 ? height : null;
           const outline = parseOutline(attrs);
-          if (validHeight !== null || hidden || outline.outlineLevel !== undefined || outline.collapsed !== undefined) rowInfo.set(currentRow, { height: validHeight, hidden, ...outline });
+          // CT_Row@s (default 0) applies only when customFormat is true (E-24, W2-04a).
+          const customFormat = attrs.get('customFormat');
+          let style: CellStyle | undefined;
+          if (customFormat !== undefined && parseXsdBoolean(customFormat) === true) {
+            const s = attrs.get('s') ?? '0';
+            const index = parseUint(s, 10);
+            if (index === null) ctx.warnings.add('XLV_W_INVALID_VALUE', `The row style index "${s.slice(0, 20)}" is not a number; it is ignored.`, loc());
+            else style = ctx.styles.cellStyle(index, numberFormat(index).code);
+          }
+          if (validHeight !== null || hidden || outline.outlineLevel !== undefined || outline.collapsed !== undefined || style !== undefined) {
+            rowInfo.set(currentRow, style === undefined ? { height: validHeight, hidden, ...outline } : { height: validHeight, hidden, ...outline, style });
+          }
         } else if (depth === 4 && local === 'c' && parent === 'row' && path[1] === 'sheetData') {
           if (skipRow) return;
           const r = attrs.get('r');

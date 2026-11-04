@@ -71,10 +71,12 @@ export interface WriteSheetData {
   readonly charts?: readonly (ResolvedAnchor & { readonly chart: NormalizedChart })[];
 }
 
-/** Height, visibility and outline of a row. */
+/** Height, visibility, outline and default style of a row. */
 export interface RowFormat {
   readonly height: number | null;
   readonly hidden: boolean;
+  /** Interned style id of the row's default style (0 = none). */
+  readonly style?: number;
   readonly outlineLevel?: number;
   readonly collapsed?: boolean;
 }
@@ -102,6 +104,8 @@ export interface WritePackageInput {
   readonly workbookProtection?: NormalizedWorkbookProtection | null;
   /** Images added with `NewWorkbook.addImage`, by number (TD-31). */
   readonly images?: readonly { readonly bytes: Uint8Array; readonly format: WrittenImageFormat }[];
+  /** Font 0 of the styles part (W2-12), or `null`/absent for {@link DEFAULT_FONT}. */
+  readonly defaultFont?: NormalizedStyle['font'] | null;
 }
 
 const XML_DECL = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n';
@@ -278,17 +282,19 @@ export function reusableBuiltinNumFmt(code: string): number | undefined {
 /**
  * Builds the styles part. With `identity`, cell format `i` is interned style `i` (no merging of
  * styles that give the same record), so a streaming writer can use style ids as `s` values
- * before the part is built.
+ * before the part is built. `defaultFont` is font 0, the workbook's default font (W2-12); its
+ * name and size, or those of {@link DEFAULT_FONT}, complete the other fonts.
  */
-export function buildStyles(styles: readonly NormalizedStyle[], identity = false, dxfs: readonly NormalizedStyle[] = []): StyleTables {
+export function buildStyles(styles: readonly NormalizedStyle[], identity = false, dxfs: readonly NormalizedStyle[] = [], defaultFont: NormalizedStyle['font'] | null = null): StyleTables {
   const fonts = new Table();
   const fills = new Table();
   const borders = new Table();
   const xfs = new Table();
   const numFmts = new Map<string, number>();
+  const fontDefaults = { name: defaultFont?.name ?? DEFAULT_FONT.name, size: defaultFont?.size ?? DEFAULT_FONT.size };
 
   // Fills 0 and 1 are reserved: none and gray125 (D-205, W2-14).
-  fonts.add(fontXml({}));
+  fonts.add(fontXml(defaultFont ?? {}, fontDefaults));
   fills.add('<fill><patternFill patternType="none"/></fill>');
   fills.add('<fill><patternFill patternType="gray125"/></fill>');
   borders.add('<border><left/><right/><top/><bottom/><diagonal/></border>');
@@ -308,7 +314,7 @@ export function buildStyles(styles: readonly NormalizedStyle[], identity = false
   };
 
   const xfOf = styles.map((style) => {
-    const fontId = style.font ? fonts.add(fontXml(style.font)) : 0;
+    const fontId = style.font ? fonts.add(fontXml(style.font, fontDefaults)) : 0;
     let fillId = 0;
     if (style.fill) fillId = fills.add(fillXml(style.fill));
     let borderId = 0;
@@ -561,9 +567,17 @@ export function sheetHead(
   return `${xml}<sheetData>`;
 }
 
-/** The start tag of a row (without `>` for rows that have cells: callers add `>` or `/>`). */
-export function rowStart(r: number, info: RowFormat | undefined): string {
+/**
+ * The start tag of a row (without `>` for rows that have cells: callers add `>` or `/>`). `xfOf`
+ * maps interned style ids to cell format indexes (identity when omitted).
+ */
+export function rowStart(r: number, info: RowFormat | undefined, xfOf?: readonly number[]): string {
   let xml = `<row${attr('r', r)}`;
+  // CT_Row@s is the row's cell format and applies only with customFormat="1" (sml.xsd L2263–2264;
+  // E-24, W2-04a). Attributes in schema order: r, s, customFormat, ht, ….
+  const style = info?.style ?? 0;
+  const xf = style === 0 ? 0 : (xfOf?.[style] ?? style);
+  if (xf !== 0) xml += `${attr('s', xf)} customFormat="1"`;
   if (info?.height != null) xml += `${attr('ht', info.height)} customHeight="1"`;
   if (info?.hidden) xml += ' hidden="1"';
   // CT_Row@outlineLevel (0–7, [MS-OI29500] §2.1.644 b) and @collapsed (sml.xsd L2256; W2-65).
@@ -967,7 +981,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
   const groups = new FormulaGroups(sheet.name);
   for (const r of sortedRows) {
     const cells = sheet.cells.get(r);
-    const start = rowStart(r, sheet.rows.get(r));
+    const start = rowStart(r, sheet.rows.get(r), xfOf);
     if (!cells || cells.size === 0) {
       xml += `${start}/>`;
       continue;
@@ -992,7 +1006,7 @@ function sheetXml(sheet: WriteSheetData, selected: boolean, xfOf: readonly numbe
 
 /** Builds all parts and returns the zipped package. */
 export function writePackage(input: WritePackageInput): Uint8Array {
-  const { xml: stylesXml, xfOf } = buildStyles(input.styles, false, input.dxfs);
+  const { xml: stylesXml, xfOf } = buildStyles(input.styles, false, input.dxfs, input.defaultFont);
   const shared = input.sharedStrings !== false;
   const sst = shared ? new SharedStrings() : null;
   const active = input.sheets.findIndex((s) => s.state === 'visible');

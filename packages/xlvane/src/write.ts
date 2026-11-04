@@ -31,7 +31,7 @@ import {
 import { MAX_COLUMNS, MAX_ROWS, columnLetters, columnNumber, formatCellRef, formatRange, parseCellRef, parseRange, type CellRange } from './sml/cell-ref';
 import { dateToSerial } from './sml/dates';
 import { writePackage, type WriteSheetData } from './sml/write-parts';
-import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type NormalizedColor, type NormalizedStyle } from './style';
+import { mergeStyles, normalizeColor, normalizeStyle, stableKey, type CellStyle, type Color, type FontStyle, type NormalizedColor, type NormalizedStyle } from './style';
 import { normalizeTable, rangesOverlap, totalsFormula, type NormalizedTable, type TableInput } from './tables';
 import { RangeIndex } from './util/range-index';
 import { sheetNotFound } from './util/sheet-not-found';
@@ -113,6 +113,24 @@ export interface CreateWorkbookOptions {
   readonly dateSystem?: DateSystem;
   /** Document properties (title, creator, dates …), written to `docProps/core.xml` when given. */
   readonly properties?: WorkbookProperties;
+  /**
+   * The workbook's default font: font 0 of the styles part, the font of cells without a font
+   * of their own (W2-12). A missing name or size is Calibri 11, the default without this
+   * option. The font's name and size also complete the fonts of styles that give no name or
+   * size; its other properties (bold, colour, …) apply to font 0 only. Column widths are in
+   * characters of the Normal style's font (ECMA-376 Part 1 §18.3.1.13), which is this font in
+   * the files xlvane writes; the written default row height stays 15 points unless set with
+   * `NewSheet.properties`. Checked like `CellStyle.font`.
+   *
+   * @example
+   * ```ts
+   * import { createWorkbook } from 'xlvane';
+   *
+   * const workbook = createWorkbook({ defaultFont: { name: 'Arial', size: 10 } });
+   * workbook.addSheet('Data').set('A1', 'Arial 10').set('A2', 'Arial 10, bold', { font: { bold: true } });
+   * ```
+   */
+  readonly defaultFont?: FontStyle;
 }
 
 /**
@@ -179,13 +197,22 @@ export interface ColumnOptions {
  * import { createWorkbook, type RowOptions } from 'xlvane';
  *
  * const tall: RowOptions = { height: 30 };
- * createWorkbook().addSheet('Data').row(1, tall);
+ * const header: RowOptions = { style: { font: { bold: true } } };
+ * createWorkbook().addSheet('Data').row(1, tall).row(2, header);
  * ```
  */
 export interface RowOptions {
   /** Height in points, 0 to 409.5. */
   readonly height?: number;
   readonly hidden?: boolean;
+  /**
+   * Default style of the row, written as `row@s` with `customFormat="1"` (the row's cell format;
+   * `s` applies only when `customFormat` is 1, ECMA-376 Part 1 §18.3.1.73). xlvane does not apply
+   * it to the row's cells: style cells with `set` or `style`. LibreOffice 24.2 gives the cells of
+   * the row that have no style of their own the row's style when it opens the file. A row with
+   * only a style is written. `{}` removes it.
+   */
+  readonly style?: CellStyle;
   /** Outline (grouping) level, 0 to 7 (`row@outlineLevel`; [MS-OI29500] §2.1.644 b). Default 0. */
   readonly outlineLevel?: number;
   /** Whether the outline group ending at this row is collapsed (`row@collapsed`). Default false. */
@@ -534,7 +561,7 @@ export class NewSheet {
   /** @internal */
   readonly columnMap: Map<number, { width: number | null; hidden: boolean; style: number; outlineLevel: number; collapsed: boolean }> = new Map();
   /** @internal */
-  readonly rowMap: Map<number, { height: number | null; hidden: boolean; outlineLevel: number; collapsed: boolean }> = new Map();
+  readonly rowMap: Map<number, { height: number | null; hidden: boolean; style: number; outlineLevel: number; collapsed: boolean }> = new Map();
   /** @internal Sheet-wide formatting (W2-65). */
   sheetProps: { defaultRowHeight: number | null; summaryBelow: boolean; summaryRight: boolean; outlineLevelRow: number; outlineLevelCol: number } = {
     defaultRowHeight: null,
@@ -746,21 +773,21 @@ export class NewSheet {
   }
 
   /**
-   * Sets the height or visibility of a row (1-based).
+   * Sets the height, visibility, outline or default style of a row (1-based).
    *
    * @example
    * ```ts
    * import { createWorkbook } from 'xlvane';
    *
-   * createWorkbook().addSheet('Data').row(1, { height: 30 }).row(5, { hidden: true });
+   * createWorkbook().addSheet('Data').row(1, { height: 30, style: { font: { bold: true } } }).row(5, { hidden: true });
    * ```
    */
   row(row: number, options: RowOptions): this {
     // Option errors name the sheet (D-R03).
     return located({ sheet: this.name }, () => {
       if (typeof row !== 'number' || !Number.isInteger(row) || row < 1 || row > MAX_ROWS) throw invalidRef(row, this.name, 'row number', '1');
-      const o = readOptions(options, ['height', 'hidden', 'outlineLevel', 'collapsed'], 'row options');
-      const current = this.rowMap.get(row) ?? { height: null, hidden: false, outlineLevel: 0, collapsed: false };
+      const o = readOptions(options, ['height', 'hidden', 'style', 'outlineLevel', 'collapsed'], 'row options');
+      const current = this.rowMap.get(row) ?? { height: null, hidden: false, style: 0, outlineLevel: 0, collapsed: false };
       const height = o.get('height');
       if (height !== undefined) {
         if (typeof height !== 'number' || !(height >= 0 && height <= MAX_ROW_HEIGHT)) {
@@ -773,6 +800,8 @@ export class NewSheet {
         if (typeof hidden !== 'boolean') throw invalidOption('Row option "hidden" must be true or false.', 'Use { hidden: true }.');
         current.hidden = hidden;
       }
+      const style = o.get('style');
+      if (style !== undefined) current.style = this.book.intern(located({ sheet: this.name, cell: `${String(row)}:${String(row)}` }, () => normalizeStyle(style)));
       readOutline(o, current, 'Row');
       this.rowMap.set(row, current);
       return this;
@@ -1742,11 +1771,14 @@ export class NewWorkbook {
   bookViews: WorkbookViewOptions[] = [];
   /** @internal `calcPr`, set by {@link NewWorkbook.calculation}. */
   calcProps: { fullCalcOnLoad: boolean } | null = null;
+  /** @internal Font 0 given to {@link createWorkbook}, or `null` for the default (W2-12). */
+  readonly fontDefault: NormalizedStyle['font'] | null;
 
   /** @internal Use {@link createWorkbook}. */
-  constructor(dateSystem: DateSystem, properties: WorkbookProperties = {}) {
+  constructor(dateSystem: DateSystem, properties: WorkbookProperties = {}, defaultFont: NormalizedStyle['font'] | null = null) {
     this.dateSystem = dateSystem;
     this.properties = properties;
+    this.fontDefault = defaultFont;
     this.styleIds.set(stableKey({}), 0);
   }
 
@@ -2069,12 +2101,15 @@ export class NewWorkbook {
  * ```
  */
 export function createWorkbook(options?: CreateWorkbookOptions): NewWorkbook {
-  const o = readOptions(options, ['dateSystem', 'properties'], 'workbook options');
+  const o = readOptions(options, ['dateSystem', 'properties', 'defaultFont'], 'workbook options');
   const dateSystem = o.get('dateSystem') ?? '1900';
   if (dateSystem !== '1900' && dateSystem !== '1904') {
     throw invalidOption(`Date system ${JSON.stringify(String(dateSystem).slice(0, 20))} is not valid.`, 'Use "1900" (the default) or "1904".');
   }
-  return new NewWorkbook(dateSystem, normalizeProperties(o.get('properties')));
+  const font = o.get('defaultFont');
+  // Checked as the font of a style, so errors name the property (font.size, …).
+  const defaultFont = font === undefined ? null : (normalizeStyle({ font }).font ?? null);
+  return new NewWorkbook(dateSystem, normalizeProperties(o.get('properties')), defaultFont);
 }
 
 /**
@@ -2150,5 +2185,6 @@ export function writeWorkbook(workbook: NewWorkbook, options: WriteWorkbookOptio
     dxfs: workbook.dxfStyles(),
     workbookProtection: workbook.workbookProtection,
     images: workbook.imageList(),
+    defaultFont: workbook.fontDefault,
   });
 }
