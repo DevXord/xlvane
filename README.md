@@ -1,8 +1,18 @@
 # xlvane
 
 [![npm version](https://img.shields.io/npm/v/xlvane)](https://www.npmjs.com/package/xlvane)
+[![@xlvane/compat](https://img.shields.io/npm/v/@xlvane/compat?label=%40xlvane%2Fcompat)](https://www.npmjs.com/package/@xlvane/compat)
+[![@xlvane/mcp](https://img.shields.io/npm/v/@xlvane/mcp?label=%40xlvane%2Fmcp)](https://www.npmjs.com/package/@xlvane/mcp)
 [![License: MIT](https://img.shields.io/npm/l/xlvane)](LICENSE)
 [![CI](https://github.com/DevXord/xlvane/actions/workflows/ci.yml/badge.svg)](https://github.com/DevXord/xlvane/actions/workflows/ci.yml)
+[![Release](https://github.com/DevXord/xlvane/actions/workflows/release.yml/badge.svg)](https://github.com/DevXord/xlvane/actions/workflows/release.yml)
+[![npm provenance](https://img.shields.io/badge/npm-provenance-blue)](SECURITY.md)
+[![Runtime dependencies: 1 (fflate)](https://img.shields.io/badge/runtime%20dependencies-1%20(fflate)-blue)](packages/xlvane/package.json)
+[![Types: TypeScript](https://img.shields.io/npm/types/xlvane)](https://www.npmjs.com/package/xlvane)
+[![Node.js](https://img.shields.io/node/v/xlvane)](packages/xlvane/package.json)
+[![Downloads](https://img.shields.io/npm/dm/xlvane)](https://www.npmjs.com/package/xlvane)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.DevXord%2Fxlvane-blue)](https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.DevXord/xlvane)
+[![Website](https://img.shields.io/badge/website-xlvane.github.io-blue)](https://xlvane.github.io/)
 
 An MIT-licensed library for reading and writing XLSX files, designed for input from untrusted sources.
 
