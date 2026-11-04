@@ -5,7 +5,22 @@
 // charts were looked up with a map built per chart (quadratic in sheets and charts), and inspect cut
 // chart titles inside a surrogate pair.
 import { strToU8, zipSync } from 'fflate';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+
+/** Calls of chartSheetNames and the sheet names they were given, counted by the mock below. */
+const lookups = vi.hoisted(() => ({ calls: 0, names: 0 }));
+
+vi.mock('../../packages/xlvane/src/charts', async (importOriginal) => {
+  const mod = await importOriginal<typeof import('../../packages/xlvane/src/charts')>();
+  return {
+    ...mod,
+    chartSheetNames: (names: readonly string[]) => {
+      lookups.calls++;
+      lookups.names += names.length;
+      return mod.chartSheetNames(names);
+    },
+  };
+});
 import { inspect } from '../../packages/xlvane/src/inspect';
 import { readWorkbook } from '../../packages/xlvane/src/read';
 import { writeWorkbookStream } from '../../packages/xlvane/src/stream-write';
@@ -154,46 +169,34 @@ describe('reading charts: series and chart groups count against maxCells', () =>
 });
 
 describe('writing charts: sheets are looked up once per workbook', () => {
-  const build = (n: number, charts: boolean) => {
+  // Before the fix, the sheet names were looked up anew for every chart, so 2000 and 4000 sheets with
+  // a chart each took 1.49 s and 5.16 s. The test counts how many sheet names the lookups are built
+  // from instead of timing the writes: a timing ratio failed on a loaded CI machine (2.91 against a
+  // bound of 2.8, run 41728610555), while the count does not depend on the machine.
+  const build = (n: number) => {
     const wb = createWorkbook();
-    for (let i = 0; i < n; i++) {
-      const s = wb.addSheet(`S${String(i)}x`).set('B1', 1);
-      if (charts) s.addChart({ type: 'line', anchor: 'C2:J12', series: [{ values: `S${String(i)}x!B1:B2` }] });
-    }
+    for (let i = 0; i < n; i++) wb.addSheet(`S${String(i)}x`).set('B1', 1).addChart({ type: 'line', anchor: 'C2:J12', series: [{ values: `S${String(i)}x!B1:B2` }] });
     return wb;
   };
-  const time = (fn: () => unknown): number => {
-    const t0 = performance.now();
-    fn();
-    return performance.now() - t0;
+  const specs = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `S${String(i)}x`, rows: [[1]], charts: [{ type: 'line' as const, anchor: 'C2:J12', series: [{ values: `S${String(i)}x!B1:B2` }] }] }));
+  const drain = async (n: number): Promise<void> => {
+    for await (const chunk of writeWorkbookStream({ sheets: specs(n) })) void chunk;
   };
 
-  it('writes sheets with one chart each in time linear in the sheets', async () => {
-    // Doubling the sheets doubles linear work and quadruples quadratic work. Before: 2000 and 4000
-    // sheets took 1.49 s and 5.16 s (3.5 times); after: about 1.2 s and 2.3 s. The ratio, unlike a
-    // bound against the time without charts, does not depend on the speed of the machine.
-    const best = async (fn: () => Promise<unknown> | unknown): Promise<number> => {
-      let min = Infinity;
-      for (let k = 0; k < 2; k++) {
-        const t0 = performance.now();
-        await fn();
-        min = Math.min(min, performance.now() - t0);
-      }
-      return min;
-    };
-    const charted = (n: number) => build(n, true);
-    const small = charted(2000);
-    const large = charted(4000);
-    const ratio = (await best(() => writeWorkbook(large))) / (await best(() => writeWorkbook(small)));
-    expect(ratio).toBeLessThan(2.8);
-
-    const specs = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `S${String(i)}x`, rows: [[1]], charts: [{ type: 'line' as const, anchor: 'C2:J12', series: [{ values: `S${String(i)}x!B1:B2` }] }] }));
-    const drain = async (n: number): Promise<void> => {
-      for await (const chunk of writeWorkbookStream({ sheets: specs(n) })) void chunk;
-    };
-    const streamRatio = (await best(() => drain(4000))) / (await best(() => drain(2000)));
-    expect(streamRatio).toBeLessThan(2.8);
-  }, 300_000);
+  it('builds the lookup a constant number of times, whatever the number of charts', async () => {
+    for (const n of [200, 400]) {
+      lookups.calls = 0;
+      lookups.names = 0;
+      writeWorkbook(build(n));
+      expect(lookups.calls).toBe(1);
+      expect(lookups.names).toBe(n);
+      lookups.calls = 0;
+      lookups.names = 0;
+      await drain(n);
+      expect(lookups.calls).toBeLessThanOrEqual(2);
+      expect(lookups.names).toBeLessThanOrEqual(2 * n);
+    }
+  });
 });
 
 describe('inspect: titles are cut on a code point boundary', () => {
