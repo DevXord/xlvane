@@ -1,8 +1,14 @@
-blank_issues_enabled: true
+blank_issues_enabled: false
 contact_links:
+  - name: Ask a question
+    url: https://github.com/DevXord/xlvane/discussions/categories/q-a
+    about: Questions about using xlvane, @xlvane/compat, @xlvane/mcp or the xlvane command go to the Q&A category of Discussions, where an answer can be marked as the solution. Issues are for bugs and concrete feature requests.
+  - name: Discuss an idea
+    url: https://github.com/DevXord/xlvane/discussions/categories/ideas
+    about: Ideas you want to talk over before they become a feature request go to the Ideas category of Discussions.
+  - name: Read the documentation
+    url: https://xlvane.github.io/guide/
+    about: The guide, the error codes (each XLV_E_ code with its fix) and the exceljs compatibility notes for the published version.
   - name: Report a security vulnerability
     url: https://github.com/DevXord/xlvane/security/advisories/new
     about: Please report security problems privately, not in a public issue (SECURITY.md).
-  - name: Documentation
-    url: https://xlvane.github.io
-    about: Guide, error codes, JSON formats and an in-browser demo.

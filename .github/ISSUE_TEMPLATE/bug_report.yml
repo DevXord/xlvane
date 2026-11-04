@@ -6,6 +6,7 @@ body:
     attributes:
       value: |
         For a security problem, do not open an issue: report it privately as described in SECURITY.md.
+        For a question about how to use xlvane, please ask in the Q&A category of Discussions instead: https://github.com/DevXord/xlvane/discussions/categories/q-a
         Please attach a workbook only if it holds no private data.
   - type: input
     id: version
