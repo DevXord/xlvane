@@ -50,7 +50,7 @@ Every cell below is backed by a recorded source (registry document, README or so
 
 | | xlvane | ExcelJS | SheetJS Community Edition (npm `xlsx`) | excelize (Go) |
 |---|---|---|---|---|
-| Latest version (date) | 1.3.0 (2026-11-03) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
+| Latest version (date) | 1.3.1 (2026-11-04) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
 | License | MIT | MIT | Apache-2.0 | BSD-3-Clause |
 | Runtime dependencies | 1 (`fflate`) | 9 | 7 | 9 direct module requirements in `go.mod` |
 | Read / write XLSX | Yes / yes (XLSM, XLTX and XLTM are read too) | Yes / yes | Yes / yes | Yes / yes (also XLAM, XLSM, XLTM, XLTX) |
