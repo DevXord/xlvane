@@ -5,9 +5,9 @@ Thank you for helping. This file says how to report problems and how changes are
 ## Reporting
 
 - **Security problems:** do not open a public issue. Report them privately as described in [SECURITY.md](SECURITY.md).
-- **Questions:** ask in [Discussions](https://github.com/DevXord/xlvane/discussions), where answers stay findable for others. The [guide](https://xlvane.github.io/guide/) and the [error codes](docs/errors.md) answer many questions already.
+- **Questions:** ask in the [Q&A category of Discussions](https://github.com/DevXord/xlvane/discussions/categories/q-a), where answers stay findable for others. The [guide](https://xlvane.github.io/guide/) and the [error codes](docs/errors.md) answer many questions already.
 - **Bugs:** open an issue with the bug report template. Include the xlvane version, the runtime (Node.js, Bun, Deno, browser, Workers) and a small script or command that shows the problem. Attach a workbook only if it holds no private data; a file built with `createWorkbook()` in the script is often enough.
-- **Ideas:** open an issue with the feature request template and describe the task you want to do, not only the API you have in mind.
+- **Ideas:** to talk an idea over first, use the [Ideas category of Discussions](https://github.com/DevXord/xlvane/discussions/categories/ideas); for a concrete request, open an issue with the feature request template and describe the task you want to do, not only the API you have in mind.
 
 ## Development
 
