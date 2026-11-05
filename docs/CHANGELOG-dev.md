@@ -2,6 +2,10 @@
 
 One entry per plan phase (docs/PLAN.md), newest first.
 
+## Plan: phase N, other spreadsheet formats (2026-11-05)
+
+- docs/PLAN.md phase N (N1-N6) and section 9: formats of free spreadsheet programs (`.ods`, `.fods`, Gnumeric, Numbers read only) go into the free packages, formats of paid programs that the core does not read yet (`.xls`, `.xlsb`, XML 2003, SYLK, DIF, Lotus 1-2-3, Works, Quattro Pro) into Pro; the free core recognises them all (D-N01). Ideas taken from tabularjs 2.2.0 in D-N02; facts in docs/facts/formats.md. No code changed.
+
 ## Phase M1: `@xlvane/compat` renamed to `@xlvane/exceljs`, version 1.3.3 (2026-11-05)
 
 - Package, directory, scripts, CLI `migrate`, tests and current documentation use `@xlvane/exceljs` (D-M01); RELEASING.md has the first-release steps and the `npm deprecate` command for `@xlvane/compat`.

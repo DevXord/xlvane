@@ -946,6 +946,27 @@ At the maintainer's decision the exceljs-compatible package is named `@xlvane/ex
 - `xlvane migrate` writes `"exceljs": "npm:@xlvane/exceljs@^1"` and replaces the old alias too (any other value of the `exceljs` dependency is replaced, as before).
 - Current texts use the new name; earlier CHANGELOG entries, this file, docs/CHANGELOG-dev.md and the registry facts keep the old one as history. The website keeps guide/compat.html as a page that links to guide/exceljs.html.
 
+## Decisions: phase N (file formats, plan)
+
+### D-N01 Which spreadsheet formats are free and which belong to Pro (2026-11-05)
+At the maintainer's decision xlvane is to read more spreadsheet formats, older ones included, but only formats of Excel-type spreadsheet programs. The rule: formats of free programs go into the free packages (MIT); formats of paid programs go into Pro in full, including what the free version does for other formats (reading, `inspect`, conversion, writing); formats the free core already handles stay free. Facts: docs/facts/formats.md.
+- Free, already in the core: `.xlsx`, `.xlsm`, `.xltx`, `.xltm` (OOXML, Excel), CSV and TSV.
+- Free, new: OpenDocument `.ods` and `.fods` (LibreOffice and Apache OpenOffice; FMT-10), Gnumeric `.gnumeric`/`.gnm` (FMT-02, FMT-11), Apple Numbers `.numbers` (free program, FMT-01; read only, the format is undocumented, FMT-12).
+- Pro: Excel's other formats `.xls` (BIFF8 and older BIFF versions), `.xlsb`, XML Spreadsheet 2003, SYLK and DIF; Lotus 1-2-3 (`.wk1`, `.wk3`, `.wk4`, `.123`; paid and no longer sold, FMT-04); Microsoft Works (`.wks`, `.xlr`; FMT-05); Quattro Pro (FMT-03). Programs that are no longer sold count as paid because they were sold.
+- WPS Spreadsheets (`.et`) and PlanMaker (`.pmdx`) have free editions (FMT-06, FMT-07) but the formats are proprietary and undocumented. Maintainer's decision: free only if the free edition saves the format, after the documented formats, and left out if the format cannot be described reliably.
+- Apple Numbers is read only (maintainer's decision).
+- Order (maintainer's decision; docs/PLAN.md phase N): format detection, the format interface and CSV encodings; `.ods`/`.fods`; Gnumeric; Numbers; the website converter; WPS and PlanMaker.
+- Out of scope: formats that are not spreadsheet-program formats, such as HTML tables and dBase (`.dbf`).
+- The free core still recognises every format above by its content and refuses the ones it does not read with an error code that names the format and how to convert the file; recognising a format is not reading it.
+- Pro plugs its formats into the free packages through a documented interface of the core (CLAUDE.md: no Pro code in this repository), so `xlvane read`, `convert` and the MCP tools use them when Pro is installed.
+
+### D-N02 What xlvane takes from tabularjs (2026-11-05)
+tabularjs 2.2.0 (MIT, read only, docs/facts/formats.md TABJS-01, TABJS-02) was read to see what xlvane lacks. Ideas are taken, not code: every format is implemented from its specification or documented reverse engineering, with facts in docs/facts/.
+- Taken into the free core: format detection by content (a file whose extension lies, CFB that holds `.xls` versus an encrypted OOXML package, ZIP that holds `.ods` or `.numbers`, gzip, CSV, HTML or XML 2003 text) with a separate error for an encrypted workbook; a CSV `encoding` option (TextDecoder labels) and UTF-16 with a byte order mark; a website page that converts a file in the browser; `llms.txt` on the website.
+- Taken into Pro, with the formats of D-N01: `.xls` formula decoding, `.xls` files protected with Excel's default password, Lotus text in LMBCS.
+- Not taken: HTML tables and dBase (outside the scope of D-N01), the Jspreadsheet output format, the `onload`/`onerror` callbacks. Already in xlvane: shared formulas on every cell, inline strings, phonetic runs, ZIP limits.
+- LibreOffice's import test files are a candidate corpus only after the license of each file is known (FMT-15).
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await
@@ -974,6 +995,7 @@ Format facts live in separate files under docs/facts/ so that each one can carry
 | docs/facts/sheet-rules.md | SR-* | data validation, conditional formatting, dxfs, protection, printing (REPORT-3; D-C01 … D-C04) |
 | docs/facts/tables-drawings.md | TD-* | tables, drawings and pictures (REPORT-3; D-D02, D-D03) |
 | docs/facts/csv.md | CSV-*, SS-* | CSV (RFC 4180 PROVISIONAL), OWASP CSV Injection, Standard Schema |
+| docs/facts/formats.md | FMT-*, TABJS-* | spreadsheet programs (paid or free) and their formats, tabularjs 2.2.0 (D-N01, D-N02); mostly PROVISIONAL |
 
 ### F-NODE-04 … F-NODE-05
 See docs/facts/sml-write.md.
