@@ -13,7 +13,7 @@ import type { Workbook } from './workbook';
  *
  * @example
  * ```ts
- * import type { CsvReadOptions } from '@xlvane/compat';
+ * import type { CsvReadOptions } from '@xlvane/exceljs';
  *
  * const options: CsvReadOptions = { sheetName: 'Data', parserOptions: { delimiter: ';' } };
  * ```
@@ -35,7 +35,7 @@ export interface CsvReadOptions {
  *
  * @example
  * ```ts
- * import type { CsvWriteOptions } from '@xlvane/compat';
+ * import type { CsvWriteOptions } from '@xlvane/exceljs';
  *
  * const options: CsvWriteOptions = { sheetName: 'Data', dateFormat: 'DD/MM/YYYY', formatterOptions: { delimiter: ';' } };
  * ```
@@ -1254,7 +1254,7 @@ async function nodeFs(method: string): Promise<NodeFs> {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/compat';
+ * import ExcelJS from '@xlvane/exceljs';
  *
  * const workbook = new ExcelJS.Workbook();
  * workbook.addWorksheet('Data').addRow(['Tea', 3.5]);

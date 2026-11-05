@@ -40,7 +40,7 @@ describe('texts read by agents', () => {
       await packageDocs(generated);
       const targets = [
         join(ROOT, 'README.md'),
-        ...['xlvane', 'compat', 'mcp'].map((p) => join(ROOT, 'packages', p, 'README.md')),
+        ...['xlvane', 'exceljs', 'mcp'].map((p) => join(ROOT, 'packages', p, 'README.md')),
         join(ROOT, 'skills/xlvane/SKILL.md'),
         join(ROOT, 'CHANGELOG.md'),
         join(ROOT, 'SECURITY.md'),

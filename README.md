@@ -1,7 +1,7 @@
 # xlvane
 
 [![npm version](https://img.shields.io/npm/v/xlvane)](https://www.npmjs.com/package/xlvane)
-[![@xlvane/compat](https://img.shields.io/npm/v/@xlvane/compat?label=%40xlvane%2Fcompat)](https://www.npmjs.com/package/@xlvane/compat)
+[![@xlvane/exceljs](https://img.shields.io/npm/v/@xlvane/exceljs?label=%40xlvane%2Fexceljs)](https://www.npmjs.com/package/@xlvane/exceljs)
 [![@xlvane/mcp](https://img.shields.io/npm/v/@xlvane/mcp?label=%40xlvane%2Fmcp)](https://www.npmjs.com/package/@xlvane/mcp)
 [![License: MIT](https://img.shields.io/npm/l/xlvane)](LICENSE)
 [![CI](https://github.com/DevXord/xlvane/actions/workflows/ci.yml/badge.svg)](https://github.com/DevXord/xlvane/actions/workflows/ci.yml)
@@ -16,16 +16,16 @@
 
 An MIT-licensed library for reading and writing XLSX files, designed for input from untrusted sources.
 
-Releases are published from GitHub Actions with npm provenance: `xlvane` and `@xlvane/compat` from 1.0.1, `@xlvane/mcp` from 1.2.2 ([SECURITY.md](SECURITY.md)).
+Releases are published from GitHub Actions with npm provenance: `xlvane` from 1.0.1, `@xlvane/mcp` from 1.2.2, and `@xlvane/exceljs` (named `@xlvane/compat` until 1.3.2, with provenance from 1.0.1) from its first release after 1.3.3, which is published from the maintainer's machine ([SECURITY.md](SECURITY.md)).
 
-**Website:** [xlvane.github.io](https://xlvane.github.io) (guide, error codes, an in-browser demo). **Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/compat](https://www.npmjs.com/package/@xlvane/compat), [@xlvane/mcp](https://www.npmjs.com/package/@xlvane/mcp)). Install with `npm install xlvane` (and `npm install @xlvane/compat` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md), planned and deferred work in [ROADMAP.md](ROADMAP.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
+**Website:** [xlvane.github.io](https://xlvane.github.io) (guide, error codes, an in-browser demo). **Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/exceljs](https://www.npmjs.com/package/@xlvane/exceljs), [@xlvane/mcp](https://www.npmjs.com/package/@xlvane/mcp)). Install with `npm install xlvane` (and `npm install @xlvane/exceljs` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md), planned and deferred work in [ROADMAP.md](ROADMAP.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Packages
 
 | Package | Contents | Runtime dependencies |
 |---|---|---|
 | [`xlvane`](packages/xlvane) | Core library (safe reading, `inspect()`, writing with styles, task API, streaming) and the `xlvane` command line | `fflate` |
-| [`@xlvane/compat`](packages/compat) | exceljs-compatible API ([docs/exceljs-compat.md](docs/exceljs-compat.md)) | `xlvane` |
+| [`@xlvane/exceljs`](packages/exceljs) | exceljs-compatible API ([docs/exceljs-compat.md](docs/exceljs-compat.md)) | `xlvane` |
 | [`@xlvane/mcp`](packages/mcp) | MCP server for AI agents and other MCP clients | `xlvane`, `@modelcontextprotocol/server` |
 
 ## Command line in 5 minutes
@@ -51,7 +51,7 @@ Add `--json` to any command for machine-readable output ([docs/cli-json.md](docs
 
 ## Moving from exceljs or SheetJS
 
-- [docs/migrate-from-exceljs.md](docs/migrate-from-exceljs.md): switching a project from exceljs to `@xlvane/compat` with `npx xlvane migrate` and an npm alias, what to check afterwards and how to roll back.
+- [docs/migrate-from-exceljs.md](docs/migrate-from-exceljs.md): switching a project from exceljs to `@xlvane/exceljs` with `npx xlvane migrate` and an npm alias, what to check afterwards and how to roll back.
 - [How to fix the CVEs in the `xlsx` package from npm](docs/xlsx-cves.md): the two advisories of the `xlsx` (SheetJS) package on npm, the fixed SheetJS versions outside npm, and the equivalent xlvane calls.
 
 ## xlvane compared with other libraries
@@ -60,7 +60,7 @@ Every cell below is backed by a recorded source (registry document, README or so
 
 | | xlvane | ExcelJS | SheetJS Community Edition (npm `xlsx`) | excelize (Go) |
 |---|---|---|---|---|
-| Latest version (date) | 1.3.2 (2026-11-04) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
+| Latest version (date) | 1.3.3 (2026-11-05) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
 | License | MIT | MIT | Apache-2.0 | BSD-3-Clause |
 | Runtime dependencies | 1 (`fflate`) | 9 | 7 | 9 direct module requirements in `go.mod` |
 | Read / write XLSX | Yes / yes (XLSM, XLTX and XLTM are read too) | Yes / yes | Yes / yes | Yes / yes (also XLAM, XLSM, XLTM, XLTX) |
@@ -71,7 +71,7 @@ Every cell below is backed by a recorded source (registry document, README or so
 | Formula calculation | No | No | Not in the Community Edition (the README points to SheetJS Pro) | Partial (`CalcCellValue`, with documented gaps) |
 | Streaming | Read and write XLSX | Read and write XLSX | Write CSV, HTML and JSON (`XLSX.stream`); for reading, the README buffers the stream first | Read and write worksheets |
 
-What xlvane cannot do: it does not calculate formulas, does not open encrypted (password-protected) workbooks or legacy `.xls` files, does not model pivot tables, shapes, slicers or form controls, and reads and writes no format besides XLSX (plus XLSM, XLTX and XLTM on reading), CSV and JSON ([packages/xlvane/README.md](packages/xlvane/README.md#limitations), [SECURITY.md](SECURITY.md#out-of-scope)). `@xlvane/compat` is a replacement for the commonly used exceljs API; [docs/exceljs-compat.md](docs/exceljs-compat.md) lists what is supported, partly supported and not supported. xlvane is an independent project, not affiliated with or endorsed by the authors of ExcelJS, SheetJS or excelize.
+What xlvane cannot do: it does not calculate formulas, does not open encrypted (password-protected) workbooks or legacy `.xls` files, does not model pivot tables, shapes, slicers or form controls, and reads and writes no format besides XLSX (plus XLSM, XLTX and XLTM on reading), CSV and JSON ([packages/xlvane/README.md](packages/xlvane/README.md#limitations), [SECURITY.md](SECURITY.md#out-of-scope)). `@xlvane/exceljs` is a replacement for the commonly used exceljs API; [docs/exceljs-compat.md](docs/exceljs-compat.md) lists what is supported, partly supported and not supported. xlvane is an independent project, not affiliated with or endorsed by the authors of ExcelJS, SheetJS or excelize.
 
 ## How xlvane is built and verified
 
@@ -82,7 +82,7 @@ What xlvane cannot do: it does not calculate formulas, does not open encrypted (
 - **LibreOffice.** [tests/libreoffice](tests/libreoffice) opens files written by xlvane in LibreOffice Calc (headless) and checks the values, styles and layout it sees; CI installs LibreOffice and requires these tests.
 - **Runtimes.** CI runs the tests on Node.js 22, 24 and 26, and the same smoke bundle in Bun, Deno, Chromium and workerd (Cloudflare Workers) ([scripts/run-runtimes.mjs](scripts/run-runtimes.mjs), [.github/workflows/ci.yml](.github/workflows/ci.yml)).
 - **Security reviews.** Independent reviews with proof-of-concept files were run before 1.1.1, on the published versions 1.0.0 to 1.2.2 before 1.2.3, and twice on the 1.3.0 release candidate. Each fixed finding has a test that failed before the fix; the points left unchanged are listed with their reasons ([docs/decisions.md](docs/decisions.md) D-H01, D-J01, D-K03 and D-K04).
-- **Provenance.** Releases are built and published by [.github/workflows/release.yml](.github/workflows/release.yml) through npm trusted publishing, which adds provenance (`xlvane` and `@xlvane/compat` from 1.0.1, `@xlvane/mcp` from 1.2.2).
+- **Provenance.** Releases are built and published by [.github/workflows/release.yml](.github/workflows/release.yml) through npm trusted publishing, which adds provenance (`xlvane` from 1.0.1, `@xlvane/mcp` from 1.2.2, `@xlvane/compat` from 1.0.1 to 1.3.2; its successor `@xlvane/exceljs` from the first release after 1.3.3, which is published from the maintainer's machine).
 
 ## Development
 
@@ -100,4 +100,4 @@ How to report problems and propose changes is in [CONTRIBUTING.md](CONTRIBUTING.
 
 ## License
 
-MIT. `@xlvane/compat` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API and type declarations follow exceljs 4.4.0.
+MIT. `@xlvane/exceljs` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API and type declarations follow exceljs 4.4.0.

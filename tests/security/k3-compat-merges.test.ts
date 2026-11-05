@@ -1,4 +1,4 @@
-// @xlvane/compat merged ranges after the K3 review of the K2 fixes: K2 writes a merged range whose
+// @xlvane/exceljs merged ranges after the K3 review of the K2 fixes: K2 writes a merged range whose
 // cells all carry the master's style as one range style per block of rows, but a note on any cell
 // of the range made it fall back to a styled cell write per position (twice the time for a range
 // of 200 000 positions). The cells of such a range are now styled as a block, and their notes are

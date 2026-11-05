@@ -1,4 +1,4 @@
-// @xlvane/compat shared formulas on load after the K2 penetration test: xlsx.load and
+// @xlvane/exceljs shared formulas on load after the K2 penetration test: xlsx.load and
 // stream.xlsx.WorkbookReader read the text of every shared-formula dependent, which makes the core
 // move the master's text to each of them. A 4.6 KB file (a 1 000 000-character master shared with
 // 200 cells) ran out of heap; 30 dependents took 950 MB (the core alone, without the texts: 75 MB).

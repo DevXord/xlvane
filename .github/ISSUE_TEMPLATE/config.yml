@@ -2,7 +2,7 @@ blank_issues_enabled: false
 contact_links:
   - name: Ask a question
     url: https://github.com/DevXord/xlvane/discussions/categories/q-a
-    about: Questions about using xlvane, @xlvane/compat, @xlvane/mcp or the xlvane command go to the Q&A category of Discussions, where an answer can be marked as the solution. Issues are for bugs and concrete feature requests.
+    about: Questions about using xlvane, @xlvane/exceljs, @xlvane/mcp or the xlvane command go to the Q&A category of Discussions, where an answer can be marked as the solution. Issues are for bugs and concrete feature requests.
   - name: Discuss an idea
     url: https://github.com/DevXord/xlvane/discussions/categories/ideas
     about: Ideas you want to talk over before they become a feature request go to the Ideas category of Discussions.

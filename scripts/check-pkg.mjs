@@ -18,7 +18,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const packages = ['packages/xlvane', 'packages/compat', 'packages/mcp'];
+const packages = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];
 const failures = [];
 /** Size budget of the library files in packages/xlvane/dist, gzip level 9, in bytes. Same number as in the README. */
 const SIZE_BUDGET_BYTES = 300_000;
@@ -53,9 +53,9 @@ if (failures.length === 0) {
         continue;
       }
       const label = `require(esm) ${dir}/dist/${file}`;
-      // @xlvane/compat's no-node.js is what its package imports resolve to outside Node.js, Bun
+      // @xlvane/exceljs's no-node.js is what its package imports resolve to outside Node.js, Bun
       // and Deno; it throws when loaded by design (D-R07), so loading must fail with its message.
-      const mustThrow = dir === 'packages/compat' && file === 'no-node.js';
+      const mustThrow = dir === 'packages/exceljs' && file === 'no-node.js';
       try {
         require(join(dist, file));
         if (mustThrow) {

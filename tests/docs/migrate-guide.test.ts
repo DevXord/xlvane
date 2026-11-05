@@ -74,7 +74,7 @@ describe('docs/migrate-from-exceljs.md', () => {
 
   it('states the alias and the limits of the command as the source has them', async () => {
     const text = await guide();
-    expect(ALIAS).toBe('npm:@xlvane/compat@^1');
+    expect(ALIAS).toBe('npm:@xlvane/exceljs@^1');
     expect(codeBlocks(text, /^json$/)[0]!.code).toContain(`"exceljs": "${ALIAS}"`);
     const source = await readFile(join(ROOT, 'packages/xlvane/src/cli/commands/migrate.ts'), 'utf8');
     expect(source).toContain("const SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const;");
@@ -83,7 +83,7 @@ describe('docs/migrate-from-exceljs.md', () => {
     expect(text).toContain('(`.js`, `.mjs`, `.cjs`, `.jsx`, `.ts`, `.mts`, `.cts`, `.tsx`, up to 2 MiB each and 10 000 files)');
     expect(source).toContain('const MAX_FILES = 10_000;');
     expect(source).toContain('const MAX_FILE_BYTES = 2 * 1024 * 1024;');
-    const compat = JSON.parse(await readFile(join(ROOT, 'packages/compat/package.json'), 'utf8')) as { engines: { node: string } };
+    const compat = JSON.parse(await readFile(join(ROOT, 'packages/exceljs/package.json'), 'utf8')) as { engines: { node: string } };
     expect(compat.engines.node).toBe('>=22.12');
     expect(text).toContain('`engines.node` `>=22.12`');
   });

@@ -1,4 +1,4 @@
-// @xlvane/compat merged ranges with a styled top-left cell after the K2 penetration test: a 2.4 KB
+// @xlvane/exceljs merged ranges with a styled top-left cell after the K2 penetration test: a 2.4 KB
 // file with <mergeCell ref="A1:E400000"/> (2 000 000 positions, within the load budget) and a
 // styled A1 loaded in seconds, but xlsx.writeBuffer then took 15 s and 1.4 GB, and ran out of
 // memory at about 4 000 000 positions. Each merged cell carried a copy of the master's style, so

@@ -1,10 +1,10 @@
-// @xlvane/compat csv.read after the K2 penetration test: every row of the input was collected
+// @xlvane/exceljs csv.read after the K2 penetration test: every row of the input was collected
 // before addRow refused row 1 048 577 (20 MB of line feeds took 2 GB), and quoted fields were
 // built one character at a time (an 80 MB quoted field ran out of memory). Parsing now stops at
 // the sheet's 1 048 576 rows and 16 384 columns, rows are added as they are parsed, and quoted
 // fields are built from slices of the input.
 import { describe, expect, it } from 'vitest';
-import ExcelJS from '../../packages/compat/src/index';
+import ExcelJS from '../../packages/exceljs/src/index';
 
 const enc = new TextEncoder();
 const MAX_ROWS = 1_048_576;

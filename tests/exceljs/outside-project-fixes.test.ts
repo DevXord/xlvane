@@ -1,4 +1,4 @@
-// Regressions found by testing the packed @xlvane/compat against exceljs 4.4.0 in outside
+// Regressions found by testing the packed @xlvane/exceljs against exceljs 4.4.0 in outside
 // projects before the first release (docs/decisions.md D-R09). exceljs behaviour is cited from the
 // npm package exceljs 4.4.0 (lib/...).
 import { describe, expect, it } from 'vitest';

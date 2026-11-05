@@ -27,7 +27,7 @@ Tests that open files in LibreOffice run when `soffice` and Python UNO are insta
 ## Rules for changes
 
 - Tests first, then the implementation. A change is done when `npm test` passes.
-- `xlvane` has one runtime dependency, `fflate`; `@xlvane/compat` depends only on `xlvane`. A new dependency needs the maintainer's approval and an entry in [docs/decisions.md](docs/decisions.md).
+- `xlvane` has one runtime dependency, `fflate`; `@xlvane/exceljs` depends only on `xlvane`. A new dependency needs the maintainer's approval and an entry in [docs/decisions.md](docs/decisions.md).
 - Input files are untrusted: keep the ZIP and XML limits, never use data from a file as a key of a plain object, and add a test for every protection.
 - Facts about the file format, exceljs, npm or other tools come from the specification, the source code or current documentation, and the source is recorded in docs/decisions.md or docs/facts/.
 - Every public symbol has TSDoc with a description and an example that compiles (a test checks it). Every error has a stable `XLV_E_*` code, a location, a hint and an entry in [docs/errors.md](docs/errors.md).

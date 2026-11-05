@@ -1,6 +1,6 @@
 // Ways around the CSV formula-injection escape found by the 1.2.2 penetration tests (docs/decisions.md
 // D-J01): a delimiter that starts a formula (a line whose first field is empty starts with it), the
-// latin1 encoding of @xlvane/compat (characters above U+00FF lose their high byte, so U+013D becomes
+// latin1 encoding of @xlvane/exceljs (characters above U+00FF lose their high byte, so U+013D becomes
 // "=" and U+010A a line feed after the check), and formatter options whose quoting a standard
 // (RFC 4180) reader splits differently. Each test parses the output as RFC 4180 and checks that no
 // field starts like a formula, or that the options are refused.
@@ -8,7 +8,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import ExcelJS from '../../packages/compat/src/index';
+import ExcelJS from '../../packages/exceljs/src/index';
 import { toCSV } from '../../packages/xlvane/src/csv';
 import { createWorkbook, writeWorkbook } from '../../packages/xlvane/src/index';
 import { expectXlvError } from '../helpers/expect-error';
@@ -78,7 +78,7 @@ describe('toCSV: a delimiter that starts a formula', () => {
   });
 });
 
-describe('@xlvane/compat: latin1 output', () => {
+describe('@xlvane/exceljs: latin1 output', () => {
   const values = ['ĽHYPERLINK("http://evil/","x")', 'ī1+1', 'okĊ=1+2Ĭ3', 'ŀx', 'ĭx', 'café'];
 
   it('writes characters above U+00FF as "?" before the fields are checked and quoted', async () => {
@@ -109,7 +109,7 @@ describe('@xlvane/compat: latin1 output', () => {
   });
 });
 
-describe('@xlvane/compat: formatter options that a standard reader splits differently', () => {
+describe('@xlvane/exceljs: formatter options that a standard reader splits differently', () => {
   const write = async (values: string[], formatterOptions: Record<string, unknown>): Promise<string> => {
     const wb = new ExcelJS.Workbook();
     wb.addWorksheet('S').addRow(values);
@@ -144,7 +144,7 @@ describe('@xlvane/compat: formatter options that a standard reader splits differ
   });
 });
 
-describe('@xlvane/compat: more formatter options (independent review of the patch, D-J01)', () => {
+describe('@xlvane/exceljs: more formatter options (independent review of the patch, D-J01)', () => {
   const write = async (rows: string[][], formatterOptions: Record<string, unknown>): Promise<string> => {
     const wb = new ExcelJS.Workbook();
     const ws = wb.addWorksheet('S');

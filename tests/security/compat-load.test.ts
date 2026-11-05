@@ -1,4 +1,4 @@
-// @xlvane/compat's xlsx.load must not turn a few bytes into millions of cell or column objects
+// @xlvane/exceljs's xlsx.load must not turn a few bytes into millions of cell or column objects
 // (1.1.1 security review, D-H01): merged ranges, table ranges and <col> ranges count against
 // max(maxCells, 16 x cells read), and checking a new merge against earlier ones is linear.
 import { describe, expect, it } from 'vitest';

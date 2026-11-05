@@ -27,7 +27,7 @@ function asBuffer(bytes: Uint8Array): Uint8Array {
  *
  * @example
  * ```ts
- * import type { XlsxReadOptions } from '@xlvane/compat';
+ * import type { XlsxReadOptions } from '@xlvane/exceljs';
  *
  * const options: XlsxReadOptions = { ignoreNodes: ['dataValidations'], maxRows: 100_000 };
  * ```
@@ -51,7 +51,7 @@ export interface XlsxReadOptions {
  *
  * @example
  * ```ts
- * import type { XlsxWriteOptions } from '@xlvane/compat';
+ * import type { XlsxWriteOptions } from '@xlvane/exceljs';
  *
  * const options: XlsxWriteOptions = { useStyles: false };
  * ```
@@ -129,7 +129,7 @@ interface WritableLike {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/compat';
+ * import ExcelJS from '@xlvane/exceljs';
  *
  * const workbook = new ExcelJS.Workbook();
  * workbook.addWorksheet('Data').getCell('A1').value = 'Hello';
@@ -220,7 +220,7 @@ export class XlsxIO {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/compat';
+ * import ExcelJS from '@xlvane/exceljs';
  *
  * const workbook = new ExcelJS.Workbook();
  * workbook.creator = 'Me';

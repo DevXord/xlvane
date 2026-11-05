@@ -10,7 +10,7 @@
 // 5 s for the transparency log and retries, and when the first request was only slow, the retry
 // gets 409 "an equivalent entry already exists" and npm stops before anything is staged (npm
 // 11.21.1, sigstore/dist/config.js L25-26 and L105, @sigstore/sign/dist/witness/tlog/client.js
-// L34-56; seen twice for @xlvane/compat 1.3.0, D-K05). A new try signs again, so it gets a new entry.
+// L34-56; seen twice for @xlvane/exceljs 1.3.0, D-K05). A new try signs again, so it gets a new entry.
 // XLV_STAGE_RETRY_MS (tests only): the wait between tries.
 // XLV_STAGE_NPM (tests only): a script run with Node.js instead of npm.
 import { spawnSync } from 'node:child_process';
@@ -19,7 +19,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const version = (process.argv[2] ?? '').replace(/^v/, '');
-const PACKAGES = ['packages/xlvane', 'packages/compat', 'packages/mcp'];
+const PACKAGES = ['packages/xlvane', 'packages/exceljs', 'packages/mcp'];
 const npm = (args) =>
   process.env.XLV_STAGE_NPM
     ? spawnSync(process.execPath, [process.env.XLV_STAGE_NPM, ...args], { cwd: root, encoding: 'utf8' })

@@ -7,7 +7,7 @@ import { resolveRoots, type Roots } from './paths';
 import { registerTools, type ToolLimits } from './tools';
 
 /** Version reported in server info; kept equal to package.json by tests/mcp/server.test.ts. */
-export const SERVER_VERSION = '1.3.2';
+export const SERVER_VERSION = '1.3.3';
 
 /** Default largest file read or written by the tools: 64 MiB. */
 export const DEFAULT_MAX_FILE_BYTES: number = 64 * 1024 * 1024;

@@ -937,6 +937,15 @@ The review of 1.3.0 (D-K04) found twelve differences from exceljs 4.4.0; at the 
 
 Version 1.3.1. No new dependency or error code.
 
+## Decisions: phase M (package name, 1.3.3)
+
+### D-M01 `@xlvane/compat` is published as `@xlvane/exceljs` again (2026-11-05)
+At the maintainer's decision the exceljs-compatible package is named `@xlvane/exceljs` again, the name it had before D-R06, and its directory is packages/exceljs. This reverses D-R06, whose reason was that the package name should not use the name of another project; the statement that the package is not affiliated with or endorsed by the exceljs project (D-R05) stays in its README, its package description, the root README and the website. Whether npm's naming policy says anything about a scoped name containing the name of another package could not be checked from the build environment (npmjs.com was not reachable); the scope `@xlvane` is the project's own.
+- Released as 1.3.3 at the maintainer's request (as a correction, not as 1.4.0); the three packages keep one version.
+- npm names cannot be changed, so `@xlvane/exceljs` is a new package: its first version is published from the maintainer's machine without provenance, because a trusted publisher can be set only for an existing package (F-NPM-05), as for `@xlvane/mcp` 1.2.0 (D-I03); docs/RELEASING.md has the steps. `@xlvane/compat` stays on npm (1.0.0 to 1.3.2) and is marked as deprecated with a message naming the new alias.
+- `xlvane migrate` writes `"exceljs": "npm:@xlvane/exceljs@^1"` and replaces the old alias too (any other value of the `exceljs` dependency is replaced, as before).
+- Current texts use the new name; earlier CHANGELOG entries, this file, docs/CHANGELOG-dev.md and the registry facts keep the old one as history. The website keeps guide/compat.html as a page that links to guide/exceljs.html.
+
 ## Facts: Node.js
 
 ### F-NODE-01 require() of ES modules and top-level await

@@ -1,4 +1,4 @@
-// @xlvane/compat keeps a defined name as one object per cell, as exceljs does (cell-matrix.js).
+// @xlvane/exceljs keeps a defined name as one object per cell, as exceljs does (cell-matrix.js).
 // A name read from a file counts its cells against the same budget as merged ranges and tables
 // (D-H01), so a 1.6 kB file naming the whole sheet cannot exhaust memory; a range with rows past
 // the sheet is dropped on load, and refused by definedNames.add (security review J, C1).
