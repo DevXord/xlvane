@@ -1,6 +1,6 @@
 # Contributing to xlvane
 
-Thank you for helping. This file says how to report problems and how changes are made; the full rules are in [CLAUDE.md](CLAUDE.md) (English translation of section 7 of [docs/PLAN.md](docs/PLAN.md)).
+Thank you for helping. This file says how to report problems and how changes are made; the full rules are in [CLAUDE.md](CLAUDE.md).
 
 ## Reporting
 
@@ -27,9 +27,9 @@ Tests that open files in LibreOffice run when `soffice` and Python UNO are insta
 ## Rules for changes
 
 - Tests first, then the implementation. A change is done when `npm test` passes.
-- `xlvane` has one runtime dependency, `fflate`; `@xlvane/exceljs` depends only on `xlvane`. A new dependency needs the maintainer's approval and an entry in [docs/decisions.md](docs/decisions.md).
+- `xlvane` has one runtime dependency, `fflate`; `@xlvane/exceljs` depends only on `xlvane`. A new dependency needs the maintainer's approval.
 - Input files are untrusted: keep the ZIP and XML limits, never use data from a file as a key of a plain object, and add a test for every protection.
-- Facts about the file format, exceljs, npm or other tools come from the specification, the source code or current documentation, and the source is recorded in docs/decisions.md or docs/facts/.
+- Facts about the file format, exceljs, npm or other tools come from the specification, the source code or current documentation, and the source is named in the pull request. Identifiers such as D-K04, F-NPM-05 or E-15 and fact-file paths in code comments point to the maintainer's internal notes (plan, decisions, facts), which are not in this repository.
 - Every public symbol has TSDoc with a description and an example that compiles (a test checks it). Every error has a stable `XLV_E_*` code, a location, a hint and an entry in [docs/errors.md](docs/errors.md).
 - Code, comments, documentation and messages are in English. Documentation states only what is true and can be checked; no text tries to persuade AI agents to choose the package.
 - ESM only, no top-level await; the core works in Node.js, Bun, Deno, browsers and Cloudflare Workers, and Node.js-only code stays in `xlvane/node` and the CLI.

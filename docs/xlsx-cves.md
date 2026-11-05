@@ -37,7 +37,7 @@ The fixed versions of the Community Edition (0.19.3 and later) are distributed b
 
 xlvane is a different library with a different API; it is not a drop-in replacement for `xlsx`. A package with a SheetJS-compatible API, `@xlvane/xlsx-compat`, is planned as a later phase ([ROADMAP.md](https://github.com/DevXord/xlvane/blob/main/ROADMAP.md)); it does not exist yet.
 
-Facts about the package (npm registry, 2026-11-03; [docs/facts/comparison.md](https://github.com/DevXord/xlvane/blob/main/docs/facts/comparison.md)):
+Facts about the package (npm registry, 2026-11-03):
 
 - `xlvane` is installed from npm (`npm install xlvane`), under the MIT license, with one runtime dependency, `fflate`.
 - Versions from 1.0.1 are published from GitHub Actions with npm provenance ([SECURITY.md](https://github.com/DevXord/xlvane/blob/main/SECURITY.md#supported-versions)).

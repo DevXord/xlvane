@@ -4,7 +4,7 @@ The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2
 
 ## 1.3.3 (2026-11-05)
 
-The exceljs-compatible package is published again under the name `@xlvane/exceljs`, which it had before 1.0.0; `@xlvane/compat` gets no new versions and is marked as deprecated (docs/decisions.md D-M01). No change in behaviour.
+The exceljs-compatible package is published again under the name `@xlvane/exceljs`, which it had before 1.0.0; `@xlvane/compat` gets no new versions and is marked as deprecated. No change in behaviour.
 
 - **To switch:** change the alias in `package.json` from `"exceljs": "npm:@xlvane/compat@^1"` to `"exceljs": "npm:@xlvane/exceljs@^1"`, or run `npx xlvane migrate --force`, which now writes the new alias and also replaces the old one. The code keeps importing `exceljs`.
 - **`@xlvane/exceljs` 1.3.3** is the first version under the new name and is published from the maintainer's machine, without npm provenance; later versions are published from GitHub Actions with provenance, as for the other packages.
@@ -18,7 +18,7 @@ Package metadata only; no change in behaviour.
 
 ## 1.3.1 (2026-11-04)
 
-`@xlvane/compat` behaves like exceljs 4.4.0 where the review of 1.3.0 found it did not (docs/decisions.md D-L01), with three additions to the core API that it needs. No security fixes; no new dependency or error code.
+`@xlvane/compat` behaves like exceljs 4.4.0 where the review of 1.3.0 found it did not, with three additions to the core API that it needs. No security fixes; no new dependency or error code.
 
 ### xlvane
 
@@ -39,7 +39,7 @@ Package metadata only; no change in behaviour.
 
 ## 1.3.0 (2026-11-03)
 
-Charts, and security fixes from two reviews of the release candidate (docs/decisions.md D-K03 and D-K04). Please update all three packages.
+Charts, and security fixes from two reviews of the release candidate. Please update all three packages.
 
 ### Security fixes
 
@@ -69,7 +69,7 @@ Charts, and security fixes from two reviews of the release candidate (docs/decis
 
 ## 1.2.3 (2026-11-03)
 
-A security release: three ways around the CSV formula-injection escape, an information leak in the MCP server and denial of service by crafted files. Found by penetration tests of the published versions (docs/decisions.md D-J01). Please update all three packages.
+A security release: three ways around the CSV formula-injection escape, an information leak in the MCP server and denial of service by crafted files. Found by penetration tests of the published versions. Please update all three packages.
 
 ### xlvane
 
