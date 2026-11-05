@@ -256,6 +256,14 @@ Decyzja Pana: 1.0.0 ma być pełnoprawnym zamiennikiem `exceljs`, więc publikac
 
 - **Faza J: wydanie bezpieczeństwa 1.2.3 (dopisana 2026-11-02).** Przegląd i testy penetracyjne opublikowanych wersji; obejścia ochrony CSV przed formułami (separator, latin1, opcje cytowania w compat), wyciek informacji przez dowiązania w MCP, bezpieczniejsza podmiana plików w CLI i MCP, algorytmy liniowe i budżety w rdzeniu i compat, opcja `--max-cells` serwera MCP, odporniejszy `stage-publish.mjs` i strona (D-J01).
 
+- **Faza N: inne formaty arkuszy (dopisana 2026-11-05, decyzje Pana D-N01 i D-N02, fakty w docs/facts/formats.md).** Obsługujemy więcej formatów, także starszych, ale tylko formaty programów typu Excel. Zasada: formaty darmowych programów trafiają do wersji darmowej (MIT); formaty płatnych programów, których nie ma dziś w rdzeniu, trafiają w całości do Pro (odczyt, `inspect`, konwersja i zapis); to, co rdzeń już obsługuje (`.xlsx`, `.xlsm`, `.xltx`, `.xltm`, CSV, TSV), zostaje darmowe. Programy wycofane ze sprzedaży liczą się jako płatne. Poza zakresem: tabele HTML i dBase (`.dbf`). Od tabularjs 2.2.0 przejmujemy pomysły, nie kod; każdy format piszemy według specyfikacji albo opisanej inżynierii wstecznej, z faktami w docs/facts/. Każdy krok zaczyna się w trybie planowania, a fakty oznaczone jako PROVISIONAL sprawdzamy w źródle pierwotnym przed użyciem. Kolejność:
+  - **N1: rozpoznawanie formatów, interfejs formatów i kodowanie CSV.** Rdzeń rozpoznaje format po zawartości, nie po rozszerzeniu (`.xls` w kontenerze CFB a zaszyfrowany plik OOXML, `.ods` i `.numbers` w ZIP, gzip, tekst CSV, HTML i XML 2003) i formatu, którego nie czyta, odmawia z kodem błędu `XLV_E_*`, który nazywa format i mówi, jak plik przekonwertować; osobny kod dla skoroszytu zaszyfrowanego hasłem. Rozpoznanie nie jest odczytem, więc obejmuje też formaty Pro. Udokumentowany interfejs formatów w rdzeniu, przez który Pro podłącza swoje formaty, tak że `xlvane read`, `convert` i narzędzia MCP same z nich korzystają (bez kodu Pro w tym repozytorium). CSV: opcja `encoding` (etykiety TextDecoder) i UTF-16 ze znacznikiem BOM.
+  - **N2: OpenDocument `.ods` i `.fods`** (LibreOffice, Apache OpenOffice): odczyt i zapis, fakty z OASIS ODF 1.3 (ISO/IEC 26300).
+  - **N3: Gnumeric `.gnumeric` i `.gnm`:** odczyt i zapis (XML skompresowany gzipem, rozpakowanie przez fflate).
+  - **N4: Apple Numbers `.numbers`:** tylko odczyt. Apple nie publikuje specyfikacji, format (ZIP z blokami IWA: Snappy i protobuf) jest znany z inżynierii wstecznej, więc Snappy i protobuf piszemy sami, bez nowych zależności, a testy obejmują pliki z kilku wersji Numbers.
+  - **N5: strona i korpus.** Na stronie konwerter w przeglądarce (plik nie opuszcza komputera) dla formatów darmowych i plik `llms.txt`. Pliki testowe LibreOffice (`sc/qa/unit/data`) trafiają do korpusu dopiero po ustaleniu licencji każdego pliku (tests/corpus/LICENSES.md).
+  - **N6: WPS Spreadsheets `.et` i PlanMaker `.pmdx`:** w wersji darmowej, ale tylko jeśli darmowe wydanie programu (WPS Free, FreeOffice) zapisuje ten format, i dopiero po formatach opisanych. Oba formaty są zamknięte i nieopisane; jeśli nie da się ich rzetelnie opisać, pomijamy je.
+
 **Etap „AI Friendly” (później, po 1.0.0 lub równolegle za Pana zgodą).** Wraca praca odłożona w fazach 7 i 8:
 - serwer MCP `@xlvane/mcp` (oficjalne SDK MCP, `--root`, narzędzia zapisu tylko z `--allow-write`);
 - benchmark agentów `bench/agents/` według sekcji 4 - przed pierwszym przebiegiem szacunek kosztu i Pana zgoda, bo zgodnie z Pana decyzją nie dopłacamy do darmowej wersji.
@@ -267,6 +275,7 @@ Decyzja Pana: 1.0.0 ma być pełnoprawnym zamiennikiem `exceljs`, więc publikac
 | Przeliczanie formuł (silnik funkcji Excela) | Raporty generowane po stronie serwera muszą mieć poprawne wyniki bez otwierania Excela |
 | Tabele przestawne i wykresy | Typowe w raportach biznesowych, trudne do zrobienia samemu |
 | Pliki chronione hasłem (szyfrowanie ECMA-376) | Dane finansowe i kadrowe |
+| Formaty płatnych programów spoza rdzenia (D-N01): Excel `.xls` (z formułami i plikami chronionymi domyślnym hasłem Excela), `.xlsb`, XML Spreadsheet 2003, SYLK, DIF; Lotus 1-2-3 (`.wk1`, `.wk3`, `.wk4`, `.123`, kodowanie LMBCS); Microsoft Works (`.wks`, `.xlr`); Quattro Pro. Pełna obsługa: odczyt, `inspect`, konwersja, zapis | Archiwa firm i migracje ze starych systemów; wersja darmowa tylko rozpoznaje te pliki |
 | Łatki bezpieczeństwa dla starszych wersji (LTS) | Firmy nie aktualizują wersji głównych od razu |
 | SLA i wsparcie | Wymóg działów zakupów |
 
@@ -305,6 +314,7 @@ Przed budową Pro warto porozmawiać z 5–10 firmami używającymi xlvane i pot
 | 8. Benchmark agentów | 2–4 dni |
 | 9. Korpus i środowiska | ok. tygodnia, potem stale |
 | 10. Publikacja | 0,5 dnia |
+| N. Inne formaty arkuszy (N1-N6, po 1.0) | N1 2-3 dni; ODS ok. 2 tygodni; Gnumeric ok. tygodnia; Numbers 1-2 tygodnie; strona 1-2 dni |
 | **Razem do wersji 1.0** | **ok. 6–9 tygodni pracy, realnie 2–3 miesiące z przeglądem i poprawkami** |
 | Pro | osobny projekt po zdobyciu użytkowników |
 

@@ -953,7 +953,9 @@ At the maintainer's decision xlvane is to read more spreadsheet formats, older o
 - Free, already in the core: `.xlsx`, `.xlsm`, `.xltx`, `.xltm` (OOXML, Excel), CSV and TSV.
 - Free, new: OpenDocument `.ods` and `.fods` (LibreOffice and Apache OpenOffice; FMT-10), Gnumeric `.gnumeric`/`.gnm` (FMT-02, FMT-11), Apple Numbers `.numbers` (free program, FMT-01; read only, the format is undocumented, FMT-12).
 - Pro: Excel's other formats `.xls` (BIFF8 and older BIFF versions), `.xlsb`, XML Spreadsheet 2003, SYLK and DIF; Lotus 1-2-3 (`.wk1`, `.wk3`, `.wk4`, `.123`; paid and no longer sold, FMT-04); Microsoft Works (`.wks`, `.xlr`; FMT-05); Quattro Pro (FMT-03). Programs that are no longer sold count as paid because they were sold.
-- Open for the maintainer: WPS Spreadsheets (`.et`) and PlanMaker (`.pmdx`) have free editions (FMT-06, FMT-07) but the formats are proprietary and undocumented; proposed: free only if the free edition saves the format, and in any case after the documented formats.
+- WPS Spreadsheets (`.et`) and PlanMaker (`.pmdx`) have free editions (FMT-06, FMT-07) but the formats are proprietary and undocumented. Maintainer's decision: free only if the free edition saves the format, after the documented formats, and left out if the format cannot be described reliably.
+- Apple Numbers is read only (maintainer's decision).
+- Order (maintainer's decision; docs/PLAN.md phase N): format detection, the format interface and CSV encodings; `.ods`/`.fods`; Gnumeric; Numbers; the website converter; WPS and PlanMaker.
 - Out of scope: formats that are not spreadsheet-program formats, such as HTML tables and dBase (`.dbf`).
 - The free core still recognises every format above by its content and refuses the ones it does not read with an error code that names the format and how to convert the file; recognising a format is not reading it.
 - Pro plugs its formats into the free packages through a documented interface of the core (CLAUDE.md: no Pro code in this repository), so `xlvane read`, `convert` and the MCP tools use them when Pro is installed.
