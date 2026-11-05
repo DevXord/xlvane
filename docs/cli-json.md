@@ -2,7 +2,7 @@
 
 Every `xlvane` command accepts `--json`. The command then prints exactly one JSON document to stdout, without colour, followed by a line feed. When stdout is not a terminal (a pipe, a file, a program reading the output) the document is on one line; on a terminal it is indented with two spaces. The data is the same either way. Progress lines and notes, which normally go to stderr, are not printed. The exit codes are the same as without `--json`. `--help` and `--version` always print text.
 
-Text in the JSON output is never changed. In the text output for people, control characters from files or arguments (for example the escape character in a cell) are written as `\x1b`, so that a file cannot send commands to the terminal (docs/decisions.md D-R02).
+Text in the JSON output is never changed. In the text output for people, control characters from files or arguments (for example the escape character in a cell) are written as `\x1b`, so that a file cannot send commands to the terminal.
 
 Dates are ISO 8601 text without a time zone, as in CSV: `2024-01-31` at midnight, otherwise `2024-01-31T13:45:00` (with `.sss` when there are milliseconds). Sheet dates have no time zone. Document properties (`created`, `modified` in `inspect`) are instants and keep the `Z`.
 

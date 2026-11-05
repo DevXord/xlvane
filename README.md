@@ -56,7 +56,7 @@ Add `--json` to any command for machine-readable output ([docs/cli-json.md](docs
 
 ## xlvane compared with other libraries
 
-Every cell below is backed by a recorded source (registry document, README or source file at a pinned version or commit) in [docs/facts/comparison.md](docs/facts/comparison.md), checked on 2026-11-03. Performance is not compared here.
+Every cell below is backed by a recorded source (registry document, README or source file at a pinned version or commit), checked on 2026-11-03. Performance is not compared here.
 
 | | xlvane | ExcelJS | SheetJS Community Edition (npm `xlsx`) | excelize (Go) |
 |---|---|---|---|---|
@@ -75,13 +75,13 @@ What xlvane cannot do: it does not calculate formulas, does not open encrypted (
 
 ## How xlvane is built and verified
 
-- **Who writes the code.** The code, tests and documentation are written by AI coding agents (Claude Code), following the rules in [CLAUDE.md](CLAUDE.md) and the phases of [docs/PLAN.md](docs/PLAN.md). Each phase starts with a plan that the maintainer approves; the maintainer also approves every release (staged publishing with two-factor authentication, [docs/RELEASING.md](docs/RELEASING.md)). Decisions and checked facts, each with its source, are in [docs/decisions.md](docs/decisions.md); a summary of each phase is in [docs/CHANGELOG-dev.md](docs/CHANGELOG-dev.md).
+- **Who writes the code.** The code, tests and documentation are written by AI coding agents (Claude Code), following the rules in [CLAUDE.md](CLAUDE.md) and the maintainer's plan. Each phase starts with a plan that the maintainer approves; the maintainer also approves every release (staged publishing with two-factor authentication, [docs/RELEASING.md](docs/RELEASING.md)). Decisions and checked facts, each with its source, are kept in the maintainer's internal notes, which are not in this repository.
 - **Tests.** `npm test` ran 2200 tests in 203 files on 2026-11-03 (2149 passed, 48 skipped, 3 marked as to do; Node.js 22.23.4): unit tests, security tests ([tests/security](tests/security)), policy tests ([tests/policy](tests/policy): dependencies, release workflow, texts read by agents), command-line snapshots, the ported exceljs tests and the corpus tests.
 - **Corpus.** 340 files of the Apache POI test corpus (Apache License 2.0; written by Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and others, and damaged files) and files saved by LibreOffice; the origin and license of every file is in [tests/corpus/LICENSES.md](tests/corpus/LICENSES.md).
-- **Fuzzing.** Property-based tests with [fast-check](https://fast-check.dev/) in [tests/fuzz](tests/fuzz). Each property runs `XLV_FUZZ_RUNS` times (100 in `npm test`, 20 000 by default in `npm run fuzz`; runs with `XLV_FUZZ_RUNS=100000` are recorded for 1.1.1, for 1.2.2 before the 1.2.3 fixes and for 1.3.0: docs/CHANGELOG-dev.md, docs/decisions.md D-K03 and D-K04), and the slower ones (CSV, sheet rules, edits, writing, streaming, streamed ZIP) a tenth to a fiftieth of that ([tests/fuzz/runs.ts](tests/fuzz/runs.ts) and the `RUNS` constant of each file).
+- **Fuzzing.** Property-based tests with [fast-check](https://fast-check.dev/) in [tests/fuzz](tests/fuzz). Each property runs `XLV_FUZZ_RUNS` times (100 in `npm test`, 20 000 by default in `npm run fuzz`; runs with `XLV_FUZZ_RUNS=100000` are recorded for 1.1.1, for 1.2.2 before the 1.2.3 fixes and for 1.3.0), and the slower ones (CSV, sheet rules, edits, writing, streaming, streamed ZIP) a tenth to a fiftieth of that ([tests/fuzz/runs.ts](tests/fuzz/runs.ts) and the `RUNS` constant of each file).
 - **LibreOffice.** [tests/libreoffice](tests/libreoffice) opens files written by xlvane in LibreOffice Calc (headless) and checks the values, styles and layout it sees; CI installs LibreOffice and requires these tests.
 - **Runtimes.** CI runs the tests on Node.js 22, 24 and 26, and the same smoke bundle in Bun, Deno, Chromium and workerd (Cloudflare Workers) ([scripts/run-runtimes.mjs](scripts/run-runtimes.mjs), [.github/workflows/ci.yml](.github/workflows/ci.yml)).
-- **Security reviews.** Independent reviews with proof-of-concept files were run before 1.1.1, on the published versions 1.0.0 to 1.2.2 before 1.2.3, and twice on the 1.3.0 release candidate. Each fixed finding has a test that failed before the fix; the points left unchanged are listed with their reasons ([docs/decisions.md](docs/decisions.md) D-H01, D-J01, D-K03 and D-K04).
+- **Security reviews.** Independent reviews with proof-of-concept files were run before 1.1.1, on the published versions 1.0.0 to 1.2.2 before 1.2.3, and twice on the 1.3.0 release candidate. Each fixed finding has a test that failed before the fix.
 - **Provenance.** Releases are built and published by [.github/workflows/release.yml](.github/workflows/release.yml) through npm trusted publishing, which adds provenance (`xlvane` from 1.0.1, `@xlvane/mcp` from 1.2.2, `@xlvane/compat` from 1.0.1 to 1.3.2; its successor `@xlvane/exceljs` from the first release after 1.3.3, which is published from the maintainer's machine).
 
 ## Development
@@ -96,7 +96,7 @@ npm run typecheck   # TypeScript
 npm run check:pkg   # build, publint, attw and package policy checks
 ```
 
-How to report problems and propose changes is in [CONTRIBUTING.md](CONTRIBUTING.md). Project rules are in [CLAUDE.md](CLAUDE.md), decisions and verified format facts in [docs/decisions.md](docs/decisions.md), and the security policy in [SECURITY.md](SECURITY.md).
+How to report problems and propose changes is in [CONTRIBUTING.md](CONTRIBUTING.md). Project rules are in [CLAUDE.md](CLAUDE.md), and the security policy in [SECURITY.md](SECURITY.md).
 
 ## License
 

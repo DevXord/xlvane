@@ -31,4 +31,10 @@ An MIT-licensed XLSX library for people and AI agents: reading, writing, styles,
 - One plan phase per session. At the start, read docs/PLAN.md, docs/decisions.md and docs/CHANGELOG-dev.md.
 - Start in plan mode and wait for the maintainer's approval.
 - Tests first, then implementation. A phase is done when it meets its acceptance criteria and `npm test` passes.
-- At the end of a phase: a summary in docs/CHANGELOG-dev.md, a commit, and a list of decisions for the maintainer's review.
+- At the end of a phase: a summary in docs/CHANGELOG-dev.md, a commit of the code, and a list of decisions for the maintainer's review.
+
+## Internal documents
+- docs/PLAN.md, docs/decisions.md, docs/CHANGELOG-dev.md and docs/facts/ are the maintainer's internal notes. They are kept only on the maintainer's machine: never tracked by Git (.gitignore lists them), never committed or pushed, and never linked from public texts (tests/policy/internal-docs.test.ts).
+- In a cloud session the maintainer uploads them at the start. At the end the session gives the changed files back to the maintainer (for example as a .zip) and does not commit them.
+- Without them (for example a session where they were not uploaded), ask the maintainer for them before work that needs a decision, a fact or the plan.
+- Code comments may cite their identifiers (D-*, F-*, E-*) and paths; public texts (READMEs, docs shipped in the package, CHANGELOG.md, SECURITY.md) do not.

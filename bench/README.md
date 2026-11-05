@@ -1,6 +1,6 @@
 # Benchmarks
 
-`bench/` is not an npm workspace. It has its own `package.json` and `package-lock.json` with the libraries xlvane is compared against, so the root dependencies, CI and `npm test` never install them (docs/decisions.md):
+`bench/` is not an npm workspace. It has its own `package.json` and `package-lock.json` with the libraries xlvane is compared against, so the root dependencies, CI and `npm test` never install them:
 
 | Package | Version | License | Note |
 |---|---|---|---|

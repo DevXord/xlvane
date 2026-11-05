@@ -18,3 +18,9 @@ bench/perf/tmp/
 packages/xlvane/docs/
 packages/xlvane/skills/
 packages/xlvane/llms-full.txt
+
+# Internal notes of the maintainer, kept only on the maintainer's machine (CLAUDE.md, "Internal documents")
+docs/PLAN.md
+docs/decisions.md
+docs/CHANGELOG-dev.md
+docs/facts/
