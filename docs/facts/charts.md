@@ -431,7 +431,7 @@ Its meaning and the meaning of its absence are R6-5. Proposed writer rule: write
 - **No chart API.** In `bench/node_modules/exceljs` (package.json version 4.4.0), "chart" (case-insensitive) occurs in `lib/` only in a comment in `lib/xlsx/xform/book/workbook-xform.js` L174-178 ("As we don't have the infrastructure to support chartsheets, we will ignore them for now"). It does not occur in `index.d.ts`.
 - **Round trip drops charts.** `readFile` then `writeFile` of WithChart.xlsx produces a file with no chart or drawing part (checked with a scratch script).
 
-@xlvane/compat therefore has no exceljs chart API to mirror.
+@xlvane/exceljs therefore has no exceljs chart API to mirror.
 
 ### CH-31 - Defaults of other writers - OBSERVED (not specification)
 - **excelize** `addChart` (drawing.go L59-110) writes:

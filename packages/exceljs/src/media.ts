@@ -42,7 +42,7 @@ type TotalsFunction = 'none' | 'average' | 'countNums' | 'count' | 'max' | 'min'
  *
  * @example
  * ```ts
- * import type { TableColumnProperties } from '@xlvane/compat';
+ * import type { TableColumnProperties } from '@xlvane/exceljs';
  *
  * const column: TableColumnProperties = { name: 'Revenue', totalsRowFunction: 'sum', filterButton: true };
  * ```
@@ -63,7 +63,7 @@ export interface TableColumnProperties {
  *
  * @example
  * ```ts
- * import type { TableProperties } from '@xlvane/compat';
+ * import type { TableProperties } from '@xlvane/exceljs';
  *
  * const table: TableProperties = {
  *   name: 'Sales',
@@ -105,7 +105,7 @@ const SUBTOTAL: Readonly<Record<string, number>> = { average: 101, countNums: 10
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/compat';
+ * import ExcelJS from '@xlvane/exceljs';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * const table = sheet.addTable({ name: 'Sales', ref: 'A1', columns: [{ name: 'Region' }, { name: 'Revenue' }], rows: [['North', 1200]] });
@@ -179,7 +179,7 @@ export class TableColumn {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/compat';
+ * import ExcelJS from '@xlvane/exceljs';
  *
  * const sheet = new ExcelJS.Workbook().addWorksheet('Data');
  * const table = sheet.addTable({
@@ -559,7 +559,7 @@ export function tableOut(ws: Worksheet, def: TableDefinition): Table {
  *
  * @example
  * ```ts
- * import type { ImageData } from '@xlvane/compat';
+ * import type { ImageData } from '@xlvane/exceljs';
  *
  * declare const png: Uint8Array;
  * const image: ImageData = { buffer: png, extension: 'png' };
@@ -592,7 +592,7 @@ interface AnchorModel {
  *
  * @example
  * ```ts
- * import ExcelJS from '@xlvane/compat';
+ * import ExcelJS from '@xlvane/exceljs';
  *
  * const workbook = new ExcelJS.Workbook();
  * const sheet = workbook.addWorksheet('Report');
@@ -663,7 +663,7 @@ export class Anchor implements AnchorModel {
  *
  * @example
  * ```ts
- * import type { ImageRangeInput } from '@xlvane/compat';
+ * import type { ImageRangeInput } from '@xlvane/exceljs';
  *
  * const cells: ImageRangeInput = 'B2:D6';
  * const sized: ImageRangeInput = { tl: { col: 1, row: 1 }, ext: { width: 160, height: 90 } };

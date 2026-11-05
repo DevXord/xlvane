@@ -75,5 +75,5 @@ EXCELIZE `README.md` "Introduction": "write to and read from XLAM / XLSM / XLSX 
 ### CMP-13 What xlvane does not do
 XLVANE-REPO, packages/xlvane/README.md "Limitations" and SECURITY.md "Out of scope": no formula calculation; no encrypted (password-protected) workbooks; no legacy `.xls`; pivot tables, shapes, slicers and form controls are not modelled (and charts until 1.3.0); no format other than XLSX/XLSM/XLTX/XLTM, CSV and JSON.
 
-### CMP-14 exceljs API through @xlvane/compat
-XLVANE-REPO, docs/exceljs-compat.md: `@xlvane/compat` offers "the commonly used part of the exceljs 4.4.0 API"; each method is listed as supported, partly supported (with the difference) or not supported.
+### CMP-14 exceljs API through @xlvane/exceljs
+XLVANE-REPO, docs/exceljs-compat.md: `@xlvane/exceljs` (named `@xlvane/compat` until 1.3.2) offers "the commonly used part of the exceljs 4.4.0 API"; each method is listed as supported, partly supported (with the difference) or not supported.

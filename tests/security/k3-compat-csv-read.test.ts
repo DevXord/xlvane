@@ -1,10 +1,10 @@
-// @xlvane/compat csv.read after the K3 review of the K2 fixes: csv.read had limits on rows and on
+// @xlvane/exceljs csv.read after the K3 review of the K2 fixes: csv.read had limits on rows and on
 // fields per row, but none on the fields in total, so 10 MB of "1,1,…" (5 000 000 cells) took
 // 885 MB. At most DEFAULT_READ_LIMITS.maxCells (5 000 000) fields are added to the worksheet;
 // more throw XLV_E_LIMIT_EXCEEDED (details.limit "maxCells"), found before any row is added.
 import { DEFAULT_READ_LIMITS } from 'xlvane';
 import { describe, expect, it } from 'vitest';
-import ExcelJS from '../../packages/compat/src/index';
+import ExcelJS from '../../packages/exceljs/src/index';
 
 const enc = new TextEncoder();
 

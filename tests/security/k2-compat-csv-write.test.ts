@@ -1,4 +1,4 @@
-// @xlvane/compat CSV writing after the K2 penetration test: ways around the formula-injection
+// @xlvane/exceljs CSV writing after the K2 penetration test: ways around the formula-injection
 // escape. (1) A leading byte order mark: spreadsheet applications drop a BOM at the start of a
 // file and then run the formula that follows (LibreOffice confirmed), and with latin1 or utf16le
 // output a field can encode such a BOM ("ï»¿" is EF BB BF in latin1, U+FEFF is FF FE in
@@ -10,7 +10,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import ExcelJS from '../../packages/compat/src/index';
+import ExcelJS from '../../packages/exceljs/src/index';
 
 const FORMULA = /^[=+\-@\t\r\n＝＋－＠﹦﹢﹣﹫]/;
 

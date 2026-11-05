@@ -1,4 +1,4 @@
-// @xlvane/compat csv.writeFile after the K3 review of the K2 fixes. (1) utf16le output: LibreOffice
+// @xlvane/exceljs csv.writeFile after the K3 review of the K2 fixes. (1) utf16le output: LibreOffice
 // 24.2.7.2 reads a UTF-16LE CSV file as 8-bit text and drops its NUL bytes, with or without the
 // UTF-16LE byte order mark (FF FE; checked with the default import and with charset 76, UTF-8;
 // only charset 65535 decodes UTF-16), so a cell "㴀㄀⬀㄀" (bytes 00 3D 00 31 00 2B 00 31)
@@ -16,7 +16,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import ExcelJS from '../../packages/compat/src/index';
+import ExcelJS from '../../packages/exceljs/src/index';
 
 type Book = InstanceType<typeof ExcelJS.Workbook>;
 

@@ -31,11 +31,11 @@ From a shell: `npx xlvane inspect orders.xlsx`, then `npx xlvane read orders.xls
 - [Large files: streaming](#large-files-streaming)
 - [Inspecting a workbook](#inspecting-a-workbook) · [Errors and warnings](#errors-and-warnings) · [Untrusted input and limits](#untrusted-input-and-limits)
 - [Limitations](#limitations) · [Package size](#package-size) · [Links](#links)
-- exceljs users: [`@xlvane/compat`](https://www.npmjs.com/package/@xlvane/compat) and `xlvane migrate`
+- exceljs users: [`@xlvane/exceljs`](https://www.npmjs.com/package/@xlvane/exceljs) and `xlvane migrate`
 
 ## Tested environments
 
-The core API (reading, writing, inspect, tables, CSV, editing, diff, streaming with Web Streams) and `@xlvane/compat` are tested in Node.js 22, 24 and 26, Bun, Deno, Chromium (Playwright) and the Cloudflare Workers runtime (workerd), with the same test bundle (`npm run test:runtimes`). In Deno, import from `npm:xlvane`; in browsers and Workers, through a bundler such as Vite, esbuild or webpack. `xlvane/node` and the command line need Node.js. Reading is tested on 340 files of the Apache POI test corpus (written by Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and others, and damaged files) and on files saved by LibreOffice; see `tests/corpus/`.
+The core API (reading, writing, inspect, tables, CSV, editing, diff, streaming with Web Streams) and `@xlvane/exceljs` are tested in Node.js 22, 24 and 26, Bun, Deno, Chromium (Playwright) and the Cloudflare Workers runtime (workerd), with the same test bundle (`npm run test:runtimes`). In Deno, import from `npm:xlvane`; in browsers and Workers, through a bundler such as Vite, esbuild or webpack. `xlvane/node` and the command line need Node.js. Reading is tested on 340 files of the Apache POI test corpus (written by Excel for Windows, Mac and the web, LibreOffice, ONLYOFFICE and others, and damaged files) and on files saved by LibreOffice; see `tests/corpus/`.
 
 ## Command line in 5 minutes
 
@@ -58,7 +58,7 @@ xlvane help edit                          # usage and examples of one command
 - `--json` prints one JSON document per command with a documented schema ([docs/cli-json.md](https://github.com/DevXord/xlvane/blob/main/docs/cli-json.md)). Exit codes: 0 success, 1 a check found something (`diff`, `validate`), 2 usage error, 3 input or file error.
 - Colour (red errors, yellow warnings, green results, bold headings) is used only on a terminal and never carries information alone; `NO_COLOR` or `TERM=dumb` turn it off, `FORCE_COLOR=1` turns it on. Control characters from files, such as an escape character in a cell, are shown as `\x1b` and never reach the terminal.
 - Tables and summaries go to separate streams: `xlvane read report.xlsx > out.txt` writes only the table; the row count and warnings notes go to stderr.
-- `xlvane migrate` prepares a project for `@xlvane/compat`, and `xlvane mcp` starts the MCP server from `@xlvane/mcp` (a separate package; [its README](https://github.com/DevXord/xlvane/blob/main/packages/mcp/README.md)).
+- `xlvane migrate` prepares a project for `@xlvane/exceljs`, and `xlvane mcp` starts the MCP server from `@xlvane/mcp` (a separate package; [its README](https://github.com/DevXord/xlvane/blob/main/packages/mcp/README.md)).
 
 ## Reading a workbook
 

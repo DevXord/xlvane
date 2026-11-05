@@ -1,14 +1,14 @@
-// @xlvane/compat reaches xlvane/node and node:fs/promises only through its own package imports
+// @xlvane/exceljs reaches xlvane/node and node:fs/promises only through its own package imports
 // (#xlvane-node, #node-fs), which resolve to dist/no-node.js without the `node` condition, so a
 // bundler for browsers or Workers (esbuild, vite, wrangler) never follows a node: import (D-R07).
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-const DIR = 'packages/compat';
+const DIR = 'packages/exceljs';
 const manifest = JSON.parse(readFileSync(join(DIR, 'package.json'), 'utf8')) as { imports?: Record<string, Record<string, string>> };
 
-describe('@xlvane/compat bundling (D-R07)', () => {
+describe('@xlvane/exceljs bundling (D-R07)', () => {
   it('maps its Node-only imports with a node condition and a throwing default', () => {
     expect(manifest.imports).toEqual({
       '#xlvane-node': { node: 'xlvane/node', default: './dist/no-node.js' },

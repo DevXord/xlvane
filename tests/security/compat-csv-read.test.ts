@@ -1,9 +1,9 @@
-// @xlvane/compat csv.read after the 1.2.2 penetration tests (docs/decisions.md D-J01): the input is
+// @xlvane/exceljs csv.read after the 1.2.2 penetration tests (docs/decisions.md D-J01): the input is
 // limited while it is collected, and the dayjs "word" expression of the date formats MMM, MMMM, A,
 // a and Do no longer retries every position of a long run of digits (quadratic before).
 import { describe, expect, it } from 'vitest';
-import ExcelJS from '../../packages/compat/src/index';
-import { csvValue } from '../../packages/compat/src/csv';
+import ExcelJS from '../../packages/exceljs/src/index';
+import { csvValue } from '../../packages/exceljs/src/csv';
 
 describe('csv.read', () => {
   it('stops an endless input at the input limit instead of collecting it', async () => {

@@ -1,21 +1,21 @@
-# @xlvane/compat
+# @xlvane/exceljs
 
 The [exceljs](https://github.com/exceljs/exceljs) 4.4.0 API, built on [xlvane](https://www.npmjs.com/package/xlvane), with the differences listed below and in [docs/exceljs-compat.md](https://github.com/DevXord/xlvane/blob/main/docs/exceljs-compat.md). Code written for exceljs keeps working after one change in `package.json`:
 
 ```json
 "dependencies": {
-  "exceljs": "npm:@xlvane/compat@^1"
+  "exceljs": "npm:@xlvane/exceljs@^1"
 }
 ```
 
-npm installs the package under the name `exceljs` (an npm alias), so `import ExcelJS from 'exceljs'` and `require('exceljs')` load `@xlvane/compat` and the code stays unchanged.
+npm installs the package under the name `exceljs` (an npm alias), so `import ExcelJS from 'exceljs'` and `require('exceljs')` load `@xlvane/exceljs` and the code stays unchanged.
 
 ## Installing
 
 In a project that uses exceljs, either install the alias:
 
 ```sh
-npm install exceljs@npm:@xlvane/compat@^1
+npm install exceljs@npm:@xlvane/exceljs@^1
 ```
 
 or let the `xlvane` command line prepare the project:
@@ -73,4 +73,4 @@ The full list, with the exceljs source of each behaviour, is in [docs/exceljs-co
 
 ## License
 
-MIT. @xlvane/compat is an independent project. It is not affiliated with or endorsed by the exceljs project or its authors, and it contains no exceljs code; its API and type declarations follow exceljs 4.4.0, whose MIT license notice is included in LICENSE.
+MIT. @xlvane/exceljs is an independent project. It is not affiliated with or endorsed by the exceljs project or its authors, and it contains no exceljs code; its API and type declarations follow exceljs 4.4.0, whose MIT license notice is included in LICENSE.

@@ -1,4 +1,4 @@
-// Data validations read by @xlvane/compat's xlsx.load are given to every cell they cover, as
+// Data validations read by @xlvane/exceljs's xlsx.load are given to every cell they cover, as
 // exceljs does, up to 100 000 cells. The budget is shared by the whole workbook, so 400 sheets
 // each covering 98 304 cells cannot create 39 million entries (security review J, C2).
 import { describe, expect, it } from 'vitest';

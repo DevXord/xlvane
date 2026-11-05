@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { cli, withFixtures } from './helpers';
 
-const NEW = 'npm:@xlvane/compat@^1';
+const NEW = 'npm:@xlvane/exceljs@^1';
 
 async function forced(dir: string, packageJson: string): Promise<{ text: string; parsed: Record<string, Record<string, string>> }> {
   await mkdir(join(dir, 'app'), { recursive: true });

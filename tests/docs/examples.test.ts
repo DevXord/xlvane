@@ -1,7 +1,7 @@
 // The ```ts blocks of the user guides in docs/ must compile, as the TSDoc and README examples do
 // (tests/policy/tsdoc-examples.test.ts, D-314). Each block is written to its own module in a
-// temporary project where `xlvane`, `xlvane/node`, `@xlvane/compat` and `exceljs` (the npm alias
-// of @xlvane/compat) resolve to the sources, and the project is type-checked with one run of the
+// temporary project where `xlvane`, `xlvane/node`, `@xlvane/exceljs` and `exceljs` (the npm alias
+// of @xlvane/exceljs) resolve to the sources, and the project is type-checked with one run of the
 // repository's `tsc`. docs/decisions.md D-K02.
 import { spawnSync } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
@@ -12,7 +12,7 @@ import { codeBlocks } from './markdown';
 
 const ROOT = fileURLToPath(new URL('../..', import.meta.url));
 const SRC = join(ROOT, 'packages/xlvane/src');
-const COMPAT_SRC = join(ROOT, 'packages/compat/src');
+const COMPAT_SRC = join(ROOT, 'packages/exceljs/src');
 /** Guides whose ```ts blocks must compile, with the least number of blocks each must have. */
 const GUIDES: readonly (readonly [string, number])[] = [
   ['docs/migrate-from-exceljs.md', 2],
@@ -63,9 +63,9 @@ describe('TypeScript examples of the guides in docs/', () => {
           paths: {
             xlvane: [join(SRC, 'index.ts')],
             'xlvane/node': [join(SRC, 'node.ts')],
-            '@xlvane/compat': [join(COMPAT_SRC, 'index.ts')],
+            '@xlvane/exceljs': [join(COMPAT_SRC, 'index.ts')],
             exceljs: [join(COMPAT_SRC, 'index.ts')],
-            // @xlvane/compat's package imports (D-R07), mapped to the sources as in vitest.config.ts,
+            // @xlvane/exceljs's package imports (D-R07), mapped to the sources as in vitest.config.ts,
             // so the check does not need a build.
             '#xlvane-node': [join(SRC, 'node.ts')],
             '#node-fs': [join(COMPAT_SRC, 'node-fs.ts')],

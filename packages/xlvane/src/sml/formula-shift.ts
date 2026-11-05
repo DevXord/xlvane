@@ -462,7 +462,7 @@ class Compiled implements CompiledFormula {
 
   render(dRow: number, dCol: number): string {
     // Pieces joined once: a string built with += is a chain of thousands of pieces in V8, which
-    // took about 240 KB for an 8192-character formula kept by @xlvane/compat (D-K04).
+    // took about 240 KB for an 8192-character formula kept by @xlvane/exceljs (D-K04).
     const out: string[] = [];
     const col = (c: number, abs: boolean): string => (abs ? '$' : '') + columnLetters(abs ? c : c + dCol);
     const row = (r: number, abs: boolean): string => (abs ? '$' : '') + String(abs ? r : r + dRow);

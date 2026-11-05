@@ -189,15 +189,28 @@ describe('migrate', () => {
       const report = await cli(['migrate', 'my-app'], { cwd: dir });
       expect(report.code).toBe(0);
       expect(report.stdout).toContain('- "exceljs": "^4.4.0"');
-      expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/compat@^1"');
+      expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/exceljs@^1"');
       // addImage({ filename }) is supported since 1.0.0 (docs/exceljs-compat.md); ModelContainer is not.
       expect(report.stdout).not.toContain('addImage({ filename })');
       expect(report.stdout).toContain('src/report.js:5:27  ModelContainer');
       expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before);
       const forced = await cli(['migrate', 'my-app', '--force'], { cwd: dir });
       expect(forced.code).toBe(0);
-      expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before.replace('"^4.4.0"', '"npm:@xlvane/compat@^1"'));
-      expect((await cli(['migrate', 'my-app'], { cwd: dir })).stdout).toContain('already uses npm:@xlvane/compat@^1');
+      expect(await readFile(join(dir, 'my-app/package.json'), 'utf8')).toBe(before.replace('"^4.4.0"', '"npm:@xlvane/exceljs@^1"'));
+      expect((await cli(['migrate', 'my-app'], { cwd: dir })).stdout).toContain('already uses npm:@xlvane/exceljs@^1');
+    });
+  });
+
+  it('changes the old alias npm:@xlvane/compat to npm:@xlvane/exceljs (renamed in 1.3.3, D-M01)', async () => {
+    await withFixtures(async (dir) => {
+      const path = join(dir, 'my-app/package.json');
+      const before = (await readFile(path, 'utf8')).replace('"^4.4.0"', '"npm:@xlvane/compat@^1"');
+      await writeFile(path, before);
+      const report = await cli(['migrate', 'my-app'], { cwd: dir });
+      expect(report.stdout).toContain('- "exceljs": "npm:@xlvane/compat@^1"');
+      expect(report.stdout).toContain('+ "exceljs": "npm:@xlvane/exceljs@^1"');
+      expect((await cli(['migrate', 'my-app', '--force'], { cwd: dir })).code).toBe(0);
+      expect(await readFile(path, 'utf8')).toBe(before.replace('"npm:@xlvane/compat@^1"', '"npm:@xlvane/exceljs@^1"'));
     });
   });
 

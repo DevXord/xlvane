@@ -1,4 +1,4 @@
-// @xlvane/compat shared formulas, K4 review item S1: `cell.formula` of a `{ sharedFormula: master }`
+// @xlvane/exceljs shared formulas, K4 review item S1: `cell.formula` of a `{ sharedFormula: master }`
 // dependent moved the master's text with shiftFormula on every read, with no cache, and the
 // load-time budget (maxSharedStringChars) is spent only once. A 4 KB file with a 1 000 000-character
 // master cost about 200 ms per read of one dependent's formula, every time, and reading the formula

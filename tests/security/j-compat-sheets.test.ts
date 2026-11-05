@@ -1,5 +1,5 @@
 // Many worksheets: the duplicate check of a sheet name, the next id and the next orderNo of
-// @xlvane/compat take constant time, so 16 000 sheets (a 72 kB file) load in linear time
+// @xlvane/exceljs take constant time, so 16 000 sheets (a 72 kB file) load in linear time
 // (security review J, C3). Sheet name and merge errors of a loaded file are XlvErrors with a
 // stable code; the public addWorksheet and mergeCells keep exceljs's plain Errors.
 import { describe, expect, it } from 'vitest';

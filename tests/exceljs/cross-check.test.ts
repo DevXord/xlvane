@@ -1,6 +1,6 @@
 // Runs the sample scripts against the real exceljs 4.4.0 (from bench/, installed by
 // `npm ci --prefix bench`) and checks that they still produce the stored summary
-// sample-project/expected-exceljs-4.4.0.json, which alias.test.ts compares @xlvane/compat
+// sample-project/expected-exceljs-4.4.0.json, which alias.test.ts compares @xlvane/exceljs
 // with. Skipped when bench/node_modules is not installed (CI and `npm test` do not install it).
 //
 // Differences between the two libraries are not hidden by loosening assertions: they are
@@ -43,7 +43,7 @@ describe.skipIf(!installed)('cross-check with exceljs 4.4.0', () => {
     for (const value of Object.values(summary)) expect(value).toEqual({ workbook: 'function', value: 1, valueTypeNumber: 2 });
   });
 
-  it('rejects named ESM imports, which @xlvane/compat adds', () => {
+  it('rejects named ESM imports, which @xlvane/exceljs adds', () => {
     expect(() => runScript(dir, 'esm-named.mjs')).toThrow(/Named export '\w+' not found/);
   });
 

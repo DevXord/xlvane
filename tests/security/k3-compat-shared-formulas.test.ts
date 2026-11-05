@@ -1,4 +1,4 @@
-// @xlvane/compat shared formulas after the K3 review of the K2 fixes: stream.xlsx.WorkbookReader
+// @xlvane/exceljs shared formulas after the K3 review of the K2 fixes: stream.xlsx.WorkbookReader
 // gives a shared-formula dependent as `{ sharedFormula: master, result }` (K2), and copying its
 // rows into a stream.xlsx.WorkbookWriter (`target.addRow(row.values).commit()`) then failed on
 // the first dependent with XLV_E_INVALID_VALUE ("A2 shares the formula of A1, which holds no

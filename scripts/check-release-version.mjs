@@ -1,5 +1,5 @@
 // Checks that a release tag (vX.Y.Z) matches the version of every published package and that
-// @xlvane/compat and @xlvane/mcp depend on that version of xlvane (docs/decisions.md D-1002, D-I03). Usage:
+// @xlvane/exceljs and @xlvane/mcp depend on that version of xlvane (docs/decisions.md D-1002, D-I03). Usage:
 //   node scripts/check-release-version.mjs v1.0.0
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
@@ -11,7 +11,7 @@ const tag = process.argv[2] ?? '';
 const m = /^v(\d+\.\d+\.\d+)$/.exec(tag);
 const read = (dir) => JSON.parse(readFileSync(`${root}/${dir}/package.json`, 'utf8'));
 const xlvane = read('packages/xlvane');
-const exceljs = read('packages/compat');
+const exceljs = read('packages/exceljs');
 const mcp = read('packages/mcp');
 const serverJson = JSON.parse(readFileSync(`${root}/packages/mcp/server.json`, 'utf8'));
 const problems = [];
@@ -31,4 +31,4 @@ if (problems.length > 0) {
   console.error(problems.join('\n'));
   process.exit(1);
 }
-console.log(`Release ${tag}: xlvane, @xlvane/compat and @xlvane/mcp ${xlvane.version}.`);
+console.log(`Release ${tag}: xlvane, @xlvane/exceljs and @xlvane/mcp ${xlvane.version}.`);

@@ -1,11 +1,11 @@
-// Writing with @xlvane/compat takes near-linear time in the number of shared formula groups,
+// Writing with @xlvane/exceljs takes near-linear time in the number of shared formula groups,
 // array formulas and images (security review J, C5 and C7): the overlap check of shared formula
 // ranges no longer compares every group with every array formula, and identical images are
 // found by length and hash instead of comparing every pair of images byte by byte.
 import { unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import { sharedFormulaRanges } from '../../packages/compat/src/convert';
-import { columnLetter } from '../../packages/compat/src/model';
+import { sharedFormulaRanges } from '../../packages/exceljs/src/convert';
+import { columnLetter } from '../../packages/exceljs/src/model';
 import { ExcelJS } from '../exceljs/helpers';
 
 const enc = new TextDecoder();

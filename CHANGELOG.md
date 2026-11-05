@@ -2,6 +2,14 @@
 
 The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
 
+## 1.3.3 (2026-11-05)
+
+The exceljs-compatible package is published again under the name `@xlvane/exceljs`, which it had before 1.0.0; `@xlvane/compat` gets no new versions and is marked as deprecated (docs/decisions.md D-M01). No change in behaviour.
+
+- **To switch:** change the alias in `package.json` from `"exceljs": "npm:@xlvane/compat@^1"` to `"exceljs": "npm:@xlvane/exceljs@^1"`, or run `npx xlvane migrate --force`, which now writes the new alias and also replaces the old one. The code keeps importing `exceljs`.
+- **`@xlvane/exceljs` 1.3.3** is the first version under the new name and is published from the maintainer's machine, without npm provenance; later versions are published from GitHub Actions with provenance, as for the other packages.
+- **Package page:** the `homepage` of `@xlvane/exceljs` is https://xlvane.github.io/guide/exceljs.html.
+
 ## 1.3.2 (2026-11-04)
 
 Package metadata only; no change in behaviour.

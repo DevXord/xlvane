@@ -1,4 +1,4 @@
-// Regression tests for the @xlvane/compat differences from exceljs 4.4.0 fixed in 1.3.1 (the
+// Regression tests for the @xlvane/exceljs differences from exceljs 4.4.0 fixed in 1.3.1 (the
 // list "Known differences planned for 1.3.1" of docs/exceljs-compat.md). Each expectation was
 // checked by running exceljs 4.4.0 (bench/node_modules/exceljs) on the same input; the source
 // lines cited are of that package. Test files are built here (tests/helpers/xlsx-builder.ts) or

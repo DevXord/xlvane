@@ -32,7 +32,7 @@ if (args[0] === 'view') {
 }
 if (args[0] === 'stage') {
   const dir = args[3];
-  const name = { 'packages/xlvane': 'xlvane', 'packages/compat': '@xlvane/compat', 'packages/mcp': '@xlvane/mcp' }[dir];
+  const name = { 'packages/xlvane': 'xlvane', 'packages/exceljs': '@xlvane/exceljs', 'packages/mcp': '@xlvane/mcp' }[dir];
   const tries = (${JSON.stringify(log)} && require('node:fs').readFileSync(${JSON.stringify(log)}, 'utf8')).split('\\n').filter((l) => l === args.join(' ')).length;
   if (state[name] === 'tlog-always' || (state[name] === 'tlog-once' && tries === 1)) {
     console.error('npm error code TLOG_CREATE_ENTRY_ERROR');
@@ -56,38 +56,38 @@ const staged = (calls: string[]) => calls.filter((c) => c.startsWith('stage publ
 
 describe('stage-publish', () => {
   it('stages every package that exists and does not have the version yet', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'exists', '@xlvane/mcp': 'exists' });
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'exists', '@xlvane/mcp': 'exists' });
     expect(r.status).toBe(0);
-    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat', 'packages/mcp']);
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/exceljs', 'packages/mcp']);
   });
 
   it('skips versions already on npm, so a second run finishes the rest', async () => {
-    const r = await run({ xlvane: 'published', '@xlvane/compat': 'published', '@xlvane/mcp': 'exists' });
+    const r = await run({ xlvane: 'published', '@xlvane/exceljs': 'published', '@xlvane/mcp': 'exists' });
     expect(r.status).toBe(0);
     expect(staged(r.calls)).toEqual(['packages/mcp']);
     expect(r.stdout).toContain('xlvane 9.9.9 is already on npm');
   });
 
   it('warns about a package that is not on npm yet and stages the others', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'exists', '@xlvane/mcp': 'missing' });
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'exists', '@xlvane/mcp': 'missing' });
     expect(r.status).toBe(0);
-    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat']);
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/exceljs']);
     expect(r.stdout).toContain('::warning::@xlvane/mcp is not on npm yet');
   });
 
   it('a registry error is not taken for a missing package: the package fails, the others are staged (D-J01)', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'down', '@xlvane/mcp': 'exists' });
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'down', '@xlvane/mcp': 'exists' });
     expect(r.status).toBe(1);
     expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/mcp']);
-    expect(r.stdout).toContain('::error::@xlvane/compat');
+    expect(r.stdout).toContain('::error::@xlvane/exceljs');
     expect(r.stdout).not.toContain('::warning::');
   });
 
   it('a failed package does not stop the others, and the run fails at the end', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'fails', '@xlvane/mcp': 'exists' });
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'fails', '@xlvane/mcp': 'exists' });
     expect(r.status).toBe(1);
-    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat', 'packages/mcp']);
-    expect(r.stdout).toContain('::error::@xlvane/compat');
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/exceljs', 'packages/mcp']);
+    expect(r.stdout).toContain('::error::@xlvane/exceljs');
   });
 
   it('the release workflow stages through this script only', async () => {
@@ -97,21 +97,21 @@ describe('stage-publish', () => {
   });
 
   it('tries again when the transparency log answers 409 for a retried request (sigstore timeout)', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'tlog-once', '@xlvane/mcp': 'exists' });
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'tlog-once', '@xlvane/mcp': 'exists' });
     expect(r.status).toBe(0);
-    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat', 'packages/compat', 'packages/mcp']);
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/exceljs', 'packages/exceljs', 'packages/mcp']);
     expect(r.stdout).toContain('trying again');
   });
 
   it('gives up after three tries and still stages the other packages', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'tlog-always', '@xlvane/mcp': 'exists' });
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'tlog-always', '@xlvane/mcp': 'exists' });
     expect(r.status).toBe(1);
-    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat', 'packages/compat', 'packages/compat', 'packages/mcp']);
-    expect(r.stdout).toContain('Not staged: @xlvane/compat');
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/exceljs', 'packages/exceljs', 'packages/exceljs', 'packages/mcp']);
+    expect(r.stdout).toContain('Not staged: @xlvane/exceljs');
   });
 
   it('does not try again after other failures', async () => {
-    const r = await run({ xlvane: 'exists', '@xlvane/compat': 'fails', '@xlvane/mcp': 'exists' });
-    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/compat', 'packages/mcp']);
+    const r = await run({ xlvane: 'exists', '@xlvane/exceljs': 'fails', '@xlvane/mcp': 'exists' });
+    expect(staged(r.calls)).toEqual(['packages/xlvane', 'packages/exceljs', 'packages/mcp']);
   });
 });
