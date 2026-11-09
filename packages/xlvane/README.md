@@ -1,4 +1,16 @@
+<img src="https://raw.githubusercontent.com/DevXord/xlvane/main/assets/logo.svg" alt="" width="96" height="96">
+
 # xlvane
+
+[![ci](https://github.com/DevXord/xlvane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DevXord/xlvane/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/xlvane?color=3b4fd8&label=npm)](https://www.npmjs.com/package/xlvane)
+[![node](https://img.shields.io/badge/node-%E2%89%A522-3b4fd8)](https://nodejs.org/)
+[![license](https://img.shields.io/badge/license-MIT-3b4fd8)](https://github.com/DevXord/xlvane/blob/main/packages/xlvane/LICENSE)
+[![docs](https://img.shields.io/badge/docs-xlvane.github.io-3b4fd8)](https://xlvane.github.io/)
+
+> Read, inspect and write XLSX files in Node.js, Bun, Deno, browsers and Cloudflare Workers, treating every input file as untrusted.
+
+Documentation: [xlvane.github.io](https://xlvane.github.io/).
 
 Read, inspect and write XLSX files; input files are treated as untrusted. ESM only, one runtime dependency ([fflate](https://github.com/101arrowz/fflate)). The core works with `Uint8Array` and has no Node.js dependencies; file helpers are in `xlvane/node`.
 

@@ -1,4 +1,16 @@
+<img src="https://raw.githubusercontent.com/DevXord/xlvane/main/assets/logo.svg" alt="" width="96" height="96">
+
 # @xlvane/exceljs
+
+[![ci](https://github.com/DevXord/xlvane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DevXord/xlvane/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@xlvane/exceljs?color=3b4fd8&label=npm)](https://www.npmjs.com/package/@xlvane/exceljs)
+[![node](https://img.shields.io/badge/node-%E2%89%A522.12-3b4fd8)](https://nodejs.org/)
+[![license](https://img.shields.io/badge/license-MIT-3b4fd8)](https://github.com/DevXord/xlvane/blob/main/packages/exceljs/LICENSE)
+[![docs](https://img.shields.io/badge/docs-xlvane.github.io-3b4fd8)](https://xlvane.github.io/guide/exceljs.html)
+
+> The commonly used exceljs 4.4.0 API on top of xlvane, so that code written for exceljs keeps working after one line changes in package.json.
+
+Documentation: [xlvane.github.io/guide/exceljs.html](https://xlvane.github.io/guide/exceljs.html).
 
 The [exceljs](https://github.com/exceljs/exceljs) 4.4.0 API, built on [xlvane](https://www.npmjs.com/package/xlvane), with the differences listed below and in [docs/exceljs-compat.md](https://github.com/DevXord/xlvane/blob/main/docs/exceljs-compat.md). Code written for exceljs keeps working after one change in `package.json`:
 
