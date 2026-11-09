@@ -8,7 +8,9 @@
     "excel",
     "spreadsheet",
     "mcp",
-    "model-context-protocol"
+    "model-context-protocol",
+    "mcp-server",
+    "xlvane"
   ],
   "license": "MIT",
   "homepage": "https://xlvane.github.io/guide/mcp.html",

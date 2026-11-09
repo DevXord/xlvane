@@ -5,7 +5,9 @@
   "keywords": [
     "xlsx",
     "excel",
-    "exceljs-compatible"
+    "exceljs-compatible",
+    "spreadsheet",
+    "xlvane"
   ],
   "license": "MIT",
   "homepage": "https://xlvane.github.io/guide/exceljs.html",
