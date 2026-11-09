@@ -1,4 +1,16 @@
+<img src="https://raw.githubusercontent.com/DevXord/xlvane/main/assets/logo.svg" alt="" width="96" height="96">
+
 # @xlvane/mcp
+
+[![ci](https://github.com/DevXord/xlvane/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/DevXord/xlvane/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/@xlvane/mcp?color=3b4fd8&label=npm)](https://www.npmjs.com/package/@xlvane/mcp)
+[![node](https://img.shields.io/badge/node-%E2%89%A522-3b4fd8)](https://nodejs.org/)
+[![license](https://img.shields.io/badge/license-MIT-3b4fd8)](https://github.com/DevXord/xlvane/blob/main/packages/mcp/LICENSE)
+[![docs](https://img.shields.io/badge/docs-xlvane.github.io-3b4fd8)](https://xlvane.github.io/guide/mcp.html)
+
+> An MCP server that lets a client inspect, read, write, edit, convert, compare and validate XLSX files, limited to the directories given at start.
+
+Documentation: [xlvane.github.io/guide/mcp.html](https://xlvane.github.io/guide/mcp.html).
 
 An MCP (Model Context Protocol) server for XLSX files, built on [xlvane](https://www.npmjs.com/package/xlvane) and the official MCP TypeScript SDK (`@modelcontextprotocol/server` 2.4.0, protocol revision 2026-07-28). An MCP client, such as a coding agent, can inspect, read, compare and validate workbooks, and optionally write, edit and convert them, through tools instead of code.
 
