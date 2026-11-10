@@ -10,7 +10,7 @@ A useful report contains the xlvane version (or commit), the runtime (Node.js, B
 
 ## Supported versions
 
-Security fixes are released for the newest minor version of `xlvane`, `@xlvane/exceljs` and `@xlvane/mcp` (currently 1.3.x; the three packages share one version); please update to it. Releases are published from GitHub Actions with npm provenance: `xlvane` since 1.0.1, `@xlvane/compat` from 1.0.1 to 1.3.2 (the package is named `@xlvane/exceljs` from 1.3.3, whose first version is published from the maintainer's machine, D-M01), `@xlvane/mcp` since 1.2.2 (1.2.0 and 1.2.1 were published from the maintainer's machine). The changes are listed in [CHANGELOG.md](CHANGELOG.md).
+Security fixes are released for the newest minor version of `xlvane`, `@xlvane/exceljs` and `@xlvane/mcp` (currently 1.3.x; the three packages share one version); please update to it. Releases are published from GitHub Actions with npm provenance: `xlvane` since 1.0.1, `@xlvane/compat` from 1.0.1 to 1.3.2 (the package is named `@xlvane/exceljs` from 1.3.3; `@xlvane/exceljs` 1.3.3 was published from the maintainer's machine, D-M01, and later versions with provenance, from 1.3.4), `@xlvane/mcp` since 1.2.2 (1.2.0 and 1.2.1 were published from the maintainer's machine). The changes are listed in [CHANGELOG.md](CHANGELOG.md).
 
 ## What the library defends against
 
