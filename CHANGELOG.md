@@ -2,6 +2,15 @@
 
 The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
 
+## 1.3.4 (2026-11-10)
+
+Documentation and package metadata only; no change in behaviour.
+
+- **README** of each package: a logo, badges (CI, npm version, Node.js, license, documentation), a one-line summary and a link to the documentation, on npm and on GitHub.
+- **Docs in the package** (`docs/errors.md`, `docs/exceljs-compat.md`, `docs/cli-json.md`) no longer name internal files that are not in the repository.
+- **Keywords:** `csv`, `streaming` and `cli` for `xlvane`; `spreadsheet` and `xlvane` for `@xlvane/exceljs`; `mcp-server` and `xlvane` for `@xlvane/mcp`.
+- **`@xlvane/exceljs`** is published from GitHub Actions with npm provenance from this version, like the other packages.
+
 ## 1.3.3 (2026-11-05)
 
 The exceljs-compatible package is published again under the name `@xlvane/exceljs`, which it had before 1.0.0; `@xlvane/compat` gets no new versions and is marked as deprecated. No change in behaviour.

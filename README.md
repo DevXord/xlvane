@@ -12,7 +12,7 @@
 
 Documentation: [xlvane.github.io](https://xlvane.github.io/).
 
-Releases are published from GitHub Actions with npm provenance: `xlvane` from 1.0.1, `@xlvane/mcp` from 1.2.2, and `@xlvane/exceljs` (named `@xlvane/compat` until 1.3.2, with provenance from 1.0.1) from its first release after 1.3.3, which is published from the maintainer's machine ([SECURITY.md](SECURITY.md)).
+Releases are published from GitHub Actions with npm provenance: `xlvane` from 1.0.1, `@xlvane/mcp` from 1.2.2, and `@xlvane/exceljs` from 1.3.4 (named `@xlvane/compat` until 1.3.2, with provenance from 1.0.1; its first version, 1.3.3, was published from the maintainer's machine) ([SECURITY.md](SECURITY.md)).
 
 **Website:** [xlvane.github.io](https://xlvane.github.io) (guide, error codes, an in-browser demo). **Status:** published on npm ([xlvane](https://www.npmjs.com/package/xlvane), [@xlvane/exceljs](https://www.npmjs.com/package/@xlvane/exceljs), [@xlvane/mcp](https://www.npmjs.com/package/@xlvane/mcp)). Install with `npm install xlvane` (and `npm install @xlvane/exceljs` for the exceljs-compatible API). Changes for users are in [CHANGELOG.md](CHANGELOG.md), planned and deferred work in [ROADMAP.md](ROADMAP.md); how releases are made is in [docs/RELEASING.md](docs/RELEASING.md).
 
@@ -56,7 +56,7 @@ Every cell below is backed by a recorded source (registry document, README or so
 
 | | xlvane | ExcelJS | SheetJS Community Edition (npm `xlsx`) | excelize (Go) |
 |---|---|---|---|---|
-| Latest version (date) | 1.3.3 (2026-11-05) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
+| Latest version (date) | 1.3.4 (2026-11-10) | 4.4.0 on npm (2023-10-19) | 0.18.5 on npm (2022-03-24); later versions are distributed by SheetJS outside npm | v2.11.1 Go module (2026-11-02) |
 | License | MIT | MIT | Apache-2.0 | BSD-3-Clause |
 | Runtime dependencies | 1 (`fflate`) | 9 | 7 | 9 direct module requirements in `go.mod` |
 | Read / write XLSX | Yes / yes (XLSM, XLTX and XLTM are read too) | Yes / yes | Yes / yes | Yes / yes (also XLAM, XLSM, XLTM, XLTX) |
