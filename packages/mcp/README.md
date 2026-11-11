@@ -75,6 +75,10 @@ import { createServer, runCli } from '@xlvane/mcp';
 
 `createServer({ roots, allowWrite, maxFileBytes, maxRows, maxResponseChars, maxCells, cwd })` returns an `McpServer` to connect to any transport; `runCli(args)` is the command line.
 
+## Trademarks
+
+Node.js, GitHub, npm, the Model Context Protocol and the other names in this document belong to their owners. xlvane is an independent project and is not affiliated with or endorsed by any of them.
+
 ## Links
 
 - Changes in each version: [CHANGELOG.md](https://github.com/DevXord/xlvane/blob/main/CHANGELOG.md)

@@ -85,4 +85,4 @@ The full list, with the exceljs source of each behaviour, is in [docs/exceljs-co
 
 ## License
 
-MIT. @xlvane/exceljs is an independent project. It is not affiliated with or endorsed by the exceljs project or its authors, and it contains no exceljs code; its API and type declarations follow exceljs 4.4.0, whose MIT license notice is included in LICENSE.
+MIT. @xlvane/exceljs is an independent project. It is not affiliated with or endorsed by the exceljs project or its authors. Its API and type declarations follow exceljs 4.4.0, and parts of its implementation are adapted from the exceljs 4.4.0 source; the exceljs MIT notice is included in LICENSE. Two date-format expressions are copied from dayjs 1.11, whose MIT notice is also included in LICENSE.

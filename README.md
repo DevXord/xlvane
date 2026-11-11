@@ -96,4 +96,8 @@ How to report problems and propose changes is in [CONTRIBUTING.md](CONTRIBUTING.
 
 ## License
 
-MIT. `@xlvane/exceljs` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API and type declarations follow exceljs 4.4.0.
+MIT. `@xlvane/exceljs` is an independent project, not affiliated with or endorsed by the exceljs project or its authors; its LICENSE includes the exceljs MIT notice, because its API, its type declarations and parts of its implementation follow or are adapted from exceljs 4.4.0, and the dayjs MIT notice, because two date-format expressions are copied from dayjs 1.11.
+
+## Trademarks
+
+Microsoft and Excel are trademarks of the Microsoft group of companies. SheetJS is a trademark of SheetJS LLC. LibreOffice, exceljs, Apache POI, ONLYOFFICE, Numbers, Node.js, Bun, Deno, Cloudflare, Chromium, Claude, GitHub, npm and the other names in this document belong to their owners. xlvane is an independent project and is not affiliated with or endorsed by any of them.

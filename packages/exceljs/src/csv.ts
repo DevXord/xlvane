@@ -99,7 +99,8 @@ function invalid(name: string, message: string, hint: string): XlvError {
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 const DAYS = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
-// dayjs esm/constant.js REGEX_FORMAT.
+// REGEX_FORMAT of dayjs 1.11 (esm/constant.js), copied from dayjs (MIT; its license notice is in
+// packages/exceljs/LICENSE).
 const FORMAT_TOKENS = /\[([^\]]+)]|YYYY|YY|M{1,4}|D{1,2}|d{1,4}|H{1,2}|h{1,2}|a|A|m{1,2}|s{1,2}|Z{1,2}|SSS/g;
 const pad = (n: number, width = 2): string => String(Math.abs(n)).padStart(width, '0');
 
@@ -193,7 +194,9 @@ export function formatDate(date: Date, format: string | undefined, utc: boolean)
 
 // dayjs customParseFormat (1.11, as installed with exceljs 4.4.0): formattingTokens and the
 // expression of each token. Characters that are no token are not in the list at all, as
-// `String.match` with these tokens drops them (X4-23, D-E06).
+// `String.match` with these tokens drops them (X4-23, D-E06). formattingTokens of dayjs 1.11
+// (esm/plugin/customParseFormat/index.js), copied from dayjs (MIT; its license notice is in
+// packages/exceljs/LICENSE).
 const PARSE_TOKENS = /(\[[^[]*\])|([-_:/.,()\s]+)|(A|a|Q|YYYY|YY?|ww?|MM?M?M?|Do|DD?|hh?|HH?|mm?|ss?|S{1,3}|z|ZZ?)/g;
 // The leftmost match of dayjs's /\d*[^-_:/,()\s\d]+/ never starts right after a digit (the match
 // one position earlier would be found first), so the lookbehind gives the same matches without
