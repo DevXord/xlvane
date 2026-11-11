@@ -114,6 +114,20 @@ describe('package manifests', () => {
     expect(license).toContain('Copyright (c) 2014-2019 Guyon Roche');
     const readme = await readFile(join(root, 'packages/exceljs', 'README.md'), 'utf8');
     expect(readme).toContain('not affiliated with or endorsed by the exceljs project');
+    // Parts of the implementation are adapted from exceljs 4.4.0 (IP review of 2026-11-11).
+    expect(readme).not.toContain('contains no exceljs code');
+  });
+
+  it('@xlvane/exceljs carries the dayjs license notice for the date token expressions copied from dayjs 1.11', async () => {
+    const license = await readFile(join(root, 'packages/exceljs', 'LICENSE'), 'utf8');
+    expect(license).toContain('Copyright (c) 2018-present, iamkun');
+    expect(license).toContain('https://github.com/iamkun/dayjs');
+    const csv = await readFile(join(root, 'packages/exceljs/src/csv.ts'), 'utf8');
+    for (const name of ['FORMAT_TOKENS', 'PARSE_TOKENS']) {
+      const at = csv.indexOf(`const ${name} =`);
+      expect(at, name).toBeGreaterThan(0);
+      expect(csv.slice(Math.max(0, at - 400), at), name).toMatch(/copied from dayjs[\s\S]*MIT[\s\S]*LICENSE/);
+    }
   });
 
   it('root devDependencies are all approved', async () => {

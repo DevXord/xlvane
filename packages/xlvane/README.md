@@ -445,6 +445,10 @@ Limits can be changed per call, for example `readWorkbook(bytes, { limits: { max
 - Shapes, pivot tables, slicers and form controls are not modelled: reading skips them (with a warning for drawings), `editCells` keeps them unchanged, and row operations refuse sheets where they would have to move. Charts are read and written for six types (see [Charts](#charts)); row operations refuse them too.
 - The command line reads files, not standard input.
 
+## Trademarks
+
+Microsoft, Excel, Word and PowerPoint are trademarks of the Microsoft group of companies. SheetJS is a trademark of SheetJS LLC. LibreOffice, exceljs and the other names in this document belong to their owners. xlvane is an independent project and is not affiliated with or endorsed by any of them.
+
 ## Links
 
 - Website with the guide and an in-browser demo: [xlvane.github.io](https://xlvane.github.io)
