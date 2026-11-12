@@ -2,6 +2,15 @@
 
 The date after each version is the day (UTC) it was released: for 1.0.0 to 1.2.2 the day of publication in the `time` field of the npm registry, from 1.2.3 the day of the release tag (docs/RELEASING.md).
 
+## 1.3.5 (2026-11-12)
+
+License and trademark notes; no change in behaviour.
+
+- **`@xlvane/exceljs`:** the README no longer says that the package contains no exceljs code; `LICENSE` says that its API, type declarations and parts of its implementation follow or are adapted from exceljs 4.4.0, and adds the MIT notice of dayjs, from which two date token expressions of the CSV code are copied.
+- **`xlvane`:** `LICENSE` adds the Unicode License v3 notice for the East Asian Width table of the command-line interface, which is generated from the Unicode Character Database.
+- **Trademarks:** the READMEs of `xlvane` and `@xlvane/mcp` and the repository README have a "Trademarks" section.
+- **Package metadata:** the `bin` fields of `xlvane` and `@xlvane/mcp` say `dist/cli.js` instead of `./dist/cli.js`, the form npm normalizes them to; the commands are unchanged.
+
 ## 1.3.4 (2026-11-10)
 
 Documentation and package metadata only; no change in behaviour.

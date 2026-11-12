@@ -3,6 +3,7 @@
 // The data comes from the Unicode Character Database (EastAsianWidth.txt, © Unicode, Inc.), which
 // is distributed under the Unicode License v3: https://www.unicode.org/license.txt (the file itself
 // points to https://www.unicode.org/terms_of_use.html).
+// Its copyright and permission notice is reproduced in packages/xlvane/LICENSE.
 
 /**
  * Code points whose East_Asian_Width is Wide (W) or Fullwidth (F), including the unassigned code
