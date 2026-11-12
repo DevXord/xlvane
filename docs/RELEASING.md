@@ -30,7 +30,7 @@ npm configures a trusted publisher in the settings of an existing package, so th
    npm stage approve <stage-id>    # for each package; asks for 2FA
    ```
    - `--provenance=false` is needed because `publishConfig.provenance` is `true` and provenance can only be generated in a supported CI; a command-line flag takes precedence over `publishConfig` (npm 11.21.1 lib/commands/publish.js).
-   - npm may print `"bin[xlvane]" script name dist/cli.js was invalid and removed`: it only normalizes `./dist/cli.js` to `dist/cli.js` and keeps the entry (@npmcli/package-json lib/normalize.js).
+   - Up to 1.3.4, npm printed `"bin[xlvane]" script name dist/cli.js was invalid and removed` here: it only normalized `./dist/cli.js` to `dist/cli.js` and kept the entry (@npmcli/package-json lib/normalize.js). From 1.3.5 the `bin` fields say `dist/cli.js`, so the warning no longer appears.
    - For a package that does not exist yet, npm publishes a public placeholder version `0.0.0-stage`; the staged 1.0.0 stays private until approved.
    - **Do not run `npm stage reject` on the first stage of a new package.** On 2026-10-31 rejecting both first stages removed the packages entirely (`npm view xlvane`: "Unpublished on 2026-10-31T19:35:12.446Z"), and npm's unpublish policy then blocks the name: "If you unpublish an entire package, you may not publish any new versions of that package until 24 hours have passed"; a `name@version` that was published once cannot be reused (npm/documentation `unpublishing-packages-from-the-registry.mdx`, read 2026-10-31).
 4. Check: `npm view xlvane version` and `npm view @xlvane/compat version` print `1.0.0` (the package was named `@xlvane/compat` until 1.3.2); `npm view xlvane dependencies` lists only `fflate`.

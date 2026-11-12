@@ -130,6 +130,27 @@ describe('package manifests', () => {
     }
   });
 
+  it('xlvane carries the Unicode License v3 notice for the East Asian Width table generated from the Unicode Character Database', async () => {
+    // Text of the LICENSE file of github.com/unicode-org/unicodetools (D-O03).
+    const license = await readFile(join(root, 'packages/xlvane', 'LICENSE'), 'utf8');
+    expect(license).toContain('UNICODE LICENSE V3');
+    expect(license).toContain('Copyright © 2001-2024 Unicode, Inc.');
+    expect(license).toContain('provided that either (a)\nthis copyright and permission notice appear with all copies of the Data\nFiles or Software, or (b) this copyright and permission notice appear in\nassociated Documentation.');
+    expect(license).toContain('SPDX-License-Identifier: Unicode-3.0');
+    expect(license).toContain('EastAsianWidth-17.0.0.txt');
+    for (const file of ['packages/xlvane/src/cli/east-asian-width.ts', 'scripts/gen-east-asian-width.mjs']) {
+      expect(await readFile(join(root, file), 'utf8'), file).toContain('packages/xlvane/LICENSE');
+    }
+  });
+
+  it.each(PACKAGE_DIRS)('%s names its bin targets as npm normalises them, without "./"', async (dir) => {
+    // @npmcli/package-json 7.0.5 lib/normalize.js rewrites "./dist/cli.js" to "dist/cli.js" and warns (F-NPM-09).
+    const manifest = JSON.parse(await readFile(join(root, dir, 'package.json'), 'utf8')) as { bin?: Record<string, string> };
+    for (const [name, target] of Object.entries(manifest.bin ?? {})) {
+      expect(target, name).toBe(target.replace(/^(\.\/)+/, ''));
+    }
+  });
+
   it('root devDependencies are all approved', async () => {
     const manifest = await readManifest('.');
     for (const dep of Object.keys(manifest.devDependencies ?? {})) {

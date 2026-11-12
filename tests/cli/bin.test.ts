@@ -31,7 +31,7 @@ describe('dist/cli.js', () => {
   it('starts with a shebang and prints the package version', async () => {
     expect((await readFile(bin, 'utf8')).startsWith('#!/usr/bin/env node\n')).toBe(true);
     const pkg = JSON.parse(await readFile(join(ROOT, 'packages/xlvane/package.json'), 'utf8')) as { version: string; bin: Record<string, string> };
-    expect(pkg.bin).toEqual({ xlvane: './dist/cli.js' });
+    expect(pkg.bin).toEqual({ xlvane: 'dist/cli.js' });
     expect(xlvane(['--version'], dir)).toMatchObject({ status: 0, stdout: `${pkg.version}\n` });
   });
 
